@@ -1,5 +1,4 @@
 # Decoding Us
-
 A secure platform for genetic genealogy and population research, built with Play Framework and Scala 3.
 
 ## Overview
@@ -21,6 +20,6 @@ Decoding Us is a next generation citizen science platform for population researc
 - Relational analysis capabilities
 - Research collaboration tools
 
-## License
+## [![License](https://img.shields.io/badge/License-BSD_3--Clause-blue.svg)](https://opensource.org/licenses/BSD-3-Clause)
 
-This project is licensed under the BSD 3-Clause License. See the LICENSE file for details.
+This project is licensed under the BSD 3-Clause License. See the [LICENSE](LICENSE) file for details.
