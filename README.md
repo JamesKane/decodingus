@@ -1,6 +1,8 @@
 # Decoding Us
 A secure platform for genetic genealogy and population research, built with Play Framework and Scala 3.
 
+NOTICE: This is just a place-holder code repository while working out architecture.
+
 ## Overview
 
 This platform provides a secure infrastructure for genetic genealogists and researchers to:
