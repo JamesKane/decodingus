@@ -11,7 +11,8 @@ import play.api.mvc.*
  * application's home page.
  */
 @Singleton
-class HomeController @Inject()(val controllerComponents: ControllerComponents)(using webJarsUtil: WebJarsUtil) extends BaseController {
+class HomeController @Inject()(val controllerComponents: ControllerComponents)
+                              (using webJarsUtil: WebJarsUtil) extends BaseController {
 
   /**
    * Create an Action to render an HTML page.

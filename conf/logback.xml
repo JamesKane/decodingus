@@ -1,35 +1,61 @@
 <?xml version="1.0" encoding="UTF-8" ?>
-
-<!-- https://www.playframework.com/documentation/latest/SettingsLogger -->
-
 <!DOCTYPE configuration>
 
 <configuration>
   <import class="ch.qos.logback.classic.encoder.PatternLayoutEncoder"/>
   <import class="ch.qos.logback.classic.AsyncAppender"/>
-  <import class="ch.qos.logback.core.FileAppender"/>
+  <import class="ch.qos.logback.core.rolling.RollingFileAppender"/>
+  <import class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy"/>
   <import class="ch.qos.logback.core.ConsoleAppender"/>
 
-  <appender name="FILE" class="FileAppender">
-    <file>${application.home:-.}/logs/application.log</file>
+  <!-- Set default log path -->
+  <property name="LOG_PATH" value="${application.home:-.}/logs"/>
+
+  <!-- Override LOG_PATH if in Production mode -->
+  <if condition='property("play.mode").equals("PROD")'>
+    <then>
+      <property name="LOG_PATH" value="/ebs/logs"/>
+    </then>
+  </if>
+
+
+  <appender name="FILE" class="RollingFileAppender">
+    <!-- Use the EBS mount point for log storage -->
+    <file>${LOG_PATH}/application.log</file>
+
+    <rollingPolicy class="TimeBasedRollingPolicy">
+      <!-- Daily rollover -->
+      <fileNamePattern>${LOG_PATH}/application.%d{yyyy-MM-dd}.log</fileNamePattern>
+
+      <!-- Keep 30 days worth of history -->
+      <maxHistory>30</maxHistory>
+
+      <!-- Total size cap for all log files -->
+      <totalSizeCap>3GB</totalSizeCap>
+    </rollingPolicy>
+
     <encoder class="PatternLayoutEncoder">
       <charset>UTF-8</charset>
       <pattern>%d{yyyy-MM-dd HH:mm:ss} %highlight(%-5level) %cyan(%logger{36}) %magenta(%X{pekkoSource}) %msg%n</pattern>
     </encoder>
   </appender>
 
-  <appender name="STDOUT" class="ConsoleAppender">
-    <!--
-         On Windows, enabling Jansi is recommended to benefit from color code interpretation on DOS command prompts,
-         which otherwise risk being sent ANSI escape sequences that they cannot interpret.
-         See https://logback.qos.ch/manual/layouts.html#coloring
-    -->
-    <!-- <withJansi>true</withJansi> -->
-    <encoder class="PatternLayoutEncoder">
-      <charset>UTF-8</charset>
-      <pattern>%d{yyyy-MM-dd HH:mm:ss} %highlight(%-5level) %cyan(%logger{36}) %magenta(%X{pekkoSource}) %msg%n</pattern>
-    </encoder>
-  </appender>
+  <!-- Console appender configuration -->
+  <if condition='!property("play.mode").equals("PROD")'>
+    <then>
+      <appender name="STDOUT" class="ConsoleAppender">
+        <encoder class="PatternLayoutEncoder">
+          <charset>UTF-8</charset>
+          <pattern>%d{yyyy-MM-dd HH:mm:ss} %highlight(%-5level) %cyan(%logger{36}) %magenta(%X{pekkoSource}) %msg%n</pattern>
+        </encoder>
+      </appender>
+
+      <appender name="ASYNCSTDOUT" class="AsyncAppender">
+        <appender-ref ref="STDOUT"/>
+      </appender>
+    </then>
+  </if>
+
 
   <appender name="ASYNCFILE" class="AsyncAppender">
     <appender-ref ref="FILE"/>
