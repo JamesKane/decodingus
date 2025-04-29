@@ -12,7 +12,8 @@ RUN apt-get update && \
     apt-get update && \
     apt-get install -y sbt && \
     rm sbt-1.9.9.deb && \
-    apt-get clean
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
 # Copy the project files
 COPY . /app
