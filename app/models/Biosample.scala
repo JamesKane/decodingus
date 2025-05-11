@@ -35,19 +35,6 @@ case class PgpBiosample(
 
 case class Coord(lat: Double, lon: Double)
 
-case class RunAccession(
-                         id: Option[Long],
-                         runAccession: String, // Must be unique
-                         sampleAccessionId: Long, // Foreign key
-                         libraryName: String,
-                         libraryLayout: String,
-                         libraryStrategy: String,
-                         librarySource: String,
-                         librarySelection: String,
-                         libraryConstructionMethod: String,
-                         libraryConstructionProtocol: String,
-                       )
-
 case class Haplogroup(
                        haplogroupId: Long,
                        name: String,
@@ -121,18 +108,30 @@ case class AncestryAnalysis(
                              probability: Double
                            )
 
+case class SequenceLibrary(
+                          id: Long,
+                          sampleGuid: UUID,
+                          lab: String,
+                          testType: String,
+                          runDate: LocalDateTime,
+                          instrument: String,
+                          reads: Int,
+                          readLength: Int,
+                          pairedEnd: Boolean,
+                          insertSize: Option[Int],
+                          created_at: LocalDateTime,
+                          updated_at: Option[LocalDateTime],
+                          )
+
 case class SequenceFile(
                          id: Long,
+                         libraryId: Long,
                          fileName: String,
                          fileSizeBytes: Long,
                          fileMd5: String,
                          fileFormat: String,
                          aligner: String,
                          targetReference: String,
-                         reads: Long,
-                         readLength: Int,
-                         pairedEnd: Boolean,
-                         insertSize: Option[Int],
                          created_at: LocalDateTime,
                          updated_at: Option[LocalDateTime],
                        )
@@ -183,3 +182,44 @@ case class QualityMetrics(
                            meanMq: Double,
                            sequenceFileId: Long,
                          )
+
+/**
+ * Workflow for Tree Refinement:
+ *
+ * 1) Citizen scientists run edge tools and optionally submit reports of negative variants and novel potential
+ * branch-defining variants.
+ * 2) The data is stored in reported_variant and reported_negative_variant.
+ * 3) Curators review these reports, potentially using tools to visualize the data and compare reports across multiple
+ *    individuals.
+ * 4) Based on the evidence, curators may decide to:
+ *    a) Confirm a novel variant: Update the variant table and potentially create a new haplogroup in y_haplogroup or
+ *       mt_haplogroup and link it via y_haplogroup_relationship/mt_haplogroup_relationship.
+ *    b) Refine branching: Adjust the parent_y_haplogroup_id/parent_mt_haplogroup_id in the haplogroup tables based on
+ *       consistent negative results.
+ *    c) Reject a reported variant: Mark its status in reported_variant as 'Rejected' with a reason.
+ */
+
+case class ReportedVariant(
+                            id: Long,
+                            sampleGuid: UUID,
+                            genbankContigId: Long,
+                            position: Int,
+                            referenceAllele: String,
+                            alternateAllele: String,
+                            variantType: String,
+                            reportedDate: LocalDateTime,
+                            provenance: String,
+                            confidenceScore: Double,
+                            notes: Option[String],
+                            status: String,
+                          )
+
+case class ReportedNegativeVariant(
+                                    id: Long,
+                                    sampleGuid: UUID,
+                                    variantId: Long,
+                                    reportedDate: LocalDateTime,
+                                    provenance: String,
+                                    notes: Option[String],
+                                    status: String,
+                                  )
