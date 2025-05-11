@@ -109,18 +109,18 @@ case class AncestryAnalysis(
                            )
 
 case class SequenceLibrary(
-                          id: Long,
-                          sampleGuid: UUID,
-                          lab: String,
-                          testType: String,
-                          runDate: LocalDateTime,
-                          instrument: String,
-                          reads: Int,
-                          readLength: Int,
-                          pairedEnd: Boolean,
-                          insertSize: Option[Int],
-                          created_at: LocalDateTime,
-                          updated_at: Option[LocalDateTime],
+                            id: Long,
+                            sampleGuid: UUID,
+                            lab: String,
+                            testType: String,
+                            runDate: LocalDateTime,
+                            instrument: String,
+                            reads: Int,
+                            readLength: Int,
+                            pairedEnd: Boolean,
+                            insertSize: Option[Int],
+                            created_at: LocalDateTime,
+                            updated_at: Option[LocalDateTime],
                           )
 
 case class SequenceFile(
@@ -190,13 +190,13 @@ case class QualityMetrics(
  * branch-defining variants.
  * 2) The data is stored in reported_variant and reported_negative_variant.
  * 3) Curators review these reports, potentially using tools to visualize the data and compare reports across multiple
- *    individuals.
+ * individuals.
  * 4) Based on the evidence, curators may decide to:
- *    a) Confirm a novel variant: Update the variant table and potentially create a new haplogroup in y_haplogroup or
- *       mt_haplogroup and link it via y_haplogroup_relationship/mt_haplogroup_relationship.
- *    b) Refine branching: Adjust the parent_y_haplogroup_id/parent_mt_haplogroup_id in the haplogroup tables based on
- *       consistent negative results.
- *    c) Reject a reported variant: Mark its status in reported_variant as 'Rejected' with a reason.
+ * a) Confirm a novel variant: Update the variant table and potentially create a new haplogroup in y_haplogroup or
+ * mt_haplogroup and link it via y_haplogroup_relationship/mt_haplogroup_relationship.
+ * b) Refine branching: Adjust the parent_y_haplogroup_id/parent_mt_haplogroup_id in the haplogroup tables based on
+ * consistent negative results.
+ * c) Reject a reported variant: Mark its status in reported_variant as 'Rejected' with a reason.
  */
 
 case class ReportedVariant(
@@ -225,5 +225,5 @@ case class ReportedNegativeVariant(
                                   )
 
 /**
- *  TODO: Consider if the eventual IBD autosomal matching should come back to the central repo?
-  */
+ * TODO: Consider if the eventual IBD autosomal matching should come back to the central repo?
+ */
