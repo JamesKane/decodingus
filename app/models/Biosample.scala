@@ -223,3 +223,7 @@ case class ReportedNegativeVariant(
                                     notes: Option[String],
                                     status: String,
                                   )
+
+/**
+ *  TODO: Consider if the eventual IBD autosomal matching should come back to the central repo?
+  */
