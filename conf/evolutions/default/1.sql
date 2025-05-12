@@ -1,4 +1,4 @@
-! --- !Ups
+# --- !Ups
 CREATE EXTENSION IF NOT EXISTS postgis;
 
 CREATE TABLE specimen_donor
