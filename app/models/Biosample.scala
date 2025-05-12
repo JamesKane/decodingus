@@ -153,18 +153,6 @@ case class SequenceAtpLocation(
                                 indexCID: Option[String],
                               )
 
-case class BiosampleSequenceFile(
-                                  id: Long,
-                                  biosampleId: Long,
-                                  sequenceFileId: Long,
-                                )
-
-case class CitizenBiosampleFile(
-                                 citizenBiosampleFileId: Long,
-                                 citizenBiosampleDid: String,
-                                 sequenceFileId: Long,
-                               )
-
 case class QualityMetrics(
                            id: Long,
                            contig: String,

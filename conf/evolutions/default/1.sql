@@ -77,6 +77,7 @@ CREATE TABLE genbank_contig
     accession         VARCHAR(255) NOT NULL,
     common_name       VARCHAR(255),
     reference_genome  VARCHAR(255),
+    seq_length        INT          NOT NULL,
     UNIQUE (accession)
 );
 
@@ -212,7 +213,37 @@ CREATE TABLE quality_metrics
     FOREIGN KEY (contig_id) REFERENCES genbank_contig (genbank_contig_id) ON DELETE CASCADE
 );
 
+CREATE TABLE reported_variant
+(
+    id               BIGSERIAL PRIMARY KEY,
+    sample_guid      UUID             NOT NULL,
+    contig_id        INT              NOT NULL,
+    position         INT              NOT NULL,
+    reference_allele VARCHAR(255)     NOT NULL,
+    alternate_allele VARCHAR(255)     NOT NULL,
+    variant_type     VARCHAR(5)       NOT NULL CHECK (variant_type IN ('SNP', 'INDEL')),
+    reported_date    TIMESTAMP        NOT NULL,
+    provenance       VARCHAR(255)     NOT NULL,
+    confidence_score DOUBLE PRECISION NOT NULL,
+    notes            TEXT,
+    status           VARCHAR(255)     NOT NULL,
+    FOREIGN KEY (contig_id) REFERENCES genbank_contig (genbank_contig_id) ON DELETE CASCADE
+);
+
+CREATE TABLE reported_negative_variant
+(
+    id            BIGSERIAL PRIMARY KEY,
+    sample_guid   UUID         NOT NULL,
+    variant_id    INT          NOT NULL,
+    reported_date TIMESTAMP,
+    notes         TEXT,
+    status        VARCHAR(255) NOT NULL,
+    FOREIGN KEY (variant_id) REFERENCES variant (variant_id) ON DELETE CASCADE
+);
+
 # --- !Downs
+DROP TABLE reported_negative_variant;
+DROP TABLE reported_variant;
 DROP TABLE quality_metrics;
 DROP TABLE sequence_atp_location;
 DROP TABLE sequence_http_location;
