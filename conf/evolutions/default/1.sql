@@ -87,7 +87,7 @@ CREATE TABLE variant
     position          INTEGER      NOT NULL,
     reference_allele  VARCHAR(255) NOT NULL,
     alternate_allele  VARCHAR(255) NOT NULL,
-    variant_type      VARCHAR(255) NOT NULL CHECK (variant_type IN ('SNP', 'INDEL')),
+    variant_type      VARCHAR(5)   NOT NULL CHECK (variant_type IN ('SNP', 'INDEL')),
     rs_id             VARCHAR(255),
     common_name       VARCHAR(255),
     FOREIGN KEY (genbank_contig_id) REFERENCES genbank_contig (genbank_contig_id) ON DELETE CASCADE,
@@ -97,8 +97,8 @@ CREATE TABLE variant
 CREATE TABLE haplogroup_variant
 (
     haplogroup_variant_id SERIAL PRIMARY KEY,
-    haplogroup_id         BIGINT NOT NULL,
-    variant_id            BIGINT NOT NULL,
+    haplogroup_id         INT NOT NULL,
+    variant_id            INT NOT NULL,
     FOREIGN KEY (haplogroup_id) REFERENCES haplogroup (haplogroup_id) ON DELETE CASCADE,
     FOREIGN KEY (variant_id) REFERENCES variant (variant_id) ON DELETE CASCADE,
     UNIQUE (haplogroup_id, variant_id)
@@ -107,8 +107,8 @@ CREATE TABLE haplogroup_variant
 CREATE TABLE biosample_haplogroup
 (
     sample_guid      UUID NOT NULL,
-    y_haplogroup_id  BIGINT,
-    mt_haplogroup_id BIGINT,
+    y_haplogroup_id  INT,
+    mt_haplogroup_id INT,
     FOREIGN KEY (y_haplogroup_id) REFERENCES haplogroup (haplogroup_id) ON DELETE CASCADE,
     FOREIGN KEY (mt_haplogroup_id) REFERENCES haplogroup (haplogroup_id) ON DELETE CASCADE,
     PRIMARY KEY (sample_guid)
@@ -130,9 +130,9 @@ CREATE TABLE population
 CREATE TABLE ancestry_analysis
 (
     ancestry_analysis_id SERIAL PRIMARY KEY,
-    sample_guid          UUID   NOT NULL,
-    analysis_method_id   BIGINT NOT NULL,
-    population_id        BIGINT NOT NULL,
+    sample_guid          UUID NOT NULL,
+    analysis_method_id   INT  NOT NULL,
+    population_id        INT  NOT NULL,
     probability          DECIMAL(5, 4),
     FOREIGN KEY (analysis_method_id) REFERENCES analysis_method (analysis_method_id) ON DELETE CASCADE,
     FOREIGN KEY (population_id) REFERENCES population (population_id) ON DELETE CASCADE,
@@ -158,7 +158,7 @@ CREATE TABLE sequence_library
 CREATE TABLE sequence_file
 (
     id               SERIAL PRIMARY KEY,
-    library_id       BIGINT       NOT NULL,
+    library_id       INT          NOT NULL,
     file_name        VARCHAR(255) NOT NULL,
     file_size_bytes  BIGINT       NOT NULL,
     file_md5         VARCHAR(255) NOT NULL,
@@ -173,8 +173,8 @@ CREATE TABLE sequence_file
 CREATE TABLE sequence_http_location
 (
     id               SERIAL PRIMARY KEY,
-    sequence_file_id BIGINT NOT NULL,
-    file_url         TEXT   NOT NULL,
+    sequence_file_id INT  NOT NULL,
+    file_url         TEXT NOT NULL,
     file_index_url   TEXT,
     FOREIGN KEY (sequence_file_id) REFERENCES sequence_file (id) ON DELETE CASCADE
 );
@@ -182,7 +182,7 @@ CREATE TABLE sequence_http_location
 CREATE TABLE sequence_atp_location
 (
     id               SERIAL PRIMARY KEY,
-    sequence_file_id BIGINT       NOT NULL,
+    sequence_file_id INT          NOT NULL,
     repo_did         VARCHAR(255) NOT NULL,
     record_cid       VARCHAR(255) NOT NULL,
     record_path      TEXT         NOT NULL,
@@ -191,30 +191,10 @@ CREATE TABLE sequence_atp_location
     FOREIGN KEY (sequence_file_id) REFERENCES sequence_file (id) ON DELETE CASCADE
 );
 
-CREATE TABLE biosample_sequence_file
-(
-    id               SERIAL PRIMARY KEY,
-    biosample_id     BIGINT NOT NULL,
-    sequence_file_id BIGINT NOT NULL,
-    FOREIGN KEY (biosample_id) REFERENCES biosample (id) ON DELETE CASCADE,
-    FOREIGN KEY (sequence_file_id) REFERENCES sequence_file (id) ON DELETE CASCADE,
-    UNIQUE (biosample_id, sequence_file_id)
-);
-
-CREATE TABLE citizen_biosample_file
-(
-    citizen_biosample_file_id SERIAL PRIMARY KEY,
-    citizen_biosample_id      INT    NOT NULL,
-    sequence_file_id          BIGINT NOT NULL,
-    FOREIGN KEY (citizen_biosample_id) REFERENCES citizen_biosample (id) ON DELETE CASCADE,
-    FOREIGN KEY (sequence_file_id) REFERENCES sequence_file (id) ON DELETE CASCADE,
-    UNIQUE (citizen_biosample_id, sequence_file_id)
-);
-
 CREATE TABLE quality_metrics
 (
     id               SERIAL PRIMARY KEY,
-    contig           VARCHAR(255)     NOT NULL,
+    contig_id        INT              NOT NULL,
     start_pos        INT              NOT NULL,
     end_pos          INT              NOT NULL,
     num_reads        INT              NOT NULL,
@@ -228,13 +208,12 @@ CREATE TABLE quality_metrics
     mean_depth       DOUBLE PRECISION NOT NULL,
     mean_mq          DOUBLE PRECISION NOT NULL,
     sequence_file_id BIGINT           NOT NULL,
-    FOREIGN KEY (sequence_file_id) REFERENCES sequence_file (id) ON DELETE CASCADE
+    FOREIGN KEY (sequence_file_id) REFERENCES sequence_file (id) ON DELETE CASCADE,
+    FOREIGN KEY (contig_id) REFERENCES genbank_contig (genbank_contig_id) ON DELETE CASCADE
 );
 
 # --- !Downs
 DROP TABLE quality_metrics;
-DROP TABLE citizen_biosample_file;
-DROP TABLE biosample_sequence_file;
 DROP TABLE sequence_atp_location;
 DROP TABLE sequence_http_location;
 DROP TABLE sequence_file;
