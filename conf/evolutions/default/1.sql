@@ -15,7 +15,7 @@ CREATE TABLE biosample
     description       TEXT                NOT NULL,
     alias             VARCHAR(255),
     center_name       VARCHAR(255)        NOT NULL,
-    sex               VARCHAR(255),
+    sex               VARCHAR(15) CHECK (sex IN ('male', 'female', 'intersex')),
     geocoord          GEOMETRY(Point, 4326),
     specimen_donor_id INT REFERENCES specimen_donor (id) ON DELETE CASCADE,
     sample_guid       UUID                NOT NULL
@@ -23,9 +23,11 @@ CREATE TABLE biosample
 
 CREATE TABLE citizen_biosample
 (
-    citizen_biosample_did VARCHAR(255) PRIMARY KEY,
+    id                    SERIAL PRIMARY KEY,
+    citizen_biosample_did VARCHAR(255) UNIQUE,
     source_platform       VARCHAR(255),
     collection_date       DATE,
+    sex                   VARCHAR(15) CHECK (sex IN ('male', 'female', 'intersex')),
     geocoord              GEOMETRY(Point, 4326),
     description           TEXT,
     sample_guid           UUID NOT NULL
@@ -36,6 +38,7 @@ CREATE TABLE pgp_biosample
     pgp_biosample_id        SERIAL PRIMARY KEY,
     pgp_participant_id      VARCHAR(255) NOT NULL,
     ena_biosample_accession VARCHAR(255) UNIQUE,
+    sex                     VARCHAR(15) CHECK (sex IN ('male', 'female', 'intersex')),
     sample_guid             UUID         NOT NULL
 );
 
@@ -201,11 +204,11 @@ CREATE TABLE biosample_sequence_file
 CREATE TABLE citizen_biosample_file
 (
     citizen_biosample_file_id SERIAL PRIMARY KEY,
-    citizen_biosample_did     VARCHAR(255) NOT NULL,
-    sequence_file_id          BIGINT       NOT NULL,
-    FOREIGN KEY (citizen_biosample_did) REFERENCES citizen_biosample (citizen_biosample_did) ON DELETE CASCADE,
+    citizen_biosample_id      INT    NOT NULL,
+    sequence_file_id          BIGINT NOT NULL,
+    FOREIGN KEY (citizen_biosample_id) REFERENCES citizen_biosample (id) ON DELETE CASCADE,
     FOREIGN KEY (sequence_file_id) REFERENCES sequence_file (id) ON DELETE CASCADE,
-    UNIQUE (citizen_biosample_did, sequence_file_id)
+    UNIQUE (citizen_biosample_id, sequence_file_id)
 );
 
 CREATE TABLE quality_metrics
@@ -247,5 +250,5 @@ DROP TABLE haplogroup_relationship;
 DROP TABLE haplogroup;
 DROP TABLE pgp_biosample;
 DROP TABLE citizen_biosample;
-DROP TABLE specimen_donor;
 DROP TABLE biosample;
+DROP TABLE specimen_donor;
