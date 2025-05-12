@@ -241,7 +241,42 @@ CREATE TABLE reported_negative_variant
     FOREIGN KEY (variant_id) REFERENCES variant (variant_id) ON DELETE CASCADE
 );
 
+CREATE TABLE publication
+(
+    id                  SERIAL PRIMARY KEY,
+    pubmed_id           VARCHAR(20) UNIQUE,
+    doi                 VARCHAR(255) UNIQUE,
+    title               TEXT NOT NULL,
+    journal             VARCHAR(255),
+    publication_date    DATE,
+    url                 VARCHAR(2048)
+);
+
+CREATE TABLE ena_study (
+                           id SERIAL PRIMARY KEY,
+                           accession VARCHAR(50) UNIQUE NOT NULL
+);
+
+CREATE TABLE publication_ena_study (
+                                       publication_id INT,
+                                       ena_study_id INT,
+                                       FOREIGN KEY (publication_id) REFERENCES publication(id),
+                                       FOREIGN KEY (ena_study_id) REFERENCES ena_study(id),
+                                       PRIMARY KEY (publication_id, ena_study_id)
+);
+
+CREATE TABLE publication_biosample
+(
+    publication_id INT REFERENCES publication (id) ON DELETE CASCADE,
+    biosample_id   INT REFERENCES biosample (id) ON DELETE CASCADE,
+    PRIMARY KEY (publication_id, biosample_id)
+);
+
 # --- !Downs
+DROP TABLE publication_biosample;
+DROP TABLE publication_ena_study;
+DROP TABLE ena_study;
+DROP TABLE publication;
 DROP TABLE reported_negative_variant;
 DROP TABLE reported_variant;
 DROP TABLE quality_metrics;
