@@ -5,6 +5,9 @@
 
 # An example controller showing a sample home page
 GET        /                    controllers.HomeController.index()
+GET        /cookie-usage        controllers.HomeController.cookieUsage()
+GET        /terms               controllers.HomeController.terms()
+GET        /privacy             controllers.HomeController.privacy()
 
 # Map static resources from the /public folder to the /assets URL path
 GET        /assets/*file        controllers.Assets.versioned(path="/public", file: Asset)
