@@ -243,26 +243,32 @@ CREATE TABLE reported_negative_variant
 
 CREATE TABLE publication
 (
-    id                  SERIAL PRIMARY KEY,
-    pubmed_id           VARCHAR(20) UNIQUE,
-    doi                 VARCHAR(255) UNIQUE,
-    title               TEXT NOT NULL,
-    journal             VARCHAR(255),
-    publication_date    DATE,
-    url                 VARCHAR(2048)
+    id               SERIAL PRIMARY KEY,
+    pubmed_id        VARCHAR(20) UNIQUE,
+    doi              VARCHAR(255) UNIQUE,
+    title            TEXT NOT NULL,
+    journal          VARCHAR(255),
+    publication_date DATE,
+    url              VARCHAR(2048)
 );
 
-CREATE TABLE ena_study (
-                           id SERIAL PRIMARY KEY,
-                           accession VARCHAR(50) UNIQUE NOT NULL
+CREATE TABLE ena_study
+(
+    id          SERIAL PRIMARY KEY,
+    accession   VARCHAR(50) UNIQUE NOT NULL,
+    title       VARCHAR(255)       NOT NULL,
+    center_name VARCHAR(255)       NOT NULL,
+    study_name  VARCHAR(255)       NOT NULL,
+    details     TEXT
 );
 
-CREATE TABLE publication_ena_study (
-                                       publication_id INT,
-                                       ena_study_id INT,
-                                       FOREIGN KEY (publication_id) REFERENCES publication(id),
-                                       FOREIGN KEY (ena_study_id) REFERENCES ena_study(id),
-                                       PRIMARY KEY (publication_id, ena_study_id)
+CREATE TABLE publication_ena_study
+(
+    publication_id INT,
+    ena_study_id   INT,
+    FOREIGN KEY (publication_id) REFERENCES publication (id),
+    FOREIGN KEY (ena_study_id) REFERENCES ena_study (id),
+    PRIMARY KEY (publication_id, ena_study_id)
 );
 
 CREATE TABLE publication_biosample
