@@ -36,4 +36,16 @@ class HomeController @Inject()(val controllerComponents: ControllerComponents)
   def terms(): Action[AnyContent] = Action { implicit request: Request[AnyContent] =>
     Ok(views.html.terms())
   }
+
+  def ytree(): Action[AnyContent] = Action { implicit request: Request[AnyContent] =>
+    Ok(views.html.ytree())
+  }
+
+  def mtree(): Action[AnyContent] = Action { implicit request: Request[AnyContent] =>
+    Ok(views.html.mtree())
+  }
+
+  def references(): Action[AnyContent] = Action { implicit request: Request[AnyContent] =>
+    Ok(views.html.references())
+  }
 }
