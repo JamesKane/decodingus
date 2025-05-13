@@ -13,6 +13,7 @@
         @webJarsUtil.locate("popper.js/2.11.7/umd/popper.js").script()
         @webJarsUtil.locate("bootstrap.min.js").script()
         @webJarsUtil.locate("htmx.js").script()
+        <link rel="stylesheet" href="@routes.Assets.versioned("stylesheets/main.css")">
     </head>
     <body>
         @_navbar()
