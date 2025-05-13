@@ -4,15 +4,18 @@
 # ~~~~
 
 # An example controller showing a sample home page
-GET        /                    controllers.HomeController.index()
-GET        /cookie-usage        controllers.HomeController.cookieUsage()
-GET        /terms               controllers.HomeController.terms()
-GET        /privacy             controllers.HomeController.privacy()
+GET        /                           controllers.HomeController.index()
+GET        /cookie-usage               controllers.HomeController.cookieUsage()
+GET        /terms                      controllers.HomeController.terms()
+GET        /privacy                    controllers.HomeController.privacy()
 
-GET        /ytree               controllers.HomeController.ytree()
-GET        /mtree               controllers.HomeController.mtree()
-GET        /references          controllers.HomeController.references()
+GET        /ytree                      controllers.TreeController.ytree()
+GET        /mtree                      controllers.TreeController.mtree()
+
+GET        /references                 controllers.ReferencesController.index()
+
+GET        /coverage-benchmarks        controllers.CoverageController.index()
 
 # Map static resources from the /public folder to the /assets URL path
-GET        /assets/*file        controllers.Assets.versioned(path="/public", file: Asset)
-->         /webjars             webjars.Routes
+GET        /assets/*file               controllers.Assets.versioned(path="/public", file: Asset)
+->         /webjars                    webjars.Routes

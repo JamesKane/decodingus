@@ -8,13 +8,21 @@
         <div class="collapse navbar-collapse" id="navbarNavDropdown">
             <ul class="navbar-nav m-auto">
                 <li class="nav-item">
-                    <a class="nav-link" href="@controllers.routes.HomeController.ytree()">Y-DNA Tree</a>
+                    <a class="nav-link" href="@controllers.routes.TreeController.ytree()">Y-DNA Tree</a>
                 </li>
                 <li class="nav-item">
-                    <a class="nav-link" href="@controllers.routes.HomeController.mtree()">MT-DNA Tree</a>
+                    <a class="nav-link" href="@controllers.routes.TreeController.mtree()">MT-DNA Tree</a>
                 </li>
                 <li class="nav-item">
-                    <a class="nav-link" href="@controllers.routes.HomeController.references()">References</a>
+                    <a class="nav-link" href="@controllers.routes.ReferencesController.index()">References</a>
+                </li>
+                <li class="nav-item dropdown">
+                    <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                        Research Tools
+                    </a>
+                    <ul class="dropdown-menu">
+                        <li><a class="dropdown-item" href="@controllers.routes.CoverageController.index()">Coverage Benchmarks</a></li>
+                    </ul>
                 </li>
             </ul>
         </div>
