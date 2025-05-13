@@ -14,6 +14,8 @@ libraryDependencies ++= Seq(
   "org.postgresql" % "postgresql" % "42.7.5",
   "org.webjars" %% "webjars-play" % "3.0.2",
   "org.webjars" % "bootstrap" % "5.3.5",
+  "org.webjars" % "popper.js" % "2.11.7",
+  "org.webjars.npm" % "htmx.org" % "2.0.4",
   "org.scalatestplus.play" %% "scalatestplus-play" % "7.0.1" % Test,
   "org.codehaus.janino" % "janino" % "3.1.12"
 )
