@@ -2,6 +2,7 @@ package controllers
 
 import jakarta.inject.Singleton
 import org.webjars.play.WebJarsUtil
+import play.api.libs.json.Json
 import play.api.mvc.{Action, AnyContent, BaseController, ControllerComponents, Request}
 
 import javax.inject.Inject
@@ -14,4 +15,7 @@ class CoverageController @Inject()(val controllerComponents: ControllerComponent
     Ok(views.html.coverage())
   }
 
+  def apiBenchmarks(): Action[AnyContent] = Action { implicit request: Request[AnyContent] =>
+    Ok(Json.toJson(Map("status" -> "ok")))
+  }
 }

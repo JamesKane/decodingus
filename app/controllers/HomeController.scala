@@ -36,4 +36,9 @@ class HomeController @Inject()(val controllerComponents: ControllerComponents)
   def terms(): Action[AnyContent] = Action { implicit request: Request[AnyContent] =>
     Ok(views.html.terms())
   }
+
+  def publicApi(): Action[AnyContent] = Action { implicit request: Request[AnyContent] =>
+    Ok(views.html.publicApi())
+  }
+
 }
