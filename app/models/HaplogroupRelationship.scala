@@ -3,7 +3,7 @@ package models
 import java.time.LocalDateTime
 
 case class HaplogroupRelationship(
-                                   haplogroupRelationshipId: Option[Int] = None,
+                                   id: Option[Int] = None,
                                    childHaplogroupId: Int,
                                    parentHaplogroupId: Int,
                                    revisionId: Int,
