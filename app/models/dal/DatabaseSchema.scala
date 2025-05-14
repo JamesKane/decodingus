@@ -5,13 +5,14 @@ import models.dal.MyPostgresProfile.api._
 object DatabaseSchema {
   val analysisMethods = TableQuery[AnalysisMethodTable]
   val ancestryAnalyses = TableQuery[AncestryAnalysisTable]
-  val specimenDonors = TableQuery[SpecimenDonorsTable]
   val biosamples = TableQuery[BiosamplesTable]
+  val biosampleHaplogroups = TableQuery[BiosampleHaplogroupsTable]
   val citizenBiosamples = TableQuery[CitizenBiosamplesTable]
+  val enaStudies = TableQuery[EnaStudiesTable]
+  val genbankContigs = TableQuery[GenbankContigsTable]
   val haplogroups = TableQuery[HaplogroupsTable]
   val haplogroupRelationships = TableQuery[HaplogroupRelationshipsTable]
-  val genbankContigs = TableQuery[GenbankContigsTable]
-  val variants = TableQuery[VariantsTable]
   val haplogroupVariants = TableQuery[HaplogroupVariantsTable]
-  val biosampleHaplogroups = TableQuery[BiosampleHaplogroupsTable]
+  val specimenDonors = TableQuery[SpecimenDonorsTable]
+  val variants = TableQuery[VariantsTable]
 }
