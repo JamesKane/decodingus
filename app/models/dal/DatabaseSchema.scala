@@ -20,6 +20,7 @@ object DatabaseSchema {
   val publicationEnaStudies = TableQuery[PublicationEnaStudiesTable]
   val qualityMetrics = TableQuery[QualityMetricsTable]
   val reportedNegativeVariants = TableQuery[ReportedNegativeVariantsTable]
+  val reportedVariants = TableQuery[ReportedVariantsTable]
   val specimenDonors = TableQuery[SpecimenDonorsTable]
   val variants = TableQuery[VariantsTable]
 }
