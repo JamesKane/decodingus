@@ -4,6 +4,7 @@ import models.dal.MyPostgresProfile.api._ // Adjust the import path if needed
 
 object DatabaseSchema {
   val analysisMethods = TableQuery[AnalysisMethodTable]
+  val ancestryAnalyses = TableQuery[AncestryAnalysisTable]
   val specimenDonors = TableQuery[SpecimenDonorsTable]
   val biosamples = TableQuery[BiosamplesTable]
   val haplogroups = TableQuery[HaplogroupsTable]
