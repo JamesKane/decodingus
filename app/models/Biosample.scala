@@ -1,29 +1,29 @@
 package models
 
+import com.vividsolutions.jts.geom.Point
+
 import java.time.{LocalDate, LocalDateTime}
 import java.util.UUID
 
 case class Biosample(
-                      id: Option[Long],
-                      sampleAccession: String, // Must be unique
+                      id: Option[Int] = None,
+                      sampleAccession: String,
                       description: String,
                       alias: Option[String],
                       centerName: String,
                       sex: Option[String],
-                      coord: Option[Coord],
-                      specimanDonorId: Option[Long],
-                      sampleGuid: UUID, // U
+                      geocoord: Option[Point],
+                      specimenDonorId: Option[Int],
+                      sampleGuid: UUID
                     )
-
-case class SpecimanDonor(id: Option[Long], donorIdentifier: String, originBiobank: String)
 
 case class CitizenBiosample(
                              citizenBiosampleDid: String,
                              sourcePlatform: Option[String],
                              collectionDate: Option[LocalDate],
-                             coord: Option[Coord],
+                             coord: Option[Point],
                              description: Option[String],
-                             sampleGuid: UUID // Added GUID
+                             sampleGuid: UUID
                            )
 
 case class PgpBiosample(
@@ -33,61 +33,6 @@ case class PgpBiosample(
                          sampleGuid: UUID
                        )
 
-case class Coord(lat: Double, lon: Double)
-
-case class Haplogroup(
-                       haplogroupId: Long,
-                       name: String,
-                       lineage: Option[String],
-                       description: Option[String],
-                       haplogroupType: String,
-                       revisionId: Int,
-                       source: String,
-                       confidenceLevel: String,
-                       validFrom: LocalDateTime,
-                       validUntil: Option[LocalDateTime]
-                     )
-
-case class HaplogroupRelationship(
-                                   haplogroupRelationshipId: Long,
-                                   childHaplogroupId: Long,
-                                   parentHaplogroupId: Long,
-                                   revision_id: Int,
-                                   validFrom: LocalDateTime,
-                                   validUntil: Option[LocalDateTime],
-                                   source: String,
-                                 )
-
-case class GenbankContig(
-                          genbankContigId: Long,
-                          accession: String,
-                          commonName: Option[String],
-                          referenceGenome: Option[String]
-                          // other metadata
-                        )
-
-case class Variant(
-                    variantId: Long,
-                    genbankContigId: Long,
-                    position: Int,
-                    referenceAllele: String,
-                    alternateAllele: String,
-                    variantType: String,
-                    rsid: Option[String],
-                    commonName: Option[String]
-                  )
-
-case class HaplogroupDefiningVariant(
-                                      haplogroupDefiningVariantId: Long,
-                                      haplogroupId: Long,
-                                      variantId: Long
-                                    )
-
-case class BiosampleHaplogroup(
-                                biosampleId: Long,
-                                yHaplogroupId: Option[Long],
-                                mtHaplogroupId: Option[Long]
-                              )
 
 case class AnalysisMethod(
                            analysisMethodId: Long,

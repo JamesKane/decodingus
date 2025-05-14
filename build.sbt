@@ -6,12 +6,16 @@ lazy val root = (project in file(".")).enablePlugins(PlayScala)
 
 scalaVersion := "3.3.5"
 
-val slickVersion = "6.2.0"
+val SLICK_VERSION = "6.2.0"
+val SLICK_PG_VERSION = "0.23.0"
 libraryDependencies ++= Seq(
   guice,
-  "org.playframework" %% "play-slick" % slickVersion,
-  "org.playframework" %% "play-slick-evolutions" % slickVersion,
+  "org.playframework" %% "play-slick" % SLICK_VERSION,
+  "org.playframework" %% "play-slick-evolutions" % SLICK_VERSION,
   "org.postgresql" % "postgresql" % "42.7.5",
+  "com.github.tminglei" %% "slick-pg" % SLICK_PG_VERSION,
+  "com.github.tminglei" %% "slick-pg_jts" % SLICK_PG_VERSION,
+  "com.github.tminglei" %% "slick-pg_play-json" % SLICK_PG_VERSION,
   "org.webjars" %% "webjars-play" % "3.0.2",
   "org.webjars" % "bootstrap" % "5.3.5",
   "org.webjars" % "popper.js" % "2.11.7",
