@@ -4,10 +4,10 @@ import java.time.LocalDate
 
 case class Publication(
                         id: Option[Int] = None,
-                        pubmedId: String,
-                        doi: String,
+                        pubmedId: Option[String],
+                        doi: Option[String],
                         title: String,
-                        journal: String,
-                        publicationDate: LocalDate,
-                        url: String
+                        journal: Option[String],
+                        publicationDate: Option[LocalDate],
+                        url: Option[String]
                       )
