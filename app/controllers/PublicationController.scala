@@ -17,13 +17,13 @@ class PublicationController @Inject()(val controllerComponents: ControllerCompon
   }
 
 
-  def getAllPublicationsWithDetailsJson(): Action[play.api.mvc.AnyContent] = Action.async {
+  def getAllPublicationsWithDetailsJson: Action[play.api.mvc.AnyContent] = Action.async {
     publicationService.getAllPublicationsWithDetails().map { publicationsWithDetails =>
       Ok(Json.toJson(publicationsWithDetails))
     }
   }
 
-  def getAllPublicationsWithDetailsHtml(): Action[play.api.mvc.AnyContent] = Action.async {
+  def getAllPublicationsWithDetailsHtml: Action[play.api.mvc.AnyContent] = Action.async {
     publicationService.getAllPublicationsWithDetails().map { publicationsWithDetails =>
       Ok(views.html.publicationList(publicationsWithDetails))
     }

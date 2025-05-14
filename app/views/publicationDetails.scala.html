@@ -3,9 +3,6 @@
 <article class="publication-details">
     <header>
         <h2>@publicationWithDetails.publication.title</h2>
-        @publicationWithDetails.publication.doi.map { doi =>
-        <p><small>DOI: <a href="https://doi.org/@doi" target="_blank" rel="noopener noreferrer">@doi</a></small></p>
-        }.getOrElse(<p><small>DOI: N/A</small></p>)
         @publicationWithDetails.publication.authors.map { authors =>
         <p><strong>Authors:</strong>
             @authors</p>
@@ -32,9 +29,22 @@
         </section>
     }
 
-    @if(publicationWithDetails.sampleCount > 0) {
+    @if(publicationWithDetails.sampleCount >= 0) {
         <aside>
             <p><strong>Sample Count:</strong> <span class="sample-count">@publicationWithDetails.sampleCount</span></p>
+            <div id="biosample-report-container">
+                <button hx-get="@routes.BiosampleReportController.getBiosampleReportHTML(publicationWithDetails.publication.id.getOrElse(0))"
+                hx-target="#biosample-report-container"
+                hx-trigger="click"
+                class="load-biosamples">
+                    Load Biosample Details
+                </button>
+            </div>
         </aside>
+    }
+    @publicationWithDetails.publication.doi.map { doi =>
+        <footer>
+            <p><small>DOI: <a href="https://doi.org/@doi" target="_blank" rel="noopener noreferrer">@doi</a></small></p>
+        </footer>
     }
 </article>

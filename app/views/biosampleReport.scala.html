@@ -1,0 +1,21 @@
+@(biosamples: Seq[(String, String)])
+
+<section class="biosample-report">
+    <h3>Biosample Details</h3>
+    <table>
+        <thead>
+            <tr>
+                <th>ENA Accession</th>
+                <th>Haplogroup</th>
+            </tr>
+        </thead>
+        <tbody>
+            @for((enaAccession, haplogroup) <- biosamples) {
+                <tr>
+                    <td>@enaAccession</td>
+                    <td>@haplogroup</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+</section>
