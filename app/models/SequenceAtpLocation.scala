@@ -2,7 +2,7 @@ package models
 
 case class SequenceAtpLocation(
                                 id: Option[Int],
-                                sequenceFileId: Long,
+                                sequenceFileId: Int,
                                 repoDID: String,
                                 recordCID: String,
                                 recordPath: String,
