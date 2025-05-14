@@ -6,7 +6,7 @@ import java.time.LocalDate
 import java.util.UUID
 
 case class CitizenBiosample(
-                             id: Option[Int],
+                             id: Option[Int], 
                              citizenBiosampleDid: String,
                              sourcePlatform: Option[String],
                              collectionDate: Option[LocalDate],
