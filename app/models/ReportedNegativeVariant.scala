@@ -6,9 +6,8 @@ import java.util.UUID
 case class ReportedNegativeVariant(
                                     id: Option[Long],
                                     sampleGuid: UUID,
-                                    variantId: Long,
+                                    variantId: Int,
                                     reportedDate: LocalDateTime,
-                                    provenance: String,
                                     notes: Option[String],
                                     status: String,
                                   )
