@@ -71,17 +71,50 @@
                     const collapseElement = event.target;
 
                     if (loadButton) {
+                        loadButton.textContent = 'Show Samples'; // Ensure it says "Show" initially or after hiding
                         loadButton.style.display = 'none';
                     }
                     if (hideButton) {
+                        hideButton.textContent = 'Hide Samples'; // Set the correct label after loading
                         hideButton.style.display = 'inline-block';
                     }
 
-                    // Initialize Bootstrap Collapse (we might not need to re-initialize on every swap)
+                    // Initialize Bootstrap Collapse and show it
                     const bsCollapse = new bootstrap.Collapse(collapseElement, {
-                        toggle: true // Ensure it's shown after loading
+                        toggle: true
                     });
                 }
             });
+
+            document.addEventListener('click', function(event) {
+                if (event.target.classList.contains('collapse-button') && !document.getElementById('biosample-collapse').classList.contains('show')) {
+                    const container = event.target.parentNode;
+                    const loadButton = container.querySelector('.load-biosamples');
+                    const hideButton = event.target;
+                    if (loadButton) {
+                        loadButton.style.display = 'inline-block';
+                    }
+                    if (hideButton) {
+                        hideButton.style.display = 'none';
+                        hideButton.textContent = 'Hide Samples'; // Reset the text if needed
+                    }
+                } else if (event.target.classList.contains('load-biosamples') && document.getElementById('biosample-collapse').classList.contains('show')) {
+                    const container = event.target.parentNode;
+                    const loadButton = event.target;
+                    const hideButton = container.querySelector('.collapse-button');
+                    if (loadButton) {
+                        loadButton.style.display = 'inline-block'; // Show again if samples are hidden
+                        loadButton.textContent = 'Show Samples';
+                    }
+                    if (hideButton) {
+                        hideButton.style.display = 'none';
+                    }
+                    const bsCollapse = bootstrap.Collapse.getInstance(document.getElementById('biosample-collapse'));
+                    if (bsCollapse) {
+                        bsCollapse.hide();
+                    }
+                }
+            });
+
     </script>
 </article>
