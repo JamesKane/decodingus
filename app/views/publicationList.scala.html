@@ -1,0 +1,9 @@
+@(publicationsWithDetails: Seq[models.api.PublicationWithEnaStudiesAndSampleCount])
+
+<h1>References</h1>
+<div id="publications-list">
+    @for(details <- publicationsWithDetails) {
+        @publicationDetails(details)
+        <hr/>
+    }
+</div>

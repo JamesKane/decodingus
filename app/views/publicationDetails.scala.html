@@ -1,0 +1,19 @@
+@(publicationWithDetails: models.api.PublicationWithEnaStudiesAndSampleCount)
+
+<div class="publication-details">
+    <h3>@publicationWithDetails.publication.title</h3>
+    <p>DOI: @publicationWithDetails.publication.doi.getOrElse("N/A")</p>
+
+    <h4>ENA Studies:</h4>
+    @if(publicationWithDetails.enaStudies.nonEmpty) {
+        <ul>
+        @for(study <- publicationWithDetails.enaStudies) {
+            <li>@study.accession - @study.title</li>
+        }
+        </ul>
+    } else {
+        <p>No ENA studies associated with this publication.</p>
+    }
+
+    <p><strong>Sample Count:</strong> @publicationWithDetails.sampleCount</p>
+</div>
