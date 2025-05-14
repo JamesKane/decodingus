@@ -19,7 +19,7 @@ class BiosampleReportController @Inject()(cc: ControllerComponents, service: Bio
 
   def getBiosampleReportJSON(publicationId: Int): Action[AnyContent] = Action.async { implicit request =>
     service.getBiosampleData(publicationId).map { biosamples =>
-      val jsonResponse = Json.toJson(biosamples.map(bs => Json.obj("enaAccession" -> bs.enaAccession, "haplogroup" -> bs.yDnaHaplogroup)))
+      val jsonResponse = Json.toJson(biosamples)
       Ok(jsonResponse).as(play.api.http.MimeTypes.JSON)
     }
   }

@@ -38,5 +38,39 @@
                 </article>
             </section>
         </div>
+        <div class="container">
+            <h3>GET /api/v1/references/details/{publicationId}/biosamples</h3>
+            <p class="lead">Retrieve list of biosamples used in the publication</p>
+            <p>Returns a list of biosamples with haplogroup and location data, if available.</p>
+            <section>
+                <h4>Responses</h4>
+                <article>
+                    <h5><code>200</code> <span class="badge bg-success">Successful response</span></h5>
+                    <p><strong>Content Type:</strong> <code>application/json</code></p>
+                    <pre>
+                        <code class="language-json">
+[
+    {
+        "yDnaHaplogroup": "H1",
+        "geoCoord": {
+            "lat": 45,
+            "lon": 90
+        },
+        "sampleName": "foo",
+        "mtDnaHaplogroup": "tbd",
+        "enaAccession": "ERS123456"
+    },
+    {
+        "sampleName": "bar",
+        "enaAccession": "ERS789012",
+        "yDnaHaplogroup": "R2",
+        "mtDnaHaplogroup": "tbd"
+    }
+]
+                        </code>
+                    </pre>
+                </article>
+            </section>
+        </div>
     </div>
 }
