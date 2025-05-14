@@ -23,6 +23,7 @@ object DatabaseSchema {
   val reportedVariants = TableQuery[ReportedVariantsTable]
   val sequenceAtpLocations = TableQuery[SequenceAtpLocationTable]
   val sequenceFiles = TableQuery[SequenceFilesTable]
+  val sequenceHttpLocations = TableQuery[SequenceHttpLocationTable]
   val specimenDonors = TableQuery[SpecimenDonorsTable]
   val variants = TableQuery[VariantsTable]
 }
