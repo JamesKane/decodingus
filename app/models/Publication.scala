@@ -9,6 +9,8 @@ case class Publication(
                         pubmedId: Option[String],
                         doi: Option[String],
                         title: String,
+                        authors: Option[String],
+                        abstractSummary: Option[String],
                         journal: Option[String],
                         publicationDate: Option[LocalDate],
                         url: Option[String]

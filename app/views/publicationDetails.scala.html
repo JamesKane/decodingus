@@ -1,19 +1,37 @@
 @(publicationWithDetails: models.api.PublicationWithEnaStudiesAndSampleCount)
 
-<div class="publication-details">
-    <h3>@publicationWithDetails.publication.title</h3>
-    <p>DOI: @publicationWithDetails.publication.doi.getOrElse("N/A")</p>
+<article class="publication-details">
+    <header>
+        <h2>@publicationWithDetails.publication.title</h2>
+        @publicationWithDetails.publication.doi.map { doi =>
+        <p><small>DOI: <a href="https://doi.org/@doi" target="_blank" rel="noopener noreferrer">@doi</a></small></p>
+        }.getOrElse(<p><small>DOI: N/A</small></p>)
+        @publicationWithDetails.publication.authors.map { authors =>
+        <p><strong>Authors:</strong> @authors</p>
+        }.getOrElse(<p><strong>Authors:</strong> Not available</p>)
+    </header>
 
-    <h4>ENA Studies:</h4>
-    @if(publicationWithDetails.enaStudies.nonEmpty) {
-        <ul>
-        @for(study <- publicationWithDetails.enaStudies) {
-            <li>@study.accession - @study.title</li>
+    <section>
+        <h3>Abstract</h3>
+        @publicationWithDetails.publication.abstractSummary.map { summary =>
+        <p>@summary</p>
+        }.getOrElse(<p>Abstract not available.</p>)
+    </section>
+
+    <section>
+        <h3>ENA Studies</h3>
+        @if(publicationWithDetails.enaStudies.nonEmpty) {
+            <ul>
+            @for(study <- publicationWithDetails.enaStudies) {
+                <li><code>@study.accession</code> - @study.title</li>
+            }
+            </ul>
+        } else {
+            <p>No ENA studies associated with this publication.</p>
         }
-        </ul>
-    } else {
-        <p>No ENA studies associated with this publication.</p>
-    }
+    </section>
 
-    <p><strong>Sample Count:</strong> @publicationWithDetails.sampleCount</p>
-</div>
+    <aside>
+        <p><strong>Sample Count:</strong> <span class="sample-count">@publicationWithDetails.sampleCount</span></p>
+    </aside>
+</article>
