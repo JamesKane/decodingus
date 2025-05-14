@@ -1,5 +1,7 @@
 package models
 
+import play.api.libs.json.{Json, OFormat}
+
 import java.time.LocalDate
 
 case class Publication(
@@ -11,3 +13,7 @@ case class Publication(
                         publicationDate: Option[LocalDate],
                         url: Option[String]
                       )
+
+object Publication {
+  implicit val publicationFormat: OFormat[Publication] = Json.format[Publication]
+}
