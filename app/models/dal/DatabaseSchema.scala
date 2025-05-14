@@ -18,6 +18,7 @@ object DatabaseSchema {
   val publications = TableQuery[PublicationsTable]
   val publicationBiosamples = TableQuery[PublicationBiosamplesTable]
   val publicationEnaStudies = TableQuery[PublicationEnaStudiesTable]
+  val qualityMetrics = TableQuery[QualityMetricsTable]
   val specimenDonors = TableQuery[SpecimenDonorsTable]
   val variants = TableQuery[VariantsTable]
 }
