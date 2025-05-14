@@ -1,50 +1,87 @@
 @(publicationWithDetails: models.api.PublicationWithEnaStudiesAndSampleCount)
 
-<article class="publication-details">
-    <header>
-        <h2>@publicationWithDetails.publication.title</h2>
-        @publicationWithDetails.publication.authors.map { authors =>
-        <p><strong>Authors:</strong>
-            @authors</p>
-        }.getOrElse(<p>
-        <strong>Authors:</strong>
-        Not available
-        </p>)
-    </header>
+<article class="publication-details card shadow-sm mb-4">
+    <div class="card-body">
+        <header class="mb-3">
+            <h2 class="card-title">@publicationWithDetails.publication.title</h2>
+            @publicationWithDetails.publication.authors.map { authors =>
+            <p class="card-subtitle text-muted"><strong>Authors:</strong>
+                @authors</p>
+            }.getOrElse(<p class="card-subtitle text-muted">
+            <strong>Authors:</strong>
+            Not available
+            </p>)
+        </header>
 
-    @publicationWithDetails.publication.abstractSummary.map { summary =>
-        <section>
-            <h3>Abstract</h3>
-            <p>@summary</p>
-        </section>
-    }
-    @if(publicationWithDetails.enaStudies.nonEmpty) {
-        <section>
-            <h3>ENA Studies</h3>
-            <ul>
-            @for(study <- publicationWithDetails.enaStudies) {
-                <li><code>@study.accession</code> - @study.title</li>
-            }
-            </ul>
-        </section>
-    }
+        @publicationWithDetails.publication.abstractSummary.map { summary =>
+            <section class="mb-3">
+                <h3 class="card-title h6">Abstract</h3>
+                <p class="card-text">@summary</p>
+            </section>
+        }
+        @if(publicationWithDetails.enaStudies.nonEmpty) {
+            <section class="mb-3">
+                <h3 class="card-title h6">ENA Studies</h3>
+                <ul class="list-unstyled">
+                @for(study <- publicationWithDetails.enaStudies) {
+                    <li><code class="text-monospace">@study.accession</code> - @study.title</li>
+                }
+                </ul>
+            </section>
+        }
 
-    @if(publicationWithDetails.sampleCount >= 0) {
-        <aside>
-            <p><strong>Sample Count:</strong> <span class="sample-count">@publicationWithDetails.sampleCount</span></p>
-            <div id="biosample-report-container">
-                <button hx-get="@routes.BiosampleReportController.getBiosampleReportHTML(publicationWithDetails.publication.id.getOrElse(0))"
-                hx-target="#biosample-report-container"
-                hx-trigger="click"
-                class="load-biosamples">
-                    Load Biosample Details
-                </button>
-            </div>
-        </aside>
-    }
-    @publicationWithDetails.publication.doi.map { doi =>
-        <footer>
-            <p><small>DOI: <a href="https://doi.org/@doi" target="_blank" rel="noopener noreferrer">@doi</a></small></p>
-        </footer>
-    }
+        @if(publicationWithDetails.sampleCount >= 0) {
+            <aside class="alert alert-light mb-3" role="alert">
+                <strong>Sample Count:</strong> <span class="badge bg-secondary">@publicationWithDetails.sampleCount</span>
+                <div class="mt-2">
+                    <button class="btn btn-outline-primary btn-sm load-biosamples"
+                    hx-get="@routes.BiosampleReportController.getBiosampleReportHTML(publicationWithDetails.publication.id.get)"
+                    hx-target="#biosample-collapse"
+                    hx-trigger="click"
+                    aria-controls="biosample-collapse"
+                    aria-expanded="false">
+                        Show Samples
+                    </button>
+                    <button class="btn btn-outline-secondary btn-sm mt-2 collapse-button"
+                    data-bs-toggle="collapse"
+                    data-bs-target="#biosample-collapse"
+                    aria-expanded="false"
+                    aria-controls="biosample-collapse"
+                    style="display: none;">
+                        Hide Samples
+                    </button>
+                    <div class="collapse mt-2" id="biosample-collapse">
+                    </div>
+                </div>
+            </aside>
+        }
+        @publicationWithDetails.publication.doi.map { doi =>
+            <footer class="card-footer text-muted small">
+                DOI: <a href="https://doi.org/@doi" target="_blank" rel="noopener noreferrer">@doi</a>
+            </footer>
+        }
+    </div>
+
+    <script>
+            document.addEventListener('htmx:after-swap', function(event) {
+                if (event.target.id === 'biosample-collapse' && event.detail.successful) {
+                    const container = event.target.parentNode; // Get the parent div
+                    const hideButton = container.querySelector('.collapse-button');
+                    const loadButton = container.querySelector('.load-biosamples');
+                    const collapseElement = event.target;
+
+                    if (loadButton) {
+                        loadButton.style.display = 'none';
+                    }
+                    if (hideButton) {
+                        hideButton.style.display = 'inline-block';
+                    }
+
+                    // Initialize Bootstrap Collapse (we might not need to re-initialize on every swap)
+                    const bsCollapse = new bootstrap.Collapse(collapseElement, {
+                        toggle: true // Ensure it's shown after loading
+                    });
+                }
+            });
+    </script>
 </article>

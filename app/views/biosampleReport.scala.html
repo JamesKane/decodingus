@@ -1,19 +1,32 @@
-@(biosamples: Seq[(String, String)])
+@(biosamplesWithOrigin: Seq[models.api.BiosampleWithOrigin])
 
 <section class="biosample-report">
-    <h3>Biosample Details</h3>
-    <table>
-        <thead>
+    <h3 class="h6">Biosample Details</h3>
+    <table class="table table-sm table-striped">
+        <thead class="thead-light">
             <tr>
+                <th>Sample</th>
                 <th>ENA Accession</th>
-                <th>Haplogroup</th>
+                <th>Y-DNA Haplogroup</th>
+                <th>mt-DNA Haplogroup</th>
+                <th>Origin</th>
             </tr>
         </thead>
         <tbody>
-            @for((enaAccession, haplogroup) <- biosamples) {
+            @for(sample <- biosamplesWithOrigin) {
                 <tr>
-                    <td>@enaAccession</td>
-                    <td>@haplogroup</td>
+                    <td>@sample.sampleName</td>
+                    <td>
+                        <a href="https://www.ebi.ac.uk/ena/browser/view/@sample.enaAccession"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        class="text-monospace">
+                        @sample.enaAccession
+                        </a>
+                    </td>
+                    <td>@sample.yDnaHaplogroup</td>
+                    <td>@sample.mtDnaHaplogroup</td>
+                    <td>@sample.formattedOrigin</td>
                 </tr>
             }
         </tbody>

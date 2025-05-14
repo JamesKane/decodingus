@@ -13,13 +13,13 @@ class BiosampleReportController @Inject()(cc: ControllerComponents, service: Bio
 
   def getBiosampleReportHTML(publicationId: Int): Action[AnyContent] = Action.async { implicit request =>
     service.getBiosampleData(publicationId).map { biosamples =>
-      Ok(views.html.biosampleReport(biosamples.map(bs => (bs.enaAccession, bs.haplogroup))))
+      Ok(views.html.biosampleReport(biosamples))
     }
   }
 
   def getBiosampleReportJSON(publicationId: Int): Action[AnyContent] = Action.async { implicit request =>
     service.getBiosampleData(publicationId).map { biosamples =>
-      val jsonResponse = Json.toJson(biosamples.map(bs => Json.obj("enaAccession" -> bs.enaAccession, "haplogroup" -> bs.haplogroup)))
+      val jsonResponse = Json.toJson(biosamples.map(bs => Json.obj("enaAccession" -> bs.enaAccession, "haplogroup" -> bs.yDnaHaplogroup)))
       Ok(jsonResponse).as(play.api.http.MimeTypes.JSON)
     }
   }
