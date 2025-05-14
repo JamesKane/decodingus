@@ -5,12 +5,22 @@
         <header class="mb-3">
             <h2 class="card-title">@publicationWithDetails.publication.title</h2>
             @publicationWithDetails.publication.authors.map { authors =>
-            <p class="card-subtitle text-muted"><strong>Authors:</strong>
-                @authors</p>
-            }.getOrElse(<p class="card-subtitle text-muted">
-            <strong>Authors:</strong>
-            Not available
-            </p>)
+            <p class="card-subtitle text-muted"><strong>Authors:</strong> @authors</p>
+            }.getOrElse(<p class="card-subtitle text-muted"><strong>Authors:</strong> Not available</p>)
+
+            @if(publicationWithDetails.publication.journal.isDefined || publicationWithDetails.publication.publicationDate.isDefined) {
+                <p class="card-subtitle text-muted">
+                    @publicationWithDetails.publication.journal.map { journal =>
+                        <span class="me-2"><strong>Journal:</strong> <cite title="@journal">@journal</cite></span>
+                    }
+                    @if(publicationWithDetails.publication.journal.isDefined && publicationWithDetails.publication.publicationDate.isDefined) {
+                        <span class="me-2">&nbsp;</span>
+                    }
+                    @publicationWithDetails.publication.publicationDate.map { date =>
+                        <span><strong>Published:</strong> <time datetime="@date.toString.substring(0, 7)">@date.toString.substring(0, 7)</time></span>
+                    }
+                </p>
+            }
         </header>
 
         @publicationWithDetails.publication.abstractSummary.map { summary =>
@@ -55,11 +65,23 @@
                 </div>
             </aside>
         }
-        @publicationWithDetails.publication.doi.map { doi =>
-            <footer class="card-footer text-muted small">
-                DOI: <a href="https://doi.org/@doi" target="_blank" rel="noopener noreferrer">@doi</a>
-            </footer>
-        }
+        <footer class="card-footer text-muted small">
+            @publicationWithDetails.publication.doi.map { doi =>
+                <span>DOI: <a href="https://doi.org/@doi" target="_blank" rel="noopener noreferrer">@doi</a></span>
+            }
+            @if(publicationWithDetails.publication.doi.isDefined && (publicationWithDetails.publication.pubmedId.isDefined || publicationWithDetails.publication.url.isDefined)) {
+                <span> | </span>
+            }
+            @publicationWithDetails.publication.pubmedId.map { pmid =>
+                <span>PubMed ID: <a href="https://pubmed.ncbi.nlm.nih.gov/@pmid" target="_blank" rel="noopener noreferrer">@pmid</a></span>
+            }
+            @if((publicationWithDetails.publication.doi.isDefined || publicationWithDetails.publication.pubmedId.isDefined) && publicationWithDetails.publication.url.isDefined) {
+                <span> | </span>
+            }
+            @publicationWithDetails.publication.url.map { url =>
+                <span>Link: <a href="@url" target="_blank" rel="noopener noreferrer">@url</a></span>
+            }
+        </footer>
     </div>
 
     <script>
