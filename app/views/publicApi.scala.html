@@ -1,43 +1,10 @@
 @import org.webjars.play.WebJarsUtil
 
-@(message: String = "Public API Documentation")(implicit webJarsUtil: WebJarsUtil)
+@()(implicit webJarsUtil: WebJarsUtil)
 
 @main("Public API") {
-    <div class="container mt-5">
-        <h1>@message</h1>
-        <p>Welcome to the documentation for our public APIs!</p>
-        <ul>
-            <li>
-                <h3>Endpoint 1: `/api/resource1`</h3>
-                <p>Description of endpoint 1...</p>
-                <pre><code>
-                    // Example request
-                    GET /api/resource1
-                </code></pre>
-                <pre><code>
-                    // Example response
-                    {
-                    "field1": "value1",
-                    "field2": 123
-                    }
-                </code></pre>
-            </li>
-            <li>
-                <h3>Endpoint 2: `/api/resource2/{id}`</h3>
-                <p>Description of endpoint 2 with a path parameter...</p>
-                <pre><code>
-                    // Example request
-                    GET /api/resource2/456
-                </code></pre>
-                <pre><code>
-                    // Example response
-                    {
-                    "name": "Item Name",
-                    "details": "Some details"
-                    }
-                </code></pre>
-            </li>
-            // ... more API endpoints
-        </ul>
+    <div class="container-fluid">
+        <h1>Public API Documentation</h1>
+        <p>Coming soon!</p>
     </div>
 }
