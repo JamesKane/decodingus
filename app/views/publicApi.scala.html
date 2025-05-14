@@ -5,6 +5,38 @@
 @main("Public API") {
     <div class="container-fluid">
         <h1>Public API Documentation</h1>
-        <p>Coming soon!</p>
+        <div class="container">
+            <h3>GET /api/v1/references/details</h3>
+            <p class="lead">Retrieve details for references</p>
+            <p>Returns a list of reference details, including publication information, ENA studies, and sample counts.</p>
+            <section>
+                <h4>Responses</h4>
+                <article>
+                    <h5><code>200</code> <span class="badge bg-success">Successful response</span></h5>
+                    <p><strong>Content Type:</strong> <code>application/json</code></p>
+                    <pre>
+                        <code class="language-json">
+[
+    {
+        "publication": {
+            "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC155271/",
+            "journal": "Genome Research",
+            "abstractSummary": "The Y chromosome contains the largest ...",
+            "id": 1,
+            "pubmedId": "11827954",
+            "title": "A Nomenclature System for the Tree of Human Y-Chromosomal Binary Haplogroups",
+            "doi": "10.1101/gr.217602",
+            "publicationDate": "2012-02-01",
+            "authors": "The Y Chromosome Consortium"
+        },
+        "enaStudies": [],
+        "sampleCount": 0
+    }
+]
+                        </code>
+                    </pre>
+                </article>
+            </section>
+        </div>
     </div>
 }
