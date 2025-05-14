@@ -14,6 +14,7 @@ object DatabaseSchema {
   val haplogroupRelationships = TableQuery[HaplogroupRelationshipsTable]
   val haplogroupVariants = TableQuery[HaplogroupVariantsTable]
   val pgpBiosamples = TableQuery[PgpBiosamplesTable]
+  val populations = TableQuery[PopulationsTable]
   val specimenDonors = TableQuery[SpecimenDonorsTable]
   val variants = TableQuery[VariantsTable]
 }
