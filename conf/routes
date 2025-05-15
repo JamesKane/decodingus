@@ -24,7 +24,8 @@ GET        /api/v1/benchmarks                                          controlle
 
 GET        /api/v1/references/details                                  controllers.PublicationController.getAllPublicationsWithDetailsJson()
 
-GET        /references/details/:publicationId/biosamples               controllers.BiosampleReportController.getBiosampleReportHTML(publicationId: Int)
+GET        /references/details/:publicationId/biosamples               controllers.BiosampleReportController.getBiosampleReportHTML(publicationId: Int, page: Option[Int] ?= Some(1))
+
 GET        /api/v1/references/details/:publicationId/biosamples        controllers.BiosampleReportController.getBiosampleReportJSON(publicationId: Int)
 
 # Map static resources from the /public folder to the /assets URL path

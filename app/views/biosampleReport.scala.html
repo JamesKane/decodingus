@@ -1,4 +1,4 @@
-@(biosamplesWithOrigin: Seq[models.api.BiosampleWithOrigin])
+@(paginatedResult: models.api.PaginatedResult[models.api.BiosampleWithOrigin], publicationId: Int)
 
 <section class="biosample-report">
     <h3 class="h6">Biosample Details</h3>
@@ -13,7 +13,7 @@
             </tr>
         </thead>
         <tbody>
-            @for(sample <- biosamplesWithOrigin) {
+            @for(sample <- paginatedResult.items) {
                 <tr>
                     <td>@sample.sampleName</td>
                     <td>
@@ -31,4 +31,24 @@
             }
         </tbody>
     </table>
+
+    <div class="mt-2">
+        @if(paginatedResult.hasPreviousPage) {
+            <button class="btn btn-outline-secondary btn-sm"
+            hx-get="@routes.BiosampleReportController.getBiosampleReportHTML(publicationId, Some(paginatedResult.currentPage - 1))"
+            hx-target="#biosample-collapse"
+            hx-swap="outerHTML">
+                Previous
+            </button>
+        }
+        <span>Page @paginatedResult.currentPage of @paginatedResult.totalPages</span>
+        @if(paginatedResult.hasNextPage) {
+            <button class="btn btn-outline-secondary btn-sm"
+            hx-get="@routes.BiosampleReportController.getBiosampleReportHTML(publicationId, Some(paginatedResult.currentPage + 1))"
+            hx-target="#biosample-collapse"
+            hx-swap="outerHTML">
+                Next
+            </button>
+        }
+    </div>
 </section>
