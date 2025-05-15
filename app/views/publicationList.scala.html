@@ -1,9 +1,49 @@
-@(publicationsWithDetails: Seq[models.api.PublicationWithEnaStudiesAndSampleCount])
+@(paginatedPublications: models.api.PaginatedResult[models.api.PublicationWithEnaStudiesAndSampleCount])
 
 <h1>References</h1>
 <div id="publications-list">
-    @for(details <- publicationsWithDetails) {
+    @for(details <- paginatedPublications.items) {
         @publicationDetails(details)
         <hr/>
     }
 </div>
+
+<div class="mt-2 d-flex justify-content-between align-items-center">
+    <div>
+        <label for="pageSizePublications">Items per page:</label>
+        <select class="form-select form-select-sm" id="pageSizePublications"
+        hx-get="@controllers.routes.PublicationController.getAllPublicationsWithDetailsHtml(Some(1), Some(paginatedPublications.pageSize))"
+        hx-target="#publications-container" hx-swap="outerHTML" hx-trigger="change">
+            <option @if(paginatedPublications.pageSize == 5) { selected }>5</option>
+            <option @if(paginatedPublications.pageSize == 10) { selected }>10</option>
+            <option @if(paginatedPublications.pageSize == 20) { selected }>20</option>
+            <option @if(paginatedPublications.pageSize == 50) { selected }>50</option>
+        </select>
+    </div>
+    <div>
+        @if(paginatedPublications.hasPreviousPage) {
+            <button class="btn btn-outline-secondary btn-sm"
+            hx-get="@controllers.routes.PublicationController.getAllPublicationsWithDetailsHtml(Some(paginatedPublications.currentPage - 1), Some(paginatedPublications.pageSize))"
+            hx-target="#publications-container" hx-swap="outerHTML">
+                Previous
+            </button>
+        }
+        <span>Page @paginatedPublications.currentPage of @paginatedPublications.totalPages</span>
+        @if(paginatedPublications.hasNextPage) {
+            <button class="btn btn-outline-secondary btn-sm"
+            hx-get="@controllers.routes.PublicationController.getAllPublicationsWithDetailsHtml(Some(paginatedPublications.currentPage + 1), Some(paginatedPublications.pageSize))"
+            hx-target="#publications-container" hx-swap="outerHTML">
+                Next
+            </button>
+        }
+    </div>
+</div>
+
+<script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const pageSizeSelect = document.getElementById('pageSizePublications');
+            if (pageSizeSelect) {
+                pageSizeSelect.value = '@paginatedPublications.pageSize';
+            }
+        });
+</script>

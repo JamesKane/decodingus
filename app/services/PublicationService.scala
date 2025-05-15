@@ -1,28 +1,20 @@
 package services
 
 import jakarta.inject.Inject
-import models.api.PublicationWithEnaStudiesAndSampleCount
+import models.api.{PaginatedResult, PublicationWithEnaStudiesAndSampleCount}
 import repositories.{PublicationBiosampleRepository, PublicationRepository}
 
 import scala.concurrent.{ExecutionContext, Future}
 
-
-class PublicationService @Inject()(
-                                    publicationRepository: PublicationRepository,
-                                    publicationBiosampleRepository: PublicationBiosampleRepository
-                                  )(implicit ec: ExecutionContext) {
+class PublicationService @Inject()(publicationRepository: PublicationRepository)(implicit ec: ExecutionContext) {
+  def getPaginatedPublicationsWithDetails(page: Int, pageSize: Int): Future[PaginatedResult[PublicationWithEnaStudiesAndSampleCount]] = {
+    for {
+      totalItems <- publicationRepository.countAllPublications()
+      publicationsWithDetails <- publicationRepository.findPublicationsWithDetailsPaginated(page, pageSize)
+    } yield PaginatedResult(publicationsWithDetails, page, pageSize, totalItems)
+  }
 
   def getAllPublicationsWithDetails(): Future[Seq[PublicationWithEnaStudiesAndSampleCount]] = {
-    publicationRepository.getAllPublications().flatMap { publications =>
-      Future.sequence(publications.map { publication =>
-        val enaStudiesFuture = publicationRepository.getEnaStudiesForPublication(publication.id.getOrElse(-1)) // Assuming Publication has an ID
-        val sampleCountFuture = publicationBiosampleRepository.countSamplesForPublication(publication.id.getOrElse(-1))
-
-        for {
-          enaStudies <- enaStudiesFuture
-          sampleCount <- sampleCountFuture
-        } yield PublicationWithEnaStudiesAndSampleCount(publication, enaStudies, sampleCount)
-      })
-    }
+    publicationRepository.findPublicationsWithDetailsPaginated(1, Int.MaxValue) // Fetch all by using a very large pageSize
   }
 }

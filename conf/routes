@@ -13,7 +13,7 @@ GET        /ytree                                                      controlle
 GET        /mtree                                                      controllers.TreeController.mtree()
 
 GET        /references                                                 controllers.PublicationController.index()
-GET        /references/details                                         controllers.PublicationController.getAllPublicationsWithDetailsHtml()
+GET        /references/details                                         controllers.PublicationController.getAllPublicationsWithDetailsHtml(page: Option[Int], pageSize: Option[Int])
 
 GET        /coverage-benchmarks                                        controllers.CoverageController.index()
 
