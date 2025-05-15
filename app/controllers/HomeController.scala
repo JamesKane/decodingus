@@ -4,7 +4,7 @@ import org.webjars.play.WebJarsUtil
 
 import javax.inject.*
 import play.api.*
-import play.api.mvc.*
+import play.api.mvc.{Action, *}
 
 /**
  * This controller creates an `Action` to handle HTTP requests to the
@@ -24,4 +24,21 @@ class HomeController @Inject()(val controllerComponents: ControllerComponents)
   def index(): Action[AnyContent] = Action { implicit request: Request[AnyContent] =>
     Ok(views.html.index())
   }
+
+  def cookieUsage(): Action[AnyContent] = Action { implicit request: Request[AnyContent] =>
+    Ok(views.html.cookies())
+  }
+
+  def privacy(): Action[AnyContent] = Action { implicit request: Request[AnyContent] =>
+    Ok(views.html.privacyPolicy())
+  }
+
+  def terms(): Action[AnyContent] = Action { implicit request: Request[AnyContent] =>
+    Ok(views.html.terms())
+  }
+
+  def publicApi(): Action[AnyContent] = Action { implicit request: Request[AnyContent] =>
+    Ok(views.html.publicApi())
+  }
+
 }

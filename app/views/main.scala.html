@@ -10,11 +10,17 @@
         @* Here's where we render the page title `String`. *@
         <title>@title</title>
         @webJarsUtil.locate("bootstrap.min.css").css()
+        @webJarsUtil.locate("popper.js/2.11.7/umd/popper.js").script()
         @webJarsUtil.locate("bootstrap.min.js").script()
+        @webJarsUtil.locate("htmx.js").script()
+        <link rel="stylesheet" href="@routes.Assets.versioned("stylesheets/main.css")">
     </head>
     <body>
+        @_navbar()
         @* And here's where we render the `Html` object containing
          * the page content. *@
         @content
+
+        @_footer()
     </body>
 </html>

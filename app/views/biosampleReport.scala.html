@@ -1,0 +1,54 @@
+@(paginatedResult: models.api.PaginatedResult[models.api.BiosampleWithOrigin], publicationId: Int)
+
+<section class="biosample-report">
+    <h3 class="h6">Biosample Details</h3>
+    <table class="table table-sm table-striped">
+        <thead class="thead-light">
+            <tr>
+                <th>Sample</th>
+                <th>ENA Accession</th>
+                <th>Y-DNA Haplogroup</th>
+                <th>mt-DNA Haplogroup</th>
+                <th>Origin</th>
+            </tr>
+        </thead>
+        <tbody>
+            @for(sample <- paginatedResult.items) {
+                <tr>
+                    <td>@sample.sampleName</td>
+                    <td>
+                        <a href="https://www.ebi.ac.uk/ena/browser/view/@sample.enaAccession"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        class="text-monospace">
+                        @sample.enaAccession
+                        </a>
+                    </td>
+                    <td>@sample.yDnaHaplogroup</td>
+                    <td>@sample.mtDnaHaplogroup</td>
+                    <td>@sample.formattedOrigin</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+
+    <div class="mt-2">
+        @if(paginatedResult.hasPreviousPage) {
+            <button class="btn btn-outline-secondary btn-sm"
+            hx-get="@routes.BiosampleReportController.getBiosampleReportHTML(publicationId, Some(paginatedResult.currentPage - 1))"
+            hx-target="#biosample-collapse"
+            hx-swap="outerHTML">
+                Previous
+            </button>
+        }
+        <span>Page @paginatedResult.currentPage of @paginatedResult.totalPages</span>
+        @if(paginatedResult.hasNextPage) {
+            <button class="btn btn-outline-secondary btn-sm"
+            hx-get="@routes.BiosampleReportController.getBiosampleReportHTML(publicationId, Some(paginatedResult.currentPage + 1))"
+            hx-target="#biosample-collapse"
+            hx-swap="outerHTML">
+                Next
+            </button>
+        }
+    </div>
+</section>
