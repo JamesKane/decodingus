@@ -15,7 +15,7 @@
         @webJarsUtil.locate("htmx.js").script()
         <link rel="stylesheet" href="@routes.Assets.versioned("stylesheets/main.css")">
     </head>
-    <body>
+    <body hx-boost="true">
         @_navbar()
         @* And here's where we render the `Html` object containing
          * the page content. *@
