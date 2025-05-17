@@ -2,7 +2,19 @@ package models.api
 
 import play.api.libs.json.{Json, OFormat}
 
-case class BiosampleWithOrigin(sampleName: Option[String], enaAccession: String, sex: Option[String], yDnaHaplogroup: Option[String], mtDnaHaplogroup: Option[String], reads: Option[Int], readLen: Option[Int], geoCoord: Option[GeoCoord]) {
+case class PopulationInfo(populationName: String, probability: BigDecimal, methodName: String)
+
+case class BiosampleWithOrigin(
+                                sampleName: Option[String], 
+                                enaAccession: String, 
+                                sex: Option[String], 
+                                yDnaHaplogroup: Option[String], 
+                                mtDnaHaplogroup: Option[String], 
+                                reads: Option[Int], 
+                                readLen: Option[Int], 
+                                geoCoord: Option[GeoCoord],
+                                bestFitPopulation: Option[PopulationInfo],
+                              ) {
   def formattedOrigin: String = geoCoord match {
     case Some(lat, lon) =>
       val latDir = if (lat >= 0) "N" else "S"
@@ -21,6 +33,10 @@ case class BiosampleWithOrigin(sampleName: Option[String], enaAccession: String,
       Some((totalBases / genomeSize).toLong)
     case _ => None
   }
+}
+
+object PopulationInfo {
+  implicit val populationInfoFormat: OFormat[PopulationInfo] = Json.format[PopulationInfo]
 }
 
 object BiosampleWithOrigin {

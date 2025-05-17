@@ -12,6 +12,7 @@
                 <th>Y-DNA Haplogroup</th>
                 <th>mt-DNA Haplogroup</th>
                 <th>Origin</th>
+                <th>Population</th>
             </tr>
         </thead>
         <tbody>
@@ -37,11 +38,17 @@
                         }" title="@sample.sex.getOrElse("Unknown")"></i>
                     }
                     </td>
-
                     <td  class="text-center">@sample.estimateCoverageDepth.map(d => s"${d}x").getOrElse("???")</td>
                     <td>@sample.yDnaHaplogroup</td>
                     <td>@sample.mtDnaHaplogroup</td>
                     <td>@sample.formattedOrigin</td>
+                    <td>
+                        @sample.bestFitPopulation.map { pop =>
+                        <span title="Analysis method: @pop.methodName">
+                            @pop.populationName (@{f"${pop.probability * 100}%.1f"}%)
+                        </span>
+                        }.getOrElse("Not Available")
+                    </td>
                 </tr>
             }
         </tbody>
