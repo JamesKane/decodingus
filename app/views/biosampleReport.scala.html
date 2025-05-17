@@ -8,7 +8,7 @@
                 <th>Sample</th>
                 <th>ENA Accession</th>
                 <th>Sex</th>
-                <th>Est. Cov Depth</th>
+                <th  class="text-center">Est. Cov Depth</th>
                 <th>Y-DNA Haplogroup</th>
                 <th>mt-DNA Haplogroup</th>
                 <th>Origin</th>
@@ -38,7 +38,7 @@
                     }
                     </td>
 
-                    <td>@sample.estimateCoverageDepth.map(d => s"${d}x").getOrElse("???")</td>
+                    <td  class="text-center">@sample.estimateCoverageDepth.map(d => s"${d}x").getOrElse("???")</td>
                     <td>@sample.yDnaHaplogroup</td>
                     <td>@sample.mtDnaHaplogroup</td>
                     <td>@sample.formattedOrigin</td>
