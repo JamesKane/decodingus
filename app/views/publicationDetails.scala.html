@@ -34,7 +34,7 @@
                 <h3 class="card-title h6">ENA Studies</h3>
                 <ul class="list-unstyled">
                 @for(study <- publicationWithDetails.enaStudies) {
-                    <li><a href="https://www.ebi.ac.uk/ena/browser/view/@{study.accession}" target="_blank" rel="noopener noreferrer"><code class="text-monospace">@study.accession</code></a> - @study.title</li>
+                    <li><a href="https://www.ebi.ac.uk/ena/browser/view/@{study.accession}" target="_blank" rel="noopener noreferrer"><code class="text-monospace">@study.accession</code></a> - @study.title - @study.centerName</li>
                 }
                 </ul>
             </section>
