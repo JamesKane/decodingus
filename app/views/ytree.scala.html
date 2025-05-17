@@ -5,6 +5,23 @@
 @main("Y-DNA Tree") {
     <main class="container-fluid">
         <h1>Y-DNA Tree</h1>
-        <p>Coming soon!</p>
+        <div id="tree-container"
+        hx-get="@routes.TreeController.yTreeFragment(None)"
+        hx-trigger="load">
+            <div class="loading">Loading haplogroup tree...</div>
+        </div>
+
+        <div class="tree-controls">
+            <form class="search-form" hx-get="@routes.TreeController.yTreeFragment(None)" hx-target="#tree-container">
+                <label for="haplogroup-search">Jump to haplogroup:</label>
+                <input type="text"
+                id="haplogroup-search"
+                name="rootHaplogroup"
+                placeholder="e.g. R1b1"
+                pattern="[A-Z0-9-]+"
+                title="Enter a valid Y-DNA haplogroup">
+                <button type="submit">Go</button>
+            </form>
+        </div>
     </main>
 }

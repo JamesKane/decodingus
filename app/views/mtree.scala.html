@@ -5,6 +5,24 @@
 @main("MT-DNA Tree") {
     <main class="container-fluid">
         <h1>MT-DNA Tree</h1>
-        <p>Coming soon!</p>
+        <div id="tree-container"
+        hx-get="@routes.TreeController.mTreeFragment(None)"
+        hx-trigger="load">
+            <div class="loading">Loading haplogroup tree...</div>
+        </div>
+
+        <div class="tree-controls">
+            <form class="search-form" hx-get="@routes.TreeController.mTreeFragment(None)" hx-target="#tree-container">
+                <label for="haplogroup-search">Jump to haplogroup:</label>
+                <input type="text"
+                id="haplogroup-search"
+                name="rootHaplogroup"
+                placeholder="e.g. H1"
+                pattern="[A-Z0-9-]+"
+                title="Enter a valid MT-DNA haplogroup">
+                <button type="submit">Go</button>
+            </form>
+        </div>
+
     </main>
 }

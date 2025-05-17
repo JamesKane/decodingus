@@ -51,4 +51,41 @@ class TreeController @Inject()(val controllerComponents: ControllerComponents,
     }
   }
 
+  // HTML endpoints that return fragments for HTMX to use
+  def yTreeFragment(rootHaplogroup: Option[String]): Action[AnyContent] = Action.async { implicit request =>
+    rootHaplogroup match {
+      case Some(name) =>
+        treeService.buildTreeResponse(name, Y).map { tree =>
+          Ok(views.html.fragments.haplogroup(tree, Y))
+        }.recover {
+          case _: IllegalArgumentException =>
+            NotFound(views.html.fragments.error(s"Haplogroup $name not found"))
+          case e =>
+            InternalServerError(views.html.fragments.error(e.getMessage))
+        }
+      case None =>
+        treeService.buildTreeResponse("Y", Y).map { tree =>
+          Ok(views.html.fragments.haplogroup(tree, Y))
+        }
+    }
+  }
+
+  def mTreeFragment(rootHaplogroup: Option[String]): Action[AnyContent] = Action.async { implicit request =>
+    rootHaplogroup match {
+      case Some(name) =>
+        treeService.buildTreeResponse(name, MT).map { tree =>
+          Ok(views.html.fragments.haplogroup(tree, MT))
+        }.recover {
+          case _: IllegalArgumentException =>
+            NotFound(views.html.fragments.error(s"Haplogroup $name not found"))
+          case e =>
+            InternalServerError(views.html.fragments.error(e.getMessage))
+        }
+      case None =>
+        treeService.buildTreeResponse("L", MT).map { tree =>
+          Ok(views.html.fragments.haplogroup(tree, MT))
+        }
+    }
+  }
+
 }

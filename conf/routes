@@ -11,6 +11,9 @@ GET        /public-api                                                 controlle
 
 GET        /ytree                                                      controllers.TreeController.ytree()
 GET        /mtree                                                      controllers.TreeController.mtree()
+GET        /ytree/fragment                                             controllers.TreeController.yTreeFragment(rootHaplogroup: Option[String])
+GET        /mtree/fragment                                             controllers.TreeController.mTreeFragment(rootHaplogroup: Option[String])
+
 
 GET        /references                                                 controllers.PublicationController.index()
 GET        /references/details                                         controllers.PublicationController.getAllPublicationsWithDetailsHtml(page: Option[Int], pageSize: Option[Int])
