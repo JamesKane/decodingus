@@ -1,5 +1,14 @@
 package models
 
+/**
+ * Represents a type of haplogroup classification, distinguishing between paternal (Y) and maternal (MT) lineages.
+ *
+ * Enumeration values:
+ * - `Y`: Represents the Y-DNA haplogroup type, associated with the paternal lineage.
+ * - `MT`: Represents the mtDNA (mitochondrial DNA) haplogroup type, associated with the maternal lineage.
+ *
+ * This enumeration provides a structured way to classify genetic lineage data based on the type of haplogroup.
+ */
 enum HaplogroupType {
   case Y, MT
 
@@ -9,6 +18,12 @@ enum HaplogroupType {
   }
 }
 
+/**
+ * Provides methods for working with the HaplogroupType enumeration, which represents types of haplogroup classifications
+ * (e.g., Y-DNA for paternal lineage and mtDNA for maternal lineage).
+ *
+ * This companion object includes utility methods for handling HaplogroupType values.
+ */
 object HaplogroupType {
   def fromString(str: String): Option[HaplogroupType] = str.toUpperCase match {
     case "Y" => Some(Y)
