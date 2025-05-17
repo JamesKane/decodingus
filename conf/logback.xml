@@ -67,6 +67,8 @@
 
   <logger name="play" level="INFO"/>
   <logger name="application" level="DEBUG"/>
+  
+  <logger name="services.LoggingEmailService" level="INFO"/>
 
   <root level="WARN">
     <appender-ref ref="ASYNCFILE"/>

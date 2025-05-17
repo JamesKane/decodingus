@@ -1,0 +1,120 @@
+@import org.webjars.play.WebJarsUtil
+
+@(contactForm: Form[Contact.ContactDTO])(implicit request: RequestHeader, messages: Messages, webJarsUtil: WebJarsUtil)
+
+@main("Contact Us") {
+    <div class="container py-5">
+        <div class="row justify-content-center">
+            <div class="col-12 col-md-8 col-lg-6">
+                <div class="card shadow-sm">
+                    <div class="card-body">
+                        <h1 class="card-title text-center mb-4">Contact Us</h1>
+
+                        @request.flash.get("success").map { message =>
+                            <div class="alert alert-success alert-dismissible fade show" role="alert">
+                                <i class="bi bi-check-circle-fill me-2"></i>
+                                @message
+                                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                            </div>
+                        }
+
+                        @if(contactForm.hasGlobalErrors) {
+                            <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                                <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                                @for(error <- contactForm.globalErrors) {
+                                    <p class="mb-0">@messages(error.message)</p>
+                                }
+                                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                            </div>
+                        }
+
+                        @helper.form(action = routes.ContactController.submit(), Symbol("class") -> "needs-validation", Symbol("autocomplete") -> "off") {
+                            @helper.CSRF.formField
+
+                            <div class="mb-3">
+                                <label for="name" class="form-label">Name</label>
+                                <input type="text"
+                                class="form-control @if(contactForm("name").hasErrors){is-invalid}"
+                                id="name"
+                                name="name"
+                                value="@contactForm("name").value"
+                                placeholder="Your name"
+                                required
+                                maxlength="64"
+                                autocomplete="off">
+                                @contactForm("name").errors.map { error =>
+                                    <div class="invalid-feedback">@messages(error.message)</div>
+                                }
+                                <div class="form-text">Please enter your full name</div>
+                            </div>
+
+                            <div class="mb-3">
+                                <label for="email" class="form-label">Email</label>
+                                <input type="email"
+                                class="form-control @if(contactForm("email").hasErrors){is-invalid}"
+                                id="email"
+                                name="email"
+                                value="@contactForm("email").value"
+                                placeholder="your.email@@example.com"
+                                required
+                                autocomplete="off">
+                                @contactForm("email").errors.map { error =>
+                                    <div class="invalid-feedback">@messages(error.message)</div>
+                                }
+                                <div class="form-text">We'll never share your email with anyone else</div>
+                            </div>
+
+                            <div class="mb-3">
+                                <label for="subject" class="form-label">Subject</label>
+                                <input type="text"
+                                class="form-control @if(contactForm("subject").hasErrors){is-invalid}"
+                                id="subject"
+                                name="subject"
+                                value="@contactForm("subject").value"
+                                placeholder="Subject of your message"
+                                required
+                                maxlength="64"
+                                autocomplete="off">
+                                @contactForm("subject").errors.map { error =>
+                                    <div class="invalid-feedback">@messages(error.message)</div>
+                                }
+                            </div>
+
+                            <div class="mb-4">
+                                <label for="message" class="form-label">Message</label>
+                                <textarea class="form-control @if(contactForm("message").hasErrors){is-invalid}"
+                                id="message"
+                                name="message"
+                                rows="5"
+                                placeholder="Your message"
+                                required
+                                maxlength="2048"
+                                autocomplete="off">@contactForm("message").value</textarea>
+                                @contactForm("message").errors.map { error =>
+                                    <div class="invalid-feedback">@messages(error.message)</div>
+                                }
+                            </div>
+
+                            @* Honeypot field - hidden from real users *@
+                            <div class="d-none" aria-hidden="true">
+                                <input type="text"
+                                class="form-control"
+                                name="phoneNumber"
+                                id="phoneNumber"
+                                value="@contactForm("phoneNumber").value"
+                                autocomplete="off"
+                                tabindex="-1">
+                            </div>
+
+                            <div class="d-grid">
+                                <button type="submit" class="btn btn-primary btn-lg">
+                                    <i class="bi bi-send-fill me-2"></i>Send Message
+                                </button>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+}

@@ -3,34 +3,38 @@
 # https://www.playframework.com/documentation/latest/ScalaRouting
 # ~~~~
 
-GET        /                                                           controllers.HomeController.index()
-GET        /cookie-usage                                               controllers.HomeController.cookieUsage()
-GET        /terms                                                      controllers.HomeController.terms()
-GET        /privacy                                                    controllers.HomeController.privacy()
-GET        /public-api                                                 controllers.HomeController.publicApi()
+GET         /                                                           controllers.HomeController.index()
+GET         /cookie-usage                                               controllers.HomeController.cookieUsage()
+GET         /terms                                                      controllers.HomeController.terms()
+GET         /privacy                                                    controllers.HomeController.privacy()
+GET         /public-api                                                 controllers.HomeController.publicApi()
 
-GET        /ytree                                                      controllers.TreeController.ytree()
-GET        /mtree                                                      controllers.TreeController.mtree()
-GET        /ytree/fragment                                             controllers.TreeController.yTreeFragment(rootHaplogroup: Option[String])
-GET        /mtree/fragment                                             controllers.TreeController.mTreeFragment(rootHaplogroup: Option[String])
+GET         /ytree                                                      controllers.TreeController.ytree()
+GET         /mtree                                                      controllers.TreeController.mtree()
+GET         /ytree/fragment                                             controllers.TreeController.yTreeFragment(rootHaplogroup: Option[String])
+GET         /mtree/fragment                                             controllers.TreeController.mTreeFragment(rootHaplogroup: Option[String])
+
+GET         /references                                                 controllers.PublicationController.index()
+GET         /references/details                                         controllers.PublicationController.getAllPublicationsWithDetailsHtml(page: Option[Int], pageSize: Option[Int])
+
+GET         /coverage-benchmarks                                        controllers.CoverageController.index()
+
+# Contact form routes
+GET         /contact                                                    controllers.ContactController.show()
+POST        /contact                                                    controllers.ContactController.submit()
 
 
-GET        /references                                                 controllers.PublicationController.index()
-GET        /references/details                                         controllers.PublicationController.getAllPublicationsWithDetailsHtml(page: Option[Int], pageSize: Option[Int])
+GET         /api/v1/y-tree                                              controllers.TreeController.apiYTree(rootHaplogroup: Option[String])
+GET         /api/v1/mt-tree                                             controllers.TreeController.apiMTree(rootHaplogroup: Option[String])
 
-GET        /coverage-benchmarks                                        controllers.CoverageController.index()
+GET         /api/v1/benchmarks                                          controllers.CoverageController.apiBenchmarks()
 
-GET        /api/v1/y-tree                                              controllers.TreeController.apiYTree(rootHaplogroup: Option[String])
-GET        /api/v1/mt-tree                                             controllers.TreeController.apiMTree(rootHaplogroup: Option[String])
+GET         /api/v1/references/details                                  controllers.PublicationController.getAllPublicationsWithDetailsJson()
 
-GET        /api/v1/benchmarks                                          controllers.CoverageController.apiBenchmarks()
+GET         /references/details/:publicationId/biosamples               controllers.BiosampleReportController.getBiosampleReportHTML(publicationId: Int, page: Option[Int] ?= Some(1))
 
-GET        /api/v1/references/details                                  controllers.PublicationController.getAllPublicationsWithDetailsJson()
-
-GET        /references/details/:publicationId/biosamples               controllers.BiosampleReportController.getBiosampleReportHTML(publicationId: Int, page: Option[Int] ?= Some(1))
-
-GET        /api/v1/references/details/:publicationId/biosamples        controllers.BiosampleReportController.getBiosampleReportJSON(publicationId: Int)
+GET         /api/v1/references/details/:publicationId/biosamples        controllers.BiosampleReportController.getBiosampleReportJSON(publicationId: Int)
 
 # Map static resources from the /public folder to the /assets URL path
-GET        /assets/*file                                               controllers.Assets.versioned(path="/public", file: Asset)
-->         /webjars                                                    webjars.Routes
+GET         /assets/*file                                               controllers.Assets.versioned(path="/public", file: Asset)
+->          /webjars                                                    webjars.Routes
