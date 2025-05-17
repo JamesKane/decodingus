@@ -11,13 +11,43 @@ import slick.jdbc.GetResult
 
 import scala.concurrent.{ExecutionContext, Future}
 
+/**
+ * Represents a repository interface for managing biosample data. This trait provides methods to interact
+ * with biosamples and their related data, including fetching, pagination, and counting operations for publications.
+ */
 trait BiosampleRepository {
+  /**
+   * Retrieves a biosample by its unique identifier.
+   *
+   * @param id the unique identifier of the biosample to be retrieved
+   * @return a future containing an optional biosample if found, or none if not found
+   */
   def findById(id: Int): Future[Option[Biosample]]
 
+  /**
+   * Retrieves all biosamples associated with a specific publication, including their origin metadata.
+   *
+   * @param publicationId the unique identifier of the publication for which biosamples are being queried
+   * @return a future containing a sequence of biosamples with their origin information
+   */
   def findBiosamplesWithOriginForPublication(publicationId: Int): Future[Seq[BiosampleWithOrigin]]
 
+  /**
+   * Retrieves a paginated list of biosamples, including their origin metadata, associated with a specific publication.
+   *
+   * @param publicationId the unique identifier of the publication for which biosamples are being queried
+   * @param page          the page number to retrieve, starting from 1
+   * @param pageSize      the number of items to include on each page
+   * @return a future containing a sequence of biosamples with their origin information for the specified page
+   */
   def findPaginatedBiosamplesWithOriginForPublication(publicationId: Int, page: Int, pageSize: Int): Future[Seq[BiosampleWithOrigin]]
 
+  /**
+   * Counts the number of biosamples associated with a specific publication.
+   *
+   * @param publicationId the unique identifier of the publication for which biosamples are being counted
+   * @return a future containing the count of biosamples linked to the specified publication
+   */
   def countBiosamplesForPublication(publicationId: Int): Future[Long]
 }
 
