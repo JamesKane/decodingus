@@ -7,11 +7,11 @@
             <tr>
                 <th>Sample</th>
                 <th>ENA Accession</th>
-                <th>Sex</th>
+                <th>Origin</th>
                 <th  class="text-center">Est. Cov Depth</th>
+                <th>Sex</th>
                 <th>Y-DNA Haplogroup</th>
                 <th>mt-DNA Haplogroup</th>
-                <th>Origin</th>
                 <th>Population</th>
             </tr>
         </thead>
@@ -27,6 +27,8 @@
                         @sample.enaAccession
                         </a>
                     </td>
+                    <td>@sample.formattedOrigin</td>
+                    <td  class="text-center">@sample.estimateCoverageDepth.map(d => s"${d}x").getOrElse("???")</td>
                     <td>
                     @defining(sample.sex.map(_.toLowerCase).getOrElse("unknown")) { sex =>
                         <i class="fas @{
@@ -38,10 +40,8 @@
                         }" title="@sample.sex.getOrElse("Unknown")"></i>
                     }
                     </td>
-                    <td  class="text-center">@sample.estimateCoverageDepth.map(d => s"${d}x").getOrElse("???")</td>
                     <td>@sample.yDnaHaplogroup</td>
                     <td>@sample.mtDnaHaplogroup</td>
-                    <td>@sample.formattedOrigin</td>
                     <td>
                         @sample.bestFitPopulation.map { pop =>
                         <span title="Analysis method: @pop.methodName">
