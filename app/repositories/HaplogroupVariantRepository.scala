@@ -6,19 +6,67 @@ import play.api.db.slick.DatabaseConfigProvider
 
 import scala.concurrent.{ExecutionContext, Future}
 
+/**
+ * Trait for managing and querying relationships between haplogroups and genetic variants.
+ */
 trait HaplogroupVariantRepository {
+  /**
+   * Finds and retrieves a list of variants based on the given query string.
+   *
+   * @param query The search query used to filter and retrieve the relevant variants.
+   * @return A future containing a sequence of variants that match the provided query.
+   */
   def findVariants(query: String): Future[Seq[Variant]]
 
+  /**
+   * Retrieves the list of variants associated with a given haplogroup.
+   *
+   * @param haplogroupId the identifier of the haplogroup for which variants are to be retrieved
+   * @return a future containing a sequence of tuples, where each tuple consists of a Variant and its associated GenbankContig
+   */
   def getHaplogroupVariants(haplogroupId: Int): Future[Seq[(Variant, GenbankContig)]]
 
+  /**
+   * Retrieves a list of genetic variants associated with the given haplogroup.
+   *
+   * @param haplogroupId The unique identifier of the haplogroup for which the variants are being requested.
+   * @return A Future containing a sequence of Variant objects associated with the specified haplogroup.
+   */
   def getVariantsByHaplogroup(haplogroupId: Int): Future[Seq[Variant]]
 
+  /**
+   * Retrieves a list of haplogroups associated with the specified variant.
+   *
+   * @param variantId The unique identifier of the variant for which haplogroups are to be retrieved.
+   * @return A Future containing a sequence of Haplogroup objects associated with the specified variant.
+   */
   def getHaplogroupsByVariant(variantId: Int): Future[Seq[Haplogroup]]
 
+  /**
+   * Associates a genetic variant with a specified haplogroup.
+   *
+   * @param haplogroupId The unique identifier of the haplogroup to which the variant will be added.
+   * @param variantId    The unique identifier of the genetic variant to add to the haplogroup.
+   * @return A Future containing the number of records updated or affected (typically 1 if successful, 0 otherwise).
+   */
   def addVariantToHaplogroup(haplogroupId: Int, variantId: Int): Future[Int]
 
+  /**
+   * Removes a specified variant from a given haplogroup.
+   *
+   * @param haplogroupId The unique identifier of the haplogroup from which the variant will be removed.
+   * @param variantId    The unique identifier of the variant to be removed from the haplogroup.
+   * @return A future containing the number of records affected by the operation.
+   */
   def removeVariantFromHaplogroup(haplogroupId: Int, variantId: Int): Future[Int]
 
+  /**
+   * Finds haplogroups associated with a given defining variant.
+   *
+   * @param variantId      The identifier of the defining variant used to locate haplogroups.
+   * @param haplogroupType The type of haplogroup to be returned, indicating the classification context.
+   * @return A Future containing a sequence of haplogroups that match the given defining variant and type.
+   */
   def findHaplogroupsByDefiningVariant(variantId: String, haplogroupType: HaplogroupType): Future[Seq[Haplogroup]]
 }
 
