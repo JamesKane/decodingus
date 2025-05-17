@@ -7,8 +7,14 @@ import play.api.*
 import play.api.mvc.{Action, *}
 
 /**
- * This controller creates an `Action` to handle HTTP requests to the
- * application's home page.
+ * A controller for handling HTTP requests to the application's main pages.
+ *
+ * This class contains actions for rendering HTML pages for various public-facing
+ * sections of the application, such as the homepage, cookie usage policy, privacy
+ * policy, terms of service, and public API information.
+ *
+ * @param controllerComponents provides the base controller components required by all controllers
+ * @param webJarsUtil          utility for managing web jar assets
  */
 @Singleton
 class HomeController @Inject()(val controllerComponents: ControllerComponents)
@@ -25,18 +31,54 @@ class HomeController @Inject()(val controllerComponents: ControllerComponents)
     Ok(views.html.index())
   }
 
+  /**
+   * Renders the Cookie Usage Policy page.
+   *
+   * This action handles GET requests for the cookie usage policy of the application.
+   * It loads and displays the static HTML content detailing the application's current, 
+   * future, and potential use of cookies, including compliance with relevant data protection regulations.
+   *
+   * @return an action that renders the Cookie Usage Policy view as an HTML response
+   */
   def cookieUsage(): Action[AnyContent] = Action { implicit request: Request[AnyContent] =>
     Ok(views.html.cookies())
   }
 
+  /**
+   * Renders the Privacy Policy page.
+   *
+   * This action handles GET requests for the privacy policy of the application.
+   * It loads and displays a static HTML page outlining the application's policies
+   * regarding data privacy and protection.
+   *
+   * @return an action that renders the Privacy Policy view as an HTML response
+   */
   def privacy(): Action[AnyContent] = Action { implicit request: Request[AnyContent] =>
     Ok(views.html.privacyPolicy())
   }
 
+  /**
+   * Renders the Terms of Use page.
+   *
+   * This action handles GET requests for the Terms of Use of the application.
+   * It loads and displays the static HTML content detailing the application's terms and conditions
+   * for using the website and its features.
+   *
+   * @return an action that renders the Terms of Use view as an HTML response
+   */
   def terms(): Action[AnyContent] = Action { implicit request: Request[AnyContent] =>
     Ok(views.html.terms())
   }
 
+  /**
+   * Handles GET requests to render the Public API documentation.
+   *
+   * This action loads and displays a static HTML page that provides documentation
+   * for the application's public API endpoints, including details about available routes,
+   * their responses, and formats.
+   *
+   * @return an action that renders the Public API documentation as an HTML response
+   */
   def publicApi(): Action[AnyContent] = Action { implicit request: Request[AnyContent] =>
     Ok(views.html.publicApi())
   }

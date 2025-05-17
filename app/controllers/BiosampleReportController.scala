@@ -7,10 +7,25 @@ import services.BiosampleReportService
 import javax.inject.{Inject, Singleton}
 import scala.concurrent.ExecutionContext
 
+/**
+ * Controller responsible for handling operations related to biosample reports.
+ *
+ * @param cc      Controller components used to handle HTTP-related features.
+ * @param service Service layer used to fetch biosample data.
+ * @param ec      ExecutionContext for handling asynchronous operations.
+ */
 @Singleton
 class BiosampleReportController @Inject()(cc: ControllerComponents, service: BiosampleReportService)(implicit ec: ExecutionContext) extends BaseController {
   override protected def controllerComponents: ControllerComponents = cc
 
+  /**
+   * Generates an HTML view of the biosample report for a specific publication. 
+   * Supports pagination to display data across multiple pages.
+   *
+   * @param publicationId The ID of the publication for which the biosample report is generated.
+   * @param page          Optional page number indicating which page of the report to retrieve.
+   * @return An asynchronous Action that renders the HTML view of the biosample report.
+   */
   def getBiosampleReportHTML(publicationId: Int, page: Option[Int]): Action[AnyContent] = Action.async { implicit request =>
     val currentPage = page.getOrElse(1)
     val pageSize = request.queryString.get("pageSize").flatMap(_.headOption).flatMap(_.toIntOption).getOrElse(100)
@@ -20,6 +35,12 @@ class BiosampleReportController @Inject()(cc: ControllerComponents, service: Bio
     }
   }
 
+  /**
+   * Retrieves biosample data for a specific publication and returns it in JSON format.
+   *
+   * @param publicationId The ID of the publication for which biosample data will be retrieved.
+   * @return An asynchronous Action that returns the biosample data as a JSON response.
+   */
   def getBiosampleReportJSON(publicationId: Int): Action[AnyContent] = Action.async { implicit request =>
     service.getBiosampleData(publicationId).map { biosamples =>
       val jsonResponse = Json.toJson(biosamples)

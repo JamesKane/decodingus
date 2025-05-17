@@ -10,12 +10,31 @@ import services.{ApiRoute, FragmentRoute, HaplogroupTreeService}
 import javax.inject.*
 import scala.concurrent.ExecutionContext
 
+/**
+ * Controller responsible for handling actions related to haplogroup trees.
+ * Provides routes to render tree views and API endpoints to retrieve tree data.
+ *
+ * @constructor Creates a new TreeController.
+ * @param controllerComponents Essential components required for Play controllers.
+ * @param treeService          Service responsible for building haplogroup tree responses.
+ * @param webJarsUtil          Utility for managing web resources.
+ * @param ec                   Execution context for handling asynchronous operations.
+ */
 @Singleton
 class TreeController @Inject()(val controllerComponents: ControllerComponents,
                                treeService: HaplogroupTreeService)
                               (using webJarsUtil: WebJarsUtil, ec: ExecutionContext)
   extends BaseController {
 
+  /**
+   * Configuration for initializing and handling tree-based data structures
+   * specific to genetic haplogroup analysis.
+   *
+   * @param haplogroupType Specifies the type of haplogroup classification,
+   *                       either paternal (Y) or maternal (MT).
+   * @param defaultRoot    Represents the default root haplogroup to be used
+   *                       when rendering or querying the tree structure.
+   */
   private case class TreeConfig(
                                  haplogroupType: HaplogroupType,
                                  defaultRoot: String
@@ -24,26 +43,102 @@ class TreeController @Inject()(val controllerComponents: ControllerComponents,
   private val YConfig = TreeConfig(Y, "Y")
   private val MTConfig = TreeConfig(MT, "L")
 
+  /**
+   * Renders the Y-DNA tree page.
+   *
+   * This action responds to HTTP GET requests and renders a view that displays
+   * the Y-DNA haplogroup tree. The view includes interactive elements such as
+   * a search form for navigating to specific haplogroups.
+   *
+   * @return an action that renders the Y-DNA tree page as an HTML response
+   */
   def ytree(): Action[AnyContent] = Action { implicit request =>
     Ok(views.html.ytree())
   }
 
+  /**
+   * Renders the MT-DNA tree page.
+   *
+   * This action responds to HTTP GET requests and renders a view that displays
+   * the MT-DNA haplogroup tree. The view includes interactive elements such as
+   * a search form for navigating to specific haplogroups.
+   *
+   * @return an action that renders the MT-DNA tree page as an HTML response
+   */
   def mtree(): Action[AnyContent] = Action { implicit request =>
     Ok(views.html.mtree())
   }
 
+  /**
+   * Handles API requests to retrieve the Y-DNA haplogroup tree structure.
+   *
+   * This method generates a JSON representation of the Y-DNA haplogroup tree
+   * starting from a specified root haplogroup. If no root haplogroup is provided,
+   * it defaults to the configuration's default root haplogroup.
+   *
+   * @param rootHaplogroup an optional string representing the root haplogroup
+   *                       for the Y-DNA tree. If None, the default root is used.
+   * @return an Action that produces a JSON response containing the Y-DNA haplogroup tree.
+   */
   def apiYTree(rootHaplogroup: Option[String]): Action[AnyContent] =
     treeAction(rootHaplogroup, YConfig, ApiRoute)
 
+  /**
+   * Handles API requests to retrieve the MT-DNA haplogroup tree structure.
+   *
+   * This method generates a JSON representation of the MT-DNA haplogroup tree
+   * starting from a specified root haplogroup. If no root haplogroup is provided,
+   * it defaults to the configuration's default root haplogroup.
+   *
+   * @param rootHaplogroup an optional string representing the root haplogroup
+   *                       for the MT-DNA tree. If None, the default root is used.
+   * @return an Action that produces a JSON response containing the MT-DNA haplogroup tree.
+   */
   def apiMTree(rootHaplogroup: Option[String]): Action[AnyContent] =
     treeAction(rootHaplogroup, MTConfig, ApiRoute)
 
+  /**
+   * Handles requests to render a fragment of the Y-DNA haplogroup tree.
+   *
+   * This method generates an HTML fragment that represents a specific portion of the Y-DNA haplogroup tree.
+   * The portion of the tree rendered can be controlled by specifying a root haplogroup. If no root haplogroup
+   * is provided, the configuration's default root is used.
+   *
+   * @param rootHaplogroup an optional string indicating the root haplogroup for the Y-DNA tree fragment.
+   *                       If None, the default root haplogroup is used.
+   * @return an Action that produces an HTML response containing the Y-DNA tree fragment.
+   */
   def yTreeFragment(rootHaplogroup: Option[String]): Action[AnyContent] =
     treeAction(rootHaplogroup, YConfig, FragmentRoute)
 
+  /**
+   * Handles requests to render a fragment of the MT-DNA haplogroup tree.
+   *
+   * This method generates an HTML fragment that represents a specific portion of the MT-DNA haplogroup tree.
+   * The portion of the tree rendered can be controlled by specifying a root haplogroup. If no root haplogroup
+   * is provided, the configuration's default root is used.
+   *
+   * @param rootHaplogroup an optional string indicating the root haplogroup for the MT-DNA tree fragment.
+   *                       If None, the default root haplogroup is used.
+   * @return an Action that produces an HTML response containing the MT-DNA tree fragment.
+   */
   def mTreeFragment(rootHaplogroup: Option[String]): Action[AnyContent] =
     treeAction(rootHaplogroup, MTConfig, FragmentRoute)
 
+  /**
+   * Generates a tree structure for a given root haplogroup and renders it as either
+   * a JSON response or an HTML fragment depending on the specified route type.
+   *
+   * @param rootHaplogroup an optional string specifying the root haplogroup
+   *                       for the tree. If None, the default root defined in
+   *                       the configuration is used.
+   * @param config         the tree configuration containing settings such
+   *                       as the default root and haplogroup type.
+   * @param routeType      the type of response to generate, either JSON
+   *                       (for API responses) or HTML fragments.
+   * @return an Action that produces either a JSON response with the tree
+   *         structure or an HTML fragment based on the route type.
+   */
   private def treeAction(
                           rootHaplogroup: Option[String],
                           config: TreeConfig,
