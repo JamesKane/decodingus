@@ -8,6 +8,30 @@ import slick.jdbc.GetResult
 
 import scala.concurrent.{ExecutionContext, Future}
 
+/**
+ * The BaseRepository class provides an abstract layer for accessing the database
+ * using the MyPostgresProfile and Slick. It includes various helper methods for
+ * common database operations, such as query execution, pagination, raw SQL execution,
+ * and more. It serves as a base class for other repository implementations.
+ *
+ * Constructor Parameters:
+ *
+ * @param dbConfigProvider Injected DatabaseConfigProvider that provides the database
+ *                         configuration for Slick.
+ * @param ec               Implicit ExecutionContext for handling asynchronous database operations.
+ *
+ *                         Features:
+ *                         - Provides access to Slick's database configuration and API.
+ *                         - Supports transactional and non-transactional queries.
+ *                         - Includes pagination utilities for query results.
+ *                         - Enables safe execution of raw SQL queries with type mapping.
+ *                         - Offers helper methods for executing Common Table Expression (CTE) queries.
+ *                         - Allows counting rows with optional filtering and distinct column selection.
+ *                         - Supports additional custom functions such as fetching paginated raw SQL results.
+ *
+ *                         The class can be extended to define repositories specific to individual models 
+ *                         or business entities, facilitating DRY principles by reusing the provided abstraction.
+ */
 abstract class BaseRepository @Inject()(
                                          protected val dbConfigProvider: DatabaseConfigProvider
                                        )(implicit protected val ec: ExecutionContext)
