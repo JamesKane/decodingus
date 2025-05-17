@@ -63,12 +63,12 @@ class TreeController @Inject()(val controllerComponents: ControllerComponents,
         case _: IllegalArgumentException =>
           routeType match {
             case ApiRoute => NotFound(Json.obj("error" -> s"Haplogroup $haplogroupName not found"))
-            case FragmentRoute => NotFound(views.html.fragments.error(s"Haplogroup $haplogroupName not found"))
+            case FragmentRoute => Ok(views.html.fragments.error(s"Haplogroup $haplogroupName not found"))
           }
         case e =>
           routeType match {
             case ApiRoute => InternalServerError(Json.obj("error" -> e.getMessage))
-            case FragmentRoute => InternalServerError(views.html.fragments.error(e.getMessage))
+            case FragmentRoute => Ok(views.html.fragments.error(e.getMessage))
           }
       }
   }
