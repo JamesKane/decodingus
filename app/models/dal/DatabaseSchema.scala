@@ -1,8 +1,18 @@
 package models.dal
 
-import models.dal.MyPostgresProfile.api._
+import models.HaplogroupType
 
 object DatabaseSchema {
+  import models.dal.MyPostgresProfile.api.*
+
+  implicit val haplogroupTypeMapper: BaseColumnType[HaplogroupType] =
+    MappedColumnType.base[HaplogroupType, String](
+      ht => ht.toString, // to database (uses the enum's toString)
+      str => HaplogroupType.fromString(str).getOrElse(
+        throw new IllegalArgumentException(s"Invalid haplogroup type: $str")
+      ) // from database
+    )
+
   val analysisMethods = TableQuery[AnalysisMethodTable]
   val ancestryAnalyses = TableQuery[AncestryAnalysisTable]
   val biosamples = TableQuery[BiosamplesTable]
@@ -19,6 +29,7 @@ object DatabaseSchema {
   val publicationBiosamples = TableQuery[PublicationBiosamplesTable]
   val publicationEnaStudies = TableQuery[PublicationEnaStudiesTable]
   val qualityMetrics = TableQuery[QualityMetricsTable]
+  val relationshipRevisionMetadata = TableQuery[RelationshipRevisionMetadataTable]
   val reportedNegativeVariants = TableQuery[ReportedNegativeVariantsTable]
   val reportedVariants = TableQuery[ReportedVariantsTable]
   val sequenceAtpLocations = TableQuery[SequenceAtpLocationTable]

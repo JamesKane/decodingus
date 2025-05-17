@@ -17,8 +17,8 @@ GET        /references/details                                         controlle
 
 GET        /coverage-benchmarks                                        controllers.CoverageController.index()
 
-GET        /api/v1/ytree                                               controllers.TreeController.apiYTree()
-GET        /api/v1/mtree                                               controllers.TreeController.apiMTree()
+GET        /api/v1/y-tree                                              controllers.TreeController.apiYTree(rootHaplogroup: Option[String])
+GET        /api/v1/mt-tree                                             controllers.TreeController.apiMTree(rootHaplogroup: Option[String])
 
 GET        /api/v1/benchmarks                                          controllers.CoverageController.apiBenchmarks()
 

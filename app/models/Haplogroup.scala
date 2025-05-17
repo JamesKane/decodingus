@@ -7,7 +7,7 @@ case class Haplogroup(
                        name: String,
                        lineage: Option[String],
                        description: Option[String],
-                       haplogroupType: String,
+                       haplogroupType: HaplogroupType,
                        revisionId: Int,
                        source: String,
                        confidenceLevel: String,
