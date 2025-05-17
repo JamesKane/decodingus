@@ -7,6 +7,18 @@ import repositories.*
 import java.time.LocalDateTime
 import scala.concurrent.{ExecutionContext, Future}
 
+/**
+ * Configuration class for tree import settings.
+ *
+ * This class represents the configurable parameters used during the process of
+ * importing tree data. These parameters include information about the author of
+ * the import, the source of the data, and confidence levels for the imported data.
+ *
+ * @param initialAuthor           The identifier for the author of the import. Defaults to "system".
+ * @param source                  The source of the imported tree data. Defaults to "initial_import".
+ * @param defaultConfidenceLevel  The confidence level to assign to non-backbone data during import. Defaults to "MEDIUM".
+ * @param backboneConfidenceLevel The confidence level to assign to backbone data during import. Defaults to "HIGH".
+ */
 case class TreeImportConfig(
                              initialAuthor: String = "system",
                              source: String = "initial_import",
@@ -15,6 +27,21 @@ case class TreeImportConfig(
                            )
 
 
+/**
+ * Class responsible for importing and processing phylogenetic tree data into the system,
+ * including haplogroup information, relationships, and variant associations.
+ *
+ * @constructor Creates a new instance of TreeImporter with the required repositories and configuration.
+ * @param haplogroupRevisionRepository         Repository for managing haplogroup and revision data.
+ * @param haplogroupRelationshipRepository     Repository for managing haplogroup relationships.
+ * @param haplogroupVariantRepository          Repository for managing haplogroup-variant associations.
+ * @param haplogroupVariantMetadataRepository  Repository for managing metadata for haplogroup-variant revisions.
+ * @param haplogroupRevisionMetadataRepository Repository for managing metadata for haplogroup revisions.
+ * @param genbankContigRepository              Repository for accessing GenBank contig data.
+ * @param variantRepository                    Repository for managing variant data.
+ * @param config                               Configuration related to tree importing, such as source and confidence levels.
+ * @param ec                                   Implicit execution context for managing asynchronous computations.
+ */
 class TreeImporter(
                     haplogroupRevisionRepository: HaplogroupRevisionRepository,
                     haplogroupRelationshipRepository: HaplogroupRelationshipRepository,
@@ -26,6 +53,14 @@ class TreeImporter(
                     config: TreeImportConfig
                   )(implicit ec: ExecutionContext) {
 
+  /**
+   * Imports a tree structure into the system by recursively processing its nodes,
+   * creating haplogroups, relationships, and variants.
+   *
+   * @param tree           The tree structure to be imported, represented as a `TreeDTO`.
+   * @param haplogroupType The type of haplogroup classification to apply (e.g., paternal or maternal lineage).
+   * @return A `Future` that completes when the tree has been successfully imported, or fails in case of an error.
+   */
   def importTree(tree: TreeDTO, haplogroupType: HaplogroupType): Future[Unit] = {
     val timestamp = LocalDateTime.now()
 
@@ -61,6 +96,19 @@ class TreeImporter(
     }
   }
 
+  /**
+   * Creates a new haplogroup entry based on the provided tree node and its attributes.
+   *
+   * This method constructs a Haplogroup entity using the data from the given TreeNodeDTO,
+   * including its name, backbone flag, and the specified haplogroup type. It also assigns
+   * a confidence level and validity timestamps. The constructed haplogroup is then passed
+   * to the repository to create a new revision, which is persisted to the database.
+   *
+   * @param node           The TreeNodeDTO representing the hierarchical structure and metadata for the haplogroup.
+   * @param haplogroupType The type of haplogroup classification, e.g., paternal (Y) or maternal (MT).
+   * @param timestamp      The timestamp indicating the creation or validity start time for the haplogroup.
+   * @return A Future containing the unique integer identifier of the newly created haplogroup revision.
+   */
   private def createHaplogroup(
                                 node: TreeNodeDTO,
                                 haplogroupType: HaplogroupType,
@@ -82,6 +130,16 @@ class TreeImporter(
     haplogroupRevisionRepository.createNewRevision(haplogroup)
   }
 
+  /**
+   * Creates a relationship between a parent haplogroup and a child haplogroup,
+   * with associated metadata for tracking revisions.
+   *
+   * @param parentId  The unique identifier of the parent haplogroup.
+   * @param childId   The unique identifier of the child haplogroup.
+   * @param timestamp The timestamp indicating when the relationship was created or became valid.
+   * @return A Future containing Unit, which completes when the relationship and its metadata
+   *         are successfully created, or fails with an exception if an error occurs.
+   */
   private def createRelationship(
                                   parentId: Int,
                                   childId: Int,
@@ -115,6 +173,16 @@ class TreeImporter(
     } yield ()
   }
 
+  /**
+   * Creates or retrieves genetic variants, associates them with a specific haplogroup,
+   * and stores the related metadata for tracking changes.
+   *
+   * @param variants     A sequence of `VariantDTO` instances representing the genomic variants to be processed.
+   * @param haplogroupId The unique identifier of the haplogroup to associate the variants with.
+   * @param timestamp    The timestamp indicating the moment of creation or update for the variants.
+   * @return A `Future` containing `Unit` that completes once all variants are processed and associated,
+   *         or fails with an exception if an error occurs during execution.
+   */
   private def createVariants(
                               variants: Seq[VariantDTO],
                               haplogroupId: Int,
@@ -144,6 +212,18 @@ class TreeImporter(
     }).map(_ => ())
   }
 
+  /**
+   * Creates a new variant or retrieves the ID of an existing variant based on the provided `VariantDTO`.
+   *
+   * This method operates by first identifying the genomic contig specified by the accession in the
+   * variant's coordinates. Once the contig is found, it attempts to locate an existing variant with matching
+   * genomic details (position, reference allele, and alternate allele). If no such variant exists, a new
+   * one is created and its ID is returned.
+   *
+   * @param v The `VariantDTO` instance containing details about the variant, such as its name,
+   *          coordinates, and type.
+   * @return A `Future` that resolves to the unique integer identifier of the existing or newly created variant.
+   */
   private def createOrGetVariant(v: VariantDTO): Future[Int] = {
     val (contigAccession, coord) = v.coordinates.head
 

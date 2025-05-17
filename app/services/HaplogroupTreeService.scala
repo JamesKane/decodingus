@@ -1,9 +1,9 @@
 package services
 
 import jakarta.inject.Inject
-import models.api.*
 import models.HaplogroupType
 import models.HaplogroupType.{MT, Y}
+import models.api.*
 import play.api.mvc.Call
 import repositories.{HaplogroupCoreRepository, HaplogroupVariantRepository}
 
@@ -11,11 +11,34 @@ import java.time.ZoneId
 import scala.concurrent.{ExecutionContext, Future}
 
 sealed trait RouteType
+
 case object ApiRoute extends RouteType
+
 case object FragmentRoute extends RouteType
 
-class HaplogroupTreeService @Inject()(coreRepository: HaplogroupCoreRepository, variantRepository: HaplogroupVariantRepository)(implicit ec: ExecutionContext) {
+/**
+ * Service for building and managing haplogroup trees, providing capabilities for constructing tree responses,
+ * processing ancestral and descendant relationships, and querying haplogroups by variants.
+ *
+ * @constructor Creates a new instance of `HaplogroupTreeService`.
+ * @param coreRepository    repository for accessing core haplogroup data
+ * @param variantRepository repository for accessing variant-related haplogroup data
+ * @param ec                implicit execution context for handling asynchronous operations
+ */
+class HaplogroupTreeService @Inject()(
+                                       coreRepository: HaplogroupCoreRepository, 
+                                       variantRepository: HaplogroupVariantRepository)(implicit ec: ExecutionContext) {
 
+  /**
+   * Builds a TreeDTO representation for a specified haplogroup with related breadcrumbs and subtree.
+   *
+   * @param haplogroupName The name of the haplogroup to build the tree response for.
+   * @param haplogroupType The type of haplogroup (e.g., Y-DNA or mtDNA) being processed.
+   * @param routeType      The type of route to construct for breadcrumb navigation.
+   * @return A Future containing the constructed TreeDTO, representing the haplogroup tree structure
+   *         with breadcrumbs and an optional subtree.
+   * @throws IllegalArgumentException if the specified haplogroup is not found.
+   */
   def buildTreeResponse(haplogroupName: String, haplogroupType: HaplogroupType, routeType: RouteType): Future[TreeDTO] = {
     for {
       rootHaplogroupOpt <- coreRepository.getHaplogroupByName(haplogroupName, haplogroupType)
@@ -33,6 +56,14 @@ class HaplogroupTreeService @Inject()(coreRepository: HaplogroupCoreRepository, 
     )
   }
 
+  /**
+   * Returns the route for a given combination of haplogroup type and route type.
+   *
+   * @param name           The name of the haplogroup.
+   * @param haplogroupType The type of haplogroup, representing Y-DNA or mtDNA.
+   * @param routeType      The type of route, representing fragment or API endpoints.
+   * @return A `Call` object representing the constructed route for the specified parameters.
+   */
   private def getRoute(name: String, haplogroupType: HaplogroupType, routeType: RouteType): Call = {
     (haplogroupType, routeType) match {
       case (Y, FragmentRoute) => controllers.routes.TreeController.yTreeFragment(Some(name))
@@ -42,6 +73,14 @@ class HaplogroupTreeService @Inject()(coreRepository: HaplogroupCoreRepository, 
     }
   }
 
+  /**
+   * Constructs a list of breadcrumb DTOs based on the provided haplogroups, haplogroup type, and route type.
+   *
+   * @param haplogroups    A sequence of haplogroups used to generate breadcrumb data.
+   * @param haplogroupType The type of haplogroups (e.g., Y-DNA or mtDNA) to use in the breadcrumb context.
+   * @param routeType      The type of route (e.g., fragment or API endpoint) to create for breadcrumb navigation.
+   * @return A list of `CrumbDTO` objects representing the breadcrumbs for the provided parameters.
+   */
   private def buildCrumbs(haplogroups: Seq[models.Haplogroup], haplogroupType: HaplogroupType, routeType: RouteType): List[CrumbDTO] = {
     haplogroups.map { haplogroup =>
       CrumbDTO(
@@ -52,6 +91,19 @@ class HaplogroupTreeService @Inject()(coreRepository: HaplogroupCoreRepository, 
   }
 
 
+  /**
+   * Recursively builds a `TreeNodeDTO` representation of a haplogroup and its subtree.
+   *
+   * This method constructs a tree structure for a given haplogroup by retrieving its associated variants and 
+   * processing its child haplogroups. The result is encapsulated in a `TreeNodeDTO` object, which contains
+   * information about the haplogroup name, variants, children, last update timestamp, and whether it belongs 
+   * to the backbone structure.
+   *
+   * @param haplogroup The `Haplogroup` object for which the subtree is being built. This contains metadata
+   *                   such as the haplogroup's name, lineage, and additional information.
+   * @return A `Future` containing the constructed `TreeNodeDTO`, which includes the haplogroup's metadata,
+   *         associated variants, and recursive child tree nodes.
+   */
   private def buildSubtree(haplogroup: models.Haplogroup): Future[TreeNodeDTO] = {
     for {
       // Get variants for this haplogroup
@@ -84,6 +136,16 @@ class HaplogroupTreeService @Inject()(coreRepository: HaplogroupCoreRepository, 
     )
   }
 
+  /**
+   * Builds a TreeDTO representation by constructing a haplogroup tree structure
+   * for the haplogroup(s) defined by the given genetic variant.
+   *
+   * @param variantId      The identifier of the genetic variant defining one or more haplogroups.
+   * @param haplogroupType The type of haplogroup (e.g., Y-DNA or mtDNA) to be processed.
+   * @param routeType      The type of route to construct for breadcrumb navigation in the tree.
+   * @return A Future containing an Option of TreeDTO. The Option will contain the TreeDTO if
+   *         a corresponding haplogroup is found; otherwise, it will be None.
+   */
   def buildTreeFromVariant(variantId: String, haplogroupType: HaplogroupType, routeType: RouteType): Future[Option[TreeDTO]] = {
     for {
       // First find the haplogroup(s) defined by this variant
@@ -98,6 +160,16 @@ class HaplogroupTreeService @Inject()(coreRepository: HaplogroupCoreRepository, 
     } yield treeOpt
   }
 
+  /**
+   * Constructs a sequence of TreeDTO objects representing tree structures for all haplogroups
+   * associated with a specific genetic variant.
+   *
+   * @param variantId      The identifier of the genetic variant used to find associated haplogroups.
+   * @param haplogroupType The type of haplogroup (e.g., Y-DNA or mtDNA) being processed.
+   * @param routeType      The type of route to construct for navigational purposes.
+   * @return A Future containing a sequence of TreeDTO objects, where each represents the tree structure
+   *         for a haplogroup associated with the provided variant.
+   */
   def buildTreesFromVariant(variantId: String, haplogroupType: HaplogroupType, routeType: RouteType): Future[Seq[TreeDTO]] = {
     for {
       // Find all haplogroups that have this variant as defining
@@ -126,11 +198,20 @@ class HaplogroupTreeService @Inject()(coreRepository: HaplogroupCoreRepository, 
     } yield treeLists.flatten
   }
 
+  /**
+   * Normalizes the given variant identifier by formatting it consistently based on its structure.
+   *
+   * The method supports the following formats:
+   * - rsID (e.g., rs1234): Returned as-is, converted to lowercase.
+   * - chr:pos (e.g., Y:2728456): Returned in the same structure after conversion to lowercase.
+   * - chr:pos:ref:alt (e.g., Y:2728456:A:G): Returned in the same structure after conversion to lowercase.
+   *
+   * Any unrecognized format is returned unchanged after trimming and converting to lowercase.
+   *
+   * @param query The genetic variant identifier to be normalized. It may be in rsID, chr:pos, or chr:pos:ref:alt format.
+   * @return The normalized variant identifier, based on the recognized format.
+   */
   private def normalizeVariantId(query: String): String = {
-    // Handle different formats:
-    // - rsID (rs1234)
-    // - chr:pos (Y:2728456)
-    // - chr:pos:ref:alt (Y:2728456:A:G)
     query.trim.toLowerCase match {
       case rsid if rsid.startsWith("rs") => rsid
       case chrPos if chrPos.contains(":") =>

@@ -28,7 +28,7 @@ class PublicationController @Inject()(val controllerComponents: ControllerCompon
   /**
    * Renders the references page.
    *
-   * This action handles GET requests to display the references page of the application. 
+   * This action handles GET requests to display the references page of the application.
    * It serves an HTML view with static content and links related to references.
    *
    * @return an action that renders the References view as an HTML response
@@ -45,11 +45,11 @@ class PublicationController @Inject()(val controllerComponents: ControllerCompon
    * detailed information, including associated studies and sample counts. The response
    * is serialized as JSON and returned with an HTTP OK status.
    *
-   * @return an asynchronous action that produces an HTTP response containing JSON-encoded 
+   * @return an asynchronous action that produces an HTTP response containing JSON-encoded
    *         details of all publications.
    */
   def getAllPublicationsWithDetailsJson: Action[play.api.mvc.AnyContent] = Action.async {
-    publicationService.getAllPublicationsWithDetails().map { publicationsWithDetails =>
+    publicationService.getAllPublicationsWithDetails.map { publicationsWithDetails =>
       Ok(Json.toJson(publicationsWithDetails))
     }
   }
