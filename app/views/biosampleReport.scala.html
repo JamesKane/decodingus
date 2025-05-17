@@ -43,11 +43,13 @@
                     <td>@sample.yDnaHaplogroup</td>
                     <td>@sample.mtDnaHaplogroup</td>
                     <td>
-                        @sample.bestFitPopulation.map { pop =>
-                        <span title="Analysis method: @pop.methodName">
-                            @pop.populationName (@{f"${pop.probability * 100}%.1f"}%)
-                        </span>
-                        }.getOrElse("Not Available")
+                    @sample.bestFitPopulation.map { pop =>
+                    <span title="Analysis method: @pop.methodName">
+                        @pop.populationName (@{
+                        f"${pop.probability * 100}%.1f"
+                    }%)
+                    </span>
+                    }.getOrElse("Not Available")
                     </td>
                 </tr>
             }
