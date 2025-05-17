@@ -5,7 +5,7 @@ import models.api.*
 import models.HaplogroupType
 import models.HaplogroupType.{MT, Y}
 import play.api.mvc.Call
-import repositories.HaplogroupRepository
+import repositories.{HaplogroupCoreRepository, HaplogroupVariantRepository}
 
 import java.time.ZoneId
 import scala.concurrent.{ExecutionContext, Future}
@@ -14,14 +14,14 @@ sealed trait RouteType
 case object ApiRoute extends RouteType
 case object FragmentRoute extends RouteType
 
-class HaplogroupTreeService @Inject()(haplogroupRepository: HaplogroupRepository)(implicit ec: ExecutionContext) {
-  
+class HaplogroupTreeService @Inject()(coreRepository: HaplogroupCoreRepository, variantRepository: HaplogroupVariantRepository)(implicit ec: ExecutionContext) {
+
   def buildTreeResponse(haplogroupName: String, haplogroupType: HaplogroupType, routeType: RouteType): Future[TreeDTO] = {
     for {
-      rootHaplogroupOpt <- haplogroupRepository.getHaplogroupByName(haplogroupName, haplogroupType)
+      rootHaplogroupOpt <- coreRepository.getHaplogroupByName(haplogroupName, haplogroupType)
       rootHaplogroup = rootHaplogroupOpt.getOrElse(throw new IllegalArgumentException(s"Haplogroup $haplogroupName not found"))
 
-      ancestors <- haplogroupRepository.getAncestors(rootHaplogroup.id.get)
+      ancestors <- coreRepository.getAncestors(rootHaplogroup.id.get)
       crumbs = buildCrumbs(ancestors :+ rootHaplogroup, haplogroupType, routeType)
 
       subtree <- buildSubtree(rootHaplogroup)
@@ -55,7 +55,7 @@ class HaplogroupTreeService @Inject()(haplogroupRepository: HaplogroupRepository
   private def buildSubtree(haplogroup: models.Haplogroup): Future[TreeNodeDTO] = {
     for {
       // Get variants for this haplogroup
-      variants <- haplogroupRepository.getHaplogroupVariants(haplogroup.id.get)
+      variants <- variantRepository.getHaplogroupVariants(haplogroup.id.get)
       variantDTOs = variants.map { case (variant, contig) =>
         VariantDTO(
           name = variant.rsId.getOrElse(s"${contig.accession}:${variant.position}"),
@@ -72,7 +72,7 @@ class HaplogroupTreeService @Inject()(haplogroupRepository: HaplogroupRepository
       }
 
       // Get and process children
-      children <- haplogroupRepository.getDirectChildren(haplogroup.id.get)
+      children <- coreRepository.getDirectChildren(haplogroup.id.get)
       childNodes <- Future.sequence(children.map(buildSubtree))
 
     } yield TreeNodeDTO(
@@ -87,7 +87,7 @@ class HaplogroupTreeService @Inject()(haplogroupRepository: HaplogroupRepository
   def buildTreeFromVariant(variantId: String, haplogroupType: HaplogroupType, routeType: RouteType): Future[Option[TreeDTO]] = {
     for {
       // First find the haplogroup(s) defined by this variant
-      haplogroups <- haplogroupRepository.findHaplogroupsByDefiningVariant(variantId, haplogroupType)
+      haplogroups <- variantRepository.findHaplogroupsByDefiningVariant(variantId, haplogroupType)
 
       // If we found any haplogroups, build the tree from the most recent one
       // (assuming more recent haplogroups are more specific/detailed)
@@ -101,7 +101,7 @@ class HaplogroupTreeService @Inject()(haplogroupRepository: HaplogroupRepository
   def buildTreesFromVariant(variantId: String, haplogroupType: HaplogroupType, routeType: RouteType): Future[Seq[TreeDTO]] = {
     for {
       // Find all haplogroups that have this variant as defining
-      haplogroups <- haplogroupRepository.findHaplogroupsByDefiningVariant(variantId, haplogroupType)
+      haplogroups <- variantRepository.findHaplogroupsByDefiningVariant(variantId, haplogroupType)
 
       // Build trees for each haplogroup
       trees <- Future.sequence(
@@ -117,7 +117,7 @@ class HaplogroupTreeService @Inject()(haplogroupRepository: HaplogroupRepository
 
     for {
       // Search by different formats (rsID, position-based, etc)
-      variants <- haplogroupRepository.findVariants(normalizedQuery)
+      variants <- variantRepository.findVariants(normalizedQuery)
 
       // Get all trees for each variant
       treeLists <- Future.sequence(

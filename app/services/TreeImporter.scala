@@ -2,7 +2,7 @@ package services
 
 import models.*
 import models.api.{TreeDTO, TreeNodeDTO, VariantDTO}
-import repositories.{GenbankContigRepository, HaplogroupRepository, VariantRepository}
+import repositories.*
 
 import java.time.LocalDateTime
 import scala.concurrent.{ExecutionContext, Future}
@@ -16,7 +16,11 @@ case class TreeImportConfig(
 
 
 class TreeImporter(
-                    haplogroupRepository: HaplogroupRepository,
+                    haplogroupRevisionRepository: HaplogroupRevisionRepository,
+                    haplogroupRelationshipRepository: HaplogroupRelationshipRepository,
+                    haplogroupVariantRepository: HaplogroupVariantRepository,
+                    haplogroupVariantMetadataRepository: HaplogroupVariantMetadataRepository,
+                    haplogroupRevisionMetadataRepository: HaplogroupRevisionMetadataRepository,
                     genbankContigRepository: GenbankContigRepository,
                     variantRepository: VariantRepository,
                     config: TreeImportConfig
@@ -75,7 +79,7 @@ class TreeImporter(
       validUntil = None
     )
 
-    haplogroupRepository.createNewRevision(haplogroup)
+    haplogroupRevisionRepository.createNewRevision(haplogroup)
   }
 
   private def createRelationship(
@@ -104,8 +108,8 @@ class TreeImporter(
     )
 
     for {
-      relId <- haplogroupRepository.createRelationshipRevision(relationship)
-      _ <- haplogroupRepository.addRelationshipRevisionMetadata(
+      relId <- haplogroupRelationshipRepository.createRelationshipRevision(relationship)
+      _ <- haplogroupRevisionMetadataRepository.addRelationshipRevisionMetadata(
         metadata.copy(haplogroup_relationship_id = relId)
       )
     } yield ()
@@ -122,10 +126,10 @@ class TreeImporter(
         variantId <- createOrGetVariant(v)
 
         // Create the haplogroup-variant association
-        assocId <- haplogroupRepository.addVariantToHaplogroup(haplogroupId, variantId)
+        assocId <- haplogroupVariantRepository.addVariantToHaplogroup(haplogroupId, variantId)
 
         // Add metadata for the association
-        _ <- haplogroupRepository.addVariantRevisionMetadata(
+        _ <- haplogroupVariantMetadataRepository.addVariantRevisionMetadata(
           HaplogroupVariantMetadata(
             haplogroup_variant_id = assocId,
             revision_id = 1,
