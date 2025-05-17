@@ -33,9 +33,9 @@
                     @defining(sample.sex.map(_.toLowerCase).getOrElse("unknown")) { sex =>
                         <i class="fas @{
                             sex match {
-                                case "male" => "fa-mars"
-                                case "female" => "fa-venus"
-                                case _ => "fa-genderless"
+                                case "male" => "fa-mars sex-male"
+                                case "female" => "fa-venus sex-female"
+                                case _ => "fa-genderless sex-unknown"
                             }
                         }" title="@sample.sex.getOrElse("Unknown")"></i>
                     }
