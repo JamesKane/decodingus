@@ -2,7 +2,35 @@ package models.dal
 
 import models.HaplogroupType
 
+/**
+ * Provides the database schema definition, which includes table queries for various domain-specific entities.
+ *
+ * This object serves as an entry point for interacting with the database, defining all table queries using Slick's
+ * `TableQuery` mechanism. Through these queries, operations such as retrieval, insertion, and modifications can
+ * be performed on the corresponding database tables. Additionally, custom mappers or implicit conversions can be
+ * defined here.
+ *
+ * Key functionalities:
+ * - Defines the mapping of domain entities to database tables using Slick's `TableQuery`.
+ * - Provides an implicit mapper (`haplogroupTypeMapper`) for converting `HaplogroupType` values to a
+ * database-compatible string format and vice versa.
+ *
+ * Table queries defined in this schema include:
+ * - Analysis methods
+ * - Biosamples and related metadata
+ * - Ancestry analyses
+ * - Haplogroups, variants, and their relationships
+ * - Population and publication records
+ * - Quality metrics
+ * - Sequence files, libraries, and locations
+ * - Specimen donors
+ * - Studies and reported variants
+ *
+ * These queries enable streamlined interaction with the database while maintaining a clear separation between
+ * the database schema and application logic.
+ */
 object DatabaseSchema {
+
   import models.dal.MyPostgresProfile.api.*
 
   implicit val haplogroupTypeMapper: BaseColumnType[HaplogroupType] =
