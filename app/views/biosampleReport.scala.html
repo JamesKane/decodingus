@@ -26,7 +26,18 @@
                         @sample.enaAccession
                         </a>
                     </td>
-                    <td>@sample.sex</td>
+                    <td>
+                    @defining(sample.sex.map(_.toLowerCase).getOrElse("unknown")) { sex =>
+                        <i class="fas @{
+                            sex match {
+                                case "male" => "fa-mars"
+                                case "female" => "fa-venus"
+                                case _ => "fa-genderless"
+                            }
+                        }" title="@sample.sex.getOrElse("Unknown")"></i>
+                    }
+                    </td>
+
                     <td>@sample.estimateCoverageDepth.map(d => s"${d}x").getOrElse("???")</td>
                     <td>@sample.yDnaHaplogroup</td>
                     <td>@sample.mtDnaHaplogroup</td>
