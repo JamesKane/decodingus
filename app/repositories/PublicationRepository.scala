@@ -9,27 +9,53 @@ import slick.jdbc.JdbcProfile
 
 import scala.concurrent.{ExecutionContext, Future}
 
+/**
+ * Represents a repository interface for handling operations related to publications and their associated data.
+ */
 trait PublicationRepository {
-  def getAllPublications(): Future[Seq[Publication]]
+  /**
+   * Fetches all publications available in the repository.
+   *
+   * @return a Future containing a sequence of Publication objects.
+   */
+  def getAllPublications: Future[Seq[Publication]]
 
+  /**
+   * Retrieves a sequence of EnaStudy records associated with a specific publication.
+   *
+   * @param publicationId the unique identifier of the publication for which associated EnaStudy records are to be fetched
+   * @return a Future containing a sequence of EnaStudy objects related to the specified publication
+   */
   def getEnaStudiesForPublication(publicationId: Int): Future[Seq[EnaStudy]]
 
+  /**
+   * Retrieves a paginated list of publications along with associated ENA studies and their sample counts.
+   *
+   * @param page     the page number to retrieve (1-based index)
+   * @param pageSize the number of records to include in each page
+   * @return a Future containing a sequence of PublicationWithEnaStudiesAndSampleCount objects
+   */
   def findPublicationsWithDetailsPaginated(page: Int, pageSize: Int): Future[Seq[PublicationWithEnaStudiesAndSampleCount]]
 
+  /**
+   * Counts the total number of publications available in the repository.
+   *
+   * @return a Future containing the total count of publications as a Long
+   */
   def countAllPublications(): Future[Long]
 }
 
 class PublicationRepositoryImpl @Inject()(protected val dbConfigProvider: DatabaseConfigProvider)(implicit ec: ExecutionContext)
   extends PublicationRepository with HasDatabaseConfigProvider[JdbcProfile] {
 
-  import profile.api._
+  import profile.api.*
 
   private val publications = DatabaseSchema.publications
   private val publicationEnaStudies = DatabaseSchema.publicationEnaStudies
   private val enaStudies = DatabaseSchema.enaStudies
   private val publicationBiosamples = DatabaseSchema.publicationBiosamples
 
-  override def getAllPublications(): Future[Seq[Publication]] = db.run(publications.result)
+  override def getAllPublications: Future[Seq[Publication]] = db.run(publications.result)
 
   override def getEnaStudiesForPublication(publicationId: Int): Future[Seq[EnaStudy]] = {
     val query = for {
