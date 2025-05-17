@@ -40,7 +40,15 @@
                         }" title="@sample.sex.getOrElse("Unknown")"></i>
                     }
                     </td>
-                    <td>@sample.yDnaHaplogroup</td>
+                    <td>
+                    @defining(sample.sex.map(_.toLowerCase).getOrElse("unknown")) { sex =>
+                        @if(sex == "female") {
+                            N/A
+                        } else {
+                            @sample.yDnaHaplogroup
+                        }
+                    }
+                    </td>
                     <td>@sample.mtDnaHaplogroup</td>
                     <td>
                     @sample.bestFitPopulation.map { pop =>
