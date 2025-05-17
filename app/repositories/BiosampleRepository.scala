@@ -93,7 +93,8 @@ class BiosampleRepositoryImpl @Inject()(
     )
   )
 
-  private val bestPopulationCTE = """
+  private val bestPopulationCTE =
+    """
     best_population AS (
       SELECT aa.sample_guid,
              p.population_name,
@@ -106,7 +107,8 @@ class BiosampleRepositoryImpl @Inject()(
     )
   """
 
-  private def makeBaseQuery(publicationId: Int) = s"""
+  private def makeBaseQuery(publicationId: Int) =
+    s"""
     SELECT b.alias,
            b.sample_accession,
            b.sex,
@@ -144,7 +146,8 @@ class BiosampleRepositoryImpl @Inject()(
                                                                 pageSize: Int
                                                               ): Future[Seq[BiosampleWithOrigin]] = {
     val offset = (page - 1) * pageSize
-    val paginatedQuery = s"""
+    val paginatedQuery =
+      s"""
       ${makeBaseQuery(publicationId)}
       LIMIT $pageSize OFFSET $offset
     """
@@ -152,7 +155,8 @@ class BiosampleRepositoryImpl @Inject()(
   }
 
   override def countBiosamplesForPublication(publicationId: Int): Future[Long] = {
-    val query = s"""
+    val query =
+      s"""
       SELECT COUNT(DISTINCT b.id)
       FROM publication_biosample pb
       INNER JOIN public.biosample b ON b.id = pb.biosample_id
