@@ -81,7 +81,8 @@ class BiosampleRepositoryImpl @Inject()(protected val dbConfigProvider: Database
                  LEFT JOIN
             sequence_library sl on sl.sample_guid = b.sample_guid
         WHERE pb.publication_id = $publicationId
-        GROUP BY b.alias, b.sample_accession, b.sex, b.geocoord, sl.reads, sl.read_length;
+        GROUP BY b.alias, b.sample_accession, b.sex, b.geocoord, sl.reads, sl.read_length
+        ORDER BY b.alias;
       """
 
     db.run(sql"#${sqlString}".as[BiosampleWithOrigin])
@@ -110,6 +111,7 @@ class BiosampleRepositoryImpl @Inject()(protected val dbConfigProvider: Database
                 sequence_library sl on sl.sample_guid = b.sample_guid
            WHERE pb.publication_id = $publicationId
            GROUP BY b.alias, b.sample_accession, b.sex, b.geocoord, sl.reads, sl.read_length
+           ORDER BY b.alias
            LIMIT $pageSize OFFSET $offset;
         """
     db.run(sql"#${sqlString}".as[BiosampleWithOrigin])
