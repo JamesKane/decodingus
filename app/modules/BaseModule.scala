@@ -3,6 +3,16 @@ package modules
 import com.google.inject.AbstractModule
 import repositories.*
 
+/**
+ * A Guice module for configuring bindings between repository interfaces and their concrete implementations.
+ *
+ * This class extends `AbstractModule` and defines the dependency injection setup for various repository
+ * interfaces used in the application. All bindings are configured using the `bind(...).to(...)` syntax, where
+ * each interface is mapped to its corresponding implementation.
+ *
+ * This module ensures that instances of the respective interfaces are automatically injected with their
+ * implementations wherever needed in the application, promoting loose coupling and easier testing.
+ */
 class BaseModule extends AbstractModule {
   override def configure(): Unit = {
     bind(classOf[BiosampleRepository]).to(classOf[BiosampleRepositoryImpl])
