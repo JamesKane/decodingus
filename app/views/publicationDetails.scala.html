@@ -46,7 +46,7 @@
                 <div class="mt-2">
                     <button class="btn btn-outline-primary btn-sm load-biosamples"
                     hx-get="@routes.BiosampleReportController.getBiosampleReportHTML(publicationWithDetails.publication.id.get)"
-                    hx-target="#biosample-collapse"
+                    hx-target="#biosample-content"
                     hx-trigger="click"
                     aria-controls="biosample-collapse"
                     aria-expanded="false">
@@ -61,6 +61,7 @@
                         Hide Samples
                     </button>
                     <div class="collapse mt-2" id="biosample-collapse">
+                        <div id="biosample-content"></div>
                     </div>
                 </div>
             </aside>
@@ -86,31 +87,34 @@
 
     <script>
             document.addEventListener('htmx:after-swap', function(event) {
-                if (event.target.id === 'biosample-collapse' && event.detail.successful) {
-                    const container = event.target.parentNode; // Get the parent div
+                if (event.target.id === 'biosample-content' && event.detail.successful) {
+                    const container = event.target.closest('.mt-2');
                     const hideButton = container.querySelector('.collapse-button');
                     const loadButton = container.querySelector('.load-biosamples');
-                    const collapseElement = event.target;
+                    const collapseElement = document.getElementById('biosample-collapse');
 
                     if (loadButton) {
-                        loadButton.textContent = 'Show Samples'; // Ensure it says "Show" initially or after hiding
                         loadButton.style.display = 'none';
                     }
                     if (hideButton) {
-                        hideButton.textContent = 'Hide Samples'; // Set the correct label after loading
                         hideButton.style.display = 'inline-block';
                     }
 
-                    // Initialize Bootstrap Collapse and show it
-                    const bsCollapse = new bootstrap.Collapse(collapseElement, {
-                        toggle: true
-                    });
+                    // Get or create Bootstrap collapse instance
+                    let bsCollapse = bootstrap.Collapse.getInstance(collapseElement);
+                    if (!bsCollapse) {
+                        bsCollapse = new bootstrap.Collapse(collapseElement, {
+                            toggle: false
+                        });
+                    }
+                    bsCollapse.show();
                 }
             });
 
             document.addEventListener('click', function(event) {
-                if (event.target.classList.contains('collapse-button') && !document.getElementById('biosample-collapse').classList.contains('show')) {
-                    const container = event.target.parentNode;
+                const collapseElement = document.getElementById('biosample-collapse');
+                if (event.target.classList.contains('collapse-button') && !collapseElement.classList.contains('show')) {
+                    const container = event.target.closest('.mt-2');
                     const loadButton = container.querySelector('.load-biosamples');
                     const hideButton = event.target;
                     if (loadButton) {
@@ -118,25 +122,24 @@
                     }
                     if (hideButton) {
                         hideButton.style.display = 'none';
-                        hideButton.textContent = 'Hide Samples'; // Reset the text if needed
+                        hideButton.textContent = 'Hide Samples';
                     }
-                } else if (event.target.classList.contains('load-biosamples') && document.getElementById('biosample-collapse').classList.contains('show')) {
-                    const container = event.target.parentNode;
+                } else if (event.target.classList.contains('load-biosamples') && collapseElement.classList.contains('show')) {
+                    const container = event.target.closest('.mt-2');
                     const loadButton = event.target;
                     const hideButton = container.querySelector('.collapse-button');
                     if (loadButton) {
-                        loadButton.style.display = 'inline-block'; // Show again if samples are hidden
+                        loadButton.style.display = 'inline-block';
                         loadButton.textContent = 'Show Samples';
                     }
                     if (hideButton) {
                         hideButton.style.display = 'none';
                     }
-                    const bsCollapse = bootstrap.Collapse.getInstance(document.getElementById('biosample-collapse'));
+                    const bsCollapse = bootstrap.Collapse.getInstance(collapseElement);
                     if (bsCollapse) {
                         bsCollapse.hide();
                     }
                 }
             });
-
     </script>
 </article>
