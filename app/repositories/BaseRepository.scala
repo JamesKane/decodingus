@@ -43,4 +43,46 @@ abstract class BaseRepository @Inject()(
     runQuery(query.result.headOption)
   }
 
+  // New helper methods
+  protected def paginatedQuery[T](
+                                   baseSQL: String,
+                                   page: Int,
+                                   pageSize: Int,
+                                   params: (String, Any)*
+                                 )(implicit rconv: GetResult[T]): Future[Seq[T]] = {
+    val offset = (page - 1) * pageSize
+    val paginatedSQL =
+      s"""
+      ${baseSQL}
+      LIMIT $pageSize OFFSET $offset
+    """
+    rawSQL(paginatedSQL)
+  }
+
+  protected def countQuery(
+                            tableName: String,
+                            whereClause: String = "",
+                            distinctColumn: String = "*"
+                          ): Future[Long] = {
+    val sql =
+      s"""
+      SELECT COUNT(DISTINCT $distinctColumn)
+      FROM $tableName
+      ${if (whereClause.nonEmpty) s"WHERE $whereClause" else ""}
+    """
+    rawSQL[Long](sql).map(_.head)
+  }
+
+  // Helper for WITH queries
+  protected def withCTE[T](
+                            cteDefinition: String,
+                            mainQuery: String
+                          )(implicit rconv: GetResult[T]): Future[Seq[T]] = {
+    val sql =
+      s"""
+      WITH $cteDefinition
+      $mainQuery
+    """
+    rawSQL(sql)
+  }
 }
