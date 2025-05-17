@@ -6,17 +6,62 @@ import play.api.db.slick.DatabaseConfigProvider
 
 import scala.concurrent.{ExecutionContext, Future}
 
+/**
+ * Repository interface for managing and querying haplogroup data and revisions.
+ */
 trait HaplogroupRevisionRepository {
+  /**
+   * Retrieves the haplogroup information associated with a specific revision.
+   *
+   * @param haplogroupId The unique identifier of the haplogroup.
+   * @param revisionId   The unique identifier of the revision.
+   * @return A Future containing an Option of the Haplogroup if the specified revision exists, or None otherwise.
+   */
   def getHaplogroupAtRevision(haplogroupId: Int, revisionId: Int): Future[Option[Haplogroup]]
 
+  /**
+   * Retrieves the latest revision of the specified haplogroup.
+   *
+   * @param haplogroupId The unique identifier of the haplogroup for which the latest revision is to be fetched.
+   * @return A Future containing an Option of Haplogroup. It will be Some(Haplogroup) if a revision exists for the provided haplogroupId, otherwise None.
+   */
   def getLatestRevision(haplogroupId: Int): Future[Option[Haplogroup]]
 
+  /**
+   * Retrieves the complete revision history of a haplogroup identified by its unique identifier.
+   *
+   * @param haplogroupId The unique identifier of the haplogroup whose revision history is to be fetched.
+   * @return A Future containing a sequence of Haplogroup instances representing the revision history.
+   */
   def getRevisionHistory(haplogroupId: Int): Future[Seq[Haplogroup]]
 
+  /**
+   * Creates a new revision for the specified haplogroup. The provided haplogroup must have all necessary
+   * information such as its type, source, and validity periods. This method generates a new revision entry
+   * and persists it in the database, returning the unique identifier of the newly created revision.
+   *
+   * @param haplogroup The haplogroup entity containing information required to create a new revision.
+   * @return A Future containing the unique identifier of the newly created revision.
+   */
   def createNewRevision(haplogroup: Haplogroup): Future[Int]
 
+  /**
+   * Retrieves the child haplogroups at a specific revision.
+   *
+   * @param haplogroupId The unique identifier of the parent haplogroup.
+   * @param revisionId   The unique identifier of the revision to fetch children for.
+   * @return A Future containing a sequence of child Haplogroup instances at the specified revision.
+   */
   def getChildrenAtRevision(haplogroupId: Int, revisionId: Int): Future[Seq[Haplogroup]]
 
+  /**
+   * Retrieves the ancestry of a haplogroup at a specific revision.
+   * This includes all ancestor haplogroups leading up to the specified revision.
+   *
+   * @param haplogroupId The unique identifier of the haplogroup whose ancestry is to be fetched.
+   * @param revisionId   The unique identifier of the revision for which ancestry is to be retrieved.
+   * @return A Future containing a sequence of Haplogroup instances representing the ancestry at the specified revision.
+   */
   def getAncestryAtRevision(haplogroupId: Int, revisionId: Int): Future[Seq[Haplogroup]]
 }
 
