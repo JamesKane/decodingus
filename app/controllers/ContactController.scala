@@ -1,15 +1,14 @@
 package controllers
 
 import com.nappin.play.recaptcha.{RecaptchaVerifier, WidgetHelper}
-
-import javax.inject.*
-import play.api.mvc.*
-import play.api.i18n.I18nSupport
 import models.Contact
 import org.webjars.play.WebJarsUtil
+import play.api.i18n.I18nSupport
+import play.api.mvc.*
 import play.api.{Configuration, Environment, Logging}
 import services.EmailService
 
+import javax.inject.*
 import scala.concurrent.{ExecutionContext, Future}
 
 @Singleton
@@ -66,14 +65,15 @@ class ContactController @Inject()(
               to = Seq(recipientEmail),
               from = contact.email,
               subject = s"Contact Form Submission: ${contact.subject}",
-              body = s"""
-                        |Name: ${contact.name}
-                        |Email: ${contact.email}
-                        |Subject: ${contact.subject}
-                        |
-                        |Message:
-                        |${contact.message}
-                        |""".stripMargin
+              body =
+                s"""
+                   |Name: ${contact.name}
+                   |Email: ${contact.email}
+                   |Subject: ${contact.subject}
+                   |
+                   |Message:
+                   |${contact.message}
+                   |""".stripMargin
             ) match {
               case Right(_) =>
                 logger.info(s"Successfully sent email from ${contact.email}")
