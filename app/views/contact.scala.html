@@ -1,7 +1,8 @@
 @import org.webjars.play.WebJarsUtil
+@import com.nappin.play.recaptcha.WidgetHelper
 
-@(contactForm: Form[Contact.ContactDTO])(implicit request: RequestHeader, messages: Messages, webJarsUtil: WebJarsUtil)
-
+@this(recaptchaField: views.html.recaptcha.recaptchaField)
+@(contactForm: Form[Contact.ContactDTO], isProd: Boolean)(implicit request: Request[AnyContent], messages: Messages, webJarsUtil: WebJarsUtil, widgetHelper: WidgetHelper)
 @main("Contact Us") {
     <div class="container py-5">
         <div class="row justify-content-center">
@@ -106,7 +107,12 @@
                                 tabindex="-1">
                             </div>
 
-                            <div class="d-grid">
+                            @if(isProd) {
+                                @recaptchaField(form = contactForm, fieldName = "captcha", includeNoScript = false,
+                                    isRequired = true, tabindex = 5, args = Symbol("class") -> "extraClass")
+                            }
+
+                            <div class="container-fluid">
                                 <button type="submit" class="btn btn-primary btn-lg">
                                     <i class="bi bi-send-fill me-2"></i>Send Message
                                 </button>

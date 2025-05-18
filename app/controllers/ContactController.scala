@@ -1,6 +1,6 @@
 package controllers
 
-import com.nappin.play.recaptcha.RecaptchaVerifier
+import com.nappin.play.recaptcha.{RecaptchaVerifier, WidgetHelper}
 
 import javax.inject.*
 import play.api.mvc.*
@@ -18,16 +18,16 @@ class ContactController @Inject()(
                                    emailService: EmailService,
                                    config: Configuration,
                                    verifier: RecaptchaVerifier,
-                                   env: Environment
-                                 )(implicit ec: ExecutionContext, webJarsUtil: WebJarsUtil)
-  extends BaseController with I18nSupport with Logging {
+                                   env: Environment,
+                                   contactView: views.html.contact
+                                 )(implicit ec: ExecutionContext, widgetHelper: WidgetHelper, webJarsUtil: WebJarsUtil) extends BaseController with I18nSupport with Logging {
 
-  private val recipientEmail = config.get[String]("contact.recipient-email")
+  private val recipientEmail = config.get[String]("contact.recipient.email")
   private val isProd = env.mode == play.api.Mode.Prod
   private val botRegex = "(?i)bot|crawl|spider|curl|wget|python|httpclient".r
 
   def show: Action[AnyContent] = Action { implicit request: Request[AnyContent] =>
-    Ok(views.html.contact(Contact.form))
+    Ok(contactView(Contact.form, isProd))
   }
 
   def submit(): Action[AnyContent] = Action.async { implicit request =>
@@ -50,23 +50,12 @@ class ContactController @Inject()(
 
       formValidation.flatMap {
         case form if form.hasErrors =>
-          Future.successful(BadRequest(views.html.contact(form)))
+          Future.successful(BadRequest(contactView(form, isProd)))
 
         case form => form.get match {
           case contact if contact.phoneNumber.nonEmpty =>
             // Honeypot field is filled - likely spam
-            logger.warn(
-              s"""Spam attempt detected:
-                 |IP: $clientIpAddress
-                 |User-Agent: ${request.headers.get("User-Agent").getOrElse("Not provided")}
-                 |Form Data:
-                 |  Name: ${contact.name}
-                 |  Email: ${contact.email}
-                 |  Subject: ${contact.subject}
-                 |  Message: ${contact.message}
-                 |  Honeypot (phone): ${contact.phoneNumber}
-                 |""".stripMargin
-            )
+            logger.warn(s"Spam attempt detected from IP: $clientIpAddress")
             Future.successful(
               Redirect(routes.ContactController.show())
                 .flashing("success" -> "Thank you for your message. We'll get back to you soon!")
@@ -95,7 +84,7 @@ class ContactController @Inject()(
               case Left(error) =>
                 logger.error(s"Failed to send email from ${contact.email}: $error")
                 Future.successful(
-                  InternalServerError(views.html.contact(Contact.form))
+                  InternalServerError(contactView(Contact.form, isProd))
                     .flashing("error" -> "Sorry, there was a problem sending your message. Please try again later.")
                 )
             }
@@ -103,5 +92,4 @@ class ContactController @Inject()(
       }
     }
   }
-
 }
