@@ -83,4 +83,7 @@ class HomeController @Inject()(val controllerComponents: ControllerComponents)
     Ok(views.html.publicApi())
   }
 
+  def faq(): Action[AnyContent] = Action { implicit request: Request[AnyContent] =>
+    Ok(views.html.faq())
+  }
 }

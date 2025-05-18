@@ -8,6 +8,7 @@ GET         /cookie-usage                                               controll
 GET         /terms                                                      controllers.HomeController.terms()
 GET         /privacy                                                    controllers.HomeController.privacy()
 GET         /public-api                                                 controllers.HomeController.publicApi()
+GET         /faq                                                        controllers.HomeController.faq()
 
 GET         /ytree                                                      controllers.TreeController.ytree()
 GET         /mtree                                                      controllers.TreeController.mtree()
