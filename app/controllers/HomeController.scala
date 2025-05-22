@@ -143,4 +143,25 @@ class HomeController @Inject()(val controllerComponents: ControllerComponents,
       Ok(xmlContent).as("application/xml")
     }
   }
+
+  /**
+   * Handles requests for the "robots.txt" file.
+   *
+   * This action generates and serves a static robots.txt file with instructions for web crawlers,
+   * allowing all user agents to crawl the site and providing the location of the sitemap.
+   *
+   * The response is cached for 24 hours and has a 200 OK status code with a content type of text/plain.
+   *
+   * @return an `EssentialAction` that produces the robots.txt file as a text/plain response.
+   */
+  def robots(): EssentialAction = cached.status(_ => "robots", 200, 24.hours) {
+    Action { implicit request =>
+      Ok(
+        """User-agent: *
+          |Allow: /
+          |
+          |Sitemap: https://decoding-us.com/sitemap.xml""".stripMargin
+      ).as("text/plain")
+    }
+  }
 }
