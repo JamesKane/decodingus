@@ -19,6 +19,7 @@ GET         /mtree/fragment                                             controll
 
 GET         /references                                                 controllers.PublicationController.index()
 GET         /references/details                                         controllers.PublicationController.getAllPublicationsWithDetailsHtml(page: Option[Int], pageSize: Option[Int])
+GET         /references/details/:publicationId/biosamples               controllers.BiosampleReportController.getBiosampleReportHTML(publicationId: Int, page: Option[Int] ?= Some(1))
 
 GET         /coverage-benchmarks                                        controllers.CoverageController.index()
 
@@ -26,22 +27,17 @@ GET         /coverage-benchmarks                                        controll
 GET         /contact                                                    controllers.ContactController.show()
 POST        /contact                                                    controllers.ContactController.submit()
 
-
 GET         /api/v1/y-tree                                              controllers.TreeController.apiYTree(rootHaplogroup: Option[String])
 GET         /api/v1/mt-tree                                             controllers.TreeController.apiMTree(rootHaplogroup: Option[String])
 
 GET         /api/v1/benchmarks                                          controllers.CoverageController.apiBenchmarks()
 
 GET         /api/v1/references/details                                  controllers.PublicationController.getAllPublicationsWithDetailsJson()
-
-GET         /references/details/:publicationId/biosamples               controllers.BiosampleReportController.getBiosampleReportHTML(publicationId: Int, page: Option[Int] ?= Some(1))
-
 GET         /api/v1/references/details/:publicationId/biosamples        controllers.BiosampleReportController.getBiosampleReportJSON(publicationId: Int)
 
 # --- API Routes (Handled by Tapir, including Swagger UI) ---
 # Delegate all requests starting with /api to the Tapir-based ApiRouter
 ->      /api                                  controllers.ApiRouter
-
 
 # Map static resources from the /public folder to the /assets URL path
 GET         /assets/*file                                               controllers.Assets.versioned(path="/public", file: Asset)
