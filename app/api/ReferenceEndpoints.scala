@@ -17,7 +17,7 @@ object ReferenceEndpoints {
   val getReferenceDetailsEndpoint: PublicEndpoint[Unit, String, List[PublicationWithEnaStudiesAndSampleCount], Any] = {
     endpoint
       .get
-      .in("v1" / "references" / "details")
+      .in("api"/ "v1" / "references" / "details")
       .out(jsonBody[List[PublicationWithEnaStudiesAndSampleCount]])
       .errorOut(stringBody)
       .description("Returns a list of reference details, including publication information, ENA studies, and sample counts.")
@@ -28,7 +28,7 @@ object ReferenceEndpoints {
   val getReferenceBiosamplesEndpoint: PublicEndpoint[Int, String, List[BiosampleWithOrigin], Any] = {
     endpoint
       .get
-      .in("v1" / "references" / "details" / path[Int]("publicationId") / "biosamples")
+      .in("api" / "v1" / "references" / "details" / path[Int]("publicationId") / "biosamples")
       .out(jsonBody[List[BiosampleWithOrigin]])
       .errorOut(stringBody)
       .description("Returns a list of biosamples associated with a specific publication.")
