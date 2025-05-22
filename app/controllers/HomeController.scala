@@ -77,19 +77,6 @@ class HomeController @Inject()(val controllerComponents: ControllerComponents,
   }
 
   /**
-   * Handles GET requests to render the Public API documentation.
-   *
-   * This action loads and displays a static HTML page that provides documentation
-   * for the application's public API endpoints, including details about available routes,
-   * their responses, and formats.
-   *
-   * @return an action that renders the Public API documentation as an HTML response
-   */
-  def publicApi(): Action[AnyContent] = Action { implicit request: Request[AnyContent] =>
-    Ok(views.html.publicApi())
-  }
-
-  /**
    * Renders the FAQ (Frequently Asked Questions) page.
    *
    * This action handles GET requests to display the FAQ section of the application.
@@ -122,7 +109,6 @@ class HomeController @Inject()(val controllerComponents: ControllerComponents,
         routes.HomeController.cookieUsage(),
         routes.HomeController.terms(),
         routes.HomeController.privacy(),
-        routes.HomeController.publicApi(),
         routes.HomeController.faq(),
         routes.TreeController.ytree(),
         routes.TreeController.mtree(),

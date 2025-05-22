@@ -8,6 +8,8 @@ scalaVersion := "3.3.5"
 
 val SLICK_VERSION = "6.2.0"
 val SLICK_PG_VERSION = "0.23.0"
+val TAPIR_VERSION = "1.11.29"
+
 libraryDependencies ++= Seq(
   guice,
   caffeine,
@@ -24,6 +26,16 @@ libraryDependencies ++= Seq(
   "org.scalatestplus.play" %% "scalatestplus-play" % "7.0.1" % Test,
   "org.codehaus.janino" % "janino" % "3.1.12",
   "com.nappin" %% "play-recaptcha" % "3.0",
+
+  // Core Tapir libraries
+  "com.softwaremill.sttp.tapir" %% "tapir-core" % TAPIR_VERSION,
+  "com.softwaremill.sttp.tapir" %% "tapir-json-play" % TAPIR_VERSION,
+
+  // Play server interpreter
+  "com.softwaremill.sttp.tapir" %% "tapir-play-server" % TAPIR_VERSION,
+
+  // OpenAPI / Swagger UI generation
+  "com.softwaremill.sttp.tapir" %% "tapir-swagger-ui-bundle" % TAPIR_VERSION,
 )
 
 // Adds additional packages into Twirl

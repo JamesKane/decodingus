@@ -7,7 +7,6 @@ GET         /                                                           controll
 GET         /cookie-usage                                               controllers.HomeController.cookieUsage()
 GET         /terms                                                      controllers.HomeController.terms()
 GET         /privacy                                                    controllers.HomeController.privacy()
-GET         /public-api                                                 controllers.HomeController.publicApi()
 GET         /faq                                                        controllers.HomeController.faq()
 
 GET         /sitemap.xml                                                controllers.HomeController.sitemap()
@@ -28,7 +27,6 @@ GET         /contact                                                    controll
 POST        /contact                                                    controllers.ContactController.submit()
 
 
-
 GET         /api/v1/y-tree                                              controllers.TreeController.apiYTree(rootHaplogroup: Option[String])
 GET         /api/v1/mt-tree                                             controllers.TreeController.apiMTree(rootHaplogroup: Option[String])
 
@@ -39,6 +37,14 @@ GET         /api/v1/references/details                                  controll
 GET         /references/details/:publicationId/biosamples               controllers.BiosampleReportController.getBiosampleReportHTML(publicationId: Int, page: Option[Int] ?= Some(1))
 
 GET         /api/v1/references/details/:publicationId/biosamples        controllers.BiosampleReportController.getBiosampleReportJSON(publicationId: Int)
+
+# --- API Routes (Handled by Tapir, including Swagger UI) ---
+# Delegate all requests starting with /api to the Tapir-based ApiRouter
+->      /api                                  controllers.ApiRouter
+
+# Remove this line as it's no longer needed
+GET     /api/docs     controllers.Default.redirect(to = "/api/docs/")
+
 
 # Map static resources from the /public folder to the /assets URL path
 GET         /assets/*file                                               controllers.Assets.versioned(path="/public", file: Asset)
