@@ -117,6 +117,20 @@ class HomeController @Inject()(val controllerComponents: ControllerComponents,
         routes.ContactController.show()
       )
 
+      val baseUrl = s"${
+        if (request.secure) {
+          "https"
+        } else {
+          "http"
+        }
+      }://${request.host}"
+
+        val apiDocsUrl = s"""  <url>
+                       |    <loc>$baseUrl/api/docs</loc>
+                       |    <changefreq>monthly</changefreq>
+                       |    <priority>0.6</priority>
+                       |  </url>""".stripMargin
+
       val xmlContent =
         """<?xml version="1.0" encoding="UTF-8"?>
           |<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
@@ -128,6 +142,7 @@ class HomeController @Inject()(val controllerComponents: ControllerComponents,
                |    <priority>0.8</priority>
                |  </url>""".stripMargin
           }.mkString("\n") +
+          "\n" + apiDocsUrl +
           "\n</urlset>"
 
       Ok(xmlContent).as("application/xml")
