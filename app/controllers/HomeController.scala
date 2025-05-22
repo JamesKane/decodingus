@@ -103,37 +103,41 @@ class HomeController @Inject()(val controllerComponents: ControllerComponents,
   }
 
   /**
-   * Generates a sitemap in XML format for the application, listing all static URLs.
-   * The sitemap is cached for 24 hours and adheres to the standard sitemap XML schema.
+   * Generates and serves an XML sitemap for the application. The sitemap includes
+   * a list of predefined static routes that correspond to important pages, such as
+   * the homepage, cookie usage, terms, privacy policy, public API documentation,
+   * FAQ, and other significant sections of the website.
    *
-   * @return an `EssentialAction` that produces the sitemap XML response with a 200 status code and
-   *         `application/xml` content type.
+   * The response is an XML document compliant with the sitemap protocol, which
+   * includes details like the URL location, change frequency, and priority for
+   * each page. It helps search engines effectively crawl and index the website's
+   * content. The generated sitemap is cached for 24 hours for performance optimization.
+   *
+   * @return an `EssentialAction` that produces the generated sitemap as an XML response with a "200 OK" status.
    */
   def sitemap(): EssentialAction = cached.status(_ => "sitemap", 200, 24.hours) {
     Action { implicit request =>
-      val baseUrl = "https://decoding-us.com"
-
-      val staticUrls = List(
-        "/",
-        "/cookie-usage",
-        "/terms",
-        "/privacy",
-        "/public-api",
-        "/faq",
-        "/ytree",
-        "/mtree",
-        "/references",
-        "/coverage-benchmarks",
-        "/contact"
+      val staticRoutes = List(
+        routes.HomeController.index(),
+        routes.HomeController.cookieUsage(),
+        routes.HomeController.terms(),
+        routes.HomeController.privacy(),
+        routes.HomeController.publicApi(),
+        routes.HomeController.faq(),
+        routes.TreeController.ytree(),
+        routes.TreeController.mtree(),
+        routes.PublicationController.index(),
+        routes.CoverageController.index(),
+        routes.ContactController.show()
       )
 
       val xmlContent =
         """<?xml version="1.0" encoding="UTF-8"?>
           |<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
           |""".stripMargin +
-          staticUrls.map { url =>
+          staticRoutes.map { route =>
             s"""  <url>
-               |    <loc>$baseUrl$url</loc>
+               |    <loc>${route.absoluteURL(secure = true)}</loc>
                |    <changefreq>weekly</changefreq>
                |    <priority>0.8</priority>
                |  </url>""".stripMargin
@@ -145,22 +149,25 @@ class HomeController @Inject()(val controllerComponents: ControllerComponents,
   }
 
   /**
-   * Handles requests for the "robots.txt" file.
+   * Generates and serves the `robots.txt` file for the application.
    *
-   * This action generates and serves a static robots.txt file with instructions for web crawlers,
-   * allowing all user agents to crawl the site and providing the location of the sitemap.
+   * The robots.txt file provides directives to web crawlers about which parts
+   * of the website are accessible for crawling and indexing. It includes a
+   * link to the application's sitemap for search engines to discover and index
+   * the site's significant URLs efficiently. The response is a plain text file
+   * with appropriate directives for crawlers.
    *
-   * The response is cached for 24 hours and has a 200 OK status code with a content type of text/plain.
-   *
-   * @return an `EssentialAction` that produces the robots.txt file as a text/plain response.
+   * @return an `EssentialAction` that produces the `robots.txt` file as a plain text response
+   *         with a "200 OK" status, including a link to the XML sitemap.
    */
   def robots(): EssentialAction = cached.status(_ => "robots", 200, 24.hours) {
     Action { implicit request =>
+      val sitemapUrl = routes.HomeController.sitemap().absoluteURL(secure = true)
       Ok(
-        """User-agent: *
-          |Allow: /
-          |
-          |Sitemap: https://decoding-us.com/sitemap.xml""".stripMargin
+        s"""User-agent: *
+           |Allow: /
+           |
+           |Sitemap: $sitemapUrl""".stripMargin
       ).as("text/plain")
     }
   }
