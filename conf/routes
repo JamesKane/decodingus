@@ -24,6 +24,7 @@ GET         /coverage-benchmarks                                        controll
 GET         /contact                                                    controllers.ContactController.show()
 POST        /contact                                                    controllers.ContactController.submit()
 
+GET         /sitemap.xml                                                controllers.HomeController.sitemap()
 
 GET         /api/v1/y-tree                                              controllers.TreeController.apiYTree(rootHaplogroup: Option[String])
 GET         /api/v1/mt-tree                                             controllers.TreeController.apiMTree(rootHaplogroup: Option[String])

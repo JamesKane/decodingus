@@ -86,4 +86,37 @@ class HomeController @Inject()(val controllerComponents: ControllerComponents)
   def faq(): Action[AnyContent] = Action { implicit request: Request[AnyContent] =>
     Ok(views.html.faq())
   }
+
+  def sitemap(): Action[AnyContent] = Action { implicit request =>
+    val baseUrl = "https://decoding-us.com"
+
+    val staticUrls = List(
+      "/",
+      "/cookie-usage",
+      "/terms",
+      "/privacy",
+      "/public-api",
+      "/faq",
+      "/ytree",
+      "/mtree",
+      "/references",
+      "/coverage-benchmarks",
+      "/contact"
+    )
+
+    val xmlContent =
+      """<?xml version="1.0" encoding="UTF-8"?>
+        |<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+        |""".stripMargin +
+        staticUrls.map { url =>
+          s"""  <url>
+             |    <loc>$baseUrl$url</loc>
+             |    <changefreq>weekly</changefreq>
+             |    <priority>0.8</priority>
+             |  </url>""".stripMargin
+        }.mkString("\n") +
+        "\n</urlset>"
+
+    Ok(xmlContent).as("application/xml")
+  }
 }
