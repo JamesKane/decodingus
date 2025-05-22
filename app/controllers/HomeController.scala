@@ -89,10 +89,26 @@ class HomeController @Inject()(val controllerComponents: ControllerComponents,
     Ok(views.html.publicApi())
   }
 
+  /**
+   * Renders the FAQ (Frequently Asked Questions) page.
+   *
+   * This action handles GET requests to display the FAQ section of the application.
+   * It loads and renders a static HTML view containing common questions and answers
+   * related to the application, its features, or its usage.
+   *
+   * @return an action that renders the FAQ view as an HTML response
+   */
   def faq(): Action[AnyContent] = Action { implicit request: Request[AnyContent] =>
     Ok(views.html.faq())
   }
 
+  /**
+   * Generates a sitemap in XML format for the application, listing all static URLs.
+   * The sitemap is cached for 24 hours and adheres to the standard sitemap XML schema.
+   *
+   * @return an `EssentialAction` that produces the sitemap XML response with a 200 status code and
+   *         `application/xml` content type.
+   */
   def sitemap(): EssentialAction = cached.status(_ => "sitemap", 200, 24.hours) {
     Action { implicit request =>
       val baseUrl = "https://decoding-us.com"
