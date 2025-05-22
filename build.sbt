@@ -10,6 +10,7 @@ val SLICK_VERSION = "6.2.0"
 val SLICK_PG_VERSION = "0.23.0"
 libraryDependencies ++= Seq(
   guice,
+  ehcache,
   "org.playframework" %% "play-slick" % SLICK_VERSION,
   "org.playframework" %% "play-slick-evolutions" % SLICK_VERSION,
   "org.postgresql" % "postgresql" % "42.7.5",

@@ -4,7 +4,10 @@ import org.webjars.play.WebJarsUtil
 
 import javax.inject.*
 import play.api.*
+import play.api.cache.{Cached, SyncCacheApi}
 import play.api.mvc.{Action, *}
+
+import scala.concurrent.duration.DurationInt
 
 /**
  * A controller for handling HTTP requests to the application's main pages.
@@ -17,7 +20,10 @@ import play.api.mvc.{Action, *}
  * @param webJarsUtil          utility for managing web jar assets
  */
 @Singleton
-class HomeController @Inject()(val controllerComponents: ControllerComponents)
+class HomeController @Inject()(val controllerComponents: ControllerComponents,
+                               cached: Cached,
+                               cache: SyncCacheApi
+                              )
                               (using webJarsUtil: WebJarsUtil) extends BaseController {
 
   /**
@@ -87,36 +93,38 @@ class HomeController @Inject()(val controllerComponents: ControllerComponents)
     Ok(views.html.faq())
   }
 
-  def sitemap(): Action[AnyContent] = Action { implicit request =>
-    val baseUrl = "https://decoding-us.com"
+  def sitemap(): EssentialAction = cached.status(_ => "sitemap", 200, 24.hours) {
+    Action { implicit request =>
+      val baseUrl = "https://decoding-us.com"
 
-    val staticUrls = List(
-      "/",
-      "/cookie-usage",
-      "/terms",
-      "/privacy",
-      "/public-api",
-      "/faq",
-      "/ytree",
-      "/mtree",
-      "/references",
-      "/coverage-benchmarks",
-      "/contact"
-    )
+      val staticUrls = List(
+        "/",
+        "/cookie-usage",
+        "/terms",
+        "/privacy",
+        "/public-api",
+        "/faq",
+        "/ytree",
+        "/mtree",
+        "/references",
+        "/coverage-benchmarks",
+        "/contact"
+      )
 
-    val xmlContent =
-      """<?xml version="1.0" encoding="UTF-8"?>
-        |<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-        |""".stripMargin +
-        staticUrls.map { url =>
-          s"""  <url>
-             |    <loc>$baseUrl$url</loc>
-             |    <changefreq>weekly</changefreq>
-             |    <priority>0.8</priority>
-             |  </url>""".stripMargin
-        }.mkString("\n") +
-        "\n</urlset>"
+      val xmlContent =
+        """<?xml version="1.0" encoding="UTF-8"?>
+          |<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+          |""".stripMargin +
+          staticUrls.map { url =>
+            s"""  <url>
+               |    <loc>$baseUrl$url</loc>
+               |    <changefreq>weekly</changefreq>
+               |    <priority>0.8</priority>
+               |  </url>""".stripMargin
+          }.mkString("\n") +
+          "\n</urlset>"
 
-    Ok(xmlContent).as("application/xml")
+      Ok(xmlContent).as("application/xml")
+    }
   }
 }
