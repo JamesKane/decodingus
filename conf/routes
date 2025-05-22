@@ -42,9 +42,6 @@ GET         /api/v1/references/details/:publicationId/biosamples        controll
 # Delegate all requests starting with /api to the Tapir-based ApiRouter
 ->      /api                                  controllers.ApiRouter
 
-# Remove this line as it's no longer needed
-GET     /api/docs     controllers.Default.redirect(to = "/api/docs/")
-
 
 # Map static resources from the /public folder to the /assets URL path
 GET         /assets/*file                                               controllers.Assets.versioned(path="/public", file: Asset)
