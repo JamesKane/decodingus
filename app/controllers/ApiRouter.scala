@@ -31,8 +31,7 @@ class ApiRouter @Inject()(cc: ControllerComponents, configuration: play.api.Conf
     )
 
   // Combine all endpoints ensuring Swagger endpoints come first
-  private val serverEndpoints =
-    swaggerEndpoints ::: Nil
+  private val serverEndpoints = swaggerEndpoints ::: Nil
 
   override def routes: Router.Routes = PlayServerInterpreter().toRoutes(serverEndpoints)
 }

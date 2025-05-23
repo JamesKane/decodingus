@@ -1,7 +1,7 @@
 package repositories
 
 import jakarta.inject.Inject
-import models.Haplogroup
+import models.{Haplogroup, HaplogroupType}
 import play.api.db.slick.DatabaseConfigProvider
 
 import scala.concurrent.{ExecutionContext, Future}
@@ -63,6 +63,14 @@ trait HaplogroupRevisionRepository {
    * @return A Future containing a sequence of Haplogroup instances representing the ancestry at the specified revision.
    */
   def getAncestryAtRevision(haplogroupId: Int, revisionId: Int): Future[Seq[Haplogroup]]
+
+  /**
+   * Counts the number of haplogroups of a specific type.
+   *
+   * @param haplogroupType The type of haplogroup to be counted (e.g., paternal or maternal lineage).
+   * @return A Future containing the count of haplogroups of the specified type as an integer.
+   */
+  def countByType(haplogroupType: HaplogroupType): Future[Int]
 }
 
 class HaplogroupRevisionRepositoryImpl @Inject()(
@@ -143,5 +151,14 @@ class HaplogroupRevisionRepositoryImpl @Inject()(
     }
 
     runQuery(recursiveAncestors(haplogroupId))
+  }
+
+  override def countByType(haplogroupType: HaplogroupType): Future[Int] = {
+    val query = haplogroups
+      .filter(_.haplogroupType === haplogroupType.toString)
+      .length
+      .result
+
+    runQuery(query)
   }
 }

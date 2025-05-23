@@ -5,6 +5,7 @@ import models.api.{TreeDTO, TreeNodeDTO, VariantDTO}
 import repositories.*
 
 import java.time.LocalDateTime
+import javax.inject.Inject
 import scala.concurrent.{ExecutionContext, Future}
 
 /**
@@ -19,12 +20,12 @@ import scala.concurrent.{ExecutionContext, Future}
  * @param defaultConfidenceLevel  The confidence level to assign to non-backbone data during import. Defaults to "MEDIUM".
  * @param backboneConfidenceLevel The confidence level to assign to backbone data during import. Defaults to "HIGH".
  */
-case class TreeImportConfig(
-                             initialAuthor: String = "system",
-                             source: String = "initial_import",
-                             defaultConfidenceLevel: String = "MEDIUM",
-                             backboneConfidenceLevel: String = "HIGH"
-                           )
+case class TreeImportSettings(
+                               initialAuthor: String = "system",
+                               source: String = "initial_import",
+                               defaultConfidenceLevel: String = "MEDIUM",
+                               backboneConfidenceLevel: String = "HIGH"
+                             )
 
 
 /**
@@ -42,16 +43,17 @@ case class TreeImportConfig(
  * @param config                               Configuration related to tree importing, such as source and confidence levels.
  * @param ec                                   Implicit execution context for managing asynchronous computations.
  */
-class TreeImporter(
-                    haplogroupRevisionRepository: HaplogroupRevisionRepository,
-                    haplogroupRelationshipRepository: HaplogroupRelationshipRepository,
-                    haplogroupVariantRepository: HaplogroupVariantRepository,
-                    haplogroupVariantMetadataRepository: HaplogroupVariantMetadataRepository,
-                    haplogroupRevisionMetadataRepository: HaplogroupRevisionMetadataRepository,
-                    genbankContigRepository: GenbankContigRepository,
-                    variantRepository: VariantRepository,
-                    config: TreeImportConfig
-                  )(implicit ec: ExecutionContext) {
+class TreeImporter @Inject()(
+                              haplogroupRevisionRepository: HaplogroupRevisionRepository,
+                              haplogroupRelationshipRepository: HaplogroupRelationshipRepository,
+                              haplogroupVariantRepository: HaplogroupVariantRepository,
+                              haplogroupVariantMetadataRepository: HaplogroupVariantMetadataRepository,
+                              haplogroupRevisionMetadataRepository: HaplogroupRevisionMetadataRepository,
+                              genbankContigRepository: GenbankContigRepository,
+                              variantRepository: VariantRepository
+                            )(implicit ec: ExecutionContext) {
+  private val defaultSettings = TreeImportSettings()
+
 
   /**
    * Imports a tree structure into the system by recursively processing its nodes,
@@ -61,7 +63,7 @@ class TreeImporter(
    * @param haplogroupType The type of haplogroup classification to apply (e.g., paternal or maternal lineage).
    * @return A `Future` that completes when the tree has been successfully imported, or fails in case of an error.
    */
-  def importTree(tree: TreeDTO, haplogroupType: HaplogroupType): Future[Unit] = {
+  def importTree(tree: TreeDTO, haplogroupType: HaplogroupType)(implicit settings: TreeImportSettings = defaultSettings): Future[Unit] = {
     val timestamp = LocalDateTime.now()
 
     def processNode(
@@ -113,7 +115,8 @@ class TreeImporter(
                                 node: TreeNodeDTO,
                                 haplogroupType: HaplogroupType,
                                 timestamp: LocalDateTime
-                              ): Future[Int] = {
+                              )(implicit settings: TreeImportSettings)
+  : Future[Int] = {
     val haplogroup = Haplogroup(
       id = None,
       name = node.name,
@@ -121,8 +124,8 @@ class TreeImporter(
       description = None,
       haplogroupType = haplogroupType,
       revisionId = 1,
-      source = config.source,
-      confidenceLevel = if (node.isBackbone) config.backboneConfidenceLevel else config.defaultConfidenceLevel,
+      source = settings.source,
+      confidenceLevel = if (node.isBackbone) settings.backboneConfidenceLevel else settings.defaultConfidenceLevel,
       validFrom = timestamp,
       validUntil = None
     )
@@ -144,7 +147,7 @@ class TreeImporter(
                                   parentId: Int,
                                   childId: Int,
                                   timestamp: LocalDateTime
-                                ): Future[Unit] = {
+                                )(implicit settings: TreeImportSettings): Future[Unit] = {
     val relationship = HaplogroupRelationship(
       id = None,
       childHaplogroupId = childId,
@@ -152,13 +155,13 @@ class TreeImporter(
       revisionId = 1,
       validFrom = timestamp,
       validUntil = None,
-      source = config.source,
+      source = settings.source,
     )
 
     val metadata = RelationshipRevisionMetadata(
       haplogroup_relationship_id = 0, // Will be set after relationship creation
       revisionId = 1,
-      author = config.initialAuthor,
+      author = settings.initialAuthor,
       timestamp = timestamp,
       comment = "Initial tree import",
       changeType = "CREATE",
@@ -187,7 +190,7 @@ class TreeImporter(
                               variants: Seq[VariantDTO],
                               haplogroupId: Int,
                               timestamp: LocalDateTime
-                            ): Future[Unit] = {
+                            )(implicit settings: TreeImportSettings): Future[Unit] = {
     Future.sequence(variants.map { v =>
       for {
         // Create or get the variant
@@ -201,7 +204,7 @@ class TreeImporter(
           HaplogroupVariantMetadata(
             haplogroup_variant_id = assocId,
             revision_id = 1,
-            author = config.initialAuthor,
+            author = settings.initialAuthor,
             timestamp = timestamp,
             comment = "Initial variant import",
             change_type = "CREATE",
