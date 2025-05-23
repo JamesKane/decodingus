@@ -86,12 +86,58 @@
 </div>
 
 <style>
-        .tree-node {
+        .phylogenetic-tree {
+            margin-left: 10px;
             position: relative;
         }
 
+        .tree-node {
+            list-style-type: none;
+            margin: 0;
+            padding: 0 24px; /* Doubled from 12px for more indentation per level */
+            position: relative;
+        }
+
+        /* Vertical line */
+        .tree-node .children > .tree-node::after {
+            content: '';
+            position: absolute;
+            left: 0;
+            border-left: 2px solid #333; /* Darker and slightly thicker */
+            height: 100%;
+            width: 0;
+            top: -10px;
+        }
+
+        /* Horizontal line */
+        .tree-node .children > .tree-node::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            border-top: 2px solid #333; /* Darker and slightly thicker */
+            top: 10px;
+            width: 20px; /* Doubled from 10px to match the increased padding */
+            height: 0;
+        }
+
+        /* Stop vertical line when there's only one child */
+        .tree-node .children > .tree-node:first-child:last-child::after {
+            height: 20px;
+        }
+
+        /* Handle the last sibling in a multi-child group */
+        .tree-node .children > .tree-node:last-child::after {
+            height: 20px;
+        }
+
         .tree-node .node-header {
-            border-color: #dee2e6 !important;
+            position: relative;
+            border-left: none !important;
+        }
+
+        .tree-node h4 {
+            margin: 0;
+            padding: 0.5rem 0;
         }
 
         .tree-node .node-header:hover {
@@ -101,4 +147,12 @@
         .variants {
             font-family: monospace;
         }
+
+        /* Remove Bootstrap spacing utilities */
+        .tree-node.ms-2,
+        .tree-node.ms-4,
+        .tree-node.ms-6 {
+            margin-left: 0 !important;
+        }
+
 </style>
