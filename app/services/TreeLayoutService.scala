@@ -56,7 +56,7 @@ object TreeLayoutService {
           nodeDTO.children
         }
 
-        val childViewModels = childrenToProcess.map { childDTO =>
+        val childViewModels = childrenToProcess.sortBy(_.weight).map { childDTO =>
           calculateNodePositions(childDTO, depth + 1, false)
         }
 

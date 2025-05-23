@@ -68,7 +68,7 @@
                         hx-swap="outerHTML"
                         hx-trigger="click"
                                   style="cursor: pointer;">
-                                @node.variants.size
+                                @node.variants.size Variant(s)
                         <title>Click to see @node.variants.size defining SNP(s)</title>
                         </text>
                     }
@@ -87,14 +87,22 @@
 
         #phylogenetic-tree-root {
             width: 100%;
-
             max-height: calc(100vh - 200px);
-
             overflow: auto;
-
             border: 1px solid #ddd;
             background-color: #f0f0f0;
+
+            /* Add styles for scroll indicators */
+            background-image: linear-gradient(to right, #f0f0f0, #f0f0f0),
+            linear-gradient(to right, #f0f0f0, #f0f0f0),
+            linear-gradient(to right, rgba(0,0,0,0.25), rgba(255,255,255,0)),
+            linear-gradient(to left, rgba(0,0,0,0.25), rgba(255,255,255,0));
+            background-position: left center, right center, left center, right center;
+            background-repeat: no-repeat;
+            background-size: 20px 100%, 20px 100%, 10px 100%, 10px 100%;
+            background-attachment: local, local, scroll, scroll;
         }
+
 
 
         .node {
