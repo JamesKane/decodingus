@@ -17,6 +17,10 @@ GET         /mtree                                                      controll
 GET         /ytree/fragment                                             controllers.TreeController.yTreeFragment(rootHaplogroup: Option[String])
 GET         /mtree/fragment                                             controllers.TreeController.mTreeFragment(rootHaplogroup: Option[String])
 
+GET         /haplogroups/snp-sidebar/placeholder                        controllers.TreeController.emptySnpDetailSidebarPlaceholder
+GET         /haplogroups/snp-sidebar/:haplogroupName                    controllers.TreeController.getSnpDetailSidebar(haplogroupName: String)
+
+
 GET         /references                                                 controllers.PublicationController.index()
 GET         /references/details                                         controllers.PublicationController.getAllPublicationsWithDetailsHtml(page: Option[Int], pageSize: Option[Int])
 GET         /references/details/:publicationId/biosamples               controllers.BiosampleReportController.getBiosampleReportHTML(publicationId: Int, page: Option[Int] ?= Some(1))
@@ -37,7 +41,7 @@ GET         /api/v1/references/details/:publicationId/biosamples        controll
 
 # --- API Routes (Handled by Tapir, including Swagger UI) ---
 # Delegate all requests starting with /api to the Tapir-based ApiRouter
-->      /api                                  controllers.ApiRouter
+->          /api                                                        controllers.ApiRouter
 
 # Map static resources from the /public folder to the /assets URL path
 GET         /assets/*file                                               controllers.Assets.versioned(path="/public", file: Asset)

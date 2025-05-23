@@ -2,10 +2,12 @@ package controllers
 
 import models.HaplogroupType
 import models.HaplogroupType.{MT, Y}
+import models.api.{GenomicCoordinate, VariantDTO}
+import models.view.TreeViewModel
 import org.webjars.play.WebJarsUtil
 import play.api.libs.json.Json
 import play.api.mvc.*
-import services.{ApiRoute, FragmentRoute, HaplogroupTreeService}
+import services.{ApiRoute, FragmentRoute, HaplogroupTreeService, TreeLayoutService}
 
 import javax.inject.*
 import scala.concurrent.ExecutionContext
@@ -129,15 +131,17 @@ class TreeController @Inject()(val controllerComponents: ControllerComponents,
    * Generates a tree structure for a given root haplogroup and renders it as either
    * a JSON response or an HTML fragment depending on the specified route type.
    *
+   * This is where TreeLayoutService is now called for FragmentRoute responses.
+   *
    * @param rootHaplogroup an optional string specifying the root haplogroup
-   *                       for the tree. If None, the default root defined in
-   *                       the configuration is used.
+   * for the tree. If None, the default root defined in
+   * the configuration is used.
    * @param config         the tree configuration containing settings such
-   *                       as the default root and haplogroup type.
+   * as the default root and haplogroup type.
    * @param routeType      the type of response to generate, either JSON
-   *                       (for API responses) or HTML fragments.
+   * (for API responses) or HTML fragments.
    * @return an Action that produces either a JSON response with the tree
-   *         structure or an HTML fragment based on the route type.
+   * structure or an HTML fragment based on the route type.
    */
   private def treeAction(
                           rootHaplogroup: Option[String],
@@ -146,12 +150,19 @@ class TreeController @Inject()(val controllerComponents: ControllerComponents,
                         ): Action[AnyContent] = Action.async { implicit request =>
 
     val haplogroupName = rootHaplogroup.getOrElse(config.defaultRoot)
+    val isAbsoluteTopRootView = haplogroupName == config.defaultRoot
 
     treeService.buildTreeResponse(haplogroupName, config.haplogroupType, routeType)
-      .map { tree =>
+      .map { treeDto =>
         routeType match {
-          case ApiRoute => Ok(Json.toJson(tree))
-          case FragmentRoute => Ok(views.html.fragments.haplogroup(tree, config.haplogroupType))
+          case ApiRoute =>
+            Ok(Json.toJson(treeDto))
+          case FragmentRoute =>
+            val treeViewModel: Option[TreeViewModel] = treeDto.subclade.flatMap { rootNodeDTO =>
+              services.TreeLayoutService.layoutTree(treeDto, isAbsoluteTopRootView)
+            }
+
+            Ok(views.html.fragments.haplogroup(treeDto, config.haplogroupType, treeViewModel))
         }
       }
       .recover {
@@ -166,5 +177,19 @@ class TreeController @Inject()(val controllerComponents: ControllerComponents,
             case FragmentRoute => Ok(views.html.fragments.error(e.getMessage))
           }
       }
+  }
+
+  def getSnpDetailSidebar(haplogroupName: String): Action[AnyContent] = Action { (request: Request[AnyContent]) =>
+    // This example uses dummy data; replace with your actual service call
+    val snps: Seq[VariantDTO] = haplogroupName match {
+      case "Y1a" => Seq(VariantDTO("SNP-Y1a", Map("chrY" -> GenomicCoordinate(100, 100, "A", "G")), "SNP"))
+      case "Y1b1" => Seq(VariantDTO("SNP-Y1b1", Map("chrY" -> GenomicCoordinate(200, 200, "C", "T")), "SNP"))
+      case _ => Seq.empty[VariantDTO]
+    }
+    Ok(views.html.fragments.snpDetailSidebar(haplogroupName, snps))
+  }
+
+  def emptySnpDetailSidebarPlaceholder: Action[AnyContent] = Action {
+    Ok(<div id="snpDetailSidebarPlaceholder"></div>)
   }
 }

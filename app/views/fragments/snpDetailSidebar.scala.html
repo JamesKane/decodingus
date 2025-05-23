@@ -1,0 +1,90 @@
+@import controllers.routes.TreeController
+@import models.api.VariantDTO
+
+@(haplogroupName: String, snps: Seq[VariantDTO])
+
+<div id="snpDetailSidebarPlaceholder" class="sidebar">
+    <div class="sidebar-header">
+        <h5>Defining SNPs for @haplogroupName</h5>
+        @* Add a close button for the sidebar *@
+        <button class="close-button" hx-get="@TreeController.emptySnpDetailSidebarPlaceholder" hx-target="#snpDetailSidebarPlaceholder" hx-swap="outerHTML">
+                    &times;
+        </button>
+    </div>
+
+    @if(snps.isEmpty) {
+        <p>No defining SNPs found for @haplogroupName.</p>
+    } else {
+        <ul class="snp-list">
+        @for(snp <- snps) {
+            <li>
+                <strong>@snp.name</strong>
+                <br>
+                Type: @snp.variantType
+                @if(snp.coordinates.nonEmpty) {
+                    <br>
+                    Location:
+                    @for((chr, coord) <- snp.coordinates) {
+                        @chr:@coord.start-@coord.stop [@coord.anc > @coord.der]
+                }
+                }
+            </li>
+        }
+        </ul>
+    }
+</div>
+
+<style>
+
+        .sidebar {
+            position: fixed;
+            top: 56px;
+            right: 0;
+            width: 300px;
+            height: calc(100vh - 112px);
+            background-color: #f8f8f8;
+            border-left: 1px solid #ccc;
+            box-shadow: -2px 0 5px rgba(0, 0, 0, 0.1);
+            padding: 15px;
+            box-sizing: border-box;
+            overflow-y: auto;
+            z-index: 1000;
+        }
+
+
+        .sidebar-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #eee;
+        }
+
+        .close-button {
+            background: none;
+            border: none;
+            font-size: 1.5em;
+            cursor: pointer;
+            color: #888;
+        }
+
+        .close-button:hover {
+            color: #555;
+        }
+
+        .snp-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        .snp-list li {
+            background-color: #ffffff;
+            border: 1px solid #eee;
+            margin-bottom: 10px;
+            padding: 10px;
+            border-radius: 4px;
+            font-size: 0.9em;
+        }
+</style>
