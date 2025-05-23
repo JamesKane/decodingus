@@ -149,7 +149,8 @@ class HaplogroupVariantRepositoryImpl @Inject()(
   }
 
   override def addVariantToHaplogroup(haplogroupId: Int, variantId: Int): Future[Int] = {
-    val insertion = haplogroupVariants += HaplogroupVariant(None, haplogroupId, variantId)
+    val insertion = (haplogroupVariants returning haplogroupVariants.map(_.haplogroupVariantId)) +=
+      HaplogroupVariant(None, haplogroupId, variantId)
     runQuery(insertion)
   }
 

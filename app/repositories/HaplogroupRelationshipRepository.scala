@@ -99,7 +99,8 @@ class HaplogroupRelationshipRepositoryImpl @Inject()(
       .map(_ + 1)
 
     runQuery(nextRevisionQuery.flatMap { nextRev =>
-      haplogroupRelationships += relationship.copy(revisionId = nextRev)
+      (haplogroupRelationships returning haplogroupRelationships.map(_.haplogroupRelationshipId)) +=
+        relationship.copy(revisionId = nextRev)
     })
   }
 

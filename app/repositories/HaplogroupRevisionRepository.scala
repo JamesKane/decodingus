@@ -120,7 +120,7 @@ class HaplogroupRevisionRepositoryImpl @Inject()(
       .map(_ + 1)
 
     runQuery(nextRevisionQuery.flatMap { nextRev =>
-      haplogroups += haplogroup.copy(revisionId = nextRev)
+      (haplogroups returning haplogroups.map(_.haplogroupId)) += haplogroup.copy(revisionId = nextRev)
     })
   }
 

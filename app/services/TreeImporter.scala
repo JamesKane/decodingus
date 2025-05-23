@@ -2,6 +2,7 @@ package services
 
 import models.*
 import models.api.{TreeDTO, TreeNodeDTO, VariantDTO}
+import play.api.Logging
 import repositories.*
 
 import java.time.LocalDateTime
@@ -51,7 +52,7 @@ class TreeImporter @Inject()(
                               haplogroupRevisionMetadataRepository: HaplogroupRevisionMetadataRepository,
                               genbankContigRepository: GenbankContigRepository,
                               variantRepository: VariantRepository
-                            )(implicit ec: ExecutionContext) {
+                            )(implicit ec: ExecutionContext) extends Logging {
   private val defaultSettings = TreeImportSettings()
 
 
@@ -115,12 +116,11 @@ class TreeImporter @Inject()(
                                 node: TreeNodeDTO,
                                 haplogroupType: HaplogroupType,
                                 timestamp: LocalDateTime
-                              )(implicit settings: TreeImportSettings)
-  : Future[Int] = {
+                              )(implicit settings: TreeImportSettings): Future[Int] = {
     val haplogroup = Haplogroup(
       id = None,
       name = node.name,
-      lineage = None, // Could be derived from parent chain if needed
+      lineage = None,
       description = None,
       haplogroupType = haplogroupType,
       revisionId = 1,
@@ -130,8 +130,13 @@ class TreeImporter @Inject()(
       validUntil = None
     )
 
-    haplogroupRevisionRepository.createNewRevision(haplogroup)
+    logger.debug(s"Creating new haplogroup revision for ${node.name}")
+    haplogroupRevisionRepository.createNewRevision(haplogroup).map { id =>
+      logger.debug(s"Created haplogroup with ID: $id for ${node.name}")
+      id
+    }
   }
+
 
   /**
    * Creates a relationship between a parent haplogroup and a child haplogroup,
@@ -191,15 +196,23 @@ class TreeImporter @Inject()(
                               haplogroupId: Int,
                               timestamp: LocalDateTime
                             )(implicit settings: TreeImportSettings): Future[Unit] = {
+    logger.debug(s"Starting to process ${variants.size} variants for haplogroup $haplogroupId")
+
     Future.sequence(variants.map { v =>
       for {
         // Create or get the variant
-        variantId <- createOrGetVariant(v)
+        variantId <- createOrGetVariant(v).map { id =>
+          logger.debug(s"Got variant ID $id for variant ${v.name}")
+          id
+        }
 
         // Create the haplogroup-variant association
+        _ = logger.debug(s"Attempting to add variant $variantId to haplogroup $haplogroupId")
         assocId <- haplogroupVariantRepository.addVariantToHaplogroup(haplogroupId, variantId)
+        _ = logger.debug(s"Successfully created haplogroup-variant association with ID $assocId")
 
         // Add metadata for the association
+        _ = logger.debug(s"Adding metadata for haplogroup-variant association $assocId")
         _ <- haplogroupVariantMetadataRepository.addVariantRevisionMetadata(
           HaplogroupVariantMetadata(
             haplogroup_variant_id = assocId,
@@ -211,8 +224,9 @@ class TreeImporter @Inject()(
             previous_revision_id = None
           )
         )
+        _ = logger.debug(s"Successfully added metadata for association $assocId")
       } yield ()
-    }).map(_ => ())
+    }).map(_ => logger.debug(s"Completed processing all variants for haplogroup $haplogroupId"))
   }
 
   /**
