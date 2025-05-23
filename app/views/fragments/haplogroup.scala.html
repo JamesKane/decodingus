@@ -2,7 +2,6 @@
 @import models.api.{TreeDTO, TreeNodeDTO}
 
 @(tree: TreeDTO, hapType: HaplogroupType)
-
 @* Breadcrumb navigation *@
 <nav aria-label="breadcrumb">
     <ol class="breadcrumb">
@@ -22,42 +21,61 @@
     @renderNode(node: TreeNodeDTO, depth: Int = 0) = {
         <div class="tree-node ms-@depth">
             <div class="node-header border-start ps-3 mb-2">
-                <h4>
-                    <a href="#"
-                    class="text-decoration-none"
-                    hx-get="@routes.TreeController.@{hapType.toString.toLowerCase}TreeFragment(Some(node.name))"
-                    hx-target="#tree-container"
-                    hx-push-url="true">
-                    @node.name
-                    </a>
-                    <span class="badge bg-secondary ms-2">
-                        @node.variants.size variant@if(node.variants.size != 1){s}
-                    </span>
-                    @if(node.isBackbone) {
-                        <span class="badge bg-primary ms-1">backbone</span>
+                <div class="d-flex align-items-center gap-2">
+                    <h4 class="mb-0">
+                        <a href="#"
+                        class="text-decoration-none"
+                        hx-get="@{
+                            hapType match {
+                                case HaplogroupType.Y => routes.TreeController.yTreeFragment(Some(node.name))
+                                case HaplogroupType.MT => routes.TreeController.mTreeFragment(Some(node.name))
+                            }
+                        }"
+                        hx-target="#tree-container"
+                        hx-push-url="true">
+                        @node.name
+                        </a>
+                        <span class="badge bg-secondary ms-2">
+                            @node.variants.size variant@if(node.variants.size != 1) {s}
+                        </span>
+                        @if(node.isBackbone) {
+                            <span class="badge bg-primary ms-1">backbone</span>
+                        }
+                    </h4>
+                    @if(node.variants.nonEmpty) {
+                        <div class="variants text-muted d-flex align-items-center flex-wrap">
+                        @defining(node.sortedVariants.splitAt(5)) { case (shown, hidden) =>
+                            @for(v <- shown) {
+                                <span class="me-2 small">@v.name</span>
+                            }
+                            @if(hidden.nonEmpty) {
+                                <button class="btn btn-link btn-sm p-0"
+                                data-bs-toggle="collapse"
+                                data-bs-target="#variants-@(node.name.replaceAll("[^a-zA-Z0-9]", ""))"
+                                aria-expanded="false">
+                                    Show @(hidden.size) more
+                                </button>
+                                <div class="collapse w-100 mt-1" id="variants-@(node.name.replaceAll("[^a-zA-Z0-9]", ""))">
+                                @for(v <- hidden) {
+                                    <span class="me-2">@v.name</span>
+                                }
+                                </div>
+                            }
+                        }
+                        </div>
                     }
-                </h4>
-
-                @if(node.variants.nonEmpty) {
-                    <div class="variants small text-muted mb-2">
-                    @node.variants.map { v =>
-                        <span class="me-2">@v.name</span>
-                    }
-                    </div>
-                }
+                </div>
             </div>
-
-            @* Recursively render sorted children *@
             @if(node.children.nonEmpty) {
                 <div class="children">
-                @for(child <- node.children.sortBy(_.weight)) {
-                    @renderNode(child, depth + 3)
+                @for(child <- node.children) {
+                    @renderNode(child, depth + 2)
                 }
                 </div>
             }
         </div>
-    }
 
+    }
 @* Render the tree starting from the root node *@
 <div class="phylogenetic-tree">
 @tree.subclade.map { rootNode =>
@@ -71,12 +89,15 @@
         .tree-node {
             position: relative;
         }
+
         .tree-node .node-header {
             border-color: #dee2e6 !important;
         }
+
         .tree-node .node-header:hover {
-            background-color: rgba(0,0,0,0.03);
+            background-color: rgba(0, 0, 0, 0.03);
         }
+
         .variants {
             font-family: monospace;
         }

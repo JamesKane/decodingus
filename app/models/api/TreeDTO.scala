@@ -44,6 +44,8 @@ case class TreeNodeDTO(name: String, variants: Seq[VariantDTO], children: List[T
    *         of the current node and the weights of all child nodes.
    */
   def weight: Int = 1 + children.map(_.weight).sum
+
+  def sortedVariants = TreeNodeDTO.sortVariants(this.variants)
 }
 
 /**
@@ -122,6 +124,33 @@ object VariantDTO {
  */
 object TreeNodeDTO {
   implicit val treeNodeFormats: OFormat[TreeNodeDTO] = Json.format[TreeNodeDTO]
+
+  private def extractComponents(s: String): (String, Option[Long]) = {
+    val pattern = """([A-Za-z]+)?(\d+)""".r
+    pattern.findFirstMatchIn(s) match
+      case Some(m) =>
+        val prefix = Option(m.group(1)).getOrElse("")
+        val number = Some(m.group(2).toLong)
+        (prefix, number)
+      case None => (s, None)
+  }
+
+  def sortVariants(variants: Seq[VariantDTO]): Seq[VariantDTO] =
+    variants.sortWith { (a, b) =>
+      (a.name.startsWith("chrY:"), b.name.startsWith("chrY:")) match
+        case (true, false) => false  // a has chrY: prefix, b doesn't -> a comes after
+        case (false, true) => true   // b has chrY: prefix, a doesn't -> a comes before
+        case _ => // both have or both don't have chrY: prefix
+          val (prefixA, numA) = extractComponents(a.name)
+          val (prefixB, numB) = extractComponents(b.name)
+          if prefixA != prefixB then
+            prefixA < prefixB
+          else
+            (numA, numB) match
+              case (Some(n1), Some(n2)) => n1 < n2
+              case _ => a.name < b.name
+    }
+
 }
 
 /**

@@ -110,7 +110,7 @@ class HaplogroupTreeService @Inject()(
       variants <- variantRepository.getHaplogroupVariants(haplogroup.id.get)
       variantDTOs = variants.map { case (variant, contig) =>
         VariantDTO(
-          name = variant.rsId.getOrElse(s"${contig.accession}:${variant.position}"),
+          name = variant.commonName.getOrElse(s"${contig.accession}:${variant.position}"),
           coordinates = Map(
             contig.accession -> GenomicCoordinate(
               variant.position,
