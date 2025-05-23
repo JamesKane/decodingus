@@ -1,13 +1,14 @@
 # --- !Ups
 --- Add tables for Authentication and Authorization
 CREATE SCHEMA auth;
+CREATE EXTENSION IF NOT EXISTS citext;
 
 -- Schema: public
 -- Users Table
 CREATE TABLE public.users
 (
     id           UUID PRIMARY KEY             DEFAULT gen_random_uuid(),
-    email        VARCHAR(255) UNIQUE,
+    email        CITEXT UNIQUE,
     did          VARCHAR(255) UNIQUE NOT NULL,
     handle       VARCHAR(255) UNIQUE,
     display_name VARCHAR(255),
