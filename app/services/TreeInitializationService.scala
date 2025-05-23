@@ -58,13 +58,13 @@ class TreeInitializationService @Inject()(
       // Perform import if conditions are met
       result <- (isEmpty, fileExists) match {
         case (true, true) =>
-          logger.info(s"Importing ${haplogroupType} tree from ${filePath}")
+          logger.info(s"Importing $haplogroupType tree from $filePath")
           importFromFile(filePath, haplogroupType)
         case (false, _) =>
-          logger.info(s"${haplogroupType} tree already exists in database, skipping import")
+          logger.info(s"$haplogroupType tree already exists in database, skipping import")
           Future.successful(false)
         case (_, false) =>
-          logger.warn(s"Import file not found for ${haplogroupType} tree at ${filePath}")
+          logger.warn(s"Import file not found for $haplogroupType tree at $filePath")
           Future.successful(false)
       }
     } yield result
