@@ -1,7 +1,9 @@
 @import models.HaplogroupType
 @import models.api.{TreeDTO, TreeNodeDTO}
+@import play.api.libs.json.Json
 
 @(tree: TreeDTO, hapType: HaplogroupType)
+
 @* Breadcrumb navigation *@
 <nav aria-label="breadcrumb">
     <ol class="breadcrumb">
@@ -9,150 +11,413 @@
             <li class="breadcrumb-item">
                 <a href="#"
                 hx-get="@crumb.url"
-                hx-target="#tree-container"
-                hx-push-url="true">@crumb.label</a>
+                hx-target="#tree-container" @* Assuming #tree-container is your main htmx target *@
+                hx-push-url="true">@crumb.label </a>
             </li>
         }
     <li class="breadcrumb-item active" aria-current="page">@tree.name</li>
     </ol>
 </nav>
 
-        @* Tree rendering helper function *@
-    @renderNode(node: TreeNodeDTO, depth: Int = 0) = {
-        <div class="tree-node ms-@depth">
-            <div class="node-header border-start ps-3 mb-2">
-                <div class="d-flex align-items-center gap-2">
-                    <h4 class="mb-0">
-                        <a href="#"
-                        class="text-decoration-none"
-                        hx-get="@{
-                            hapType match {
-                                case HaplogroupType.Y => routes.TreeController.yTreeFragment(Some(node.name))
-                                case HaplogroupType.MT => routes.TreeController.mTreeFragment(Some(node.name))
-                            }
-                        }"
-                        hx-target="#tree-container"
-                        hx-push-url="true">
-                        @node.name
-                        </a>
-                        <span class="badge bg-secondary ms-2">
-                            @node.variants.size variant@if(node.variants.size != 1) {s}
-                        </span>
-                        @if(node.isBackbone) {
-                            <span class="badge bg-primary ms-1">backbone</span>
-                        }
-                    </h4>
-                    @if(node.variants.nonEmpty) {
-                        <div class="variants text-muted d-flex align-items-center flex-wrap">
-                        @defining(node.sortedVariants.splitAt(5)) { case (shown, hidden) =>
-                            @for(v <- shown) {
-                                <span class="me-2 small">@v.name</span>
-                            }
-                            @if(hidden.nonEmpty) {
-                                <button class="btn btn-link btn-sm p-0"
-                                data-bs-toggle="collapse"
-                                data-bs-target="#variants-@(node.name.replaceAll("[^a-zA-Z0-9]", ""))"
-                                aria-expanded="false">
-                                    Show @(hidden.size) more
-                                </button>
-                                <div class="collapse w-100 mt-1" id="variants-@(node.name.replaceAll("[^a-zA-Z0-9]", ""))">
-                                @for(v <- hidden) {
-                                    <span class="me-2">@v.name</span>
-                                }
-                                </div>
-                            }
-                        }
-                        </div>
-                    }
-                </div>
-            </div>
-            @if(node.children.nonEmpty) {
-                <div class="children">
-                @for(child <- node.children) {
-                    @renderNode(child, depth + 2)
-                }
-                </div>
-            }
-        </div>
+@* Color coding legend *@
+<div class="mb-3">
+    <small class="text-muted">
+        <span class="me-3"><span style="display: inline-block;
+            width: 24px;
+            height: 24px;
+            background-color: #90EE90;
+            vertical-align: middle;"></span> Established haplogroup</span>
+        <span class="me-3"><span style="display: inline-block;
+            width: 24px;
+            height: 24px;
+            background-color: #fff0e0;
+            vertical-align: middle;"></span> Updated in the last year</span>
+    </small>
+</div>
 
-    }
-@* Render the tree starting from the root node *@
-<div class="phylogenetic-tree">
+@* D3.js Library - Include this only if D3 is not guaranteed to be on the base page. *@
+@* If your main layout.scala.html already includes D3, you can remove this line. *@
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<script src="https://d3js.org/d3-zoom.v3.min.js"></script>
+
+@* The D3 tree container and drawing logic - This entire block gets swapped by HTMX *@
 @tree.subclade.map { rootNode =>
-    @renderNode(rootNode)
+<div id="phylogenetic-tree-root"> @* This is the target div for D3 to draw into *@
+    @* Embed the tree data as JSON for JavaScript to access *@
+<script id="tree-data-json" type="application/json">
+    @Html(Json.stringify(Json.toJson(rootNode)))
+</script>
+
+<script type="text/javascript">
+            document.addEventListener('htmx:load', function(evt) {
+                if (typeof d3 === 'undefined' || typeof d3.zoom === 'undefined') {
+                    console.error("D3.js or D3-Zoom is not loaded. Cannot draw phylogenetic tree.");
+                    return;
+                }
+
+                const treeDataScript = document.getElementById('tree-data-json');
+                if (!treeDataScript) {
+                    console.error("HTMX: Tree data script (tree-data-json) not found inside the swapped fragment.");
+                    return;
+                }
+                const treeData = JSON.parse(treeDataScript.textContent);
+                const containerId = 'phylogenetic-tree-root';
+
+                // Instantiate and draw the tree
+                const tree = new PhylogeneticTree(containerId, treeData);
+                tree.draw();
+
+            }, { once: true });
+
+
+            // --- PhylogeneticTree Class ---
+            // Encapsulates all D3 tree drawing and interaction logic
+            class PhylogeneticTree {
+                constructor(containerId, treeData) {
+                    this.container = document.getElementById(containerId);
+                    if (!this.container) {
+                        console.error(`Container with ID ${containerId} not found.`);
+                        return; // Cannot proceed without a container
+                    }
+
+                    this.treeData = treeData;
+
+                    // Configuration for layout, node appearance, and spacing
+                    this.config = {
+                        nodeWidth: 150,
+                        nodeHeight: 24,
+                        horizontalSpacing: 200, // Horizontal distance between levels (depths)
+                        verticalSpacing: 28,    // Vertical minimum space between nodes at the same level
+                        margin: { top: 20, right: 120, bottom: 20, left: 120 },
+                        transitionDuration: 750, // Animation speed
+                        minSvgHeight: 500,
+                        zoomScaleExtent: [0.1, 4],
+                        // expandDepthOnDoubleClick: 2 // No longer strictly needed for initial setup, but good to keep if re-enabling
+                    };
+
+                    this.svgElement = null; // The <svg> element
+                    this.g = null;          // The <g> element that holds nodes and links (for zoom/pan)
+                    this.treemap = null;
+                    this.root = null;
+                    this.containerWidth = this.container.clientWidth;
+                    this.finalSvgHeight = this.config.minSvgHeight; // Will be dynamically updated
+
+                    this.clickTimeout = null; // For double-click detection
+                }
+
+                // --- Core Drawing Method ---
+                draw() {
+                    // Clear any existing SVG inside this container from previous HTMX renders
+                    this.container.innerHTML = '';
+
+                    this._initializeSvg();
+                    this._initializeTreeLayout();
+                    this._initializeHierarchy();
+
+                    this._update(this.root); // Initial draw (now fully expanded)
+                }
+
+                // --- Private Initialization Methods ---
+
+                _initializeSvg() {
+                    this.svgElement = d3.select(this.container).append("svg")
+                            .attr("width", this.containerWidth)
+                            .attr("height", this.config.minSvgHeight); // Initial height, will adjust
+
+                    // Apply zoom behavior to the SVG element
+                    this.svgElement.call(d3.zoom()
+                            .scaleExtent(this.config.zoomScaleExtent)
+                            .on('zoom', (event) => {
+                                this.g.attr('transform', event.transform);
+                            }));
+
+                    // The 'g' element will contain all nodes and links, and will be transformed by zoom
+                    this.g = this.svgElement.append("g")
+                            .attr("transform", `translate(${this.config.margin.left},${this.config.margin.top})`);
+                }
+
+                _initializeTreeLayout() {
+                    this.treemap = d3.tree()
+                            .nodeSize([this.config.verticalSpacing, this.config.horizontalSpacing]);
+                }
+
+                _initializeHierarchy() {
+                    this.root = d3.hierarchy(this.treeData, d => d.children);
+                    this.root.x0 = this.config.minSvgHeight / 2; // Initial position for root (center of height)
+                    this.root.y0 = 0; // Initial position for root (left edge)
+
+                    // NO INITIAL COLLAPSING: The tree will be rendered fully expanded by default.
+                    // If you later want to manually collapse on load, you can add a `this._collapse(node)` call here.
+                }
+
+                // --- Private Helper Methods (bound to the class instance) ---
+
+                // _collapse and _expandAll are kept here for potential future use (manual collapse/expand)
+                _collapse(d) {
+                    if (d.children) {
+                        d._children = d.children;
+                        d._children.forEach(this._collapse.bind(this));
+                        d.children = null;
+                    }
+                }
+
+                _expandAll(d) {
+                    if (d._children) {
+                        d.children = d._children;
+                        d._children = null;
+                        d.children.forEach(this._expandAll.bind(this));
+                    }
+                }
+
+                _stepPath(source, target) {
+                    return `M ${source.y} ${source.x}
+                            H ${(source.y + target.y) / 2}
+                            V ${target.x}
+                            H ${target.y}`;
+                }
+
+                _centerNode(sourceNode) {
+                    const transform = d3.zoomTransform(this.svgElement.node());
+                    const scale = transform.k;
+
+                    // Calculate the new X (horizontal) and Y (vertical) translation needed
+                    // to center the sourceNode within the _visible_ viewport.
+                    // Note: this.container.clientHeight is the visible height of the scrollable div.
+                    const newX = -sourceNode.y * scale + this.containerWidth / 2;
+                    const newY = -sourceNode.x * scale + this.container.clientHeight / 2; // Use container's visible height here
+
+                    this.svgElement
+                            .transition()
+                            .duration(this.config.transitionDuration)
+                            .call(d3.zoom().transform, d3.zoomIdentity.translate(newX, newY).scale(scale));
+                }
+
+                // --- Private Event Handlers (Click/Double-Click logic remains, but not used initially) ---
+                _handleClick(event, d) {
+                    event.stopPropagation();
+
+                    if (this.clickTimeout !== null) { // Double-click detected
+                        clearTimeout(this.clickTimeout);
+                        this.clickTimeout = null;
+                        this._handleDoubleClick(d); // This will trigger collapse/expand if implemented
+                    } else { // Single-click (potential first click of a double)
+                        this.clickTimeout = setTimeout(() => {
+                            this.clickTimeout = null;
+                            // For a static tree, a single click might highlight or show details
+                            // For now, it does nothing or could be configured to toggle direct children
+                            // this._toggleDirectChildren(d); // Uncomment if you want single click to toggle
+                        }, 250);
+                    }
+                }
+
+                // This method is available for later re-enabling manual collapse/expand
+                _toggleDirectChildren(d) {
+                    if (d.children) {
+                        d._children = d.children;
+                        d.children = null;
+                    } else {
+                        d.children = d._children;
+                        d._children = null;
+                    }
+                    this._update(d);
+                }
+
+                // This method is available for later re-enabling manual collapse/expand
+                _handleDoubleClick(d) {
+                    // By default, double-click does nothing in this static setup.
+                    // If you want to enable a "collapse/expand all" or "expand to depth" later,
+                    // this is where you'd add the logic, e.g.:
+                    // if (d.children) {
+                    //     this._collapse(d);
+                    // } else if (d._children) {
+                    //     this._expandAll(d); // Or _expandToDepth(d, this.config.expandDepthOnDoubleClick);
+                    // }
+                    // this._update(d);
+                }
+
+                // --- Main Update/Render Method ---
+                _update(source) {
+                    // Compute the new tree layout (positions of all nodes and links)
+                    this.treemap(this.root); // Operates on the full hierarchy
+
+                    const nodes = this.root.descendants(); // All nodes will be visible
+                    const links = this.root.links();      // All links will be visible
+
+                    // Adjust SVG height dynamically to fit the entire tree
+                    const maxNodeX = d3.max(nodes, d => d.x);
+                    const minNodeX = d3.min(nodes, d => d.x);
+                    const treeHeight = maxNodeX - minNodeX + this.config.nodeHeight;
+                    this.finalSvgHeight = Math.max(this.config.minSvgHeight, treeHeight + this.config.margin.top + this.config.margin.bottom);
+
+                    this.svgElement
+                            .transition()
+                            .duration(this.config.transitionDuration)
+                            .attr("height", this.finalSvgHeight);
+
+                    // --- Nodes ---
+                    const node = this.g.selectAll('g.node')
+                            .data(nodes, d => d.data.name || d.id);
+
+                    // Enter new nodes
+                    const nodeEnter = node.enter().append('g')
+                            .attr('class', 'node')
+                            // For a static tree, new nodes appear at their final position immediately
+                            .attr("transform", d => `translate(${d.y},${d.x})`); // Direct placement
+                    // We're leaving the click handler attached for future use or simple highlighting
+                    // For a truly static tree with no interaction, you'd remove this.
+                    // .on('click', this._handleClick.bind(this));
+
+                    nodeEnter.append('rect')
+                            .attr('class', 'node-rect')
+                            .attr('width', this.config.nodeWidth)
+                            .attr('height', this.config.nodeHeight)
+                            .attr('x', -this.config.nodeWidth / 2)
+                            .attr('y', -this.config.nodeHeight / 2)
+                            .attr('rx', 3)
+                            .attr('ry', 3)
+                            .style("fill", "#f8f8f8")
+                            .attr("stroke", "#333")
+                            .attr("stroke-width", "1px");
+
+                    nodeEnter.append('text')
+                            .attr('class', 'node-name')
+                            .attr("x", -this.config.nodeWidth / 2 + 5)
+                            .attr("y", 0)
+                            .attr("dy", ".35em")
+                            .attr("text-anchor", "start")
+                            .text(d => d.data.name)
+                            .style("fill", "black")
+                            .style("font-size", "12px")
+                            .append("title") // Tooltip for detailed info on hover
+                            .text(d => d.data.name +
+                                    (d.data.variants && d.data.variants.length > 0 ?
+                                            ` (${d.data.variants.map(v => v.name).join(', ')})` : "") +
+                                    (d.data.isBackbone ? " [Backbone]" : ""));
+
+                    nodeEnter.append('text')
+                            .attr('class', 'node-variant-count')
+                            .attr("x", this.config.nodeWidth / 2 - 5)
+                            .attr("y", 0)
+                            .attr("dy", ".35em")
+                            .attr("text-anchor", "end")
+                            .text(d => d.data.variants && d.data.variants.length > 0 ? d.data.variants.length : '')
+                            .style("fill", "#6c757d")
+                            .style("font-size", "10px");
+
+                    // Update existing and entering nodes
+                    const nodeUpdate = nodeEnter.merge(node);
+
+                    // For a static tree, nodes don't move after initial render, so no transition needed here
+                    nodeUpdate.attr("transform", d => `translate(${d.y},${d.x})`); // Immediately set to final position
+
+                    nodeUpdate.select('.node-rect')
+                            .style("fill", d => {
+                                const oneYearAgo = new Date().setFullYear(new Date().getFullYear() - 1);
+                                if (d.data.updated && new Date(d.data.updated).getTime() > oneYearAgo) {
+                                    return "#fff0e0";
+                                } else if (d.data.isBackbone) {
+                                    return "#90EE90";
+                                }
+                                return "#f8f8f8";
+                            })
+                            .attr("stroke", "black");
+
+                    nodeUpdate.select('.node-name').text(d => d.data.name);
+                    nodeUpdate.select('.node-variant-count').text(d => d.data.variants && d.data.variants.length > 0 ? d.data.variants.length : '');
+
+                    // Exit nodes (should not happen in a fully static render)
+                    node.exit().remove();
+
+                    // --- Links ---
+                    const link = this.g.selectAll('path.link')
+                            .data(links, d => d.target.data.name);
+
+                    // Enter new links
+                    const linkEnter = link.enter().insert('path', "g")
+                            .attr("class", "link")
+                            .attr('d', d => {
+                                // Links draw immediately to their final position
+                                const sourcePoint = { x: d.source.x, y: d.source.y + this.config.nodeWidth / 2 };
+                                const targetPoint = { x: d.target.x, y: d.target.y - this.config.nodeWidth / 2 };
+                                return this._stepPath(sourcePoint, targetPoint);
+                            });
+
+                    // Update existing and entering links (no transition)
+                    linkEnter.merge(link)
+                            .attr('d', d => {
+                                const sourcePoint = { x: d.source.x, y: d.source.y + this.config.nodeWidth / 2 };
+                                const targetPoint = { x: d.target.x, y: d.target.y - this.config.nodeWidth / 2 };
+                                return this._stepPath(sourcePoint, targetPoint);
+                            });
+
+                    // Exit links (should not happen in a fully static render)
+                    link.exit().remove();
+
+                    // Store the current positions as old positions for the next transition.
+                    // (Not strictly needed for a static tree, but harmless for future expand/collapse)
+                    nodes.forEach(d => {
+                        d.x0 = d.x;
+                        d.y0 = d.y;
+                    });
+
+                    // Center the view on the root (or entire tree extent)
+                    // This ensures the user sees the whole tree initially, then can zoom/pan
+                    this._centerNode(this.root);
+                }
+            }
+        </script>
+</div>
 }.getOrElse {
     <div class="alert alert-warning">No tree data available</div>
 }
-</div>
 
+@* CSS styles for the D3 tree - Place this in your main layout.scala.html or a separate CSS file *@
+@* This way, it only loads once and won't be re-injected by HTMX, which is more efficient. *@
+@* For demo purposes, keeping it here. *@
 <style>
-        .phylogenetic-tree {
-            margin-left: 10px;
-            position: relative;
+        /* Main container for the D3 tree */
+        #phylogenetic-tree-root {
+            width: 100%;
+            /* Define a max-height relative to the viewport, or a fixed height */
+            /* This creates the scrollable viewport for your tree */
+            max-height: calc(100vh - 200px); /* Adjust 200px based on your header/footer/breadcrumb height */
+            /* If you want it to scroll horizontally too (which it will if the tree is wide) */
+            overflow: auto;
+            /* Add a border to visualize the scrollable area (optional) */
+            border: 1px solid #ddd;
+            background-color: #f0f0f0; /* Helps visualize the empty scrollable area */
         }
 
-        .tree-node {
-            list-style-type: none;
-            margin: 0;
-            padding: 0 24px; /* Doubled from 12px for more indentation per level */
-            position: relative;
+        /* The SVG element itself will naturally grow to contain the whole tree */
+        /* No specific width/height needed here for the SVG, as D3 sets it */
+        /* based on tree dimensions, then it's contained by the div's overflow */
+
+        /* Styles for the D3-rendered SVG elements */
+        .node {
+            cursor: default; /* Indicate no clickability for now */
         }
 
-        /* Vertical line */
-        .tree-node .children > .tree-node::after {
-            content: '';
-            position: absolute;
-            left: 0;
-            border-left: 2px solid #333; /* Darker and slightly thicker */
-            height: 100%;
-            width: 0;
-            top: -10px;
+        .node-rect {
+            fill: #f8f8f8; /* Default light grey background for boxes */
+            stroke: #333; /* Darker border */
+            stroke-width: 1px;
         }
 
-        /* Horizontal line */
-        .tree-node .children > .tree-node::before {
-            content: '';
-            position: absolute;
-            left: 0;
-            border-top: 2px solid #333; /* Darker and slightly thicker */
-            top: 10px;
-            width: 20px; /* Doubled from 10px to match the increased padding */
-            height: 0;
+        .node-name {
+            font-family: sans-serif;
+            font-size: 12px;
+            fill: black;
         }
 
-        /* Stop vertical line when there's only one child */
-        .tree-node .children > .tree-node:first-child:last-child::after {
-            height: 20px;
+        .node-variant-count {
+            font-family: sans-serif;
+            font-size: 10px;
+            fill: #6c757d;
         }
 
-        /* Handle the last sibling in a multi-child group */
-        .tree-node .children > .tree-node:last-child::after {
-            height: 20px;
+        .link {
+            fill: none;
+            stroke: #999;
+            stroke-width: 1.5px;
         }
-
-        .tree-node .node-header {
-            position: relative;
-            border-left: none !important;
-        }
-
-        .tree-node h4 {
-            margin: 0;
-            padding: 0.5rem 0;
-        }
-
-        .tree-node .node-header:hover {
-            background-color: rgba(0, 0, 0, 0.03);
-        }
-
-        .variants {
-            font-family: monospace;
-        }
-
-        /* Remove Bootstrap spacing utilities */
-        .tree-node.ms-2,
-        .tree-node.ms-4,
-        .tree-node.ms-6 {
-            margin-left: 0 !important;
-        }
-
 </style>
