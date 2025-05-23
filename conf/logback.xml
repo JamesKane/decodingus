@@ -25,7 +25,7 @@
 
     <rollingPolicy class="TimeBasedRollingPolicy">
       <!-- Daily rollover -->
-      <fileNamePattern>${LOG_PATH}/application.%d{yyyy-MM-dd}.log</fileNamePattern>
+      <fileNamePattern>${LOG_PATH}/application.%d{yyyy-MM-dd}.log.gz</fileNamePattern>
 
       <!-- Keep 30 days worth of history -->
       <maxHistory>30</maxHistory>
@@ -67,7 +67,7 @@
 
   <logger name="play" level="INFO"/>
   <logger name="application" level="DEBUG"/>
-  
+
   <logger name="services.LoggingEmailService" level="INFO"/>
 
   <root level="WARN">
