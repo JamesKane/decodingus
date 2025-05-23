@@ -153,6 +153,7 @@ class TreeImporter @Inject()(
                                   childId: Int,
                                   timestamp: LocalDateTime
                                 )(implicit settings: TreeImportSettings): Future[Unit] = {
+    logger.debug(s"Creating relationship: parent=$parentId -> child=$childId")
     val relationship = HaplogroupRelationship(
       id = None,
       childHaplogroupId = childId,
@@ -251,27 +252,20 @@ class TreeImporter @Inject()(
         case None => Future.failed(new RuntimeException(s"GenBank contig not found: $contigAccession"))
       }
 
-      // Then find or create the variant
-      variantId <- variantRepository.findVariant(
-        contigId = contig.id.get,
-        position = coord.start,
-        referenceAllele = coord.anc,
-        alternateAllele = coord.der
-      ).flatMap {
-        case Some(variant) => Future.successful(variant.variantId.get)
-        case None => variantRepository.createVariant(
-          Variant(
-            variantId = None,
-            genbankContigId = contig.id.get,
-            position = coord.start,
-            referenceAllele = coord.anc,
-            alternateAllele = coord.der,
-            variantType = v.variantType,
-            rsId = Some(v.name).filter(_.startsWith("rs")),
-            commonName = Some(v.name).filterNot(_.startsWith("rs"))
-          )
+      // Use a synchronized find-or-create operation
+      variantId <- variantRepository.findOrCreateVariant(
+        Variant(
+          variantId = None,
+          genbankContigId = contig.id.get,
+          position = coord.start,
+          referenceAllele = coord.anc,
+          alternateAllele = coord.der,
+          variantType = v.variantType,
+          rsId = Some(v.name).filter(_.startsWith("rs")),
+          commonName = Some(v.name).filterNot(_.startsWith("rs"))
         )
-      }
+      )
     } yield variantId
   }
+
 }
