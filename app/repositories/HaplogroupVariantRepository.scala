@@ -167,7 +167,7 @@ class HaplogroupVariantRepositoryImpl @Inject()(
       haplogroupVariant <- haplogroupVariants if haplogroupVariant.variantId === variant.variantId
       haplogroup <- haplogroups if
         haplogroup.haplogroupId === haplogroupVariant.haplogroupId &&
-          haplogroup.haplogroupType === haplogroupType.toString
+          haplogroup.haplogroupType === haplogroupType
     } yield haplogroup
 
     runQuery(query.result)

@@ -91,6 +91,14 @@ trait MyPostgresProfile extends ExPostgresProfile
     with SearchImplicits
     with SearchAssistants {
 
+    import models.HaplogroupType
+
+    implicit val haplogroupTypeMapper: JdbcType[HaplogroupType] =
+      MappedColumnType.base[HaplogroupType, String](
+        ht => ht.toString,
+        s => HaplogroupType.valueOf(s)
+      )
+
     implicit val strListTypeMapper: DriverJdbcType[List[String]] = new SimpleArrayJdbcType[String]("text").to(_.toList)
     implicit val beanJsonTypeMapper: JdbcType[JBean] with BaseTypedType[JBean] = MappedJdbcType.base[JBean, JsValue](Json.toJson(_), _.as[JBean])
 

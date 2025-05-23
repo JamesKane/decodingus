@@ -47,7 +47,7 @@ class HaplogroupCoreRepositoryImpl @Inject()(
 
   override def getHaplogroupByName(name: String, haplogroupType: HaplogroupType): Future[Option[Haplogroup]] = {
     val query = haplogroups
-      .filter(h => h.name === name && h.haplogroupType === haplogroupType.toString)
+      .filter(h => h.name === name && h.haplogroupType === haplogroupType)
       .result
       .headOption
 

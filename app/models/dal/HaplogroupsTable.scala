@@ -49,7 +49,7 @@ class HaplogroupsTable(tag: Tag) extends Table[Haplogroup](tag, "haplogroup") {
 
   def description = column[Option[String]]("description")
 
-  def haplogroupType = column[String]("haplogroup_type")
+  def haplogroupType = column[HaplogroupType]("haplogroup_type")
 
   def revisionId = column[Int]("revision_id")
 

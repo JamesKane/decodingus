@@ -155,7 +155,7 @@ class HaplogroupRevisionRepositoryImpl @Inject()(
 
   override def countByType(haplogroupType: HaplogroupType): Future[Int] = {
     val query = haplogroups
-      .filter(_.haplogroupType === haplogroupType.toString)
+      .filter(_.haplogroupType === haplogroupType)
       .length
       .result
 
