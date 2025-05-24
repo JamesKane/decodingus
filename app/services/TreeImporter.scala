@@ -199,73 +199,70 @@ class TreeImporter @Inject()(
                             )(implicit settings: TreeImportSettings): Future[Unit] = {
     logger.debug(s"Starting to process ${variants.size} variants for haplogroup $haplogroupId")
 
-    Future.sequence(variants.map { v =>
-      for {
-        // Create or get the variant
-        variantId <- createOrGetVariant(v).map { id =>
-          logger.debug(s"Got variant ID $id for variant ${v.name}")
-          id
-        }
-
-        // Create the haplogroup-variant association
-        _ = logger.debug(s"Attempting to add variant $variantId to haplogroup $haplogroupId")
-        assocId <- haplogroupVariantRepository.addVariantToHaplogroup(haplogroupId, variantId)
-        _ = logger.debug(s"Successfully created haplogroup-variant association with ID $assocId")
-
-        // Add metadata for the association
-        _ = logger.debug(s"Adding metadata for haplogroup-variant association $assocId")
-        _ <- haplogroupVariantMetadataRepository.addVariantRevisionMetadata(
-          HaplogroupVariantMetadata(
-            haplogroup_variant_id = assocId,
-            revision_id = 1,
-            author = settings.initialAuthor,
-            timestamp = timestamp,
-            comment = "Initial variant import",
-            change_type = "CREATE",
-            previous_revision_id = None
-          )
-        )
-        _ = logger.debug(s"Successfully added metadata for association $assocId")
-      } yield ()
-    }).map(_ => logger.debug(s"Completed processing all variants for haplogroup $haplogroupId"))
-  }
-
-  /**
-   * Creates a new variant or retrieves the ID of an existing variant based on the provided `VariantDTO`.
-   *
-   * This method operates by first identifying the genomic contig specified by the accession in the
-   * variant's coordinates. Once the contig is found, it attempts to locate an existing variant with matching
-   * genomic details (position, reference allele, and alternate allele). If no such variant exists, a new
-   * one is created and its ID is returned.
-   *
-   * @param v The `VariantDTO` instance containing details about the variant, such as its name,
-   *          coordinates, and type.
-   * @return A `Future` that resolves to the unique integer identifier of the existing or newly created variant.
-   */
-  private def createOrGetVariant(v: VariantDTO): Future[Int] = {
-    val (contigAccession, coord) = v.coordinates.head
-
-    for {
-      // First find the contig using the repository
-      contig <- genbankContigRepository.findByAccession(contigAccession).flatMap {
-        case Some(c) => Future.successful(c)
-        case None => Future.failed(new RuntimeException(s"GenBank contig not found: $contigAccession"))
-      }
-
-      // Use a synchronized find-or-create operation
-      variantId <- variantRepository.findOrCreateVariant(
-        Variant(
+    // Convert DTOs to Variant entities
+    val variantEntities = variants.flatMap { v =>
+      v.coordinates.map { case (contigAccession, coord) =>
+        (contigAccession, Variant(
           variantId = None,
-          genbankContigId = contig.id.get,
+          genbankContigId = 0,
           position = coord.start,
           referenceAllele = coord.anc,
           alternateAllele = coord.der,
           variantType = v.variantType,
           rsId = Some(v.name).filter(_.startsWith("rs")),
           commonName = Some(v.name).filterNot(_.startsWith("rs"))
+        ))
+      }
+    }
+
+    // Group by contig accession for efficient processing
+    val groupedVariants = variantEntities.groupBy(_._1)
+
+    // Process groups sequentially to avoid overwhelming the connection pool
+    groupedVariants.toSeq.foldLeft(Future.successful(())) { case (prevFuture, (contigAccession, variants)) =>
+      prevFuture.flatMap { _ =>
+        // Process each batch of 100 variants
+        variants.grouped(100).foldLeft(Future.successful(())) { case (batchFuture, batch) =>
+          batchFuture.flatMap { _ =>
+            for {
+              contig <- genbankContigRepository.findByAccession(contigAccession).flatMap {
+                case Some(c) => Future.successful(c)
+                case None => Future.failed(new RuntimeException(s"GenBank contig not found: $contigAccession"))
+              }
+              variantsWithContig = batch.map(_._2.copy(genbankContigId = contig.id.get))
+              variantIds <- variantRepository.findOrCreateVariantsBatch(variantsWithContig)
+              _ <- variantIds.foldLeft(Future.successful(())) { case (f, variantId) =>
+                f.flatMap(_ => createVariantAssociation(haplogroupId, variantId, timestamp).map(_ => ()))
+              }
+            } yield ()
+          }
+        }
+      }
+    }
+  }
+
+  private def createVariantAssociation(
+                                        haplogroupId: Int,
+                                        variantId: Int,
+                                        timestamp: LocalDateTime
+                                      )(implicit settings: TreeImportSettings): Future[Int] = {
+    for {
+      // Create the haplogroup-variant association
+      assocId <- haplogroupVariantRepository.addVariantToHaplogroup(haplogroupId, variantId)
+
+      // Add metadata for the association
+      _ <- haplogroupVariantMetadataRepository.addVariantRevisionMetadata(
+        HaplogroupVariantMetadata(
+          haplogroup_variant_id = assocId,
+          revision_id = 1,
+          author = settings.initialAuthor,
+          timestamp = timestamp,
+          comment = "Initial variant import",
+          change_type = "CREATE",
+          previous_revision_id = None
         )
       )
-    } yield variantId
+    } yield assocId
   }
 
 }

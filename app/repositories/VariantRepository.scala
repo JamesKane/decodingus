@@ -5,7 +5,7 @@ import models.Variant
 import models.dal.MyPostgresProfile
 import models.dal.MyPostgresProfile.api.*
 import org.postgresql.util.PSQLException
-import play.api.db.slick.{DatabaseConfigProvider, HasDatabaseConfigProvider}
+import play.api.db.slick.DatabaseConfigProvider
 
 import scala.concurrent.{ExecutionContext, Future}
 
@@ -38,14 +38,18 @@ trait VariantRepository {
    */
   def createVariant(variant: Variant): Future[Int]
 
+  def createVariantsBatch(variants: Seq[Variant]): Future[Seq[Int]]
+
   def findOrCreateVariant(variant: Variant): Future[Int]
+
+  def findOrCreateVariantsBatch(variants: Seq[Variant]): Future[Seq[Int]]
 }
 
 class VariantRepositoryImpl @Inject()(
-                                       protected val dbConfigProvider: DatabaseConfigProvider
+                                       dbConfigProvider: DatabaseConfigProvider
                                      )(implicit ec: ExecutionContext)
-  extends VariantRepository
-    with HasDatabaseConfigProvider[MyPostgresProfile] {
+  extends BaseRepository(dbConfigProvider)
+    with VariantRepository {
 
   import models.dal.DatabaseSchema.variants
 
@@ -70,35 +74,16 @@ class VariantRepositoryImpl @Inject()(
     db.run(insertion)
   }
 
-  def findOrCreateVariant(variant: Variant): Future[Int] = {
-    // Use database-level upsert to handle race conditions
-    (for {
-      existingVariant <- findVariant(
-        variant.genbankContigId,
-        variant.position,
-        variant.referenceAllele,
-        variant.alternateAllele
-      )
-      id <- existingVariant match {
-        case Some(v) => Future.successful(v.variantId.get)
-        case None => createVariantWithConflictHandling(variant)
-      }
-    } yield id).recoverWith {
-      case e: PSQLException if e.getSQLState == "23505" => // Unique violation
-        // If we hit a conflict, try to find the variant again
-        findVariant(
-          variant.genbankContigId,
-          variant.position,
-          variant.referenceAllele,
-          variant.alternateAllele
-        ).flatMap {
-          case Some(v) => Future.successful(v.variantId.get)
-          case None => Future.failed(e) // Something unexpected happened
-        }
+  def createVariantsBatch(variantBatch: Seq[Variant]): Future[Seq[Int]] = {
+    if (variantBatch.isEmpty) {
+      Future.successful(Seq.empty)
+    } else {
+      val insertAction = (variants returning variants.map(_.variantId)) ++= variantBatch
+      db.run(insertAction.transactionally)
     }
   }
 
-  private def createVariantWithConflictHandling(variant: Variant): Future[Int] = {
+  def findOrCreateVariant(variant: Variant): Future[Int] = {
     val findExistingQuery = variants
       .filter(v =>
         v.genbankContigId === variant.genbankContigId &&
@@ -111,22 +96,50 @@ class VariantRepositoryImpl @Inject()(
       .headOption
 
     val action = findExistingQuery.flatMap {
-      case Some(existingId) =>
-        // Variant exists, return its ID
-        DBIO.successful(existingId)
+      case Some(existingId) => DBIO.successful(existingId)
       case None =>
-        // Variant doesn't exist, try to insert it
         (variants returning variants.map(_.variantId)) += variant
     }.transactionally
 
     db.run(action).recoverWith {
       case e: PSQLException if e.getSQLState == "23505" =>
-        // If we hit a conflict, try to find the variant again
-        db.run(findExistingQuery).flatMap {
-          case Some(existingId) => Future.successful(existingId)
-          case None => Future.failed(e) // Something unexpected happened
+        findVariant(
+          variant.genbankContigId,
+          variant.position,
+          variant.referenceAllele,
+          variant.alternateAllele
+        ).flatMap {
+          case Some(v) => Future.successful(v.variantId.get)
+          case None => Future.failed(e)
         }
     }
   }
 
+  def findOrCreateVariantsBatch(batch: Seq[Variant]): Future[Seq[Int]] = {
+    // Create a sequence of individual upsert actions
+    val upsertActions = batch.map { variant =>
+      sql"""
+        INSERT INTO variant (
+          genbank_contig_id, position, reference_allele, alternate_allele,
+          variant_type, rs_id, common_name
+        ) VALUES (
+          ${variant.genbankContigId}, ${variant.position},
+          ${variant.referenceAllele}, ${variant.alternateAllele},
+          ${variant.variantType}, ${variant.rsId}, ${variant.commonName}
+        )
+        ON CONFLICT (genbank_contig_id, position, reference_allele, alternate_allele)
+        DO UPDATE SET
+          variant_type = EXCLUDED.variant_type,
+          rs_id = COALESCE(EXCLUDED.rs_id, variant.rs_id),
+          common_name = COALESCE(EXCLUDED.common_name, variant.common_name)
+        RETURNING variant_id
+      """.as[Int].head  // Use .head to get a single Int instead of Vector[Int]
+    }
+
+    // Combine all actions into a single DBIO action
+    val combinedAction = DBIO.sequence(upsertActions)
+
+    // Use runTransactionally from BaseRepository
+    runTransactionally(combinedAction)
+  }
 }
