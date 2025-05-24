@@ -5,14 +5,20 @@
 
 @(tree: TreeDTO, hapType: HaplogroupType, renderedTreeData: Option[TreeViewModel])
 
-<nav aria-label="breadcrumb">
+<nav aria-label="breadcrumb" itemscope itemtype="https://schema.org/BreadcrumbList">
     <ol class="breadcrumb">
-        @for(crumb <- tree.crumbs) {
-            <li class="breadcrumb-item">
-                <a href="@crumb.url" hx-get="@crumb.url" hx-target="#tree-container" hx-push-url="true">@crumb.label</a>
+        @for((crumb, index) <- tree.crumbs.zipWithIndex) {
+            <li class="breadcrumb-item" itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
+                <a href="@crumb.url" itemprop="item" hx-get="@crumb.url" hx-target="#tree-container" hx-push-url="true">
+                    <span itemprop="name">@crumb.label</span>
+                </a>
+                <meta itemprop="position" content="${index + 1}"/>
             </li>
         }
-    <li class="breadcrumb-item active" aria-current="page">@tree.name</li>
+    <li class="breadcrumb-item active" aria-current="page" itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
+        <span itemprop="name">@tree.name</span>
+        <meta itemprop="position" content="${tree.crumbs.size + 1}"/>
+    </li>
     </ol>
 </nav>
 
@@ -131,5 +137,9 @@
             fill: none;
             stroke: #999;
             stroke-width: 1.5px;
+        }
+
+        .breadcrumb-item + .breadcrumb-item::before {
+            content: ">"
         }
 </style>
