@@ -2,7 +2,9 @@ package repositories
 
 import jakarta.inject.Inject
 import models.{Haplogroup, HaplogroupType}
+import play.api.Logging
 import play.api.db.slick.DatabaseConfigProvider
+import slick.jdbc.GetResult
 
 import scala.concurrent.{ExecutionContext, Future}
 
@@ -55,12 +57,47 @@ class HaplogroupCoreRepositoryImpl @Inject()(
   }
 
   override def getAncestors(haplogroupId: Int): Future[Seq[Haplogroup]] = {
-    val recursiveQuery = for {
-      rel <- haplogroupRelationships if rel.childHaplogroupId === haplogroupId
-      parent <- haplogroups if parent.haplogroupId === rel.parentHaplogroupId
-    } yield parent
+    implicit val getHaplogroupResult: GetResult[Haplogroup] = GetResult(r =>
+      Haplogroup(
+        id = r.nextIntOption(),
+        name = r.nextString(),
+        lineage = r.nextStringOption(),
+        description = r.nextStringOption(),
+        haplogroupType = HaplogroupType.fromString(r.nextString()).getOrElse(throw new IllegalArgumentException("Invalid haplogroup type")),
+        revisionId = r.nextInt(),
+        source = r.nextString(),
+        confidenceLevel = r.nextString(),
+        validFrom = r.nextTimestampOption().map(_.toLocalDateTime).orNull,
+        validUntil = r.nextTimestampOption().map(_.toLocalDateTime)
+      )
+    )
 
-    runQuery(recursiveQuery.result)
+    // Define the recursive CTE query
+    val recursiveQuery = sql"""
+      WITH RECURSIVE ancestor_tree AS (
+        -- Base case: immediate parent
+        SELECT h.*, 1 as level
+        FROM haplogroup_relationship hr
+        JOIN haplogroup h ON h.haplogroup_id = hr.parent_haplogroup_id
+        WHERE hr.child_haplogroup_id = $haplogroupId
+
+        UNION
+
+        -- Recursive case: parents of parents
+        SELECT h.*, at.level + 1
+        FROM haplogroup_relationship hr
+        JOIN haplogroup h ON h.haplogroup_id = hr.parent_haplogroup_id
+        JOIN ancestor_tree at ON hr.child_haplogroup_id = at.haplogroup_id
+      )
+      SELECT
+        haplogroup_id, name, lineage, description, haplogroup_type,
+        revision_id, source, confidence_level, valid_from, valid_until
+      FROM ancestor_tree
+      ORDER BY level DESC
+    """.as[Haplogroup]
+
+    db.run(recursiveQuery)
+
   }
 
   override def getDirectChildren(haplogroupId: Int): Future[Seq[Haplogroup]] = {

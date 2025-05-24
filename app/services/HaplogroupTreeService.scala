@@ -4,6 +4,7 @@ import jakarta.inject.Inject
 import models.{GenbankContig, HaplogroupType, Variant}
 import models.HaplogroupType.{MT, Y}
 import models.api.*
+import play.api.Logging
 import play.api.mvc.Call
 import repositories.{HaplogroupCoreRepository, HaplogroupVariantRepository}
 
@@ -26,8 +27,9 @@ case object FragmentRoute extends RouteType
  * @param ec                implicit execution context for handling asynchronous operations
  */
 class HaplogroupTreeService @Inject()(
-                                       coreRepository: HaplogroupCoreRepository, 
-                                       variantRepository: HaplogroupVariantRepository)(implicit ec: ExecutionContext) {
+                                       coreRepository: HaplogroupCoreRepository,
+                                       variantRepository: HaplogroupVariantRepository)(implicit ec: ExecutionContext)
+  extends Logging {
 
   /**
    * Builds a TreeDTO representation for a specified haplogroup with related breadcrumbs and subtree.
@@ -45,7 +47,7 @@ class HaplogroupTreeService @Inject()(
       rootHaplogroup = rootHaplogroupOpt.getOrElse(throw new IllegalArgumentException(s"Haplogroup $haplogroupName not found"))
 
       ancestors <- coreRepository.getAncestors(rootHaplogroup.id.get)
-      crumbs = buildCrumbs(ancestors :+ rootHaplogroup, haplogroupType, routeType)
+      crumbs = buildCrumbs(ancestors, haplogroupType, routeType)
 
       subtree <- buildSubtree(rootHaplogroup)
 
