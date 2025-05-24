@@ -24,6 +24,7 @@
                 @if(snp.coordinates.nonEmpty) {
                     <br>
                     Location:
+                    <br>
                     @for((chr, coord) <- snp.coordinates) {
                         @chr:@coord.start-@coord.stop [@coord.anc > @coord.der]
                 }
@@ -40,7 +41,7 @@
             position: fixed;
             top: 56px;
             right: 0;
-            width: 300px;
+            width: 350px;
             height: calc(100vh - 112px);
             background-color: #f8f8f8;
             border-left: 1px solid #ccc;

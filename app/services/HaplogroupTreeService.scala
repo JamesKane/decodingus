@@ -1,7 +1,7 @@
 package services
 
 import jakarta.inject.Inject
-import models.HaplogroupType
+import models.{GenbankContig, HaplogroupType, Variant}
 import models.HaplogroupType.{MT, Y}
 import models.api.*
 import play.api.mvc.Call
@@ -108,20 +108,7 @@ class HaplogroupTreeService @Inject()(
     for {
       // Get variants for this haplogroup
       variants <- variantRepository.getHaplogroupVariants(haplogroup.id.get)
-      variantDTOs = variants.map { case (variant, contig) =>
-        VariantDTO(
-          name = variant.commonName.getOrElse(s"${contig.accession}:${variant.position}"),
-          coordinates = Map(
-            contig.accession -> GenomicCoordinate(
-              variant.position,
-              variant.position,
-              variant.referenceAllele,
-              variant.alternateAllele
-            )
-          ),
-          variantType = variant.variantType
-        )
-      }
+      variantDTOs = mapVariants(variants)
 
       // Get and process children
       children <- coreRepository.getDirectChildren(haplogroup.id.get)
@@ -134,6 +121,23 @@ class HaplogroupTreeService @Inject()(
       updated = haplogroup.validFrom.atZone(ZoneId.systemDefault()),
       isBackbone = haplogroup.source == "backbone" // Assuming we have this field or similar logic
     )
+  }
+
+  private def mapVariants(variants: Seq[(Variant, GenbankContig)]) = {
+    variants.map { case (variant, contig) =>
+      VariantDTO(
+        name = variant.commonName.getOrElse(s"${contig.accession}:${variant.position}"),
+        coordinates = Map(
+          contig.accession -> GenomicCoordinate(
+            variant.position,
+            variant.position,
+            variant.referenceAllele,
+            variant.alternateAllele
+          )
+        ),
+        variantType = variant.variantType
+      )
+    }
   }
 
   /**
@@ -196,6 +200,25 @@ class HaplogroupTreeService @Inject()(
         variants.map(v => buildTreesFromVariant(v.variantId.get.toString, haplogroupType, routeType))
       )
     } yield treeLists.flatten
+  }
+
+  /**
+   * Finds and retrieves all genomic variants associated with a specified haplogroup.
+   *
+   * This method fetches the variants linked to a haplogroup identified by its name and type.
+   * It interacts with the core repository to locate the haplogroup and then queries the variant repository
+   * to obtain the list of associated variants, which are finally converted into `VariantDTO` objects.
+   *
+   * @param haplogroupName The name of the haplogroup for which variants are to be retrieved.
+   * @param haplogroupType The type of haplogroup (e.g., Y-DNA or mtDNA).
+   * @return A Future containing a sequence of `VariantDTO` objects representing the variants
+   *         associated with the specified haplogroup. If the haplogroup is not found, the sequence will be empty.
+   */
+  def findVariantsForHaplogroup(haplogroupName: String, haplogroupType: HaplogroupType): Future[Seq[VariantDTO]] = {
+    for {
+      haplogroup <- coreRepository.getHaplogroupByName(haplogroupName, haplogroupType)
+      variants <- variantRepository.getHaplogroupVariants(haplogroup.flatMap(_.id).getOrElse(0))
+    } yield TreeNodeDTO.sortVariants(mapVariants(variants))
   }
 
   /**

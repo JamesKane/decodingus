@@ -63,7 +63,7 @@
                         x="@(node.y - 75 + 145)"
                         y="@(node.x)"
                         text-anchor="end"
-                        hx-get="@TreeController.getSnpDetailSidebar(node.name)"
+                        hx-get="@TreeController.getSnpDetailSidebar(node.name, hapType)"
                         hx-target="#snpDetailSidebarPlaceholder"
                         hx-swap="outerHTML"
                         hx-trigger="click"

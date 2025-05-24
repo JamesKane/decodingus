@@ -1,5 +1,7 @@
 package models
 
+import play.api.mvc.QueryStringBindable
+
 /**
  * Represents a type of haplogroup classification, distinguishing between paternal (Y) and maternal (MT) lineages.
  *
@@ -30,4 +32,23 @@ object HaplogroupType {
     case "MT" => Some(MT)
     case _ => None
   }
+
+  implicit val queryStringBindable: QueryStringBindable[HaplogroupType] =
+    new QueryStringBindable[HaplogroupType] {
+      def bind(key: String, params: Map[String, Seq[String]]): Option[Either[String, HaplogroupType]] = {
+        params.get(key).flatMap(_.headOption).map { value =>
+          try {
+            Right(HaplogroupType.valueOf(value))
+          } catch {
+            case _: IllegalArgumentException =>
+              Left(s"Invalid HaplogroupType value: $value")
+          }
+        }
+      }
+
+      def unbind(key: String, value: HaplogroupType): String = {
+        s"$key=${value.toString}"
+      }
+    }
+
 }

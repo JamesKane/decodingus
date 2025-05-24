@@ -179,14 +179,10 @@ class TreeController @Inject()(val controllerComponents: ControllerComponents,
       }
   }
 
-  def getSnpDetailSidebar(haplogroupName: String): Action[AnyContent] = Action { (request: Request[AnyContent]) =>
-    // This example uses dummy data; replace with your actual service call
-    val snps: Seq[VariantDTO] = haplogroupName match {
-      case "Y1a" => Seq(VariantDTO("SNP-Y1a", Map("chrY" -> GenomicCoordinate(100, 100, "A", "G")), "SNP"))
-      case "Y1b1" => Seq(VariantDTO("SNP-Y1b1", Map("chrY" -> GenomicCoordinate(200, 200, "C", "T")), "SNP"))
-      case _ => Seq.empty[VariantDTO]
+  def getSnpDetailSidebar(haplogroupName: String, haplogroupType: HaplogroupType): Action[AnyContent] = Action.async { (request: Request[AnyContent]) =>
+    treeService.findVariantsForHaplogroup(haplogroupName, haplogroupType).map { snps =>
+      Ok(views.html.fragments.snpDetailSidebar(haplogroupName, snps))
     }
-    Ok(views.html.fragments.snpDetailSidebar(haplogroupName, snps))
   }
 
   def emptySnpDetailSidebarPlaceholder: Action[AnyContent] = Action {

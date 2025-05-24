@@ -18,7 +18,7 @@ GET         /ytree/fragment                                             controll
 GET         /mtree/fragment                                             controllers.TreeController.mTreeFragment(rootHaplogroup: Option[String])
 
 GET         /haplogroups/snp-sidebar/placeholder                        controllers.TreeController.emptySnpDetailSidebarPlaceholder
-GET         /haplogroups/snp-sidebar/:haplogroupName                    controllers.TreeController.getSnpDetailSidebar(haplogroupName: String)
+GET         /haplogroups/snp-sidebar/:haplogroupName                    controllers.TreeController.getSnpDetailSidebar(haplogroupName: String, haplogroupType: models.HaplogroupType)
 
 
 GET         /references                                                 controllers.PublicationController.index()
