@@ -236,13 +236,13 @@ class HaplogroupTreeService @Inject()(
    *         associated with the specified haplogroup. If the haplogroup is not found, the sequence will be empty.
    */
   def findVariantsForHaplogroup(haplogroupName: String, haplogroupType: HaplogroupType): Future[Seq[VariantDTO]] = {
-      val sortedVariantsFuture = for {
+      val sortedVariantsFuture: Future[Seq[VariantDTO]] = for {
         haplogroup <- coreRepository.getHaplogroupByName(haplogroupName, haplogroupType)
         variants <- variantRepository.getHaplogroupVariants(haplogroup.flatMap(_.id).getOrElse(0))
       } yield TreeNodeDTO.sortVariants(mapVariants(variants))
 
-      sortedVariantsFuture.map { sortedVariants => // 'sortedVariants' is now a Seq[VariantDTO]
-        sortedVariants
+      sortedVariantsFuture.map { sortedVariants =>
+        val grouped = sortedVariants
           .groupBy(dto => dto.name)
           .map { case (k, locations) =>
             val first = locations.head
@@ -256,6 +256,8 @@ class HaplogroupTreeService @Inject()(
             // Create a new VariantDTO for the combined result
             VariantDTO(first.name, combined, first.variantType)
           }.toSeq
+
+        TreeNodeDTO.sortVariants(grouped)
       }
     }
 

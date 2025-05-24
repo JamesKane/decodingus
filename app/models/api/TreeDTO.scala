@@ -137,7 +137,7 @@ object TreeNodeDTO {
 
   def sortVariants(variants: Seq[VariantDTO]): Seq[VariantDTO] =
     variants.sortWith { (a, b) =>
-      (a.name.startsWith("chrY:"), b.name.startsWith("chrY:")) match
+      (a.name.contains(":"), b.name.contains(":")) match
         case (true, false) => false  // a has chrY: prefix, b doesn't -> a comes after
         case (false, true) => true   // b has chrY: prefix, a doesn't -> a comes before
         case _ => // both have or both don't have chrY: prefix
