@@ -24,7 +24,7 @@ Decoding Us is a next generation citizen science platform for population researc
 
 ## Technologies
 
-- [Scala 3](https://www.scala-lang.org/) - Scalable programming language running
+- [Scala 3](https://www.scala-lang.org/) - Scalable programming language
 - [Play Framework](https://www.playframework.com/) - Web framework for Scala
 - [HTMX](https://htmx.org/) - HTML extension for modern web applications
 - [PostgreSQL](https://www.postgresql.org/) - Relational database management system
