@@ -241,12 +241,13 @@ class TreeImporter @Inject()(
     }
   }
 
+  import scala.util.control.NonFatal
   private def createVariantAssociation(
                                         haplogroupId: Int,
                                         variantId: Int,
                                         timestamp: LocalDateTime
                                       )(implicit settings: TreeImportSettings): Future[Int] = {
-    for {
+    (for {
       // Create the haplogroup-variant association
       assocId <- haplogroupVariantRepository.addVariantToHaplogroup(haplogroupId, variantId)
 
@@ -262,7 +263,11 @@ class TreeImporter @Inject()(
           previous_revision_id = None
         )
       )
-    } yield assocId
+    } yield assocId).recover {
+      case NonFatal(e) =>
+        logger.error(s"Error creating variant association for haplogroupId: $haplogroupId, variantId: $variantId. Error: ${e.getMessage}")
+        0
+    }
   }
 
 }
