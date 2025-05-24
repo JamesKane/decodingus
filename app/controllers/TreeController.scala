@@ -126,8 +126,14 @@ class TreeController @Inject()(val controllerComponents: ControllerComponents,
    *                       If None, the default root haplogroup is used.
    * @return an Action that produces an HTML response containing the Y-DNA tree fragment.
    */
-  def yTreeFragment(rootHaplogroup: Option[String]): Action[AnyContent] =
-    treeAction(rootHaplogroup, YConfig, FragmentRoute)
+  def yTreeFragment(rootHaplogroup: Option[String]): EssentialAction =
+    cached.status(
+      (request: RequestHeader) => s"ytree-fragment-${rootHaplogroup.getOrElse("all")}",
+      200,
+      24.hours
+    ) {
+      treeAction(rootHaplogroup, YConfig, FragmentRoute)
+    }
 
   /**
    * Handles requests to render a fragment of the MT-DNA haplogroup tree.
@@ -140,8 +146,14 @@ class TreeController @Inject()(val controllerComponents: ControllerComponents,
    *                       If None, the default root haplogroup is used.
    * @return an Action that produces an HTML response containing the MT-DNA tree fragment.
    */
-  def mTreeFragment(rootHaplogroup: Option[String]): Action[AnyContent] =
-    treeAction(rootHaplogroup, MTConfig, FragmentRoute)
+  def mTreeFragment(rootHaplogroup: Option[String]): EssentialAction =
+    cached.status(
+      (request: RequestHeader) => s"mtree-fragment-${rootHaplogroup.getOrElse("all")}",
+      200,
+      24.hours
+    ) {
+      treeAction(rootHaplogroup, MTConfig, FragmentRoute)
+    }
 
   /**
    * Generates a tree structure for a given root haplogroup and renders it as either
