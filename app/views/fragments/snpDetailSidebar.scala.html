@@ -23,11 +23,12 @@
                 Type: @snp.variantType
                 @if(snp.coordinates.nonEmpty) {
                     <br>
-                    Location:
+                    Reference Location(s):
                     <br>
-                    @for((chr, coord) <- snp.coordinates) {
-                        @chr:@coord.start-@coord.stop [@coord.anc > @coord.der]
-                }
+                    @* Convert the Map to a Seq of (String, GenomicCoordinate) tuples, then sort by the String (the key) *@
+                    @for((chr, coord) <- snp.coordinates.toSeq.sortBy(_._1)) {
+                        @chr:@coord.start [@coord.anc > @coord.der]
+                    }
                 }
             </li>
         }

@@ -133,11 +133,12 @@ class HaplogroupVariantRepositoryImpl @Inject()(
   }
 
   def countHaplogroupVariants(haplogroupId: Long): Future[Int] = {
-    val q = for {
+    val q = (for {
       hv <- haplogroupVariants if hv.haplogroupId === haplogroupId.toInt
-    } yield hv
+      v <- variants if hv.variantId === v.variantId
+    } yield v.commonName)
 
-    runQuery(q.length.result)
+    runQuery(q.distinct.length.result)
   }
 
 

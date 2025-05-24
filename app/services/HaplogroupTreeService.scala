@@ -236,11 +236,28 @@ class HaplogroupTreeService @Inject()(
    *         associated with the specified haplogroup. If the haplogroup is not found, the sequence will be empty.
    */
   def findVariantsForHaplogroup(haplogroupName: String, haplogroupType: HaplogroupType): Future[Seq[VariantDTO]] = {
-    for {
-      haplogroup <- coreRepository.getHaplogroupByName(haplogroupName, haplogroupType)
-      variants <- variantRepository.getHaplogroupVariants(haplogroup.flatMap(_.id).getOrElse(0))
-    } yield TreeNodeDTO.sortVariants(mapVariants(variants))
-  }
+      val sortedVariantsFuture = for {
+        haplogroup <- coreRepository.getHaplogroupByName(haplogroupName, haplogroupType)
+        variants <- variantRepository.getHaplogroupVariants(haplogroup.flatMap(_.id).getOrElse(0))
+      } yield TreeNodeDTO.sortVariants(mapVariants(variants))
+
+      sortedVariantsFuture.map { sortedVariants => // 'sortedVariants' is now a Seq[VariantDTO]
+        sortedVariants
+          .groupBy(dto => dto.name)
+          .map { case (k, locations) =>
+            val first = locations.head
+
+            // Combine the coordinates for all VariantDTOs in this group
+            val coordinates: Seq[Map[String, GenomicCoordinate]] = locations.map(dto => dto.coordinates)
+            val combined: Map[String, GenomicCoordinate] = coordinates.foldLeft(Map.empty[String, GenomicCoordinate]) {
+              case (acc, currentMap) => acc ++ currentMap
+            }
+
+            // Create a new VariantDTO for the combined result
+            VariantDTO(first.name, combined, first.variantType)
+          }.toSeq
+      }
+    }
 
   /**
    * Normalizes the given variant identifier by formatting it consistently based on its structure.
