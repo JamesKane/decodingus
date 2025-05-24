@@ -2,15 +2,17 @@ package controllers
 
 import models.HaplogroupType
 import models.HaplogroupType.{MT, Y}
-import models.api.{GenomicCoordinate, SubcladeDTO, TreeNodeDTO, VariantDTO}
+import models.api.{SubcladeDTO, TreeNodeDTO}
 import models.view.TreeViewModel
 import org.webjars.play.WebJarsUtil
+import play.api.cache.{AsyncCacheApi, Cached}
 import play.api.libs.json.Json
 import play.api.mvc.*
-import services.{ApiRoute, FragmentRoute, HaplogroupTreeService, TreeLayoutService}
+import services.{ApiRoute, FragmentRoute, HaplogroupTreeService}
 
 import javax.inject.*
 import scala.concurrent.ExecutionContext
+import scala.concurrent.duration.DurationInt
 
 /**
  * Controller responsible for handling actions related to haplogroup trees.
@@ -24,7 +26,9 @@ import scala.concurrent.ExecutionContext
  */
 @Singleton
 class TreeController @Inject()(val controllerComponents: ControllerComponents,
-                               treeService: HaplogroupTreeService)
+                               treeService: HaplogroupTreeService,
+                               cached: Cached,
+                               cache: AsyncCacheApi)
                               (using webJarsUtil: WebJarsUtil, ec: ExecutionContext)
   extends BaseController {
 
@@ -82,8 +86,14 @@ class TreeController @Inject()(val controllerComponents: ControllerComponents,
    *                       for the Y-DNA tree. If None, the default root is used.
    * @return an Action that produces a JSON response containing the Y-DNA haplogroup tree.
    */
-  def apiYTree(rootHaplogroup: Option[String]): Action[AnyContent] =
+  def apiYTree(rootHaplogroup: Option[String]): EssentialAction =
+    cached.status(
+      (request: RequestHeader) => s"ytree-${rootHaplogroup.getOrElse("all")}",
+      200,
+      24.hours
+    ) {
     treeAction(rootHaplogroup, YConfig, ApiRoute)
+  }
 
   /**
    * Handles API requests to retrieve the MT-DNA haplogroup tree structure.
@@ -96,8 +106,14 @@ class TreeController @Inject()(val controllerComponents: ControllerComponents,
    *                       for the MT-DNA tree. If None, the default root is used.
    * @return an Action that produces a JSON response containing the MT-DNA haplogroup tree.
    */
-  def apiMTree(rootHaplogroup: Option[String]): Action[AnyContent] =
-    treeAction(rootHaplogroup, MTConfig, ApiRoute)
+  def apiMTree(rootHaplogroup: Option[String]): EssentialAction =
+    cached.status(
+      (request: RequestHeader) => s"mtree-${rootHaplogroup.getOrElse("all")}",
+      200,
+      24.hours
+    ) {
+      treeAction(rootHaplogroup, MTConfig, ApiRoute)
+    }
 
   /**
    * Handles requests to render a fragment of the Y-DNA haplogroup tree.
