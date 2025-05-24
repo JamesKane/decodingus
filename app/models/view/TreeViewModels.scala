@@ -8,7 +8,7 @@ import models.api.*
  */
 case class TreeNodeViewModel(
                               name: String,
-                              variants: Seq[VariantDTO],
+                              variantsCount: Option[Int],
                               children: List[TreeNodeViewModel],
                               fillColor: String,
                               isBackbone: Boolean,

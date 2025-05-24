@@ -73,7 +73,7 @@ object TreeLayoutService {
 
         val nodeViewModel = TreeNodeViewModel(
           name = nodeDTO.name,
-          variants = nodeDTO.variants,
+          variantsCount = nodeDTO.variantCount,
           children = childViewModels,
           fillColor = fillColor,
           isBackbone = nodeDTO.isBackbone,

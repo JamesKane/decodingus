@@ -64,7 +64,7 @@
                     text-anchor="start">
                     @node.name
                     </text>
-                    @if(node.variants.nonEmpty) {
+                    @if(node.variantsCount.nonEmpty) {
                         <text class="node-variant-count"
                         x="@(node.y - 75 + 145)"
                         y="@(node.x)"
@@ -74,8 +74,8 @@
                         hx-swap="outerHTML"
                         hx-trigger="click"
                                   style="cursor: pointer;">
-                                @node.variants.size Variant(s)
-                        <title>Click to see @node.variants.size defining SNP(s)</title>
+                                @node.variantsCount.get Variant(s)
+                        <title>Click to see @node.variantsCount.get defining SNP(s)</title>
                         </text>
                     }
                 </g>

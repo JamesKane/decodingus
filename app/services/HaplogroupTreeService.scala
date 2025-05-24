@@ -49,7 +49,10 @@ class HaplogroupTreeService @Inject()(
       ancestors <- coreRepository.getAncestors(rootHaplogroup.id.get)
       crumbs = buildCrumbs(ancestors, haplogroupType, routeType)
 
-      subtree <- buildSubtree(rootHaplogroup)
+      subtree <- routeType match {
+        case ApiRoute => buildSubtree(rootHaplogroup)
+        case FragmentRoute => buildSubtreeWithoutVariants(rootHaplogroup)
+      }
 
     } yield TreeDTO(
       name = rootHaplogroup.name,
@@ -57,6 +60,7 @@ class HaplogroupTreeService @Inject()(
       subclade = Some(subtree)
     )
   }
+
 
   /**
    * Returns the route for a given combination of haplogroup type and route type.
@@ -122,6 +126,21 @@ class HaplogroupTreeService @Inject()(
       children = childNodes.toList,
       updated = haplogroup.validFrom.atZone(ZoneId.systemDefault()),
       isBackbone = haplogroup.source == "backbone" // Assuming we have this field or similar logic
+    )
+  }
+
+  private def buildSubtreeWithoutVariants(haplogroup: models.Haplogroup): Future[TreeNodeDTO] = {
+    for {
+      variantCount <- variantRepository.countHaplogroupVariants(haplogroup.id.get)
+      children <- coreRepository.getDirectChildren(haplogroup.id.get)
+      childNodes <- Future.sequence(children.map(buildSubtreeWithoutVariants))
+    } yield TreeNodeDTO(
+      name = haplogroup.name,
+      variants = Seq.empty,
+      variantCount = Some(variantCount), // Add this field to TreeNodeDTO
+      children = childNodes.toList,
+      updated = haplogroup.validFrom.atZone(ZoneId.systemDefault()),
+      isBackbone = haplogroup.source == "backbone"
     )
   }
 

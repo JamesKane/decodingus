@@ -26,6 +26,8 @@ trait HaplogroupVariantRepository {
    */
   def getHaplogroupVariants(haplogroupId: Int): Future[Seq[(Variant, GenbankContig)]]
 
+  def countHaplogroupVariants(haplogroupId: Long): Future[Int]
+
   /**
    * Retrieves a list of genetic variants associated with the given haplogroup.
    *
@@ -129,6 +131,15 @@ class HaplogroupVariantRepositoryImpl @Inject()(
 
     runQuery(query.result)
   }
+
+  def countHaplogroupVariants(haplogroupId: Long): Future[Int] = {
+    val q = for {
+      hv <- haplogroupVariants if hv.haplogroupId === haplogroupId.toInt
+    } yield hv
+
+    runQuery(q.length.result)
+  }
+
 
   override def getVariantsByHaplogroup(haplogroupId: Int): Future[Seq[Variant]] = {
     val query = for {

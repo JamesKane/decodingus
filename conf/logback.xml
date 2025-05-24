@@ -70,6 +70,12 @@
 
   <logger name="services.LoggingEmailService" level="INFO"/>
 
+  <logger name="slick.jdbc.JdbcBackend.statement"         level="error" />
+  <logger name="slick.jdbc.JdbcBackend.parameter"         level="error" />
+
+  <logger name="services.TreeImporter" level="DEBUG"/>
+
+
   <root level="WARN">
     <appender-ref ref="ASYNCFILE"/>
     <appender-ref ref="ASYNCSTDOUT"/>
