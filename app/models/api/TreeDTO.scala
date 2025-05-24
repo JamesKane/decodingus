@@ -13,6 +13,8 @@ import java.time.ZonedDateTime
  */
 case class TreeDTO(name: String, crumbs: List[CrumbDTO], subclade: Option[TreeNodeDTO])
 
+case class SubcladeDTO(name: String, parentName: Option[String], variants: Seq[VariantDTO], lastUpdated: ZonedDateTime, isBackbone: Boolean = false)
+
 /**
  * Represents a breadcrumb with a label and a URL.
  *
@@ -45,7 +47,7 @@ case class TreeNodeDTO(name: String, variants: Seq[VariantDTO], children: List[T
    */
   def weight: Int = 1 + children.map(_.weight).sum
 
-  def sortedVariants = TreeNodeDTO.sortVariants(this.variants)
+  def sortedVariants: Seq[VariantDTO] = TreeNodeDTO.sortVariants(this.variants)
 }
 
 /**
@@ -179,4 +181,8 @@ object CrumbDTO {
  */
 object TreeDTO {
   implicit val treeFormats: OFormat[TreeDTO] = Json.format[TreeDTO]
+}
+
+object SubcladeDTO {
+  implicit val subcladeFormats: OFormat[SubcladeDTO] = Json.format[SubcladeDTO]
 }

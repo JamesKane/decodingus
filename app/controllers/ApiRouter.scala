@@ -26,7 +26,7 @@ class ApiRouter @Inject()(cc: ControllerComponents, configuration: play.api.Conf
   // Swagger docs
   private val swaggerEndpoints =
     SwaggerInterpreter().fromEndpoints[Future](
-      endpoints = _root_.api.ReferenceEndpoints.all,
+      endpoints = _root_.api.ReferenceEndpoints.all ++ _root_.api.HaplogroupEndpoints.all,
       info = apiInfo
     )
 

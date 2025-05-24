@@ -2,7 +2,7 @@ package controllers
 
 import models.HaplogroupType
 import models.HaplogroupType.{MT, Y}
-import models.api.{GenomicCoordinate, VariantDTO}
+import models.api.{GenomicCoordinate, SubcladeDTO, TreeNodeDTO, VariantDTO}
 import models.view.TreeViewModel
 import org.webjars.play.WebJarsUtil
 import play.api.libs.json.Json
@@ -156,7 +156,9 @@ class TreeController @Inject()(val controllerComponents: ControllerComponents,
       .map { treeDto =>
         routeType match {
           case ApiRoute =>
-            Ok(Json.toJson(treeDto))
+            // TAPIR can't deal with the recursive tree, so we need to flatten it.
+            val apiBody: Seq[SubcladeDTO] = mapApiResponse(treeDto.subclade)
+            Ok(Json.toJson(apiBody))
           case FragmentRoute =>
             val treeViewModel: Option[TreeViewModel] = treeDto.subclade.flatMap { rootNodeDTO =>
               services.TreeLayoutService.layoutTree(treeDto, isAbsoluteTopRootView)
@@ -187,5 +189,15 @@ class TreeController @Inject()(val controllerComponents: ControllerComponents,
 
   def emptySnpDetailSidebarPlaceholder: Action[AnyContent] = Action {
     Ok(<div id="snpDetailSidebarPlaceholder"></div>)
+  }
+
+  // TODO: Should probably move this to the service.
+  private def mapApiResponse(root: Option[TreeNodeDTO]): Seq[SubcladeDTO] = {
+    def map(node: TreeNodeDTO, parent: Option[TreeNodeDTO]): Seq[SubcladeDTO] = {
+      SubcladeDTO(node.name, parent.map(_.name), node.variants, node.updated, node.isBackbone) +: node.children.flatMap(c => map(c, Option(node)))
+    }
+
+    root.map(x => map(x, None))
+      .getOrElse(Seq())
   }
 }
