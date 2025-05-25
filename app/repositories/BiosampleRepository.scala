@@ -3,10 +3,10 @@ package repositories
 import com.vividsolutions.jts.geom.Point
 import com.vividsolutions.jts.io.WKBReader
 import jakarta.inject.Inject
-import models.Biosample
 import models.api.{BiosampleWithOrigin, GeoCoord, PopulationInfo}
 import models.dal.MyPostgresProfile
 import models.dal.domain.DatabaseSchema
+import models.domain.Biosample
 import play.api.db.slick.DatabaseConfigProvider
 import slick.jdbc.GetResult
 
@@ -60,7 +60,7 @@ class BiosampleRepositoryImpl @Inject()(
 
   import models.dal.MyPostgresProfile.api.*
 
-  private val biosamplesTable = DatabaseSchema.biosamples
+  private val biosamplesTable = DatabaseSchema.domain.biosamples
 
   private def readPoint(pgObj: AnyRef): Option[GeoCoord] = pgObj match {
     case null => None

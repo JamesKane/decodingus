@@ -1,4 +1,4 @@
-package models
+package models.domain
 
 import com.vividsolutions.jts.geom.Point
 

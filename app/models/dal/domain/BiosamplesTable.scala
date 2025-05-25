@@ -1,8 +1,8 @@
-package models.dal
+package models.dal.domain
 
 import com.vividsolutions.jts.geom.Point
-import models.Biosample
 import models.dal.MyPostgresProfile.api.*
+import models.domain.Biosample
 
 import java.util.UUID
 
