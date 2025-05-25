@@ -1,6 +1,5 @@
 package models.dal.domain
 
-import models.dal.VariantsTable
 import models.dal.domain.HaplogroupsTable
 import models.domain.{Haplogroup, HaplogroupVariant}
 import models.Variant
