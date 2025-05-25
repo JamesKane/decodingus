@@ -45,6 +45,7 @@ object DatabaseSchema {
   val ancestryAnalyses = TableQuery[AncestryAnalysisTable]
   val biosamples = TableQuery[BiosamplesTable]
   val biosampleHaplogroups = TableQuery[BiosampleHaplogroupsTable]
+  val canonicalPangenomeVariants = TableQuery[CanonicalPangenomeVariantsTable]
   val citizenBiosamples = TableQuery[CitizenBiosamplesTable]
   val enaStudies = TableQuery[EnaStudiesTable]
   val genbankContigs = TableQuery[GenbankContigsTable]

@@ -100,6 +100,7 @@ trait MyPostgresProfile extends ExPostgresProfile
       )
 
     implicit val strListTypeMapper: DriverJdbcType[List[String]] = new SimpleArrayJdbcType[String]("text").to(_.toList)
+    implicit val intListTypeMapper: DriverJdbcType[List[Int]] = new SimpleArrayJdbcType[Int]("int4").to(_.toList)
     implicit val beanJsonTypeMapper: JdbcType[JBean] with BaseTypedType[JBean] = MappedJdbcType.base[JBean, JsValue](Json.toJson(_), _.as[JBean])
 
     implicit val playJsonArrayTypeMapper: DriverJdbcType[List[JsValue]] =
