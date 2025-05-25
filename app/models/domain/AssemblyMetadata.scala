@@ -1,7 +1,8 @@
-package models
+package models.domain
+
+import play.api.libs.json.JsValue
 
 import java.time.LocalDate
-import play.api.libs.json.JsValue
 
 case class AssemblyMetadata(
                              id: Option[Long],

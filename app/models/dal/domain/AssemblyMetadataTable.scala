@@ -1,7 +1,7 @@
-package models.dal
+package models.dal.domain
 
-import models.AssemblyMetadata
 import models.dal.MyPostgresProfile.api.*
+import models.domain.AssemblyMetadata
 import play.api.libs.json.JsValue
 
 import java.time.LocalDate
