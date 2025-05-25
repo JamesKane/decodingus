@@ -47,7 +47,7 @@ object DatabaseSchema {
   val publications = TableQuery[PublicationsTable]
   val publicationBiosamples = TableQuery[PublicationBiosamplesTable]
   val publicationEnaStudies = TableQuery[PublicationEnaStudiesTable]
-  val relationshipRevisionMetadata = TableQuery[RelationshipRevisionMetadataTable]
+
   val variants = TableQuery[VariantsTable]
 
   object domain {
@@ -65,6 +65,7 @@ object DatabaseSchema {
     val haplogroupVariants = TableQuery[HaplogroupVariantsTable]
     val pgpBiosamples = TableQuery[PgpBiosamplesTable]
     val populations = TableQuery[PopulationsTable]
+    val relationshipRevisionMetadata = TableQuery[RelationshipRevisionMetadataTable]
     val sequenceAtpLocations = TableQuery[SequenceAtpLocationTable]
     val sequenceFiles = TableQuery[SequenceFilesTable]
     val sequenceHttpLocations = TableQuery[SequenceHttpLocationTable]

@@ -1,8 +1,8 @@
 package repositories
 
 import jakarta.inject.Inject
-import models.RelationshipRevisionMetadata
-import models.domain.HaplogroupRelationship
+import models.dal.domain.DatabaseSchema.domain.relationshipRevisionMetadata
+import models.domain.{HaplogroupRelationship, RelationshipRevisionMetadata}
 import play.api.db.slick.DatabaseConfigProvider
 
 import java.time.LocalDateTime
@@ -97,9 +97,9 @@ class HaplogroupRevisionMetadataRepositoryImpl @Inject()(
   extends BaseRepository(dbConfigProvider)
     with HaplogroupRevisionMetadataRepository {
 
-  import models.dal.domain.DatabaseSchema.*
-  import models.dal.domain.DatabaseSchema.domain.haplogroupRelationships
   import models.dal.MyPostgresProfile.api.*
+  import models.dal.domain.DatabaseSchema.*
+  import models.dal.domain.DatabaseSchema.domain.{haplogroupRelationships, relationshipRevisionMetadata}
 
   override def addRelationshipRevisionMetadata(metadata: RelationshipRevisionMetadata): Future[Int] = {
     runQuery(relationshipRevisionMetadata += metadata)
