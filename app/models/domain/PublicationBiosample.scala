@@ -1,4 +1,4 @@
-package models
+package models.domain
 
 /**
  * Represents an association between a publication and a biological sample within the system.

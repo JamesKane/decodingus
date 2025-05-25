@@ -1,4 +1,4 @@
-package models
+package models.domain
 
 /**
  * Represents the relationship between a publication and an ENA (European Nucleotide Archive) study.

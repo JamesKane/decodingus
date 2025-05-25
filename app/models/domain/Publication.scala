@@ -1,4 +1,4 @@
-package models
+package models.domain
 
 import play.api.libs.json.{Json, OFormat}
 

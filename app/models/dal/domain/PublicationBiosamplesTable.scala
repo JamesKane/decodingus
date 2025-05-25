@@ -1,6 +1,6 @@
-package models.dal
+package models.dal.domain
 
-import models.PublicationBiosample
+import models.domain.PublicationBiosample
 import slick.jdbc.PostgresProfile.api.*
 
 /**

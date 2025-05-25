@@ -26,7 +26,7 @@ class PublicationBiosampleRepositoryImpl @Inject()(protected val dbConfigProvide
 
   import profile.api.*
 
-  private val publicationBiosamples = DatabaseSchema.publicationBiosamples
+  private val publicationBiosamples = DatabaseSchema.domain.publicationBiosamples
 
   override def countSamplesForPublication(publicationId: Int): Future[Int] = {
     val query = publicationBiosamples.filter(_.publicationId === publicationId).length
