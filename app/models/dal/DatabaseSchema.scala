@@ -35,10 +35,10 @@ object DatabaseSchema {
 
   implicit val haplogroupTypeMapper: BaseColumnType[HaplogroupType] =
     MappedColumnType.base[HaplogroupType, String](
-      ht => ht.toString, // to database (uses the enum's toString)
+      ht => ht.toString,
       str => HaplogroupType.fromString(str).getOrElse(
         throw new IllegalArgumentException(s"Invalid haplogroup type: $str")
-      ) // from database
+      )
     )
 
   val analysisMethods = TableQuery[AnalysisMethodTable]
@@ -57,10 +57,7 @@ object DatabaseSchema {
   val publications = TableQuery[PublicationsTable]
   val publicationBiosamples = TableQuery[PublicationBiosamplesTable]
   val publicationEnaStudies = TableQuery[PublicationEnaStudiesTable]
-  val qualityMetrics = TableQuery[QualityMetricsTable]
   val relationshipRevisionMetadata = TableQuery[RelationshipRevisionMetadataTable]
-  val reportedNegativeVariants = TableQuery[ReportedNegativeVariantsTable]
-  val reportedVariants = TableQuery[ReportedVariantsTable]
   val sequenceAtpLocations = TableQuery[SequenceAtpLocationTable]
   val sequenceFiles = TableQuery[SequenceFilesTable]
   val sequenceHttpLocations = TableQuery[SequenceHttpLocationTable]
