@@ -2,7 +2,7 @@ package models.dal.auth
 
 import models.auth.UserLoginInfo
 import models.dal.MyPostgresProfile.api.*
-import models.dal.domain.UsersTable
+import models.dal.domain.user.UsersTable
 import models.domain.User
 import slick.lifted.ProvenShape
 

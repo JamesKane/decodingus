@@ -59,7 +59,7 @@ class BiosampleRepositoryImpl @Inject()(
 
   import models.dal.MyPostgresProfile.api.*
 
-  private val biosamplesTable = DatabaseSchema.domain.biosamples
+  private val biosamplesTable = DatabaseSchema.domain.genomics.biosamples
 
   private def readPoint(pgObj: AnyRef): Option[GeoCoord] = pgObj match {
     case null => None

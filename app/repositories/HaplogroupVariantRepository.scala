@@ -80,10 +80,8 @@ class HaplogroupVariantRepositoryImpl @Inject()(
     with HaplogroupVariantRepository {
 
   import models.dal.DatabaseSchema.*
-  import models.dal.DatabaseSchema.domain.genbankContigs
-  import models.dal.DatabaseSchema.domain.haplogroups
-  import models.dal.DatabaseSchema.domain.haplogroupVariants
-  import models.dal.DatabaseSchema.domain.variants
+  import models.dal.DatabaseSchema.domain.genomics.{genbankContigs, variants}
+  import models.dal.DatabaseSchema.domain.haplogroups.{haplogroupVariants, haplogroups}
   import models.dal.MyPostgresProfile.api.*
 
   override def findVariants(query: String): Future[Seq[Variant]] = {

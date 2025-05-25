@@ -44,48 +44,68 @@ object DatabaseSchema {
     )
 
   object domain {
-    val analysisMethods = TableQuery[AnalysisMethodTable]
-    val ancestryAnalyses = TableQuery[AncestryAnalysisTable]
-    val assemblyMetadata = TableQuery[AssemblyMetadataTable]
-    val biosampleHaplogroups = TableQuery[BiosampleHaplogroupsTable]
-    val biosamples = TableQuery[BiosamplesTable]
-    val canonicalPangenomeVariants = TableQuery[CanonicalPangenomeVariantsTable]
-    val citizenBiosamples = TableQuery[CitizenBiosamplesTable]
-    val enaStudies = TableQuery[EnaStudiesTable]
-    val genbankContigs = TableQuery[GenbankContigsTable]
-    val geneAnnotations = TableQuery[GeneAnnotationsTable]
-    val haplogroupRelationships = TableQuery[HaplogroupRelationshipsTable]
-    val haplogroups = TableQuery[HaplogroupsTable]
-    val haplogroupVariantMetadata = TableQuery[HaplogroupVariantMetadataTable]
-    val haplogroupVariants = TableQuery[HaplogroupVariantsTable]
-    val ibdDiscoveryIndices = TableQuery[IbdDiscoveryIndicesTable]
-    val ibdPdsAttestationsTable = TableQuery[IbdPdsAttestationsTable]
-    val pangenomeAlignmentCoverages = TableQuery[PangenomeAlignmentCoverageTable]
-    val pangenomeAlignmentMetadata = TableQuery[PangenomeAlignmentMetadataTable]
-    val pangenomeEdges = TableQuery[PangenomeEdgesTable]
-    val pangenomeGraphs = TableQuery[PangenomeGraphsTable]
-    val pangenomeNodes = TableQuery[PangenomeNodesTable]
-    val pangenomePathsTable = TableQuery[PangenomePathsTable]
-    val pangenomeVariantLinks = TableQuery[PangenomeVariantLinksTable]
-    val pgpBiosamples = TableQuery[PgpBiosamplesTable]
-    val populations = TableQuery[PopulationsTable]
-    val publications = TableQuery[PublicationsTable]
-    val publicationBiosamples = TableQuery[PublicationBiosamplesTable]
-    val publicationEnaStudies = TableQuery[PublicationEnaStudiesTable]
-    val relationshipRevisionMetadata = TableQuery[RelationshipRevisionMetadataTable]
-    val reportedVariantPangenomesTable = TableQuery[ReportedVariantPangenomesTable]
-    val reputationEvents = TableQuery[ReputationEventsTable]
-    val reputationEventTypes = TableQuery[ReputationEventTypesTable]
-    val sequenceAtpLocations = TableQuery[SequenceAtpLocationTable]
-    val sequenceFiles = TableQuery[SequenceFilesTable]
-    val sequenceHttpLocations = TableQuery[SequenceHttpLocationTable]
-    val sequenceLibraries = TableQuery[SequenceLibrariesTable]
-    val specimenDonors = TableQuery[SpecimenDonorsTable]
-    val userPdsInfos = TableQuery[UserPdsInfoTable]
-    val users = TableQuery[UsersTable]
-    val userReputationScores = TableQuery[UserReputationScoresTable]
-    val validationServices = TableQuery[ValidationServicesTable]
-    val variants = TableQuery[VariantsTable]
+    import models.dal.domain.user.*
+    import models.dal.domain.genomics.*
+    import models.dal.domain.haplogroups.*
+    import models.dal.domain.pangenome.*
+    import models.dal.domain.ibd.*
+
+    object user {
+      val users = TableQuery[UsersTable]
+      val userPdsInfos = TableQuery[UserPdsInfoTable]
+      val reputationEvents = TableQuery[ReputationEventsTable]
+      val reputationEventTypes = TableQuery[ReputationEventTypesTable]
+      val userReputationScores = TableQuery[UserReputationScoresTable]
+    }
+
+    object genomics {
+      val analysisMethods = TableQuery[AnalysisMethodTable]
+      val ancestryAnalyses = TableQuery[AncestryAnalysisTable]
+      val assemblyMetadata = TableQuery[AssemblyMetadataTable]
+      val biosampleHaplogroups = TableQuery[BiosampleHaplogroupsTable]
+      val biosamples = TableQuery[BiosamplesTable]
+      val citizenBiosamples = TableQuery[CitizenBiosamplesTable]
+      val enaStudies = TableQuery[EnaStudiesTable]
+      val genbankContigs = TableQuery[GenbankContigsTable]
+      val geneAnnotations = TableQuery[GeneAnnotationsTable]
+      val pgpBiosamples = TableQuery[PgpBiosamplesTable]
+      val populations = TableQuery[PopulationsTable]
+      val publications = TableQuery[PublicationsTable]
+      val publicationBiosamples = TableQuery[PublicationBiosamplesTable]
+      val publicationEnaStudies = TableQuery[PublicationEnaStudiesTable]
+      val sequenceAtpLocations = TableQuery[SequenceAtpLocationTable]
+      val sequenceFiles = TableQuery[SequenceFilesTable]
+      val sequenceHttpLocations = TableQuery[SequenceHttpLocationTable]
+      val sequenceLibraries = TableQuery[SequenceLibrariesTable]
+      val specimenDonors = TableQuery[SpecimenDonorsTable]
+      val validationServices = TableQuery[ValidationServicesTable]
+      val variants = TableQuery[VariantsTable]
+    }
+
+    object haplogroups {
+      val haplogroupRelationships = TableQuery[HaplogroupRelationshipsTable]
+      val relationshipRevisionMetadata = TableQuery[RelationshipRevisionMetadataTable]
+      val haplogroups = TableQuery[HaplogroupsTable]
+      val haplogroupVariantMetadata = TableQuery[HaplogroupVariantMetadataTable]
+      val haplogroupVariants = TableQuery[HaplogroupVariantsTable]
+    }
+
+    object pangenome {
+      val canonicalPangenomeVariants = TableQuery[CanonicalPangenomeVariantsTable]
+      val pangenomeAlignmentCoverages = TableQuery[PangenomeAlignmentCoverageTable]
+      val pangenomeAlignmentMetadata = TableQuery[PangenomeAlignmentMetadataTable]
+      val pangenomeEdges = TableQuery[PangenomeEdgesTable]
+      val pangenomeGraphs = TableQuery[PangenomeGraphsTable]
+      val pangenomeNodes = TableQuery[PangenomeNodesTable]
+      val pangenomePathsTable = TableQuery[PangenomePathsTable]
+      val pangenomeVariantLinks = TableQuery[PangenomeVariantLinksTable]
+      val reportedVariantPangenomesTable = TableQuery[ReportedVariantPangenomesTable]
+    }
+
+    object ibd {
+      val ibdDiscoveryIndices = TableQuery[IbdDiscoveryIndicesTable]
+      val ibdPdsAttestationsTable = TableQuery[IbdPdsAttestationsTable]
+    }
   }
 
   object auth {
