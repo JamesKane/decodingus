@@ -1,8 +1,8 @@
-package models.dal.domain
+package models.dal
 
 import models.HaplogroupType
-import models.dal.*
 import models.dal.auth.*
+import models.dal.domain.*
 
 /**
  * Provides the database schema definition, which includes table queries for various domain-specific entities.
@@ -43,11 +43,6 @@ object DatabaseSchema {
       )
     )
 
-
-
-
-  val variants = TableQuery[VariantsTable]
-
   object domain {
     val analysisMethods = TableQuery[AnalysisMethodTable]
     val ancestryAnalyses = TableQuery[AncestryAnalysisTable]
@@ -72,6 +67,7 @@ object DatabaseSchema {
     val sequenceHttpLocations = TableQuery[SequenceHttpLocationTable]
     val sequenceLibraries = TableQuery[SequenceLibrariesTable]
     val specimenDonors = TableQuery[SpecimenDonorsTable]
+    val variants = TableQuery[VariantsTable]
   }
 
   object auth {

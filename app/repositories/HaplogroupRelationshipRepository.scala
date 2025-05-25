@@ -61,9 +61,9 @@ class HaplogroupRelationshipRepositoryImpl @Inject()(
   extends BaseRepository(dbConfigProvider)
     with HaplogroupRelationshipRepository {
 
-  import models.dal.domain.DatabaseSchema.*
-  import models.dal.domain.DatabaseSchema.domain.haplogroupRelationships
-  import models.dal.domain.DatabaseSchema.domain.haplogroups
+  import models.dal.DatabaseSchema.*
+  import models.dal.DatabaseSchema.domain.haplogroupRelationships
+  import models.dal.DatabaseSchema.domain.haplogroups
   import models.dal.MyPostgresProfile.api.*
 
   override def getSubtreeRelationships(rootId: Int): Future[Seq[(Haplogroup, HaplogroupRelationship)]] = {

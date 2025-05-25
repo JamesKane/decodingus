@@ -98,9 +98,9 @@ class HaplogroupVariantMetadataRepositoryImpl @Inject()(
   extends BaseRepository(dbConfigProvider)
     with HaplogroupVariantMetadataRepository {
 
-  import models.dal.domain.DatabaseSchema.*
-  import models.dal.domain.DatabaseSchema.domain.haplogroupVariants
-  import models.dal.domain.DatabaseSchema.domain.haplogroupVariantMetadata
+  import models.dal.DatabaseSchema.*
+  import models.dal.DatabaseSchema.domain.haplogroupVariants
+  import models.dal.DatabaseSchema.domain.haplogroupVariantMetadata
   import models.dal.MyPostgresProfile.api.*
 
   override def addVariantRevisionMetadata(metadata: HaplogroupVariantMetadata): Future[Int] = {

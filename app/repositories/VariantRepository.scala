@@ -51,7 +51,7 @@ class VariantRepositoryImpl @Inject()(
   extends BaseRepository(dbConfigProvider)
     with VariantRepository {
 
-  import models.dal.domain.DatabaseSchema.variants
+  import models.dal.DatabaseSchema.domain.variants
 
   def findVariant(
                    contigId: Int,
@@ -133,7 +133,7 @@ class VariantRepositoryImpl @Inject()(
           rs_id = COALESCE(EXCLUDED.rs_id, variant.rs_id),
           common_name = COALESCE(EXCLUDED.common_name, variant.common_name)
         RETURNING variant_id
-      """.as[Int].head  // Use .head to get a single Int instead of Vector[Int]
+      """.as[Int].head // Use .head to get a single Int instead of Vector[Int]
     }
 
     // Combine all actions into a single DBIO action

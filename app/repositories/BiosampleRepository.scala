@@ -4,8 +4,7 @@ import com.vividsolutions.jts.geom.Point
 import com.vividsolutions.jts.io.WKBReader
 import jakarta.inject.Inject
 import models.api.{BiosampleWithOrigin, GeoCoord, PopulationInfo}
-import models.dal.MyPostgresProfile
-import models.dal.domain.DatabaseSchema
+import models.dal.{DatabaseSchema, MyPostgresProfile}
 import models.domain.Biosample
 import play.api.db.slick.DatabaseConfigProvider
 import slick.jdbc.GetResult
