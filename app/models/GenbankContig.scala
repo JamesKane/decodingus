@@ -15,5 +15,6 @@ case class GenbankContig(
                           accession: String,
                           commonName: Option[String],
                           referenceGenome: Option[String],
-                          seqLength: Int
+                          seqLength: Int,
+                          pangenomePathId: Option[Int] = None
                         )

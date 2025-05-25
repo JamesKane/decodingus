@@ -36,5 +36,7 @@ class GenbankContigsTable(tag: Tag) extends Table[GenbankContig](tag, "genbank_c
 
   def seqLength = column[Int]("seq_length")
 
-  def * = (genbankContigId.?, accession, commonName, referenceGenome, seqLength).mapTo[GenbankContig]
+  def pangenomePathId = column[Option[Int]]("pangenome_path_id")
+
+  def * = (genbankContigId.?, accession, commonName, referenceGenome, seqLength, pangenomePathId).mapTo[GenbankContig]
 }
