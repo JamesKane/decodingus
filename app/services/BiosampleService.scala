@@ -1,7 +1,7 @@
 package services
 
 import jakarta.inject.Inject
-import models.domain.Biosample
+import models.domain.genomics.Biosample
 import repositories.BiosampleRepository
 
 import scala.concurrent.Future

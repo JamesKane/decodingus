@@ -3,7 +3,7 @@ package repositories
 import jakarta.inject.Inject
 import models.api.PublicationWithEnaStudiesAndSampleCount
 import models.dal.DatabaseSchema
-import models.domain.{EnaStudy, Publication}
+import models.domain.publications.{EnaStudy, Publication}
 import play.api.db.slick.{DatabaseConfigProvider, HasDatabaseConfigProvider}
 import slick.jdbc.JdbcProfile
 

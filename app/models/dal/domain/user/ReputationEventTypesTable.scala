@@ -1,7 +1,7 @@
 package models.dal.domain.user
 
 import models.dal.MyPostgresProfile.api.*
-import models.domain.ReputationEventType
+import models.domain.user.ReputationEventType
 import slick.lifted.ProvenShape
 
 import java.time.ZonedDateTime

@@ -3,7 +3,7 @@ package repositories
 import jakarta.inject.Inject
 import models.dal.MyPostgresProfile
 import models.dal.MyPostgresProfile.api.*
-import models.domain.GenbankContig
+import models.domain.genomics.GenbankContig
 import play.api.db.slick.{DatabaseConfigProvider, HasDatabaseConfigProvider}
 
 import scala.concurrent.{ExecutionContext, Future}

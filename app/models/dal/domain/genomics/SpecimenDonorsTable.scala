@@ -1,6 +1,6 @@
 package models.dal.domain.genomics
 
-import models.domain.SpecimenDonor
+import models.domain.genomics.SpecimenDonor
 import slick.jdbc.PostgresProfile.api.*
 
 /**

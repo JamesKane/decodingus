@@ -1,7 +1,7 @@
 package models.dal.domain.genomics
 
 import models.dal.MyPostgresProfile.api.*
-import models.domain.ValidationService
+import models.domain.genomics.ValidationService
 
 import java.util.UUID
 

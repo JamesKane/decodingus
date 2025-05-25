@@ -1,7 +1,7 @@
 package models.dal.domain.genomics
 
 import models.dal.MyPostgresProfile.api.*
-import models.domain.AncestryAnalysis
+import models.domain.genomics.AncestryAnalysis
 
 import java.util.UUID
 

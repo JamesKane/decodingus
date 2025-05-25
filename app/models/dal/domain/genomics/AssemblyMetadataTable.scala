@@ -1,7 +1,7 @@
 package models.dal.domain.genomics
 
 import models.dal.MyPostgresProfile.api.*
-import models.domain.AssemblyMetadata
+import models.domain.genomics.AssemblyMetadata
 import play.api.libs.json.JsValue
 
 import java.time.LocalDate

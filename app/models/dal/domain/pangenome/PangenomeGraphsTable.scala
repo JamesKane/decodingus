@@ -1,7 +1,7 @@
 package models.dal.domain.pangenome
 
 import models.dal.MyPostgresProfile.api.*
-import models.domain.PangenomeGraph
+import models.domain.pangenome.PangenomeGraph
 
 import java.time.ZonedDateTime
 

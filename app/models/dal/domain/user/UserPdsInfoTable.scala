@@ -1,7 +1,7 @@
 package models.dal.domain.user
 
 import models.dal.MyPostgresProfile.api.*
-import models.domain.{User, UserPdsInfo}
+import models.domain.user.{User, UserPdsInfo}
 import slick.lifted.ProvenShape
 
 import java.time.ZonedDateTime

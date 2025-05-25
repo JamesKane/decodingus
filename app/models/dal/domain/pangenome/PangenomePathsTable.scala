@@ -2,7 +2,7 @@ package models.dal.domain.pangenome
 
 import models.dal.MyPostgresProfile
 import models.dal.MyPostgresProfile.api.*
-import models.domain.PangenomePath
+import models.domain.pangenome.PangenomePath
 
 class PangenomePathsTable(tag: Tag) extends Table[PangenomePath](tag, "pangenome_path") {
   def id = column[Long]("id", O.PrimaryKey, O.AutoInc)

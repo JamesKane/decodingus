@@ -1,7 +1,7 @@
 package models.dal.domain.pangenome
 
 import models.dal.MyPostgresProfile.api.*
-import models.domain.PangenomeAlignmentMetadata
+import models.domain.pangenome.PangenomeAlignmentMetadata
 import play.api.libs.json.JsValue
 import slick.lifted.ProvenShape
 

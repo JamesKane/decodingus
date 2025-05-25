@@ -1,6 +1,6 @@
 package models.dal.domain.genomics
 
-import models.domain.SequenceFile
+import models.domain.genomics.SequenceFile
 import slick.jdbc.PostgresProfile.api.*
 
 import java.time.LocalDateTime

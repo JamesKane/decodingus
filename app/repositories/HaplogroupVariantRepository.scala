@@ -2,7 +2,9 @@ package repositories
 
 import jakarta.inject.Inject
 import models.*
-import models.domain.{GenbankContig, Haplogroup, HaplogroupVariant}
+import models.dal.domain.genomics.Variant
+import models.domain.genomics.GenbankContig
+import models.domain.haplogroups.{Haplogroup, HaplogroupVariant}
 import play.api.db.slick.DatabaseConfigProvider
 
 import scala.concurrent.{ExecutionContext, Future}

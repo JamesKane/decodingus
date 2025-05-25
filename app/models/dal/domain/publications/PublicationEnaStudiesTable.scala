@@ -1,6 +1,6 @@
 package models.dal.domain.publications
 
-import models.domain.PublicationEnaStudy
+import models.domain.publications.PublicationEnaStudy
 import slick.jdbc.PostgresProfile.api.*
 
 /**

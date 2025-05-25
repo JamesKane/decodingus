@@ -1,6 +1,6 @@
 package models.dal.domain.publications
 
-import models.domain.Publication
+import models.domain.publications.Publication
 import slick.jdbc.PostgresProfile.api.*
 
 import java.time.LocalDate

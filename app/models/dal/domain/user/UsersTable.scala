@@ -1,7 +1,7 @@
 package models.dal.domain.user
 
 import models.dal.MyPostgresProfile.api.*
-import models.domain.User
+import models.domain.user.User
 
 import java.time.ZonedDateTime
 import java.util.UUID

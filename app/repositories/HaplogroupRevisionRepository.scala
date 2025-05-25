@@ -2,7 +2,7 @@ package repositories
 
 import jakarta.inject.Inject
 import models.HaplogroupType
-import models.domain.Haplogroup
+import models.domain.haplogroups.Haplogroup
 import play.api.db.slick.DatabaseConfigProvider
 
 import scala.concurrent.{ExecutionContext, Future}

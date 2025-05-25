@@ -2,7 +2,7 @@ package models.dal.domain.pangenome
 
 import models.dal.MyPostgresProfile
 import models.dal.MyPostgresProfile.api.*
-import models.domain.CanonicalPangenomeVariant
+import models.domain.pangenome.CanonicalPangenomeVariant
 
 import java.time.ZonedDateTime
 

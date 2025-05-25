@@ -1,7 +1,7 @@
 package models.dal.domain.genomics
 
 import models.dal.MyPostgresProfile.api.*
-import models.domain.GeneAnnotation
+import models.domain.genomics.GeneAnnotation
 
 class GeneAnnotationsTable(tag: Tag) extends Table[GeneAnnotation](tag, "gene_annotation") {
   def id = column[Long]("id", O.PrimaryKey, O.AutoInc)

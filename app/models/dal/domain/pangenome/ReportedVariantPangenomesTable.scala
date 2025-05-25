@@ -2,7 +2,7 @@ package models.dal.domain.pangenome
 
 import models.dal.MyPostgresProfile
 import models.dal.MyPostgresProfile.api.*
-import models.domain.ReportedVariantPangenome
+import models.domain.pangenome.ReportedVariantPangenome
 import play.api.libs.json.JsValue
 
 import java.time.ZonedDateTime

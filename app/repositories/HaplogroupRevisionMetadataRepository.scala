@@ -1,7 +1,7 @@
 package repositories
 
 import jakarta.inject.Inject
-import models.domain.{HaplogroupRelationship, RelationshipRevisionMetadata}
+import models.domain.haplogroups.{HaplogroupRelationship, RelationshipRevisionMetadata}
 import play.api.db.slick.DatabaseConfigProvider
 
 import java.time.LocalDateTime

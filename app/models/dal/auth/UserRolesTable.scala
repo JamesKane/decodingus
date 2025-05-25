@@ -3,7 +3,7 @@ package models.dal.auth
 import models.auth.{Role, UserRole}
 import models.dal.MyPostgresProfile.api.*
 import models.dal.domain.user.UsersTable
-import models.domain.User
+import models.domain.user.User
 import slick.lifted.ProvenShape
 
 import java.util.UUID

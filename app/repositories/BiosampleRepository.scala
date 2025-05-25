@@ -5,7 +5,7 @@ import com.vividsolutions.jts.io.WKBReader
 import jakarta.inject.Inject
 import models.api.{BiosampleWithOrigin, GeoCoord, PopulationInfo}
 import models.dal.{DatabaseSchema, MyPostgresProfile}
-import models.domain.Biosample
+import models.domain.genomics.Biosample
 import play.api.db.slick.DatabaseConfigProvider
 import slick.jdbc.GetResult
 

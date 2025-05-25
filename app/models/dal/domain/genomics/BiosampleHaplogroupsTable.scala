@@ -1,6 +1,6 @@
 package models.dal.domain.genomics
 
-import models.domain.BiosampleHaplogroup
+import models.domain.genomics.BiosampleHaplogroup
 import slick.jdbc.PostgresProfile.api.*
 
 import java.util.UUID

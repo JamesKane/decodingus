@@ -2,7 +2,8 @@ package services
 
 import models.*
 import models.api.{TreeDTO, TreeNodeDTO, VariantDTO}
-import models.domain.{Haplogroup, HaplogroupRelationship, HaplogroupVariantMetadata, RelationshipRevisionMetadata}
+import models.dal.domain.genomics.Variant
+import models.domain.haplogroups.{Haplogroup, HaplogroupRelationship, HaplogroupVariantMetadata, RelationshipRevisionMetadata}
 import play.api.Logging
 import repositories.*
 

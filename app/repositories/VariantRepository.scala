@@ -1,9 +1,9 @@
 package repositories
 
 import jakarta.inject.Inject
-import models.Variant
 import models.dal.MyPostgresProfile
 import models.dal.MyPostgresProfile.api.*
+import models.dal.domain.genomics.Variant
 import org.postgresql.util.PSQLException
 import play.api.db.slick.DatabaseConfigProvider
 

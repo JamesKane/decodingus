@@ -1,7 +1,7 @@
 package models.dal.domain.pangenome
 
 import models.dal.MyPostgresProfile.api.*
-import models.domain.PangenomeNode
+import models.domain.pangenome.PangenomeNode
 
 class PangenomeNodesTable(tag: Tag) extends Table[PangenomeNode](tag, "pangenome_node") {
   def id = column[Long]("id", O.PrimaryKey, O.AutoInc)

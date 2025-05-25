@@ -2,7 +2,7 @@ package repositories
 
 import jakarta.inject.Inject
 import models.HaplogroupType
-import models.domain.Haplogroup
+import models.domain.haplogroups.Haplogroup
 import play.api.Logging
 import play.api.db.slick.DatabaseConfigProvider
 import slick.jdbc.GetResult

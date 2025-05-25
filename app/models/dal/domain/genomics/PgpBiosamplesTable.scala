@@ -1,7 +1,7 @@
 package models.dal.domain.genomics
 
 import models.dal.MyPostgresProfile.api.*
-import models.domain.PgpBiosample
+import models.domain.genomics.PgpBiosample
 
 import java.util.UUID
 

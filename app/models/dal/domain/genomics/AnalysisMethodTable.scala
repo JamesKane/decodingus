@@ -1,7 +1,7 @@
 package models.dal.domain.genomics
 
 import models.dal.MyPostgresProfile.api.*
-import models.domain.AnalysisMethod
+import models.domain.genomics.AnalysisMethod
 
 /**
  * Represents the mapping for the "analysis_method" table in the database.

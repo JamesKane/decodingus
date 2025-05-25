@@ -1,7 +1,7 @@
 package repositories
 
 import jakarta.inject.Inject
-import models.domain.{Haplogroup, HaplogroupRelationship}
+import models.domain.haplogroups.{Haplogroup, HaplogroupRelationship}
 import play.api.db.slick.DatabaseConfigProvider
 
 import scala.concurrent.{ExecutionContext, Future}

@@ -1,6 +1,6 @@
 package models.dal.domain.genomics
 
-import models.domain.SequenceHttpLocation
+import models.domain.genomics.SequenceHttpLocation
 import slick.jdbc.PostgresProfile.api.*
 
 /**

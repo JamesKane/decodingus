@@ -2,7 +2,7 @@ package models.dal.domain.genomics
 
 import com.vividsolutions.jts.geom.Point
 import models.dal.MyPostgresProfile.api.*
-import models.domain.CitizenBiosample
+import models.domain.genomics.CitizenBiosample
 
 import java.time.LocalDate
 import java.util.UUID

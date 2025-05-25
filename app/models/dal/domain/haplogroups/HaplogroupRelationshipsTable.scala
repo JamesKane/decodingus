@@ -1,6 +1,6 @@
 package models.dal.domain.haplogroups
 
-import models.domain.HaplogroupRelationship
+import models.domain.haplogroups.HaplogroupRelationship
 import slick.jdbc.PostgresProfile.api.*
 
 import java.time.LocalDateTime

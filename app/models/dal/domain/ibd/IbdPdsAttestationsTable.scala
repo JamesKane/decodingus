@@ -1,7 +1,7 @@
 package models.dal.domain.ibd
 
 import models.dal.MyPostgresProfile.api.*
-import models.domain.IbdPdsAttestation
+import models.domain.ibd.IbdPdsAttestation
 
 import java.time.ZonedDateTime
 import java.util.UUID

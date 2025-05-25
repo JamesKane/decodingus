@@ -1,7 +1,7 @@
 package models.dal.domain.pangenome
 
 import models.dal.MyPostgresProfile.api.*
-import models.domain.PangenomeAlignmentCoverage
+import models.domain.pangenome.PangenomeAlignmentCoverage
 import slick.lifted.ProvenShape
 
 class PangenomeAlignmentCoverageTable(tag: Tag) extends Table[PangenomeAlignmentCoverage](tag, "pangenome_alignment_coverage") {
