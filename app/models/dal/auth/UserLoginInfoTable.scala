@@ -1,11 +1,13 @@
-package models.dal
+package models.dal.auth
 
-import models.UserLoginInfo
-import models.User // Needed for foreign key
+import models.User
+import models.auth.UserLoginInfo
 import models.dal.MyPostgresProfile.api.*
+import models.dal.UsersTable
+import slick.lifted.ProvenShape
+
 import java.time.ZonedDateTime
 import java.util.UUID
-import slick.lifted.ProvenShape
 
 class UserLoginInfoTable(tag: Tag) extends Table[UserLoginInfo](tag, Some("auth"), "user_login_info") {
   def id = column[UUID]("id", O.PrimaryKey)

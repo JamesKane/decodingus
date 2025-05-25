@@ -1,6 +1,6 @@
-package models.dal
+package models.dal.auth
 
-import models.Permission
+import models.auth.Permission
 import models.dal.MyPostgresProfile.api.*
 import slick.lifted.ProvenShape
 

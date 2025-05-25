@@ -1,10 +1,11 @@
-package models.dal
+package models.dal.auth
 
-import models.ATProtocolAuthorizationServer
+import models.auth.ATProtocolAuthorizationServer
 import models.dal.MyPostgresProfile.api.*
+import slick.lifted.ProvenShape
+
 import java.time.ZonedDateTime
 import java.util.UUID
-import slick.lifted.ProvenShape
 
 class ATProtocolAuthorizationServersTable(tag: Tag) extends Table[ATProtocolAuthorizationServer](tag, Some("auth"), "atprotocol_authorization_servers") {
   def id = column[UUID]("id", O.PrimaryKey)

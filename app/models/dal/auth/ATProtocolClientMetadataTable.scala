@@ -1,6 +1,6 @@
-package models.dal
+package models.dal.auth
 
-import models.ATProtocolClientMetadata
+import models.auth.ATProtocolClientMetadata
 import models.dal.MyPostgresProfile.api.*
 import slick.lifted.ProvenShape
 

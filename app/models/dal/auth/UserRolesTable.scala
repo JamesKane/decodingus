@@ -1,7 +1,9 @@
-package models.dal
+package models.dal.auth
 
-import models.{Role, User, UserRole}
+import models.auth.Role
 import models.dal.MyPostgresProfile.api.*
+import models.dal.UsersTable
+import models.{User, UserRole}
 import slick.lifted.ProvenShape
 
 import java.util.UUID

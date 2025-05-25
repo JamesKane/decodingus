@@ -1,10 +1,11 @@
-package models.dal
+package models.dal.auth
 
-import models.Role
+import models.auth.Role
 import models.dal.MyPostgresProfile.api.*
+import slick.lifted.ProvenShape
+
 import java.time.ZonedDateTime
 import java.util.UUID
-import slick.lifted.ProvenShape
 
 class RolesTable(tag: Tag) extends Table[Role](tag, Some("auth"), "roles") {
   def id = column[UUID]("id", O.PrimaryKey)

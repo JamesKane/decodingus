@@ -1,6 +1,6 @@
-package models.dal
+package models.dal.auth
 
-import models.{UserLoginInfo, UserOauth2Info}
+import models.auth.{UserLoginInfo, UserOauth2Info}
 import models.dal.MyPostgresProfile.api.*
 import slick.lifted.ProvenShape
 

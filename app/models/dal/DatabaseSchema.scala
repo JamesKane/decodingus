@@ -1,6 +1,8 @@
 package models.dal
 
 import models.HaplogroupType
+import models.auth.UserLoginInfo
+import models.dal.auth.{ATProtocolAuthorizationServersTable, ATProtocolClientMetadataTable, PermissionsTable, RolesTable, UserLoginInfoTable, UserOauth2InfoTable, UserRolesTable}
 
 /**
  * Provides the database schema definition, which includes table queries for various domain-specific entities.
@@ -65,4 +67,14 @@ object DatabaseSchema {
   val sequenceLibraries = TableQuery[SequenceLibrariesTable]
   val specimenDonors = TableQuery[SpecimenDonorsTable]
   val variants = TableQuery[VariantsTable]
+
+  object auth {
+    val atProtocolClientMetadata = TableQuery[ATProtocolClientMetadataTable]
+    val atProtocolAuthorizationServers = TableQuery[ATProtocolAuthorizationServersTable]
+    val permissions = TableQuery[PermissionsTable]
+    val roles = TableQuery[RolesTable]
+    val userLoginInfos = TableQuery[UserLoginInfoTable]
+    val userOauth2Infos = TableQuery[UserOauth2InfoTable]
+    val userRoles = TableQuery[UserRolesTable]
+  }
 }
