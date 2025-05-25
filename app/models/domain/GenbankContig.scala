@@ -1,4 +1,4 @@
-package models
+package models.domain
 
 /**
  * Represents a GenBank contig, a segment of DNA or RNA sequence, with associated information such as 

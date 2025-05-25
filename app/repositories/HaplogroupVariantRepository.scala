@@ -2,6 +2,7 @@ package repositories
 
 import jakarta.inject.Inject
 import models.*
+import models.domain.GenbankContig
 import play.api.db.slick.DatabaseConfigProvider
 
 import scala.concurrent.{ExecutionContext, Future}
@@ -79,6 +80,7 @@ class HaplogroupVariantRepositoryImpl @Inject()(
     with HaplogroupVariantRepository {
 
   import models.dal.domain.DatabaseSchema.*
+  import models.dal.domain.DatabaseSchema.domain.genbankContigs
   import models.dal.MyPostgresProfile.api.*
 
   override def findVariants(query: String): Future[Seq[Variant]] = {

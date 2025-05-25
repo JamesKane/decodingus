@@ -1,9 +1,10 @@
 package services
 
 import jakarta.inject.Inject
-import models.{GenbankContig, HaplogroupType, Variant}
+import models.{HaplogroupType, Variant}
 import models.HaplogroupType.{MT, Y}
 import models.api.*
+import models.domain.GenbankContig
 import play.api.Logging
 import play.api.mvc.Call
 import repositories.{HaplogroupCoreRepository, HaplogroupVariantRepository}

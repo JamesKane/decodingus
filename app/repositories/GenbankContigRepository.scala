@@ -1,9 +1,9 @@
 package repositories
 
 import jakarta.inject.Inject
-import models.GenbankContig
 import models.dal.MyPostgresProfile
 import models.dal.MyPostgresProfile.api.*
+import models.domain.GenbankContig
 import play.api.db.slick.{DatabaseConfigProvider, HasDatabaseConfigProvider}
 
 import scala.concurrent.{ExecutionContext, Future}
@@ -47,7 +47,7 @@ class GenbankContigRepositoryImpl @Inject()(
   extends GenbankContigRepository
     with HasDatabaseConfigProvider[MyPostgresProfile] {
 
-  import models.dal.domain.DatabaseSchema.genbankContigs
+  import models.dal.domain.DatabaseSchema.domain.genbankContigs
 
   def findByAccession(accession: String): Future[Option[GenbankContig]] = {
     val query = genbankContigs.filter(_.accession === accession).result.headOption

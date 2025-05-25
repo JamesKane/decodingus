@@ -1,6 +1,8 @@
 package models.dal
 
-import models.{GenbankContig, Variant}
+import models.dal.domain.GenbankContigsTable
+import models.Variant
+import models.domain.GenbankContig
 import slick.jdbc.PostgresProfile.api.*
 
 /**
