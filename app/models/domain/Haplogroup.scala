@@ -1,4 +1,6 @@
-package models
+package models.domain
+
+import models.HaplogroupType
 
 import java.time.LocalDateTime
 

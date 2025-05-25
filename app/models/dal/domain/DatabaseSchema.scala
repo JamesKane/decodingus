@@ -43,11 +43,6 @@ object DatabaseSchema {
       )
     )
 
-
-
-
-
-  val haplogroups = TableQuery[HaplogroupsTable]
   val haplogroupRelationships = TableQuery[HaplogroupRelationshipsTable]
   val haplogroupVariants = TableQuery[HaplogroupVariantsTable]
   val haplogroupVariantMetadata = TableQuery[HaplogroupVariantMetadataTable]
@@ -66,6 +61,7 @@ object DatabaseSchema {
     val citizenBiosamples = TableQuery[CitizenBiosamplesTable]
     val enaStudies = TableQuery[EnaStudiesTable]
     val genbankContigs = TableQuery[GenbankContigsTable]
+    val haplogroups = TableQuery[HaplogroupsTable]
     val pgpBiosamples = TableQuery[PgpBiosamplesTable]
     val populations = TableQuery[PopulationsTable]
     val sequenceAtpLocations = TableQuery[SequenceAtpLocationTable]

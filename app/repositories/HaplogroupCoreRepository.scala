@@ -1,7 +1,8 @@
 package repositories
 
 import jakarta.inject.Inject
-import models.{Haplogroup, HaplogroupType}
+import models.HaplogroupType
+import models.domain.Haplogroup
 import play.api.Logging
 import play.api.db.slick.DatabaseConfigProvider
 import slick.jdbc.GetResult
@@ -44,7 +45,8 @@ class HaplogroupCoreRepositoryImpl @Inject()(
   extends BaseRepository(dbConfigProvider)
     with HaplogroupCoreRepository {
 
-  import models.dal.domain.DatabaseSchema.{haplogroupRelationships, haplogroups}
+  import models.dal.domain.DatabaseSchema.haplogroupRelationships
+  import models.dal.domain.DatabaseSchema.domain.haplogroups
   import models.dal.MyPostgresProfile.api.*
 
   override def getHaplogroupByName(name: String, haplogroupType: HaplogroupType): Future[Option[Haplogroup]] = {

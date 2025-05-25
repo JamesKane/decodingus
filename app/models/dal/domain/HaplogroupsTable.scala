@@ -1,7 +1,8 @@
-package models.dal
+package models.dal.domain
 
+import models.HaplogroupType
 import models.dal.MyPostgresProfile.api.*
-import models.{Haplogroup, HaplogroupType}
+import models.domain.Haplogroup
 import slick.ast.TypedType
 import slick.lifted.{MappedProjection, ProvenShape}
 

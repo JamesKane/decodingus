@@ -1,7 +1,8 @@
 package repositories
 
 import jakarta.inject.Inject
-import models.{Haplogroup, HaplogroupType}
+import models.HaplogroupType
+import models.domain.Haplogroup
 import play.api.db.slick.DatabaseConfigProvider
 
 import scala.concurrent.{ExecutionContext, Future}
@@ -80,6 +81,7 @@ class HaplogroupRevisionRepositoryImpl @Inject()(
     with HaplogroupRevisionRepository {
 
   import models.dal.domain.DatabaseSchema.*
+  import models.dal.domain.DatabaseSchema.domain.haplogroups
   import models.dal.MyPostgresProfile.api.*
 
 

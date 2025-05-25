@@ -4,7 +4,7 @@ import jakarta.inject.Inject
 import models.{HaplogroupType, Variant}
 import models.HaplogroupType.{MT, Y}
 import models.api.*
-import models.domain.GenbankContig
+import models.domain.{GenbankContig, Haplogroup}
 import play.api.Logging
 import play.api.mvc.Call
 import repositories.{HaplogroupCoreRepository, HaplogroupVariantRepository}
@@ -88,7 +88,7 @@ class HaplogroupTreeService @Inject()(
    * @param routeType      The type of route (e.g., fragment or API endpoint) to create for breadcrumb navigation.
    * @return A list of `CrumbDTO` objects representing the breadcrumbs for the provided parameters.
    */
-  private def buildCrumbs(haplogroups: Seq[models.Haplogroup], haplogroupType: HaplogroupType, routeType: RouteType): List[CrumbDTO] = {
+  private def buildCrumbs(haplogroups: Seq[Haplogroup], haplogroupType: HaplogroupType, routeType: RouteType): List[CrumbDTO] = {
     haplogroups.map { haplogroup =>
       CrumbDTO(
         label = haplogroup.name,
@@ -111,7 +111,7 @@ class HaplogroupTreeService @Inject()(
    * @return A `Future` containing the constructed `TreeNodeDTO`, which includes the haplogroup's metadata,
    *         associated variants, and recursive child tree nodes.
    */
-  private def buildSubtree(haplogroup: models.Haplogroup): Future[TreeNodeDTO] = {
+  private def buildSubtree(haplogroup: Haplogroup): Future[TreeNodeDTO] = {
     for {
       // Get variants for this haplogroup
       variants <- variantRepository.getHaplogroupVariants(haplogroup.id.get)
@@ -130,7 +130,7 @@ class HaplogroupTreeService @Inject()(
     )
   }
 
-  private def buildSubtreeWithoutVariants(haplogroup: models.Haplogroup): Future[TreeNodeDTO] = {
+  private def buildSubtreeWithoutVariants(haplogroup: Haplogroup): Future[TreeNodeDTO] = {
     for {
       variantCount <- variantRepository.countHaplogroupVariants(haplogroup.id.get)
       children <- coreRepository.getDirectChildren(haplogroup.id.get)
