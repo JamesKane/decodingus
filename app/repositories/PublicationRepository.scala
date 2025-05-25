@@ -3,7 +3,8 @@ package repositories
 import jakarta.inject.Inject
 import models.api.PublicationWithEnaStudiesAndSampleCount
 import models.dal.domain.DatabaseSchema
-import models.{EnaStudy, Publication}
+import models.Publication
+import models.domain.EnaStudy
 import play.api.db.slick.{DatabaseConfigProvider, HasDatabaseConfigProvider}
 import slick.jdbc.JdbcProfile
 
@@ -52,7 +53,7 @@ class PublicationRepositoryImpl @Inject()(protected val dbConfigProvider: Databa
 
   private val publications = DatabaseSchema.publications
   private val publicationEnaStudies = DatabaseSchema.publicationEnaStudies
-  private val enaStudies = DatabaseSchema.enaStudies
+  private val enaStudies = DatabaseSchema.domain.enaStudies
   private val publicationBiosamples = DatabaseSchema.publicationBiosamples
 
   override def getAllPublications: Future[Seq[Publication]] = db.run(publications.result)

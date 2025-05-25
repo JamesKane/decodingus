@@ -1,7 +1,7 @@
-package models.dal
+package models.dal.domain
 
-import models.EnaStudy
 import models.dal.MyPostgresProfile.api.*
+import models.domain.EnaStudy
 
 /**
  * Represents the database table definition for storing ENA (European Nucleotide Archive) studies.

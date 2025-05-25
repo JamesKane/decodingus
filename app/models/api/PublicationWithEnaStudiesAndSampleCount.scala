@@ -1,6 +1,7 @@
 package models.api
 
-import models.{EnaStudy, Publication}
+import models.Publication
+import models.domain.EnaStudy
 import play.api.libs.json.{Json, OFormat}
 
 /**
