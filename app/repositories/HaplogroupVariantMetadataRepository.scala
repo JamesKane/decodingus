@@ -1,8 +1,7 @@
 package repositories
 
 import jakarta.inject.Inject
-import models.HaplogroupVariantMetadata
-import models.domain.HaplogroupVariant
+import models.domain.{HaplogroupVariant, HaplogroupVariantMetadata}
 import play.api.db.slick.DatabaseConfigProvider
 
 import java.time.LocalDateTime
@@ -101,6 +100,7 @@ class HaplogroupVariantMetadataRepositoryImpl @Inject()(
 
   import models.dal.domain.DatabaseSchema.*
   import models.dal.domain.DatabaseSchema.domain.haplogroupVariants
+  import models.dal.domain.DatabaseSchema.domain.haplogroupVariantMetadata
   import models.dal.MyPostgresProfile.api.*
 
   override def addVariantRevisionMetadata(metadata: HaplogroupVariantMetadata): Future[Int] = {

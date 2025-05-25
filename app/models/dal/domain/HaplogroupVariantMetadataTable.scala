@@ -1,8 +1,8 @@
-package models.dal
+package models.dal.domain
 
-import models.HaplogroupVariantMetadata
 import models.dal.MyPostgresProfile.api.*
 import models.dal.domain.HaplogroupVariantsTable
+import models.domain.HaplogroupVariantMetadata
 
 import java.time.LocalDateTime
 
