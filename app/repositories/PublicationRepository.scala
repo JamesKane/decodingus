@@ -50,10 +50,10 @@ class PublicationRepositoryImpl @Inject()(protected val dbConfigProvider: Databa
 
   import profile.api.*
 
-  private val publications = DatabaseSchema.domain.genomics.publications
-  private val publicationEnaStudies = DatabaseSchema.domain.genomics.publicationEnaStudies
-  private val enaStudies = DatabaseSchema.domain.genomics.enaStudies
-  private val publicationBiosamples = DatabaseSchema.domain.genomics.publicationBiosamples
+  private val publications = DatabaseSchema.domain.publications.publications
+  private val publicationEnaStudies = DatabaseSchema.domain.publications.publicationEnaStudies
+  private val enaStudies = DatabaseSchema.domain.publications.enaStudies
+  private val publicationBiosamples = DatabaseSchema.domain.publications.publicationBiosamples
 
   override def getAllPublications: Future[Seq[Publication]] = db.run(publications.result)
 

@@ -1,4 +1,4 @@
-package models.dal.domain.genomics
+package models.dal.domain.publications
 
 import models.dal.MyPostgresProfile.api.*
 import models.domain.EnaStudy

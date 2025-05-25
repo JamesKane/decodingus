@@ -49,6 +49,7 @@ object DatabaseSchema {
     import models.dal.domain.haplogroups.*
     import models.dal.domain.pangenome.*
     import models.dal.domain.ibd.*
+    import models.dal.domain.publications.*
 
     object user {
       val users = TableQuery[UsersTable]
@@ -65,14 +66,10 @@ object DatabaseSchema {
       val biosampleHaplogroups = TableQuery[BiosampleHaplogroupsTable]
       val biosamples = TableQuery[BiosamplesTable]
       val citizenBiosamples = TableQuery[CitizenBiosamplesTable]
-      val enaStudies = TableQuery[EnaStudiesTable]
       val genbankContigs = TableQuery[GenbankContigsTable]
       val geneAnnotations = TableQuery[GeneAnnotationsTable]
       val pgpBiosamples = TableQuery[PgpBiosamplesTable]
       val populations = TableQuery[PopulationsTable]
-      val publications = TableQuery[PublicationsTable]
-      val publicationBiosamples = TableQuery[PublicationBiosamplesTable]
-      val publicationEnaStudies = TableQuery[PublicationEnaStudiesTable]
       val sequenceAtpLocations = TableQuery[SequenceAtpLocationTable]
       val sequenceFiles = TableQuery[SequenceFilesTable]
       val sequenceHttpLocations = TableQuery[SequenceHttpLocationTable]
@@ -100,6 +97,13 @@ object DatabaseSchema {
       val pangenomePathsTable = TableQuery[PangenomePathsTable]
       val pangenomeVariantLinks = TableQuery[PangenomeVariantLinksTable]
       val reportedVariantPangenomesTable = TableQuery[ReportedVariantPangenomesTable]
+    }
+
+    object publications {
+      val enaStudies = TableQuery[EnaStudiesTable]
+      val publications = TableQuery[PublicationsTable]
+      val publicationBiosamples = TableQuery[PublicationBiosamplesTable]
+      val publicationEnaStudies = TableQuery[PublicationEnaStudiesTable]
     }
 
     object ibd {

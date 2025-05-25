@@ -1,4 +1,4 @@
-package models.dal.domain.genomics
+package models.dal.domain.publications
 
 import models.domain.PublicationBiosample
 import slick.jdbc.PostgresProfile.api.*
