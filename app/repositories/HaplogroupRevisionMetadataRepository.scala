@@ -96,7 +96,7 @@ class HaplogroupRevisionMetadataRepositoryImpl @Inject()(
   extends BaseRepository(dbConfigProvider)
     with HaplogroupRevisionMetadataRepository {
 
-  import models.dal.DatabaseSchema.*
+  import models.dal.domain.DatabaseSchema.*
   import models.dal.MyPostgresProfile.api.*
 
   override def addRelationshipRevisionMetadata(metadata: RelationshipRevisionMetadata): Future[Int] = {

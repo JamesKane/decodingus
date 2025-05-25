@@ -44,7 +44,7 @@ class HaplogroupCoreRepositoryImpl @Inject()(
   extends BaseRepository(dbConfigProvider)
     with HaplogroupCoreRepository {
 
-  import models.dal.DatabaseSchema.{haplogroupRelationships, haplogroups}
+  import models.dal.domain.DatabaseSchema.{haplogroupRelationships, haplogroups}
   import models.dal.MyPostgresProfile.api.*
 
   override def getHaplogroupByName(name: String, haplogroupType: HaplogroupType): Future[Option[Haplogroup]] = {

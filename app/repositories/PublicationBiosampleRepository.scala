@@ -1,7 +1,7 @@
 package repositories
 
 import jakarta.inject.Inject
-import models.dal.DatabaseSchema
+import models.dal.domain.DatabaseSchema
 import play.api.db.slick.{DatabaseConfigProvider, HasDatabaseConfigProvider}
 import slick.jdbc.JdbcProfile
 

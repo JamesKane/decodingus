@@ -47,7 +47,7 @@ class GenbankContigRepositoryImpl @Inject()(
   extends GenbankContigRepository
     with HasDatabaseConfigProvider[MyPostgresProfile] {
 
-  import models.dal.DatabaseSchema.genbankContigs
+  import models.dal.domain.DatabaseSchema.genbankContigs
 
   def findByAccession(accession: String): Future[Option[GenbankContig]] = {
     val query = genbankContigs.filter(_.accession === accession).result.headOption

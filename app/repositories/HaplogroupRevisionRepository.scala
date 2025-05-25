@@ -79,7 +79,7 @@ class HaplogroupRevisionRepositoryImpl @Inject()(
   extends BaseRepository(dbConfigProvider)
     with HaplogroupRevisionRepository {
 
-  import models.dal.DatabaseSchema.*
+  import models.dal.domain.DatabaseSchema.*
   import models.dal.MyPostgresProfile.api.*
 
 

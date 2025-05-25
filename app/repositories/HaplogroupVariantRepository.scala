@@ -78,7 +78,7 @@ class HaplogroupVariantRepositoryImpl @Inject()(
   extends BaseRepository(dbConfigProvider)
     with HaplogroupVariantRepository {
 
-  import models.dal.DatabaseSchema.*
+  import models.dal.domain.DatabaseSchema.*
   import models.dal.MyPostgresProfile.api.*
 
   override def findVariants(query: String): Future[Seq[Variant]] = {

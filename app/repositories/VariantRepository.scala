@@ -51,7 +51,7 @@ class VariantRepositoryImpl @Inject()(
   extends BaseRepository(dbConfigProvider)
     with VariantRepository {
 
-  import models.dal.DatabaseSchema.variants
+  import models.dal.domain.DatabaseSchema.variants
 
   def findVariant(
                    contigId: Int,

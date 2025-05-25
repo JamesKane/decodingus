@@ -1,9 +1,9 @@
 package models.dal.auth
 
-import models.User
 import models.auth.UserLoginInfo
 import models.dal.MyPostgresProfile.api.*
-import models.dal.UsersTable
+import models.dal.domain.UsersTable
+import models.domain.User
 import slick.lifted.ProvenShape
 
 import java.time.ZonedDateTime
