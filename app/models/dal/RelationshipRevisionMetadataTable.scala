@@ -1,6 +1,7 @@
 package models.dal
 
 import models.RelationshipRevisionMetadata
+import models.dal.domain.HaplogroupRelationshipsTable
 import slick.jdbc.PostgresProfile.api.*
 
 import java.time.LocalDateTime

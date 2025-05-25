@@ -45,7 +45,7 @@ class HaplogroupCoreRepositoryImpl @Inject()(
   extends BaseRepository(dbConfigProvider)
     with HaplogroupCoreRepository {
 
-  import models.dal.domain.DatabaseSchema.haplogroupRelationships
+  import models.dal.domain.DatabaseSchema.domain.haplogroupRelationships
   import models.dal.domain.DatabaseSchema.domain.haplogroups
   import models.dal.MyPostgresProfile.api.*
 

@@ -2,7 +2,7 @@ package services
 
 import models.*
 import models.api.{TreeDTO, TreeNodeDTO, VariantDTO}
-import models.domain.Haplogroup
+import models.domain.{Haplogroup, HaplogroupRelationship}
 import play.api.Logging
 import repositories.*
 
