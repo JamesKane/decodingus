@@ -2,6 +2,7 @@ package models.dal
 
 import models.HaplogroupVariantMetadata
 import models.dal.MyPostgresProfile.api.*
+import models.dal.domain.HaplogroupVariantsTable
 
 import java.time.LocalDateTime
 

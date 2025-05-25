@@ -1,4 +1,4 @@
-package models
+package models.domain
 
 /**
  * Represents the association between a haplogroup and a genetic variant.

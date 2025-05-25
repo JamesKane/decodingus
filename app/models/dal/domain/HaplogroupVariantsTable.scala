@@ -1,8 +1,9 @@
-package models.dal
+package models.dal.domain
 
+import models.dal.VariantsTable
 import models.dal.domain.HaplogroupsTable
-import models.domain.Haplogroup
-import models.{HaplogroupVariant, Variant}
+import models.domain.{Haplogroup, HaplogroupVariant}
+import models.Variant
 import slick.jdbc.PostgresProfile.api.*
 
 /**
