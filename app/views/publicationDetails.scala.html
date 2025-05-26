@@ -216,11 +216,13 @@
 
     <script>
             document.addEventListener('htmx:after-swap', function (event) {
-                if (event.target.id === 'biosample-content-@{publicationWithDetails.publication.id.get}' && event.detail.successful) {
+                // Check if the target ID starts with 'biosample-content-'
+                if (event.target.id.startsWith('biosample-content-') && event.detail.successful) {
                     const container = event.target.closest('.mt-2');
                     const hideButton = container.querySelector('.collapse-button');
                     const loadButton = container.querySelector('.load-biosamples');
-                    const collapseElement = document.getElementById('biosample-collapse');
+                    const collapseId = event.target.id.replace('content-', 'collapse-');
+                    const collapseElement = document.getElementById(collapseId);
 
                     if (loadButton) {
                         loadButton.style.display = 'none';
@@ -229,7 +231,6 @@
                         hideButton.style.display = 'inline-block';
                     }
 
-                    // Get or create Bootstrap collapse instance
                     let bsCollapse = bootstrap.Collapse.getInstance(collapseElement);
                     if (!bsCollapse) {
                         bsCollapse = new bootstrap.Collapse(collapseElement, {
@@ -241,32 +242,33 @@
             });
 
             document.addEventListener('click', function (event) {
-                const collapseElement = document.getElementById('biosample-collapse');
-                if (event.target.classList.contains('collapse-button') && !collapseElement.classList.contains('show')) {
+                if (event.target.classList.contains('collapse-button') || event.target.classList.contains('load-biosamples')) {
                     const container = event.target.closest('.mt-2');
                     const loadButton = container.querySelector('.load-biosamples');
-                    const hideButton = event.target;
-                    if (loadButton) {
-                        loadButton.style.display = 'inline-block';
-                    }
-                    if (hideButton) {
-                        hideButton.style.display = 'none';
-                        hideButton.textContent = 'Hide Samples';
-                    }
-                } else if (event.target.classList.contains('load-biosamples') && collapseElement.classList.contains('show')) {
-                    const container = event.target.closest('.mt-2');
-                    const loadButton = event.target;
                     const hideButton = container.querySelector('.collapse-button');
-                    if (loadButton) {
-                        loadButton.style.display = 'inline-block';
-                        loadButton.textContent = 'Show Samples';
-                    }
-                    if (hideButton) {
-                        hideButton.style.display = 'none';
-                    }
-                    const bsCollapse = bootstrap.Collapse.getInstance(collapseElement);
-                    if (bsCollapse) {
-                        bsCollapse.hide();
+                    const collapseId = loadButton.getAttribute('data-bs-target').substring(1);
+                    const collapseElement = document.getElementById(collapseId);
+
+                    if (event.target.classList.contains('collapse-button') && !collapseElement.classList.contains('show')) {
+                        if (loadButton) {
+                            loadButton.style.display = 'inline-block';
+                        }
+                        if (hideButton) {
+                            hideButton.style.display = 'none';
+                            hideButton.textContent = 'Hide Samples';
+                        }
+                    } else if (event.target.classList.contains('load-biosamples') && collapseElement.classList.contains('show')) {
+                        if (loadButton) {
+                            loadButton.style.display = 'inline-block';
+                            loadButton.textContent = 'Show Samples';
+                        }
+                        if (hideButton) {
+                            hideButton.style.display = 'none';
+                        }
+                        const bsCollapse = bootstrap.Collapse.getInstance(collapseElement);
+                        if (bsCollapse) {
+                            bsCollapse.hide();
+                        }
                     }
                 }
             });
