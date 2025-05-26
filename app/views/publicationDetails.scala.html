@@ -169,20 +169,20 @@
                     <button class="btn btn-outline-primary btn-sm load-biosamples"
                     hx-get="@routes.BiosampleReportController.getBiosampleReportHTML(publicationWithDetails.publication.id.get)"
                     hx-target="#biosample-content-@{publicationWithDetails.publication.id.get}"
-                    hx-trigger="click"
-                    aria-controls="biosample-collapse"
+                    data-bs-target="#biosample-collapse-@{publicationWithDetails.publication.id.get}"
+                    aria-controls="biosample-collapse-@{publicationWithDetails.publication.id.get}"
                     aria-expanded="false">
                         Show Samples
                     </button>
                     <button class="btn btn-outline-secondary btn-sm mt-2 collapse-button"
                     data-bs-toggle="collapse"
-                    data-bs-target="#biosample-collapse"
+                    data-bs-target="#biosample-collapse-@{publicationWithDetails.publication.id.get}"
                     aria-expanded="false"
-                    aria-controls="biosample-collapse"
+                    aria-controls="biosample-collapse-@{publicationWithDetails.publication.id.get}"
                     style="display: none;">
                         Hide Samples
                     </button>
-                    <div class="collapse mt-2" id="biosample-collapse">
+                    <div class="collapse mt-2" id="biosample-collapse-@{publicationWithDetails.publication.id.get}">
                         <div id="biosample-content-@{publicationWithDetails.publication.id.get}"></div>
                     </div>
                 </div>
