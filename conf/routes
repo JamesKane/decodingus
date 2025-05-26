@@ -29,8 +29,8 @@ GET         /publications/submit-doi                                    controll
 POST        /publications/submit-doi                                    controllers.PublicationController.submitDoi()
 
 # ENA Study routes
-GET         /ena/search                                                 controllers.EnaStudyController.index()
-GET         /api/ena/study/:accession                                   controllers.EnaStudyController.getStudyDetails(accession: String)
+GET         /ena/submit                                                 controllers.EnaStudyController.showAccessionSubmissionForm()
+POST        /ena/submit                                                 controllers.EnaStudyController.submitAccession()
 
 GET         /coverage-benchmarks                                        controllers.CoverageController.index()
 

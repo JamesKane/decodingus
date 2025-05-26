@@ -1,29 +1,49 @@
 package controllers
 
-import models.domain.publications.EnaStudy
-import org.webjars.play.WebJarsUtil
-import play.api.libs.json.*
+import actors.EnaStudyUpdateActor.UpdateSingleStudy
+import models.forms.EnaAccessionSubmissionForm
+import org.apache.pekko.actor.ActorRef
+import play.api.i18n.I18nSupport
 import play.api.mvc.*
-import services.EnaIntegrationService
+import repositories.EnaStudyRepository
 
 import javax.inject.*
-import scala.concurrent.ExecutionContext
+import scala.concurrent.{ExecutionContext, Future}
 
 @Singleton
 class EnaStudyController @Inject()(
-                                    cc: ControllerComponents,
-                                    enaService: EnaIntegrationService
-                                  )(implicit ec: ExecutionContext, webJarsUtil: WebJarsUtil)
-  extends AbstractController(cc) {
+                                    val controllerComponents: ControllerComponents,
+                                    enaStudyRepository: EnaStudyRepository,
+                                    @Named("ena-study-update-actor") enaUpdateActor: ActorRef,
+                                    implicit val webJarsUtil: org.webjars.play.WebJarsUtil
+                                  )(implicit ec: ExecutionContext)
+  extends BaseController
+    with I18nSupport {
 
-  def index(): Action[AnyContent] = Action { implicit request =>
-    Ok(views.html.enasearch())
+  def showAccessionSubmissionForm(): Action[AnyContent] = Action { implicit request =>
+    Ok(views.html.ena.submitAccession(EnaAccessionSubmissionForm.form))
   }
 
-  def getStudyDetails(accession: String): Action[AnyContent] = Action.async {
-    enaService.getEnaStudyDetails(accession).map {
-      case Some(study) => Ok(Json.toJson(study))
-      case None => NotFound(Json.obj("message" -> s"Study not found for accession: $accession"))
-    }
+  def submitAccession(): Action[AnyContent] = Action.async { implicit request =>
+    EnaAccessionSubmissionForm.form.bindFromRequest().fold(
+      formWithErrors =>
+        Future.successful(BadRequest(views.html.ena.submitAccession(formWithErrors))),
+      submission => {
+        val accession = submission.accession.trim
+        enaStudyRepository.findByAccession(accession).flatMap {
+          case Some(_) =>
+            Future.successful(
+              Redirect(routes.EnaStudyController.showAccessionSubmissionForm())
+                .flashing("error" -> s"Study with accession $accession already exists")
+            )
+          case None =>
+            enaUpdateActor ! UpdateSingleStudy(accession)
+            Future.successful(
+              Redirect(routes.EnaStudyController.showAccessionSubmissionForm())
+                .flashing("success" -> s"Request to fetch ENA study with accession $accession has been queued")
+            )
+        }
+      }
+    )
   }
 }
