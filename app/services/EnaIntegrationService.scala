@@ -1,10 +1,12 @@
 package services
 
+import models.domain.genomics.Biosample
 import models.domain.publications.EnaStudy
 import play.api.Logging
 import play.api.libs.ws.*
 import play.api.libs.json.*
 
+import java.util.UUID
 import javax.inject.*
 import scala.concurrent.{ExecutionContext, Future}
 
@@ -50,8 +52,59 @@ class EnaIntegrationService @Inject()(ws: WSClient)(implicit ec: ExecutionContex
       }
       .recover {
         case e: Exception =>
-          println(s"Exception during ENA API call for $accession: $e")
+          logger.error(s"Exception during ENA API call for $accession: $e")
           None
+      }
+  }
+
+  def getBiosamplesForStudy(studyAccession: String): Future[Seq[Biosample]] = {
+    val fields = "sample_accession,description,sample_alias,center_name,sex,lat,lon,collection_date"
+
+    ws.url(enaPortalApiBaseUrl)
+      .withQueryStringParameters(
+        "result" -> "sample",
+        "query" -> s"study_accession=$studyAccession",
+        "fields" -> fields,
+        "format" -> "json",
+        "limit" -> "2" // Get all results
+      )
+      .get()
+      .map { response =>
+        response.status match {
+          case 200 =>
+            val jsonArray = response.json.as[JsArray]
+            jsonArray.value.map { sampleJson =>
+              val latitudeOpt = (sampleJson \ "lat").asOpt[String].flatMap(_.toDoubleOption)
+              val longitudeOpt = (sampleJson \ "lon").asOpt[String].flatMap(_.toDoubleOption)
+
+              val geoCoord: Option[com.vividsolutions.jts.geom.Point] = (latitudeOpt, longitudeOpt) match {
+                case (Some(lat), Some(lon)) =>
+                  val geometryFactory = new com.vividsolutions.jts.geom.GeometryFactory()
+                  Some(geometryFactory.createPoint(new com.vividsolutions.jts.geom.Coordinate(lon, lat)))
+                case _ => None
+              }
+
+              Biosample(
+                id = None,
+                sampleAccession = (sampleJson \ "sample_accession").as[String],
+                description = (sampleJson \ "description").asOpt[String].getOrElse(""),
+                alias = (sampleJson \ "sample_alias").asOpt[String],
+                centerName = (sampleJson \ "center_name").asOpt[String].getOrElse("N/A"),
+                sex = (sampleJson \ "sex").asOpt[String],
+                geocoord = geoCoord,
+                specimenDonorId = None,
+                sampleGuid = UUID.randomUUID()
+              )
+            }.toSeq
+          case _ =>
+            logger.error(s"Error fetching ENA samples for study $studyAccession: ${response.status} - ${response.body}")
+            Seq.empty
+        }
+      }
+      .recover {
+        case e: Exception =>
+          logger.error(s"Exception during ENA samples API call for $studyAccession: $e")
+          Seq.empty
       }
   }
 }

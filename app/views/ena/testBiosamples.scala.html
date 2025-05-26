@@ -1,0 +1,31 @@
+@import org.webjars.play.WebJarsUtil
+
+@(form: Form[models.forms.EnaBiosamplesSubmission])(implicit request: RequestHeader, messages: Messages, webJarsUtil: org.webjars.play.WebJarsUtil)
+
+@main("Test ENA Biosamples Integration") {
+    <div class="container mt-5">
+        <div class="row justify-content-center">
+            <div class="col-md-6">
+                <h2>Test ENA Biosamples Integration</h2>
+
+                @helper.form(action = routes.EnaBiosamplesTestController.testBiosamples()) {
+                    @helper.CSRF.formField
+
+                    <div class="form-group">
+                        @helper.input(form("studyAccession"), Symbol("class") -> "form-control") { (id, name, value, args) =>
+                            <input type="text" name="@name" id="@id" value="@value"
+                                @toHtmlArgs(args.toMap) placeholder="Enter ENA Study accession (e.g., PRJEB12345)">
+                        }
+                        @form.error("studyAccession").map { error =>
+                            <div class="alert alert-danger">
+                                @error.message
+                            </div>
+                        }
+                    </div>
+
+                    <button type="submit" class="btn btn-primary mt-3">Fetch Biosamples</button>
+                }
+            </div>
+        </div>
+    </div>
+}
