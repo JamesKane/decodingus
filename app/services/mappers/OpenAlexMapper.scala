@@ -14,7 +14,6 @@ object OpenAlexMapper extends Logging {
   private case class BasicInfo(
                                 openAlexId: Option[String],
                                 pubmedId: Option[String],
-                                doi: Option[String],
                                 title: String
                               )
 
@@ -44,7 +43,6 @@ object OpenAlexMapper extends Logging {
     BasicInfo(
       openAlexId = (json \ "id").asOpt[String].map(_.split("/").last),
       pubmedId = (json \ "ids" \ "pmid").asOpt[String].map(_.replace("https://pubmed.ncbi.nlm.nih.gov/", "")),
-      doi = (json \ "doi").asOpt[String],
       title = (json \ "title").asOpt[String].getOrElse("Untitled")
     )
   }
@@ -120,7 +118,7 @@ object OpenAlexMapper extends Logging {
     val authors = extractAuthors(json)
     val abstractSummary = extractAbstract(json)
     val publishingInfo = extractPublishingInfo(json, doi)
-    val accessInfo = extractAccessInfo(json, basicInfo.doi)
+    val accessInfo = extractAccessInfo(json, Some(doi))
     val metrics = extractMetrics(json)
     val classification = extractClassification(json)
 
@@ -128,7 +126,7 @@ object OpenAlexMapper extends Logging {
       id = None,
       openAlexId = basicInfo.openAlexId,
       pubmedId = basicInfo.pubmedId,
-      doi = basicInfo.doi,
+      doi = Some(doi),
       title = basicInfo.title,
       authors = authors,
       abstractSummary = abstractSummary,

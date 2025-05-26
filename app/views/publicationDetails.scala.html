@@ -4,8 +4,16 @@
     <div class="card-body">
         <header class="mb-3">
             <h2 class="card-title">@publicationWithDetails.publication.title</h2>
+
             @publicationWithDetails.publication.authors.map { authors =>
-            <p class="card-subtitle text-muted"><strong>Authors:</strong> @authors</p>
+            <p class="card-subtitle text-muted">
+                <strong>Authors:</strong> @authors
+            @if(authors.contains(" et al.")) {
+                <small class="ms-2 text-muted">
+                    <em>(See paper for full author list)</em>
+                </small>
+            }
+            </p>
             }.getOrElse(<p class="card-subtitle text-muted"><strong>Authors:</strong> Not available</p>)
 
             @if(publicationWithDetails.publication.journal.isDefined || publicationWithDetails.publication.publicationDate.isDefined) {
