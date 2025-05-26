@@ -6,26 +6,28 @@
             <h2 class="card-title">@publicationWithDetails.publication.title</h2>
 
             @publicationWithDetails.publication.authors.map { authors =>
-            <p class="card-subtitle text-muted">
-                <strong>Authors:</strong> @authors
-            @if(authors.contains(" et al.")) {
-                <small class="ms-2 text-muted">
-                    <em>(See paper for full author list)</em>
-                </small>
-            }
+            <p class="card-subtitle text-muted d-flex align-items-center gap-2">
+                <strong>Authors:</strong>
+                <span class="text-body">@authors</span>
+                @if(authors.contains(" et al.")) {
+                    <small class="text-secondary fst-italic">
+                        (See paper for full author list)
+                    </small>
+                }
             </p>
-            }.getOrElse(<p class="card-subtitle text-muted"><strong>Authors:</strong> Not available</p>)
+            }.getOrElse(<p class="card-subtitle text-muted">
+            <strong>Authors:</strong>
+            <span class="text-secondary">Not available</span>
+            </p>)
 
             @if(publicationWithDetails.publication.journal.isDefined || publicationWithDetails.publication.publicationDate.isDefined) {
-                <p class="card-subtitle text-muted">
+                <p class="card-subtitle text-muted d-flex flex-wrap gap-3 align-items-baseline">
                     @publicationWithDetails.publication.journal.map { journal =>
-                        <span class="me-2"><strong>Journal:</strong> <cite title="@journal">@journal</cite></span>
-                    }
-                    @if(publicationWithDetails.publication.journal.isDefined && publicationWithDetails.publication.publicationDate.isDefined) {
-                        <span class="me-2">&nbsp;</span>
+                        <span><strong>Journal:</strong> <cite class="text-body">@journal</cite></span>
                     }
                     @publicationWithDetails.publication.publicationDate.map { date =>
-                        <span><strong>Published:</strong> <time datetime="@date.toString.substring(0, 7)">@date.toString.substring(0, 7)</time></span>
+                        <span><strong>
+                            Published:</strong> <time datetime="@date" class="text-body">@date.toString.substring(0, 7)</time></span>
                     }
                 </p>
             }
@@ -67,13 +69,57 @@
                             }
                             @publicationWithDetails.publication.openAccessStatus.map { status =>
                                 @status.toLowerCase match {
-                                    case "diamond" => {<span class="badge bg-info">Diamond</span>}
-                                    case "gold" => {<span class="badge bg-warning text-dark">Gold</span>}
-                                    case "green" => {<span class="badge bg-success">Green</span>}
-                                    case "hybrid" => {<span class="badge bg-primary">Hybrid</span>}
-                                    case "bronze" => {<span class="badge bg-secondary">Bronze</span>}
-                                    case "closed" => {<span class="badge bg-danger">Closed</span>}
-                                    case _ => {<span class="badge bg-light text-dark">@status.capitalize</span>}
+                                    case "diamond" => {
+                                        <span class="badge bg-info"
+                                        data-bs-toggle="tooltip"
+                                        data-bs-placement="top"
+                                        title="Free for both readers and authors. Published in a fully Open Access journal with no Article Processing Charges (APCs).">
+                                            Diamond
+                                        </span>
+                                    }
+                                    case "gold" => {
+                                        <span class="badge bg-warning text-dark"
+                                        data-bs-toggle="tooltip"
+                                        data-bs-placement="top"
+                                        title="Published in a fully Open Access journal, typically with Article Processing Charges (APCs) paid by authors or institutions.">
+                                            Gold
+                                        </span>
+                                    }
+                                    case "green" => {
+                                        <span class="badge bg-success"
+                                        data-bs-toggle="tooltip"
+                                        data-bs-placement="top"
+                                        title="Free copy available in an Open Access repository, even if the publisher's version requires subscription.">
+                                            Green
+                                        </span>
+                                    }
+                                    case "hybrid" => {
+                                        <span class="badge bg-primary"
+                                        data-bs-toggle="tooltip"
+                                        data-bs-placement="top"
+                                        title="Article made openly available in a subscription journal, usually through an Article Processing Charge (APC).">
+                                            Hybrid
+                                        </span>
+                                    }
+                                    case "bronze" => {
+                                        <span class="badge bg-secondary"
+                                        data-bs-toggle="tooltip"
+                                        data-bs-placement="top"
+                                        title="Free to read on publisher's site but without an open license - access could be restricted in the future.">
+                                            Bronze
+                                        </span>
+                                    }
+                                    case "closed" => {
+                                        <span class="badge bg-danger"
+                                        data-bs-toggle="tooltip"
+                                        data-bs-placement="top"
+                                        title="No open-access full text available.">
+                                            Closed
+                                        </span>
+                                    }
+                                    case _ => {
+                                        <span class="badge bg-light text-dark">@status.capitalize</span>
+                                    }
                                 }
                             }
                         </dd>
@@ -81,12 +127,18 @@
 
                     @if(publicationWithDetails.publication.citedByCount.isDefined || publicationWithDetails.publication.citationNormalizedPercentile.isDefined) {
                         <dt class="col-sm-4 text-dark-emphasis">Impact Metrics:</dt>
-                        <dd class="col-sm-8">
+                        <dd class="col-sm-8 d-flex flex-wrap gap-3">
                             @publicationWithDetails.publication.citedByCount.map { count =>
-                                <span class="me-3">Cited: @count</span>
+                                <span class="d-inline-flex align-items-center">
+                                    <i class="bi bi-citation me-1"></i>
+                                    <span>Cited: <strong>@count</strong></span>
+                                </span>
                             }
                             @publicationWithDetails.publication.citationNormalizedPercentile.map { percentile =>
-                                <span>Percentile: @("%,.4f".format(percentile * 100))%</span>
+                                <span class="d-inline-flex align-items-center">
+                                    <i class="bi bi-graph-up me-1"></i>
+                                    <span>Percentile: <strong>@("%,.1f".format(percentile * 100))%</strong></span>
+                                </span>
                             }
                         </dd>
                     }
@@ -99,7 +151,11 @@
                 <h3 class="h6 mb-2">ENA Studies</h3>
                 <ul class="list-unstyled">
                 @for(study <- publicationWithDetails.enaStudies) {
-                    <li><a href="https://www.ebi.ac.uk/ena/browser/view/@{study.accession}" target="_blank" rel="noopener noreferrer"><code class="text-monospace">@study.accession</code></a> - @study.title - @study.centerName</li>
+                    <li><a href="https://www.ebi.ac.uk/ena/browser/view/@{
+                        study.accession
+                    }" target="_blank" rel="noopener noreferrer"><code class="text-monospace">@study.accession</code></a>
+                        - @study.title - @study.centerName
+                    </li>
                 }
                 </ul>
             </section>
@@ -107,7 +163,8 @@
 
         @if(publicationWithDetails.sampleCount > 0) {
             <aside class="alert alert-light mb-3" role="alert">
-                <strong>Sample Count:</strong> <span class="badge bg-secondary">@publicationWithDetails.sampleCount</span>
+                <strong>
+                    Sample Count:</strong> <span class="badge bg-secondary">@publicationWithDetails.sampleCount</span>
                 <div class="mt-2">
                     <button class="btn btn-outline-primary btn-sm load-biosamples"
                     hx-get="@routes.BiosampleReportController.getBiosampleReportHTML(publicationWithDetails.publication.id.get)"
@@ -132,32 +189,33 @@
             </aside>
         }
         <footer class="card-footer text-muted small">
-            @publicationWithDetails.publication.doi.map { doi =>
-                <span>DOI: <a href="https://doi.org/@doi" target="_blank" rel="noopener noreferrer">@doi</a></span>
-            }
-            @if(publicationWithDetails.publication.doi.isDefined && (publicationWithDetails.publication.pubmedId.isDefined || publicationWithDetails.publication.url.isDefined)) {
-                <span> | </span>
-            }
-            @publicationWithDetails.publication.pubmedId.map { pmid =>
-                <span>PubMed ID: <a href="https://pubmed.ncbi.nlm.nih.gov/@pmid" target="_blank" rel="noopener noreferrer">@pmid</a></span>
-            }
-            @if((publicationWithDetails.publication.doi.isDefined || publicationWithDetails.publication.pubmedId.isDefined) && publicationWithDetails.publication.url.isDefined) {
-                <span> | </span>
-            }
-            @publicationWithDetails.publication.url.map { url =>
-                <span>Direct Link: <a href="@url" target="_blank" rel="noopener noreferrer">@url</a></span>
-            }
-            @publicationWithDetails.publication.openAlexId.map { oaId =>
-                @if(publicationWithDetails.publication.doi.isDefined || publicationWithDetails.publication.pubmedId.isDefined || publicationWithDetails.publication.url.isDefined) {
-                    <span> | </span>
+            <nav class="d-flex flex-wrap gap-3" aria-label="Publication references">
+                @publicationWithDetails.publication.doi.map { doi =>
+                    <a href="https://doi.org/@doi" class="text-decoration-none link-secondary" target="_blank" rel="noopener noreferrer">
+                        <i class="bi bi-link-45deg"></i> DOI: @doi
+                    </a>
                 }
-                <span>OpenAlex ID: <a href="https://openalex.org/works/@oaId" target="_blank" rel="noopener noreferrer nofollow">@oaId</a></span>
-            }
+                @publicationWithDetails.publication.pubmedId.map { pmid =>
+                    <a href="https://pubmed.ncbi.nlm.nih.gov/@pmid" class="text-decoration-none link-secondary" target="_blank" rel="noopener noreferrer">
+                        <i class="bi bi-journal-medical"></i> PubMed: @pmid
+                    </a>
+                }
+                @publicationWithDetails.publication.url.map { url =>
+                    <a href="@url" class="text-decoration-none link-secondary" target="_blank" rel="noopener noreferrer">
+                        <i class="bi bi-box-arrow-up-right"></i> Direct Link
+                    </a>
+                }
+                @publicationWithDetails.publication.openAlexId.map { oaId =>
+                    <a href="https://openalex.org/works/@oaId" class="text-decoration-none link-secondary" target="_blank" rel="noopener noreferrer nofollow">
+                        <i class="bi bi-database"></i> OpenAlex: @oaId
+                    </a>
+                }
+            </nav>
         </footer>
     </div>
 
     <script>
-            document.addEventListener('htmx:after-swap', function(event) {
+            document.addEventListener('htmx:after-swap', function (event) {
                 if (event.target.id === 'biosample-content' && event.detail.successful) {
                     const container = event.target.closest('.mt-2');
                     const hideButton = container.querySelector('.collapse-button');
@@ -182,7 +240,7 @@
                 }
             });
 
-            document.addEventListener('click', function(event) {
+            document.addEventListener('click', function (event) {
                 const collapseElement = document.getElementById('biosample-collapse');
                 if (event.target.classList.contains('collapse-button') && !collapseElement.classList.contains('show')) {
                     const container = event.target.closest('.mt-2');
