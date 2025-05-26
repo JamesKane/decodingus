@@ -28,6 +28,10 @@ GET         /references/details/:publicationId/biosamples               controll
 GET         /publications/submit-doi                                    controllers.PublicationController.showDoiSubmissionForm()
 POST        /publications/submit-doi                                    controllers.PublicationController.submitDoi()
 
+# ENA Study routes
+GET         /ena/search                                                 controllers.EnaStudyController.index()
+GET         /api/ena/study/:accession                                   controllers.EnaStudyController.getStudyDetails(accession: String)
+
 GET         /coverage-benchmarks                                        controllers.CoverageController.index()
 
 # Contact form routes
