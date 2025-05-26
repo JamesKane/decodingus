@@ -39,29 +39,48 @@
             <section class="mb-3">
                 <h3 class="h6 mb-2">Additional Details</h3>
                 <dl class="row mb-0 small">
-                    @publicationWithDetails.publication.primaryTopic.map { topic =>
-                        <dt class="col-sm-4 text-dark-emphasis">Primary Topic:</dt>
-                        <dd class="col-sm-8">@topic</dd>
+                    @if(publicationWithDetails.publication.primaryTopic.isDefined || publicationWithDetails.publication.publicationType.isDefined) {
+                        <dt class="col-sm-4 text-dark-emphasis">Classification:</dt>
+                        <dd class="col-sm-8">
+                            @publicationWithDetails.publication.primaryTopic.map { topic =>
+                                <span class="me-2">@topic</span>
+                            }
+                            @publicationWithDetails.publication.publicationType.map { pubType =>
+                                <span class="badge bg-light text-dark">@pubType.capitalize</span>
+                            }
+                        </dd>
                     }
-                    @publicationWithDetails.publication.publicationType.map { pubType =>
-                        <dt class="col-sm-4 text-dark-emphasis">Type:</dt>
-                        <dd class="col-sm-8">@pubType.capitalize</dd>
+
+                    @if(publicationWithDetails.publication.publisher.isDefined || publicationWithDetails.publication.openAccessStatus.isDefined) {
+                        <dt class="col-sm-4 text-dark-emphasis">Publication Access:</dt>
+                        <dd class="col-sm-8">
+                            @publicationWithDetails.publication.publisher.map { publisher =>
+                                <span class="me-3">@publisher</span>
+                            }
+                            @publicationWithDetails.publication.openAccessStatus.map { status =>
+                                @status.toLowerCase match {
+                                    case "diamond" => {<span class="badge bg-info">Diamond</span>}
+                                    case "gold" => {<span class="badge bg-warning text-dark">Gold</span>}
+                                    case "green" => {<span class="badge bg-success">Green</span>}
+                                    case "hybrid" => {<span class="badge bg-primary">Hybrid</span>}
+                                    case "bronze" => {<span class="badge bg-secondary">Bronze</span>}
+                                    case "closed" => {<span class="badge bg-danger">Closed</span>}
+                                    case _ => {<span class="badge bg-light text-dark">@status.capitalize</span>}
+                                }
+                            }
+                        </dd>
                     }
-                    @publicationWithDetails.publication.publisher.map { publisher =>
-                        <dt class="col-sm-4 text-dark-emphasis">Publisher:</dt>
-                        <dd class="col-sm-8">@publisher</dd>
-                    }
-                    @publicationWithDetails.publication.openAccessStatus.map { status =>
-                        <dt class="col-sm-4 text-dark-emphasis">Open Access Status:</dt>
-                        <dd class="col-sm-8">@status.capitalize</dd>
-                    }
-                    @publicationWithDetails.publication.citedByCount.map { count =>
-                        <dt class="col-sm-4 text-dark-emphasis">Cited By:</dt>
-                        <dd class="col-sm-8">@count</dd>
-                    }
-                    @publicationWithDetails.publication.citationNormalizedPercentile.map { percentile =>
-                        <dt class="col-sm-4 text-dark-emphasis">Citation Percentile:</dt>
-                        <dd class="col-sm-8">@("%,.4f".format(percentile * 100))%</dd>
+
+                    @if(publicationWithDetails.publication.citedByCount.isDefined || publicationWithDetails.publication.citationNormalizedPercentile.isDefined) {
+                        <dt class="col-sm-4 text-dark-emphasis">Impact Metrics:</dt>
+                        <dd class="col-sm-8">
+                            @publicationWithDetails.publication.citedByCount.map { count =>
+                                <span class="me-3">Cited: @count</span>
+                            }
+                            @publicationWithDetails.publication.citationNormalizedPercentile.map { percentile =>
+                                <span>Percentile: @("%,.4f".format(percentile * 100))%</span>
+                            }
+                        </dd>
                     }
                 </dl>
             </section>
@@ -118,13 +137,13 @@
                 <span> | </span>
             }
             @publicationWithDetails.publication.url.map { url =>
-                <span>Link: <a href="@url" target="_blank" rel="noopener noreferrer">@url</a></span>
+                <span>Direct Link: <a href="@url" target="_blank" rel="noopener noreferrer">@url</a></span>
             }
             @publicationWithDetails.publication.openAlexId.map { oaId =>
                 @if(publicationWithDetails.publication.doi.isDefined || publicationWithDetails.publication.pubmedId.isDefined || publicationWithDetails.publication.url.isDefined) {
                     <span> | </span>
                 }
-                <span>OpenAlex ID: <a href="https://openalex.org/works/@oaId" target="_blank" rel="noopener noreferrer">@oaId</a></span>
+                <span>OpenAlex ID: <a href="https://openalex.org/works/@oaId" target="_blank" rel="noopener noreferrer nofollow">@oaId</a></span>
             }
         </footer>
     </div>

@@ -40,7 +40,7 @@ class OpenAlexService @Inject()(
     // Single API URL for the full work details
     val apiUrl = s"$openAlexBaseUrl/works/https://doi.org/$doi?mailto=$mailToEmail"
 
-    logger.error(s"Fetching: $apiUrl")
+    logger.info(s"Fetching: $apiUrl")
 
     ws.url(apiUrl).get().map { response =>
       if (response.status == 200) {
