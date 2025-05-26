@@ -25,13 +25,51 @@
 
         @publicationWithDetails.publication.abstractSummary.map { summary =>
             <section class="mb-3">
-                <h3 class="card-title h6">Abstract</h3>
+                <h3 class="h6 mb-2">Abstract</h3>
                 <p class="card-text">@summary</p>
             </section>
         }
+
+        @if(publicationWithDetails.publication.openAccessStatus.isDefined ||
+                publicationWithDetails.publication.citedByCount.isDefined ||
+                publicationWithDetails.publication.citationNormalizedPercentile.isDefined ||
+                publicationWithDetails.publication.primaryTopic.isDefined ||
+                publicationWithDetails.publication.publicationType.isDefined ||
+                publicationWithDetails.publication.publisher.isDefined) {
+            <section class="mb-3">
+                <h3 class="h6 mb-2">Additional Details</h3>
+                <dl class="row mb-0 small">
+                    @publicationWithDetails.publication.primaryTopic.map { topic =>
+                        <dt class="col-sm-4 text-dark-emphasis">Primary Topic:</dt>
+                        <dd class="col-sm-8">@topic</dd>
+                    }
+                    @publicationWithDetails.publication.publicationType.map { pubType =>
+                        <dt class="col-sm-4 text-dark-emphasis">Type:</dt>
+                        <dd class="col-sm-8">@pubType.capitalize</dd>
+                    }
+                    @publicationWithDetails.publication.publisher.map { publisher =>
+                        <dt class="col-sm-4 text-dark-emphasis">Publisher:</dt>
+                        <dd class="col-sm-8">@publisher</dd>
+                    }
+                    @publicationWithDetails.publication.openAccessStatus.map { status =>
+                        <dt class="col-sm-4 text-dark-emphasis">Open Access Status:</dt>
+                        <dd class="col-sm-8">@status.capitalize</dd>
+                    }
+                    @publicationWithDetails.publication.citedByCount.map { count =>
+                        <dt class="col-sm-4 text-dark-emphasis">Cited By:</dt>
+                        <dd class="col-sm-8">@count</dd>
+                    }
+                    @publicationWithDetails.publication.citationNormalizedPercentile.map { percentile =>
+                        <dt class="col-sm-4 text-dark-emphasis">Citation Percentile:</dt>
+                        <dd class="col-sm-8">@("%,.4f".format(percentile * 100))%</dd>
+                    }
+                </dl>
+            </section>
+        }
+
         @if(publicationWithDetails.enaStudies.nonEmpty) {
             <section class="mb-3">
-                <h3 class="card-title h6">ENA Studies</h3>
+                <h3 class="h6 mb-2">ENA Studies</h3>
                 <ul class="list-unstyled">
                 @for(study <- publicationWithDetails.enaStudies) {
                     <li><a href="https://www.ebi.ac.uk/ena/browser/view/@{study.accession}" target="_blank" rel="noopener noreferrer"><code class="text-monospace">@study.accession</code></a> - @study.title - @study.centerName</li>
@@ -81,6 +119,12 @@
             }
             @publicationWithDetails.publication.url.map { url =>
                 <span>Link: <a href="@url" target="_blank" rel="noopener noreferrer">@url</a></span>
+            }
+            @publicationWithDetails.publication.openAlexId.map { oaId =>
+                @if(publicationWithDetails.publication.doi.isDefined || publicationWithDetails.publication.pubmedId.isDefined || publicationWithDetails.publication.url.isDefined) {
+                    <span> | </span>
+                }
+                <span>OpenAlex ID: <a href="https://openalex.org/works/@oaId" target="_blank" rel="noopener noreferrer">@oaId</a></span>
             }
         </footer>
     </div>

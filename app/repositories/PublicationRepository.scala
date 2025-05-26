@@ -83,9 +83,25 @@ class PublicationRepositoryImpl @Inject()(protected val dbConfigProvider: Databa
 
   override def findPublicationsWithDetailsPaginated(page: Int, pageSize: Int): Future[Seq[PublicationWithEnaStudiesAndSampleCount]] = {
     val offset = (page - 1) * pageSize
-    val query = publications.drop(offset).take(pageSize)
 
-    db.run(query.result).flatMap { paginatedPublications =>
+    // Apply sorting first, then pagination
+    val sortedAndPaginatedQuery = publications
+      .sortBy { p =>
+        // Sort in descending order by citation percentile, then cited by count, then publication date
+        // Use .desc for descending.
+        // For Option columns, .desc.nullsLast or .desc.nullsFirst determines how NULLs are sorted.
+        // If higher percentile/count is better, and no value means worse, then nullsLast is appropriate.
+        // For dates, typically newer is better, so desc.
+        (
+          p.citationNormalizedPercentile.desc.nullsLast, // Higher percentile first, NULLs last
+          p.citedByCount.desc.nullsLast,                 // Higher count first, NULLs last
+          p.publicationDate.desc.nullsLast               // Newer publication date first, NULLs last
+        )
+      }
+      .drop(offset)
+      .take(pageSize)
+
+    db.run(sortedAndPaginatedQuery.result).flatMap { paginatedPublications =>
       Future.sequence(paginatedPublications.map { publication =>
         val enaStudyQuery = (for {
           pes <- publicationEnaStudies if pes.publicationId === publication.id
