@@ -2,83 +2,81 @@
 <!DOCTYPE configuration>
 
 <configuration>
-  <import class="ch.qos.logback.classic.encoder.PatternLayoutEncoder"/>
-  <import class="ch.qos.logback.classic.AsyncAppender"/>
-  <import class="ch.qos.logback.core.rolling.RollingFileAppender"/>
-  <import class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy"/>
-  <import class="ch.qos.logback.core.ConsoleAppender"/>
+    <import class="ch.qos.logback.classic.encoder.PatternLayoutEncoder"/>
+    <import class="ch.qos.logback.classic.AsyncAppender"/>
+    <import class="ch.qos.logback.core.rolling.RollingFileAppender"/>
+    <import class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy"/>
+    <import class="ch.qos.logback.core.ConsoleAppender"/>
 
-  <!-- Set default log path -->
-  <property name="LOG_PATH" value="${application.home:-.}/logs"/>
+    <!-- Set default log path -->
+    <property name="LOG_PATH" value="${application.home:-.}/logs"/>
 
-  <!-- Override LOG_PATH if in Production mode -->
-  <if condition='property("play.mode").equals("PROD")'>
-    <then>
-      <property name="LOG_PATH" value="/ebs/logs"/>
-    </then>
-  </if>
+    <!-- Override LOG_PATH if in Production mode -->
+    <if condition='property("play.mode").equals("PROD")'>
+        <then>
+            <property name="LOG_PATH" value="/ebs/logs"/>
+        </then>
+    </if>
 
 
-  <appender name="FILE" class="RollingFileAppender">
-    <!-- Use the EBS mount point for log storage -->
-    <file>${LOG_PATH}/application.log</file>
+    <appender name="FILE" class="RollingFileAppender">
+        <!-- Use the EBS mount point for log storage -->
+        <file>${LOG_PATH}/application.log</file>
 
-    <rollingPolicy class="TimeBasedRollingPolicy">
-      <!-- Daily rollover -->
-      <fileNamePattern>${LOG_PATH}/application.%d{yyyy-MM-dd}.log.gz</fileNamePattern>
+        <rollingPolicy class="TimeBasedRollingPolicy">
+            <!-- Daily rollover -->
+            <fileNamePattern>${LOG_PATH}/application.%d{yyyy-MM-dd}.log.gz</fileNamePattern>
 
-      <!-- Keep 30 days worth of history -->
-      <maxHistory>30</maxHistory>
+            <!-- Keep 30 days worth of history -->
+            <maxHistory>30</maxHistory>
 
-      <!-- Total size cap for all log files -->
-      <totalSizeCap>3GB</totalSizeCap>
-    </rollingPolicy>
+            <!-- Total size cap for all log files -->
+            <totalSizeCap>3GB</totalSizeCap>
+        </rollingPolicy>
 
-    <encoder class="PatternLayoutEncoder">
-      <charset>UTF-8</charset>
-      <pattern>%d{yyyy-MM-dd HH:mm:ss} %highlight(%-5level) %cyan(%logger{36}) %magenta(%X{pekkoSource}) %msg%n</pattern>
-    </encoder>
-  </appender>
-
-  <!-- Console appender configuration -->
-  <if condition='!property("play.mode").equals("PROD")'>
-    <then>
-      <appender name="STDOUT" class="ConsoleAppender">
         <encoder class="PatternLayoutEncoder">
-          <charset>UTF-8</charset>
-          <pattern>%d{yyyy-MM-dd HH:mm:ss} %highlight(%-5level) %cyan(%logger{36}) %magenta(%X{pekkoSource}) %msg%n</pattern>
+            <charset>UTF-8</charset>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss} %highlight(%-5level) %cyan(%logger{36}) %magenta(%X{pekkoSource}) %msg%n
+            </pattern>
         </encoder>
-      </appender>
+    </appender>
 
-      <appender name="ASYNCSTDOUT" class="AsyncAppender">
+    <!-- Console appender configuration -->
+    <if condition='!property("play.mode").equals("PROD")'>
+        <then>
+            <appender name="STDOUT" class="ConsoleAppender">
+                <encoder class="PatternLayoutEncoder">
+                    <charset>UTF-8</charset>
+                    <pattern>%d{yyyy-MM-dd HH:mm:ss} %highlight(%-5level) %cyan(%logger{36}) %magenta(%X{pekkoSource}) %msg%n
+                    </pattern>
+                </encoder>
+            </appender>
+
+            <appender name="ASYNCSTDOUT" class="AsyncAppender">
+                <appender-ref ref="STDOUT"/>
+            </appender>
+        </then>
+    </if>
+
+
+    <appender name="ASYNCFILE" class="AsyncAppender">
+        <appender-ref ref="FILE"/>
+    </appender>
+
+    <appender name="ASYNCSTDOUT" class="AsyncAppender">
         <appender-ref ref="STDOUT"/>
-      </appender>
-    </then>
-  </if>
+    </appender>
 
+    <logger name="play" level="ERROR"/>
+    <logger name="application" level="INFO"/>
 
-  <appender name="ASYNCFILE" class="AsyncAppender">
-    <appender-ref ref="FILE"/>
-  </appender>
+    <logger name="slick.jdbc.JdbcBackend.statement" level="error"/>
+    <logger name="slick.jdbc.JdbcBackend.parameter" level="error"/>
+    <logger name="models.dal.MyPostgresProfile" level="error"/>
 
-  <appender name="ASYNCSTDOUT" class="AsyncAppender">
-    <appender-ref ref="STDOUT"/>
-  </appender>
-
-  <logger name="play" level="INFO"/>
-  <logger name="application" level="DEBUG"/>
-
-  <logger name="services.LoggingEmailService" level="INFO"/>
-
-  <logger name="slick.jdbc.JdbcBackend.statement"         level="error" />
-  <logger name="slick.jdbc.JdbcBackend.parameter"         level="error" />
-
-  <logger name="services.TreeImporter" level="DEBUG"/>
-
-
-  <root level="WARN">
-    <appender-ref ref="ASYNCFILE"/>
-    <appender-ref ref="ASYNCSTDOUT"/>
-  </root>
+    <root level="INFO">
+        <appender-ref ref="ASYNCFILE"/>
+        <appender-ref ref="ASYNCSTDOUT"/>
+    </root>
 
 </configuration>
