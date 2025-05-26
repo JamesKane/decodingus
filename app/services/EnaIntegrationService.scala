@@ -3,8 +3,8 @@ package services
 import models.domain.genomics.Biosample
 import models.domain.publications.EnaStudy
 import play.api.Logging
-import play.api.libs.ws.*
 import play.api.libs.json.*
+import play.api.libs.ws.*
 
 import java.util.UUID
 import javax.inject.*
@@ -16,6 +16,7 @@ class EnaIntegrationService @Inject()(ws: WSClient)(implicit ec: ExecutionContex
   // ENA Browser API for XML (often more detailed for studies)
   // For JSON, use the ENA Portal API
   private val enaPortalApiBaseUrl = "https://www.ebi.ac.uk/ena/portal/api/search"
+  private val ValidSexValues = Set("male", "female", "intersex")
 
   def getEnaStudyDetails(accession: String): Future[Option[EnaStudy]] = {
     // Example for PRJEB (Study) accessions. Other accessions (ERA, ERR, SRR) might need different queries.
@@ -66,7 +67,7 @@ class EnaIntegrationService @Inject()(ws: WSClient)(implicit ec: ExecutionContex
         "query" -> s"study_accession=$studyAccession",
         "fields" -> fields,
         "format" -> "json",
-        "limit" -> "2" // Get all results
+        "limit" -> "0" // Get all results
       )
       .get()
       .map { response =>
@@ -90,7 +91,7 @@ class EnaIntegrationService @Inject()(ws: WSClient)(implicit ec: ExecutionContex
                 description = (sampleJson \ "description").asOpt[String].getOrElse(""),
                 alias = (sampleJson \ "sample_alias").asOpt[String],
                 centerName = (sampleJson \ "center_name").asOpt[String].getOrElse("N/A"),
-                sex = (sampleJson \ "sex").asOpt[String],
+                sex = validateSex((sampleJson \ "sex").asOpt[String]),
                 geocoord = geoCoord,
                 specimenDonorId = None,
                 sampleGuid = UUID.randomUUID()
@@ -106,5 +107,12 @@ class EnaIntegrationService @Inject()(ws: WSClient)(implicit ec: ExecutionContex
           logger.error(s"Exception during ENA samples API call for $studyAccession: $e")
           Seq.empty
       }
+  }
+
+  private def validateSex(sex: Option[String]): Option[String] = {
+    sex.flatMap { s =>
+      val normalized = s.toLowerCase.trim
+      Some(normalized).filter(ValidSexValues.contains)
+    }
   }
 }

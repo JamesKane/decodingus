@@ -25,6 +25,15 @@ trait BiosampleRepository {
   def findById(id: Int): Future[Option[Biosample]]
 
   /**
+   * Retrieves a biosample by its accession number.
+   *
+   * @param accession the accession number of the biosample
+   * @return a future containing an optional biosample if found
+   */
+  def findByAccession(accession: String): Future[Option[Biosample]]
+
+
+  /**
    * Retrieves all biosamples associated with a specific publication, including their origin metadata.
    *
    * @param publicationId the unique identifier of the publication for which biosamples are being queried
@@ -49,6 +58,14 @@ trait BiosampleRepository {
    * @return a future containing the count of biosamples linked to the specified publication
    */
   def countBiosamplesForPublication(publicationId: Int): Future[Long]
+
+  /**
+   * Upserts (updates or inserts) multiple biosamples in a single transaction.
+   *
+   * @param biosamples sequence of biosamples to upsert
+   * @return future sequence of the upserted biosamples with their IDs
+   */
+  def upsertMany(biosamples: Seq[Biosample]): Future[Seq[Biosample]]
 }
 
 class BiosampleRepositoryImpl @Inject()(
@@ -136,6 +153,10 @@ class BiosampleRepositoryImpl @Inject()(
     db.run(biosamplesTable.filter(_.id === id).result.headOption)
   }
 
+  override def findByAccession(accession: String): Future[Option[Biosample]] = {
+    db.run(biosamplesTable.filter(_.sampleAccession === accession).result.headOption)
+  }
+
   override def findBiosamplesWithOriginForPublication(publicationId: Int): Future[Seq[BiosampleWithOrigin]] = {
     withCTE[BiosampleWithOrigin](bestPopulationCTE, makeBaseQuery(publicationId))
   }
@@ -164,4 +185,41 @@ class BiosampleRepositoryImpl @Inject()(
     """
     rawSQL[Long](query).map(_.head)
   }
+
+  def upsertMany(biosamples: Seq[Biosample]): Future[Seq[Biosample]] = {
+    val batchSize = 500
+
+    def upsertAction(biosample: Biosample) = {
+      sqlu"""
+      INSERT INTO biosample (
+        sample_accession, description, alias, center_name, sex,
+        geocoord, specimen_donor_id, sample_guid
+      )
+      VALUES (
+        ${biosample.sampleAccession}, ${biosample.description}, ${biosample.alias},
+        ${biosample.centerName}, ${biosample.sex}, ${biosample.geocoord},
+        ${biosample.specimenDonorId}, ${biosample.sampleGuid.toString}::uuid
+      )
+      ON CONFLICT (sample_accession)
+      DO UPDATE SET
+        description = EXCLUDED.description,
+        alias = EXCLUDED.alias,
+        center_name = EXCLUDED.center_name,
+        sex = EXCLUDED.sex,
+        geocoord = EXCLUDED.geocoord,
+        specimen_donor_id = EXCLUDED.specimen_donor_id,
+        sample_guid = EXCLUDED.sample_guid
+    """
+    }
+
+    // Create batch of actions
+    val batchedActions = biosamples.grouped(batchSize).map { batch =>
+      DBIO.sequence(batch.map(upsertAction)).transactionally
+    }
+
+    // Execute all batches sequentially
+    Future.sequence(batchedActions.map(action => db.run(action)))
+      .map(_ => biosamples)
+  }
+
 }

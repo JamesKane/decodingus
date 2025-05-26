@@ -1,24 +1,27 @@
 package actors
 
 import org.apache.pekko.actor.Actor
+import org.apache.pekko.stream.scaladsl.{Sink, Source}
+import org.apache.pekko.stream.{Materializer, ThrottleMode}
 import play.api.Logging
-import repositories.EnaStudyRepository
+import repositories.{BiosampleRepository, EnaStudyRepository}
 import services.EnaIntegrationService
 
 import scala.concurrent.duration.*
 import scala.concurrent.{ExecutionContext, Future}
-import org.apache.pekko.stream.scaladsl.{Sink, Source}
-import org.apache.pekko.stream.{Materializer, ThrottleMode}
 
 object EnaStudyUpdateActor {
   case object UpdateAllStudies
+
   case class UpdateSingleStudy(accession: String)
+
   case class UpdateResult(accession: String, success: Boolean, message: String)
 }
 
 class EnaStudyUpdateActor @javax.inject.Inject()(
                                                   enaService: EnaIntegrationService,
-                                                  enaStudyRepository: EnaStudyRepository
+                                                  enaStudyRepository: EnaStudyRepository,
+                                                  biosampleRepository: BiosampleRepository
                                                 )(implicit ec: ExecutionContext)
   extends Actor
     with Logging {
@@ -70,18 +73,35 @@ class EnaStudyUpdateActor @javax.inject.Inject()(
   }
 
   private def processStudyUpdate(accession: String): Future[UpdateResult] = {
-    enaService.getEnaStudyDetails(accession).flatMap {
-      case Some(study) =>
-        enaStudyRepository.saveStudy(study)
-          .map(_ => UpdateResult(accession, success = true, "Study updated successfully"))
-          .recover {
-            case e: Exception =>
-              logger.error(s"Failed to save study $accession: ${e.getMessage}", e)
-              UpdateResult(accession, success = false, s"Failed to save: ${e.getMessage}")
+    (for {
+      studyOpt <- enaService.getEnaStudyDetails(accession)
+      result <- studyOpt match {
+        case Some(study) =>
+          for {
+            _ <- enaStudyRepository.saveStudy(study)
+            biosamples <- enaService.getBiosamplesForStudy(accession)
+            _ <- if (biosamples.nonEmpty) {
+              logger.info(s"Starting to upsert ${biosamples.size} biosamples for study $accession")
+              biosampleRepository.upsertMany(biosamples).map { _ =>
+                logger.info(s"Completed upserting ${biosamples.size} biosamples for study $accession")
+              }
+            } else Future.successful(())
+          } yield {
+            val biosampleCount = biosamples.size
+            UpdateResult(
+              accession,
+              success = true,
+              s"Study updated successfully with $biosampleCount biosamples"
+            )
           }
-      case None =>
-        logger.warn(s"No study data found for accession: $accession")
-        Future.successful(UpdateResult(accession, success = false, "No data found in ENA"))
+        case None =>
+          logger.warn(s"No study data found for accession: $accession")
+          Future.successful(UpdateResult(accession, success = false, "No data found in ENA"))
+      }
+    } yield result).recover {
+      case e: Exception =>
+        logger.error(s"Failed to process study $accession: ${e.getMessage}", e)
+        UpdateResult(accession, success = false, s"Failed to process: ${e.getMessage}")
     }
   }
 }
