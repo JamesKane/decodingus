@@ -89,11 +89,11 @@ class PublicationController @Inject()(
       submission => {
         val doi = submission.doi.trim
         publicationService.findByDoi(doi).flatMap {
-          case Some(_) if !forceRefresh =>
+/*          case Some(_) if !forceRefresh =>
             Future.successful(
               Redirect(routes.PublicationController.showDoiSubmissionForm())
                 .flashing("error" -> s"Publication with DOI $doi already exists")
-            )
+            )*/
           case _ =>
             publicationUpdateActor ! UpdateSinglePublication(doi)
             Future.successful(
