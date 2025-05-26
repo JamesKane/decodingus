@@ -82,19 +82,19 @@ class PublicationController @Inject()(
     Ok(views.html.publications.submitDoi(DoiSubmissionForm.form))
   }
 
-  def submitDoi(): Action[AnyContent] = Action.async { implicit request =>
+  def submitDoi(forceRefresh: Boolean = false): Action[AnyContent] = Action.async { implicit request =>
     DoiSubmissionForm.form.bindFromRequest().fold(
       formWithErrors =>
         Future.successful(BadRequest(views.html.publications.submitDoi(formWithErrors))),
       submission => {
         val doi = submission.doi.trim
         publicationService.findByDoi(doi).flatMap {
-          case Some(_) =>
+          case Some(_) if !forceRefresh =>
             Future.successful(
               Redirect(routes.PublicationController.showDoiSubmissionForm())
                 .flashing("error" -> s"Publication with DOI $doi already exists")
             )
-          case None =>
+          case _ =>
             publicationUpdateActor ! UpdateSinglePublication(doi)
             Future.successful(
               Redirect(routes.PublicationController.showDoiSubmissionForm())
@@ -104,5 +104,6 @@ class PublicationController @Inject()(
       }
     )
   }
+
 
 }
