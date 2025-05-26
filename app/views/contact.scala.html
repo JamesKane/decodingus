@@ -1,5 +1,6 @@
 @import org.webjars.play.WebJarsUtil
 @import com.nappin.play.recaptcha.WidgetHelper
+@import models.forms.Contact
 
 @this(recaptchaField: views.html.recaptcha.recaptchaField)
 @(contactForm: Form[Contact.ContactDTO], isProd: Boolean)(implicit request: Request[AnyContent], messages: Messages, webJarsUtil: WebJarsUtil, widgetHelper: WidgetHelper)

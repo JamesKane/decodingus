@@ -1,7 +1,7 @@
-package models
+package models.forms
 
 import play.api.data.Form
-import play.api.data.Forms.*
+import play.api.data.Forms.{email, mapping, nonEmptyText, text}
 
 /**
  * Contains definitions and utilities for managing contact-related functionality, such as a contact form.

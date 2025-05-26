@@ -1,7 +1,7 @@
 package controllers
 
 import com.nappin.play.recaptcha.{RecaptchaVerifier, WidgetHelper}
-import models.Contact
+import models.forms.Contact
 import org.webjars.play.WebJarsUtil
 import play.api.i18n.I18nSupport
 import play.api.mvc.*
