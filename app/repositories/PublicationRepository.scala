@@ -43,6 +43,22 @@ trait PublicationRepository {
    * @return a Future containing the total count of publications as a Long
    */
   def countAllPublications(): Future[Long]
+
+  /**
+   * Retrieves all DOIs of existing publications in the repository.
+   *
+   * @return A Future containing a sequence of DOIs (Strings).
+   */
+  def getAllDois: Future[Seq[String]]
+
+  /**
+   * Saves a publication to the database. If a publication with the same OpenAlex ID or DOI
+   * already exists, it updates the existing record; otherwise, it inserts a new one.
+   *
+   * @param publication The publication to save or update.
+   * @return A Future containing the saved or updated Publication object (with its database ID).
+   */
+  def savePublication(publication: Publication): Future[Publication]
 }
 
 class PublicationRepositoryImpl @Inject()(protected val dbConfigProvider: DatabaseConfigProvider)(implicit ec: ExecutionContext)
@@ -88,5 +104,33 @@ class PublicationRepositoryImpl @Inject()(protected val dbConfigProvider: Databa
 
   override def countAllPublications(): Future[Long] = {
     db.run(publications.length.result.map(_.toLong))
+  }
+
+  override def getAllDois: Future[Seq[String]] = {
+    db.run(publications.filter(_.doi.isDefined).map(_.doi.get).result)
+  }
+
+
+  override def savePublication(updatedPublication: Publication): Future[Publication] = {
+    // Corrected filter logic for Option[String] columns
+    val query = publications.filter { p =>
+      // Combine conditions with OR. If updatedPublication.openAlexId is None,
+      // p.openAlexId === updatedPublication.openAlexId will resolve to false.
+      // This is the idiomatic way to compare Option columns in Slick.
+      (p.openAlexId === updatedPublication.openAlexId) ||
+        (p.doi === updatedPublication.doi)
+    }
+
+    db.run(query.result.headOption).flatMap {
+      case Some(existingPublication) =>
+        // Publication exists, update it
+        // Ensure the ID of the publication passed to update is the existing one
+        val publicationToUpdate = updatedPublication.copy(id = existingPublication.id)
+        db.run(publications.filter(_.id === existingPublication.id).update(publicationToUpdate))
+          .map(_ => publicationToUpdate) // Return the updated publication
+      case None =>
+        // Publication does not exist, insert a new one
+        db.run((publications returning publications.map(_.id) into ((pub, id) => pub.copy(id = Some(id)))) += updatedPublication)
+    }
   }
 }
