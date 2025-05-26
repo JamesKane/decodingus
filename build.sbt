@@ -8,7 +8,7 @@ scalaVersion := "3.3.5"
 
 val SLICK_VERSION = "6.2.0"
 val SLICK_PG_VERSION = "0.23.0"
-val TAPIR_VERSION = "1.11.29"
+val TAPIR_VERSION = "1.11.32"
 
 libraryDependencies ++= Seq(
   guice,
