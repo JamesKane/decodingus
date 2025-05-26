@@ -18,6 +18,8 @@ object PublicationUpdateActor {
   /** Message to trigger update of all publications in the system */
   case object UpdateAllPublications
 
+  case class UpdateSinglePublication(doi: String)
+
   /** Represents the result of a single publication update operation
    *
    * @param doi The DOI (Digital Object Identifier) of the publication that was processed
@@ -105,5 +107,33 @@ class PublicationUpdateActor @javax.inject.Inject()(
           logger.error(s"PublicationUpdateActor: Error during overall update process: ${e.getMessage}", e)
           senderRef ! s"Update failed: ${e.getMessage}"
       }
+
+    case UpdateSinglePublication(doi) =>
+      logger.info(s"Received request to update single publication with DOI: $doi")
+
+      val senderRef = sender() // capture the sender
+
+      Source.single(doi)
+        .throttle(elementsPerUnit, perDuration, maxBurst, throttleMode)
+        .mapAsync(1) { doi =>
+          for {
+            publicationOpt <- openAlexService.fetchAndMapPublicationByDOI(doi)
+            result <- publicationOpt match {
+              case Some(publication) =>
+                publicationRepository.savePublication(publication)
+                  .map(_ => UpdateResult(doi, success = true, "Publication updated successfully"))
+                  .recover {
+                    case e: Exception =>
+                      logger.error(s"Failed to save publication for DOI '$doi': ${e.getMessage}", e)
+                      UpdateResult(doi, success = false, s"Failed to save: ${e.getMessage}")
+                  }
+              case None =>
+                logger.warn(s"No publication data found for DOI: $doi")
+                Future.successful(UpdateResult(doi, success = false, "No data found in OpenAlex"))
+            }
+          } yield result
+        }
+        .runWith(Sink.head)
+        .map(result => senderRef ! result)
   }
 }

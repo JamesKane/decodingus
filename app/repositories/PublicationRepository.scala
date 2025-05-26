@@ -51,6 +51,8 @@ trait PublicationRepository {
    */
   def getAllDois: Future[Seq[String]]
 
+  def findByDoi(doi: String): Future[Option[Publication]]
+
   /**
    * Saves a publication to the database. If a publication with the same OpenAlex ID or DOI
    * already exists, it updates the existing record; otherwise, it inserts a new one.
@@ -147,4 +149,6 @@ class PublicationRepositoryImpl @Inject()(protected val dbConfigProvider: Databa
         db.run((publications returning publications.map(_.id) into ((pub, id) => pub.copy(id = Some(id)))) += updatedPublication)
     }
   }
+
+  override def findByDoi(doi: String): Future[Option[Publication]] = db.run(publications.filter(_.doi === doi).result.headOption)
 }

@@ -1,13 +1,16 @@
 package controllers
 
+import actors.PublicationUpdateActor.UpdateSinglePublication
+import models.forms.DoiSubmissionForm
+import org.apache.pekko.actor.ActorRef
 import org.webjars.play.WebJarsUtil
 import play.api.i18n.I18nSupport
 import play.api.libs.json.Json
-import play.api.mvc.{Action, AnyContent, BaseController, ControllerComponents, Request}
+import play.api.mvc.*
 import services.PublicationService
 
 import javax.inject.*
-import scala.concurrent.ExecutionContext
+import scala.concurrent.{ExecutionContext, Future}
 
 /**
  * Controller for managing and serving publications.
@@ -23,7 +26,11 @@ import scala.concurrent.ExecutionContext
  * @param ec                   An execution context for handling asynchronous operations, provided implicitly.
  */
 @Singleton
-class PublicationController @Inject()(val controllerComponents: ControllerComponents, publicationService: PublicationService)
+class PublicationController @Inject()(
+                                       val controllerComponents: ControllerComponents,
+                                       publicationService: PublicationService,
+                                       @Named("publication-update-actor") publicationUpdateActor: ActorRef
+                                     )
                                      (using webJarsUtil: WebJarsUtil, ec: ExecutionContext) extends BaseController with I18nSupport {
   /**
    * Renders the references page.
@@ -70,4 +77,32 @@ class PublicationController @Inject()(val controllerComponents: ControllerCompon
       Ok(views.html.publicationList(paginatedResult))
     }
   }
+
+  def showDoiSubmissionForm(): Action[AnyContent] = Action { implicit request =>
+    Ok(views.html.publications.submitDoi(DoiSubmissionForm.form))
+  }
+
+  def submitDoi(): Action[AnyContent] = Action.async { implicit request =>
+    DoiSubmissionForm.form.bindFromRequest().fold(
+      formWithErrors =>
+        Future.successful(BadRequest(views.html.publications.submitDoi(formWithErrors))),
+      submission => {
+        val doi = submission.doi.trim
+        publicationService.findByDoi(doi).flatMap {
+          case Some(_) =>
+            Future.successful(
+              Redirect(routes.PublicationController.showDoiSubmissionForm())
+                .flashing("error" -> s"Publication with DOI $doi already exists")
+            )
+          case None =>
+            publicationUpdateActor ! UpdateSinglePublication(doi)
+            Future.successful(
+              Redirect(routes.PublicationController.showDoiSubmissionForm())
+                .flashing("success" -> s"Request to fetch publication with DOI $doi has been queued")
+            )
+        }
+      }
+    )
+  }
+
 }

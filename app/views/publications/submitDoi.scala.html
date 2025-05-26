@@ -1,0 +1,37 @@
+@import org.webjars.play.WebJarsUtil
+@import helper._
+
+@(doiForm: Form[models.forms.DoiSubmission])(implicit request: RequestHeader, messages: Messages, webJarsUtil: WebJarsUtil)
+@main("Submit DOI") {
+    <div class="container mt-4">
+        <h1>Submit DOI</h1>
+
+        @request.flash.get("error").map { message =>
+            <div class="alert alert-danger">
+                @message
+            </div>
+        }
+
+        @request.flash.get("success").map { message =>
+            <div class="alert alert-success">
+                @message
+            </div>
+        }
+
+        @form(routes.PublicationController.submitDoi()) {
+            @CSRF.formField
+
+            <div class="form-group">
+            @inputText(
+                doiForm("doi"),
+                Symbol("class") -> "form-control",
+                Symbol("placeholder") -> "Enter DOI (e.g., 10.1234/example)",
+                Symbol("_label") -> "DOI",
+                Symbol("_help") -> "Enter a valid DOI to fetch publication data"
+            )
+            </div>
+
+            <button type="submit" class="btn btn-primary mt-3">Submit</button>
+        }
+    </div>
+}

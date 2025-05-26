@@ -51,9 +51,16 @@ object OpenAlexMapper extends Logging {
 
   private def extractAuthors(json: JsValue): Option[String] = {
     (json \ "authorships").asOpt[JsArray].map { jsArray =>
-      jsArray.value.flatMap { authorship =>
+      val authors = jsArray.value.flatMap { authorship =>
         (authorship \ "author" \ "display_name").asOpt[String]
-      }.mkString(", ")
+      }
+      authors.toList match {
+        case Nil => "No authors listed"
+        case List(a) => a
+        case List(a, b) => s"$a and $b"
+        case List(a, b, c) => s"$a, $b and $c"
+        case List(a, b, c, _*) => s"$a, $b, $c et al."
+      }
     }
   }
 

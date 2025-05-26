@@ -25,6 +25,9 @@ GET         /references                                                 controll
 GET         /references/details                                         controllers.PublicationController.getAllPublicationsWithDetailsHtml(page: Option[Int], pageSize: Option[Int])
 GET         /references/details/:publicationId/biosamples               controllers.BiosampleReportController.getBiosampleReportHTML(publicationId: Int, page: Option[Int] ?= Some(1))
 
+GET         /publications/submit-doi                                    controllers.PublicationController.showDoiSubmissionForm()
+POST        /publications/submit-doi                                    controllers.PublicationController.submitDoi()
+
 GET         /coverage-benchmarks                                        controllers.CoverageController.index()
 
 # Contact form routes
