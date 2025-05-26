@@ -168,7 +168,7 @@
                 <div class="mt-2">
                     <button class="btn btn-outline-primary btn-sm load-biosamples"
                     hx-get="@routes.BiosampleReportController.getBiosampleReportHTML(publicationWithDetails.publication.id.get)"
-                    hx-target="#biosample-content"
+                    hx-target="#biosample-content-@{publicationWithDetails.publication.id.get}"
                     hx-trigger="click"
                     aria-controls="biosample-collapse"
                     aria-expanded="false">
@@ -183,7 +183,7 @@
                         Hide Samples
                     </button>
                     <div class="collapse mt-2" id="biosample-collapse">
-                        <div id="biosample-content"></div>
+                        <div id="biosample-content-@{publicationWithDetails.publication.id.get}"></div>
                     </div>
                 </div>
             </aside>
@@ -216,7 +216,7 @@
 
     <script>
             document.addEventListener('htmx:after-swap', function (event) {
-                if (event.target.id === 'biosample-content' && event.detail.successful) {
+                if (event.target.id === 'biosample-content-@{publicationWithDetails.publication.id.get}' && event.detail.successful) {
                     const container = event.target.closest('.mt-2');
                     const hideButton = container.querySelector('.collapse-button');
                     const loadButton = container.querySelector('.load-biosamples');
