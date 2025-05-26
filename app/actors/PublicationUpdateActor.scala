@@ -1,7 +1,6 @@
 package actors
 
-import org.apache.pekko.actor.{Actor, ActorSystem, Props}
-import org.apache.pekko.pattern.pipe
+import org.apache.pekko.actor.Actor
 import play.api.Logging
 import repositories.PublicationRepository
 import services.OpenAlexService
@@ -10,8 +9,8 @@ import scala.concurrent.duration.*
 import scala.concurrent.{ExecutionContext, Future}
 
 // Pekko Streams imports
-import org.apache.pekko.stream.scaladsl.{Flow, Sink, Source}
-import org.apache.pekko.stream.{Materializer, ThrottleMode} // Import ThrottleMode
+import org.apache.pekko.stream.scaladsl.{Sink, Source}
+import org.apache.pekko.stream.{Materializer, ThrottleMode}
 
 // Define messages for the actor
 object PublicationUpdateActor {

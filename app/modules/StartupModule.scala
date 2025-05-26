@@ -5,7 +5,7 @@ import play.api.Logging
 import play.api.inject.{ApplicationLifecycle, SimpleModule, bind}
 import services.TreeInitializationService
 
-import scala.concurrent.ExecutionContext
+import scala.concurrent.{ExecutionContext, Future}
 
 class StartupModule extends SimpleModule(bind[StartupService].toSelf.eagerly())
 
@@ -28,9 +28,10 @@ class StartupModule extends SimpleModule(bind[StartupService].toSelf.eagerly())
  */
 class StartupService @Inject()(
                                 treeInitService: TreeInitializationService,
-                                lifecycle: ApplicationLifecycle
+                                lifecycle: ApplicationLifecycle,
                               )(implicit ec: ExecutionContext) extends Logging {
-  // Run initialization on startup
+  logger.info("StartupService: Application is starting...")
+
   treeInitService.initializeIfNeeded().map { results =>
     results.foreach { case (treeType, wasImported) =>
       if (wasImported) {
@@ -43,4 +44,8 @@ class StartupService @Inject()(
     case ex => logger.error("Failed during tree initialization", ex)
   }
 
+  lifecycle.addStopHook { () =>
+    logger.info("StartupService: Application is shutting down...")
+    Future.successful(())
+  }
 }

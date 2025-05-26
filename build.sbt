@@ -10,6 +10,9 @@ val SLICK_VERSION = "6.2.0"
 val SLICK_PG_VERSION = "0.23.0"
 val TAPIR_VERSION = "1.11.32"
 
+// WARNING: Updating beyond 1.1.2 will result in startup errors, since quartz schedular needs this version
+val APACHE_PEKKO_VERSION = "1.1.2"
+
 libraryDependencies ++= Seq(
   guice,
   caffeine,
@@ -36,6 +39,12 @@ libraryDependencies ++= Seq(
 
   // OpenAPI / Swagger UI generation
   "com.softwaremill.sttp.tapir" %% "tapir-swagger-ui-bundle" % TAPIR_VERSION,
+
+  "io.github.samueleresca" %% "pekko-quartz-scheduler" % "1.3.0-pekko-1.1.x",
+
+  "org.apache.pekko" %% "pekko-protobuf-v3" % APACHE_PEKKO_VERSION,
+  "org.apache.pekko" %% "pekko-serialization-jackson" % APACHE_PEKKO_VERSION,
+  "org.apache.pekko" %% "pekko-stream" % APACHE_PEKKO_VERSION,
 )
 
 // Adds additional packages into Twirl

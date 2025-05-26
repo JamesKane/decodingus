@@ -125,10 +125,8 @@ class PublicationRepositoryImpl @Inject()(protected val dbConfigProvider: Databa
   override def getAllDois: Future[Seq[String]] = {
     db.run(publications.filter(_.doi.isDefined).map(_.doi.get).result)
   }
-
-
+  
   override def savePublication(updatedPublication: Publication): Future[Publication] = {
-    // Corrected filter logic for Option[String] columns
     val query = publications.filter { p =>
       // Combine conditions with OR. If updatedPublication.openAlexId is None,
       // p.openAlexId === updatedPublication.openAlexId will resolve to false.
