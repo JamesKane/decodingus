@@ -32,11 +32,6 @@ POST        /publications/submit-doi                                    controll
 GET         /ena/submit                                                 controllers.EnaStudyController.showAccessionSubmissionForm()
 POST        /ena/submit                                                 controllers.EnaStudyController.submitAccession()
 
-# ENA Biosamples Test routes
-GET         /ena/test-biosamples                                        controllers.EnaBiosamplesTestController.showTestForm()
-POST        /ena/test-biosamples                                        controllers.EnaBiosamplesTestController.testBiosamples()
-
-
 GET         /coverage-benchmarks                                        controllers.CoverageController.index()
 
 # Contact form routes
