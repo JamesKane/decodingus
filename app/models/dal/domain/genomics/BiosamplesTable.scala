@@ -49,5 +49,8 @@ class BiosamplesTable(tag: Tag) extends Table[Biosample](tag, "biosample") {
 
   def sampleGuid = column[UUID]("sample_guid")
 
-  def * = (id.?, sampleAccession, description, alias, centerName, sex, geocoord, specimenDonorId, sampleGuid).mapTo[Biosample]
+  def locked = column[Boolean]("locked", O.Default(false))
+
+
+  def * = (id.?, sampleAccession, description, alias, centerName, sex, geocoord, specimenDonorId, sampleGuid, locked).mapTo[Biosample]
 }

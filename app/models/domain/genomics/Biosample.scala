@@ -26,5 +26,6 @@ case class Biosample(
                       sex: Option[String],
                       geocoord: Option[Point],
                       specimenDonorId: Option[Int],
-                      sampleGuid: UUID
+                      sampleGuid: UUID,
+                      locked: Boolean = false
                     )

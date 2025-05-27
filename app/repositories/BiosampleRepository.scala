@@ -9,7 +9,6 @@ import models.domain.genomics.Biosample
 import play.api.db.slick.DatabaseConfigProvider
 import slick.jdbc.GetResult
 
-import java.util.UUID
 import scala.concurrent.{ExecutionContext, Future}
 
 /**
@@ -24,6 +23,15 @@ trait BiosampleRepository {
    * @return a future containing an optional biosample if found, or none if not found
    */
   def findById(id: Int): Future[Option[Biosample]]
+
+  /**
+   * Sets the lock status for a biosample
+   *
+   * @param id     The ID of the biosample to lock/unlock
+   * @param locked The desired lock status
+   * @return Future[Boolean] indicating success
+   */
+  def setLocked(id: Int, locked: Boolean): Future[Boolean]
 
   /**
    * Retrieves a biosample by its accession number.
@@ -186,31 +194,54 @@ class BiosampleRepositoryImpl @Inject()(
     """
     rawSQL[Long](query).map(_.head)
   }
+  
+  override def setLocked(id: Int, locked: Boolean): Future[Boolean] = {
+    db.run(
+      biosamplesTable
+        .filter(_.id === id)
+        .map(_.locked)
+        .update(locked)
+        .map(_ > 0)
+    )
+  }
 
+  /**
+   * Upserts multiple biosamples, respecting any existing locks
+   * Locked samples will not have their metadata updated
+   *
+   * @param biosamples sequence of biosamples to upsert
+   * @return future sequence of the upserted biosamples with their IDs
+   */
   def upsertMany(biosamples: Seq[Biosample]): Future[Seq[Biosample]] = {
     if (biosamples.isEmpty) {
       Future.successful(Seq.empty)
     } else {
-      val biosamplesTable = DatabaseSchema.domain.genomics.biosamples
-
       val actions = biosamples.map { biosample =>
         val query = biosamplesTable.filter(_.sampleAccession === biosample.sampleAccession)
 
         (query.result.headOption.flatMap {
+          case Some(existing) if existing.locked =>
+            // If locked, return existing record without updates
+            DBIO.successful(existing)
+
           case Some(existing) =>
-            // Update existing record
-            query.update(biosample.copy(id = existing.id))
-              .map(_ => biosample.copy(id = existing.id))
+            // Update existing unlocked record
+            query.update(biosample.copy(
+              id = existing.id,
+              // Preserve existing values for fields we want to protect
+              sex = existing.sex.orElse(biosample.sex),
+              geocoord = existing.geocoord.orElse(biosample.geocoord),
+              locked = existing.locked
+            )).map(_ => biosample.copy(id = existing.id))
 
           case None =>
             // Insert new record
             (biosamplesTable returning biosamplesTable.map(_.id)
               into ((bs, id) => bs.copy(id = Some(id))))
-              .+=(biosample.copy(id = None))
+              .+=(biosample)
         }).transactionally
       }
 
-      // Run all actions in parallel within a single transaction
       db.run(DBIO.sequence(actions).transactionally)
     }
   }
