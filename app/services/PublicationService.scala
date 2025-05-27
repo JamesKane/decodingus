@@ -1,12 +1,12 @@
 package services
 
-import actors.PublicationUpdateActor.UpdateSinglePublication
 import jakarta.inject.Inject
 import models.api.{PaginatedResult, PublicationWithEnaStudiesAndSampleCount}
 import models.domain.publications.Publication
 import org.apache.pekko.actor.ActorRef
 import org.apache.pekko.pattern.ask
 import org.apache.pekko.util.Timeout
+import play.api.Logging
 import repositories.PublicationRepository
 
 import javax.inject.Named
@@ -23,7 +23,7 @@ import scala.concurrent.{ExecutionContext, Future}
 class PublicationService @Inject()(
                                     publicationRepository: PublicationRepository,
                                     @Named("publication-update-actor") publicationUpdateActor: ActorRef
-                                  )(implicit ec: ExecutionContext) {
+                                  )(implicit ec: ExecutionContext) extends Logging {
   /**
    * Retrieves a paginated list of publications along with their associated ENA studies and sample counts.
    *
@@ -59,11 +59,18 @@ class PublicationService @Inject()(
    * @return A Future containing an Option[Publication]
    */
   def processPublication(doi: String, forceRefresh: Boolean): Future[Option[Publication]] = {
+    import actors.PublicationUpdateActor.{UpdateResult, UpdateSinglePublication}
+
     if (forceRefresh) {
-      // Use the actor to force refresh
       implicit val timeout: Timeout = Timeout(30.seconds)
       (publicationUpdateActor ? UpdateSinglePublication(doi))
-        .mapTo[Option[Publication]]
+        .mapTo[UpdateResult]
+        .flatMap {
+          case UpdateResult(_, true, _) => publicationRepository.findByDoi(doi)
+          case UpdateResult(_, false, msg) =>
+            logger.error(s"Failed to update publication: $msg")
+            Future.successful(None)
+        }
     } else {
       // First try to find existing publication
       publicationRepository.findByDoi(doi).flatMap {
@@ -72,7 +79,13 @@ class PublicationService @Inject()(
           // If not found, fetch it fresh
           implicit val timeout: Timeout = Timeout(30.seconds)
           (publicationUpdateActor ? UpdateSinglePublication(doi))
-            .mapTo[Option[Publication]]
+            .mapTo[UpdateResult]
+            .flatMap {
+              case UpdateResult(_, true, _) => publicationRepository.findByDoi(doi)
+              case UpdateResult(_, false, msg) =>
+                logger.error(s"Failed to update publication: $msg")
+                Future.successful(None)
+            }
       }
     }
   }

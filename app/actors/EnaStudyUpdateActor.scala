@@ -90,10 +90,10 @@ class EnaStudyUpdateActor @javax.inject.Inject()(
           for {
             savedStudy <- enaStudyRepository.saveStudy(study)
             biosamples <- enaService.getBiosamplesForStudy(accession)
-            _ <- if (biosamples.nonEmpty) {
+            savedBiosamples <- if (biosamples.nonEmpty) {
               logger.info(s"Starting to upsert ${biosamples.size} biosamples for study $accession")
               biosampleRepository.upsertMany(biosamples)
-            } else Future.successful(())
+            } else Future.successful(Seq.empty)
             // Create publication relationships if publicationId is provided
             _ <- publicationId match {
               case Some(pubId) =>
@@ -104,19 +104,22 @@ class EnaStudyUpdateActor @javax.inject.Inject()(
                     studyId = savedStudy.id.get
                   ))
                   // Link biosamples to publication
-                  _ <- if (biosamples.nonEmpty) {
-                    Future.sequence(biosamples.flatMap(_.id).map { biosampleId =>
-                      publicationBiosampleRepository.create(PublicationBiosample(
-                        publicationId = pubId,
-                        biosampleId = biosampleId
-                      ))
-                    })
+                  _ <- if (savedBiosamples.nonEmpty) {
+                    logger.info(s"Creating ${savedBiosamples.size} publication-biosample links for publication $pubId")
+                    Future.sequence(
+                      savedBiosamples.flatMap(_.id).map { biosampleId =>
+                        publicationBiosampleRepository.create(PublicationBiosample(
+                          publicationId = pubId,
+                          biosampleId = biosampleId
+                        ))
+                      }
+                    )
                   } else Future.successful(())
                 } yield ()
               case None => Future.successful(())
             }
           } yield {
-            val biosampleCount = biosamples.size
+            val biosampleCount = savedBiosamples.size
             UpdateResult(
               accession,
               success = true,

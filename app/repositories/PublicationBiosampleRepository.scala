@@ -3,6 +3,7 @@ package repositories
 import jakarta.inject.Inject
 import models.dal.DatabaseSchema
 import models.domain.publications.PublicationBiosample
+import play.api.Logging
 import play.api.db.slick.{DatabaseConfigProvider, HasDatabaseConfigProvider}
 import slick.jdbc.JdbcProfile
 
@@ -25,7 +26,7 @@ trait PublicationBiosampleRepository {
 }
 
 class PublicationBiosampleRepositoryImpl @Inject()(protected val dbConfigProvider: DatabaseConfigProvider)(implicit ec: ExecutionContext)
-  extends PublicationBiosampleRepository with HasDatabaseConfigProvider[JdbcProfile] {
+  extends PublicationBiosampleRepository with HasDatabaseConfigProvider[JdbcProfile] with Logging {
 
   import profile.api.*
 
@@ -37,10 +38,25 @@ class PublicationBiosampleRepositoryImpl @Inject()(protected val dbConfigProvide
   }
 
   override def create(link: PublicationBiosample): Future[PublicationBiosample] = {
-    db.run(
-      publicationBiosamples
-        .returning(publicationBiosamples)
-        .insertOrUpdate(link)
-    ).map(_ => link)
+    logger.info(s"Linking: $link")
+
+    // Create a query to check for existing link
+    val existingQuery = publicationBiosamples
+      .filter(pb =>
+        pb.publicationId === link.publicationId &&
+          pb.biosampleId === link.biosampleId
+      )
+
+    // Create an upsert action
+    val upsertAction = existingQuery.result.headOption.flatMap {
+      case Some(_) =>
+        // Link already exists, no need to update
+        DBIO.successful(link)
+      case None =>
+        // Insert new link
+        publicationBiosamples += link
+    }.transactionally
+
+    db.run(upsertAction).map(_ => link)
   }
 }

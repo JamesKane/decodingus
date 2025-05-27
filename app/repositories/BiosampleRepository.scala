@@ -9,6 +9,7 @@ import models.domain.genomics.Biosample
 import play.api.db.slick.DatabaseConfigProvider
 import slick.jdbc.GetResult
 
+import java.util.UUID
 import scala.concurrent.{ExecutionContext, Future}
 
 /**
@@ -187,39 +188,30 @@ class BiosampleRepositoryImpl @Inject()(
   }
 
   def upsertMany(biosamples: Seq[Biosample]): Future[Seq[Biosample]] = {
-    val batchSize = 500
+    if (biosamples.isEmpty) {
+      Future.successful(Seq.empty)
+    } else {
+      val biosamplesTable = DatabaseSchema.domain.genomics.biosamples
 
-    def upsertAction(biosample: Biosample) = {
-      sqlu"""
-      INSERT INTO biosample (
-        sample_accession, description, alias, center_name, sex,
-        geocoord, specimen_donor_id, sample_guid
-      )
-      VALUES (
-        ${biosample.sampleAccession}, ${biosample.description}, ${biosample.alias},
-        ${biosample.centerName}, ${biosample.sex}, ${biosample.geocoord},
-        ${biosample.specimenDonorId}, ${biosample.sampleGuid.toString}::uuid
-      )
-      ON CONFLICT (sample_accession)
-      DO UPDATE SET
-        description = EXCLUDED.description,
-        alias = EXCLUDED.alias,
-        center_name = EXCLUDED.center_name,
-        sex = EXCLUDED.sex,
-        geocoord = EXCLUDED.geocoord,
-        specimen_donor_id = EXCLUDED.specimen_donor_id,
-        sample_guid = EXCLUDED.sample_guid
-    """
+      val actions = biosamples.map { biosample =>
+        val query = biosamplesTable.filter(_.sampleAccession === biosample.sampleAccession)
+
+        (query.result.headOption.flatMap {
+          case Some(existing) =>
+            // Update existing record
+            query.update(biosample.copy(id = existing.id))
+              .map(_ => biosample.copy(id = existing.id))
+
+          case None =>
+            // Insert new record
+            (biosamplesTable returning biosamplesTable.map(_.id)
+              into ((bs, id) => bs.copy(id = Some(id))))
+              .+=(biosample.copy(id = None))
+        }).transactionally
+      }
+
+      // Run all actions in parallel within a single transaction
+      db.run(DBIO.sequence(actions).transactionally)
     }
-
-    // Create batch of actions
-    val batchedActions = biosamples.grouped(batchSize).map { batch =>
-      DBIO.sequence(batch.map(upsertAction)).transactionally
-    }
-
-    // Execute all batches sequentially
-    Future.sequence(batchedActions.map(action => db.run(action)))
-      .map(_ => biosamples)
   }
-
 }

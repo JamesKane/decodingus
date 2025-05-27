@@ -88,6 +88,8 @@ class PublicationController @Inject()(
   }
 
   def submitPaper() = Action.async { implicit request =>
+    import actors.EnaStudyUpdateActor.UpdateResult
+
     PaperSubmissionForm.form.bindFromRequest().fold(
       formWithErrors =>
         Future.successful(BadRequest(views.html.publications.submitPaper(formWithErrors))),
@@ -98,10 +100,9 @@ class PublicationController @Inject()(
             case Some(publication) =>
               submission.enaAccession match {
                 case Some(accession) if accession.nonEmpty =>
-                  // Send message to actor and wait for response
                   implicit val timeout: Timeout = Timeout(30.seconds)
                   (enaUpdateActor ? UpdateSingleStudy(accession, Some(publication.id.get)))
-                    .mapTo[UpdateResult]
+                    .mapTo[UpdateResult]  // this is now explicitly EnaStudyUpdateActor.UpdateResult
                     .map {
                       case UpdateResult(_, true, msg) =>
                         logger.info(s"Successfully processed ENA study: $msg")
