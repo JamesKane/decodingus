@@ -68,7 +68,7 @@
         @if(paginatedResult.hasPreviousPage) {
             <button class="btn btn-outline-secondary btn-sm"
             hx-get="@routes.BiosampleReportController.getBiosampleReportHTML(publicationId, Some(paginatedResult.currentPage - 1))"
-            hx-target="#biosample-content"
+            hx-target="#biosample-content-@{publicationId}"
             hx-swap="innerHTML">
                 Previous
             </button>
@@ -77,7 +77,7 @@
         @if(paginatedResult.hasNextPage) {
             <button class="btn btn-outline-secondary btn-sm"
             hx-get="@routes.BiosampleReportController.getBiosampleReportHTML(publicationId, Some(paginatedResult.currentPage + 1))"
-            hx-target="#biosample-content"
+            hx-target="#biosample-content-@{publicationId}"
             hx-swap="innerHTML">
                 Next
             </button>
