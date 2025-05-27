@@ -42,6 +42,9 @@ GET         /api/v1/benchmarks                                          controll
 GET         /api/v1/references/details                                  controllers.PublicationController.getAllPublicationsWithDetailsJson()
 GET         /api/v1/references/details/:publicationId/biosamples        controllers.BiosampleReportController.getBiosampleReportJSON(publicationId: Int)
 
+# Biosample API endpoint
+PATCH       /api/v1/biosample/:id                                      controllers.BiosampleController.updateBiosample(id: Int)
+
 # --- API Routes (Handled by Tapir, including Swagger UI) ---
 # Delegate all requests starting with /api to the Tapir-based ApiRouter
 ->          /api                                                        controllers.ApiRouter

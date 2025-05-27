@@ -25,6 +25,14 @@ trait BiosampleRepository {
   def findById(id: Int): Future[Option[Biosample]]
 
   /**
+   * Updates specific fields of a biosample
+   *
+   * @param biosample The biosample with updated fields
+   * @return Future[Boolean] indicating success
+   */
+  def update(biosample: Biosample): Future[Boolean]
+
+  /**
    * Sets the lock status for a biosample
    *
    * @param id     The ID of the biosample to lock/unlock
@@ -160,6 +168,20 @@ class BiosampleRepositoryImpl @Inject()(
 
   override def findById(id: Int): Future[Option[Biosample]] = {
     db.run(biosamplesTable.filter(_.id === id).result.headOption)
+  }
+
+  override def update(biosample: Biosample): Future[Boolean] = {
+    biosample.id match {
+      case None => Future.successful(false)
+      case Some(id) =>
+        db.run(
+          biosamplesTable
+            .filter(_.id === id)
+            .map(b => (b.sex, b.geocoord, b.alias, b.locked))
+            .update((biosample.sex, biosample.geocoord, biosample.alias, biosample.locked))
+            .map(_ > 0)
+        )
+    }
   }
 
   override def findByAccession(accession: String): Future[Option[Biosample]] = {
