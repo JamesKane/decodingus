@@ -2,6 +2,7 @@ package repositories
 
 import jakarta.inject.Inject
 import models.dal.DatabaseSchema
+import models.domain.publications.PublicationBiosample
 import play.api.db.slick.{DatabaseConfigProvider, HasDatabaseConfigProvider}
 import slick.jdbc.JdbcProfile
 
@@ -19,6 +20,8 @@ trait PublicationBiosampleRepository {
    * @return A `Future` containing the count of associated biosamples as an `Int`.
    */
   def countSamplesForPublication(publicationId: Int): Future[Int]
+
+  def create(link: PublicationBiosample): Future[PublicationBiosample]
 }
 
 class PublicationBiosampleRepositoryImpl @Inject()(protected val dbConfigProvider: DatabaseConfigProvider)(implicit ec: ExecutionContext)
@@ -31,5 +34,13 @@ class PublicationBiosampleRepositoryImpl @Inject()(protected val dbConfigProvide
   override def countSamplesForPublication(publicationId: Int): Future[Int] = {
     val query = publicationBiosamples.filter(_.publicationId === publicationId).length
     db.run(query.result)
+  }
+
+  override def create(link: PublicationBiosample): Future[PublicationBiosample] = {
+    db.run(
+      publicationBiosamples
+        .returning(publicationBiosamples)
+        .insertOrUpdate(link)
+    ).map(_ => link)
   }
 }

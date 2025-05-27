@@ -29,6 +29,8 @@ class BaseModule extends AbstractModule {
     bind(classOf[EnaStudyRepository])
       .to(classOf[EnaStudyRepositoryImpl])
       .asEagerSingleton()
-
+    bind(classOf[PublicationEnaStudyRepository])
+      .to(classOf[PublicationEnaStudyRepositoryImpl])
+      .asEagerSingleton()
   }
 }

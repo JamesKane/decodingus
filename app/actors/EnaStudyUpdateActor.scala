@@ -4,7 +4,8 @@ import org.apache.pekko.actor.Actor
 import org.apache.pekko.stream.scaladsl.{Sink, Source}
 import org.apache.pekko.stream.{Materializer, ThrottleMode}
 import play.api.Logging
-import repositories.{BiosampleRepository, EnaStudyRepository}
+import repositories.{BiosampleRepository, EnaStudyRepository, PublicationBiosampleRepository, PublicationEnaStudyRepository}
+import models.domain.publications.{PublicationEnaStudy, PublicationBiosample}
 import services.EnaIntegrationService
 
 import scala.concurrent.duration.*
@@ -12,16 +13,16 @@ import scala.concurrent.{ExecutionContext, Future}
 
 object EnaStudyUpdateActor {
   case object UpdateAllStudies
-
-  case class UpdateSingleStudy(accession: String)
-
+  case class UpdateSingleStudy(accession: String, publicationId: Option[Int] = None)
   case class UpdateResult(accession: String, success: Boolean, message: String)
 }
 
 class EnaStudyUpdateActor @javax.inject.Inject()(
                                                   enaService: EnaIntegrationService,
                                                   enaStudyRepository: EnaStudyRepository,
-                                                  biosampleRepository: BiosampleRepository
+                                                  biosampleRepository: BiosampleRepository,
+                                                  publicationEnaStudyRepository: PublicationEnaStudyRepository,
+                                                  publicationBiosampleRepository: PublicationBiosampleRepository
                                                 )(implicit ec: ExecutionContext)
   extends Actor
     with Logging {
@@ -42,11 +43,19 @@ class EnaStudyUpdateActor @javax.inject.Inject()(
       val senderRef = sender()
 
       (for {
+        // First get all existing publication-ENA study associations
+        existingLinks <- publicationEnaStudyRepository.findAll()
         accessions <- enaStudyRepository.getAllAccessions
         results <- Source(accessions.toList)
           .throttle(elementsPerUnit, perDuration, maxBurst, throttleMode)
           .mapAsync(1) { accession =>
-            processStudyUpdate(accession)
+            // First get the study ID from accession, then look for publication links
+            enaStudyRepository.findIdByAccession(accession).flatMap { studyIdOpt =>
+              val publicationId = studyIdOpt.flatMap(studyId =>
+                existingLinks.find(_.studyId == studyId).map(_.publicationId)
+              )
+              processStudyUpdate(accession, publicationId)
+            }
           }
           .runWith(Sink.fold(Seq.empty[UpdateResult])((acc, elem) => acc :+ elem))
         _ = {
@@ -61,37 +70,57 @@ class EnaStudyUpdateActor @javax.inject.Inject()(
           senderRef ! s"Update failed: ${e.getMessage}"
       }
 
-    case UpdateSingleStudy(accession) =>
-      logger.info(s"Updating single ENA study: $accession")
+
+    case UpdateSingleStudy(accession, publicationId) =>
+      logger.info(s"Updating single ENA study: $accession${publicationId.fold("")(id => s" for publication $id")}")
       val senderRef = sender()
 
       Source.single(accession)
         .throttle(elementsPerUnit, perDuration, maxBurst, throttleMode)
-        .mapAsync(1)(processStudyUpdate)
+        .mapAsync(1)(acc => processStudyUpdate(acc, publicationId))
         .runWith(Sink.head)
         .map(result => senderRef ! result)
   }
 
-  private def processStudyUpdate(accession: String): Future[UpdateResult] = {
+  private def processStudyUpdate(accession: String, publicationId: Option[Int]): Future[UpdateResult] = {
     (for {
       studyOpt <- enaService.getEnaStudyDetails(accession)
       result <- studyOpt match {
         case Some(study) =>
           for {
-            _ <- enaStudyRepository.saveStudy(study)
+            savedStudy <- enaStudyRepository.saveStudy(study)
             biosamples <- enaService.getBiosamplesForStudy(accession)
             _ <- if (biosamples.nonEmpty) {
               logger.info(s"Starting to upsert ${biosamples.size} biosamples for study $accession")
-              biosampleRepository.upsertMany(biosamples).map { _ =>
-                logger.info(s"Completed upserting ${biosamples.size} biosamples for study $accession")
-              }
+              biosampleRepository.upsertMany(biosamples)
             } else Future.successful(())
+            // Create publication relationships if publicationId is provided
+            _ <- publicationId match {
+              case Some(pubId) =>
+                for {
+                  // Link study to publication
+                  _ <- publicationEnaStudyRepository.create(PublicationEnaStudy(
+                    publicationId = pubId,
+                    studyId = savedStudy.id.get
+                  ))
+                  // Link biosamples to publication
+                  _ <- if (biosamples.nonEmpty) {
+                    Future.sequence(biosamples.flatMap(_.id).map { biosampleId =>
+                      publicationBiosampleRepository.create(PublicationBiosample(
+                        publicationId = pubId,
+                        biosampleId = biosampleId
+                      ))
+                    })
+                  } else Future.successful(())
+                } yield ()
+              case None => Future.successful(())
+            }
           } yield {
             val biosampleCount = biosamples.size
             UpdateResult(
               accession,
               success = true,
-              s"Study updated successfully with $biosampleCount biosamples"
+              s"Study updated successfully with $biosampleCount biosamples${publicationId.map(id => s" and linked to publication $id").getOrElse("")}"
             )
           }
         case None =>

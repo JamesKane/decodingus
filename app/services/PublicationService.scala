@@ -1,10 +1,16 @@
 package services
 
+import actors.PublicationUpdateActor.UpdateSinglePublication
 import jakarta.inject.Inject
 import models.api.{PaginatedResult, PublicationWithEnaStudiesAndSampleCount}
 import models.domain.publications.Publication
-import repositories.{PublicationBiosampleRepository, PublicationRepository}
+import org.apache.pekko.actor.ActorRef
+import org.apache.pekko.pattern.ask
+import org.apache.pekko.util.Timeout
+import repositories.PublicationRepository
 
+import javax.inject.Named
+import scala.concurrent.duration.DurationInt
 import scala.concurrent.{ExecutionContext, Future}
 
 /**
@@ -14,7 +20,10 @@ import scala.concurrent.{ExecutionContext, Future}
  * @param publicationRepository Repository interface for fetching publication-related data.
  * @param ec                    Implicit execution context for managing asynchronous operations.
  */
-class PublicationService @Inject()(publicationRepository: PublicationRepository)(implicit ec: ExecutionContext) {
+class PublicationService @Inject()(
+                                    publicationRepository: PublicationRepository,
+                                    @Named("publication-update-actor") publicationUpdateActor: ActorRef
+                                  )(implicit ec: ExecutionContext) {
   /**
    * Retrieves a paginated list of publications along with their associated ENA studies and sample counts.
    *
@@ -41,8 +50,31 @@ class PublicationService @Inject()(publicationRepository: PublicationRepository)
   def getAllPublicationsWithDetails: Future[Seq[PublicationWithEnaStudiesAndSampleCount]] = {
     publicationRepository.findPublicationsWithDetailsPaginated(1, Int.MaxValue) // Fetch all by using a very large pageSize
   }
-  
-  def findByDoi(doi: String): Future[Option[Publication]] = {
-    publicationRepository.findByDoi(doi)
+
+  /**
+   * Processes a publication by DOI, optionally forcing a refresh of the data.
+   *
+   * @param doi The DOI of the publication to process
+   * @param forceRefresh Whether to force a refresh of the publication data
+   * @return A Future containing an Option[Publication]
+   */
+  def processPublication(doi: String, forceRefresh: Boolean): Future[Option[Publication]] = {
+    if (forceRefresh) {
+      // Use the actor to force refresh
+      implicit val timeout: Timeout = Timeout(30.seconds)
+      (publicationUpdateActor ? UpdateSinglePublication(doi))
+        .mapTo[Option[Publication]]
+    } else {
+      // First try to find existing publication
+      publicationRepository.findByDoi(doi).flatMap {
+        case Some(pub) => Future.successful(Some(pub))
+        case None =>
+          // If not found, fetch it fresh
+          implicit val timeout: Timeout = Timeout(30.seconds)
+          (publicationUpdateActor ? UpdateSinglePublication(doi))
+            .mapTo[Option[Publication]]
+      }
+    }
   }
+
 }

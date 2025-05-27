@@ -1,6 +1,7 @@
 package repositories
 
 import jakarta.inject.Inject
+import models.dal.DatabaseSchema
 import models.dal.MyPostgresProfile.api.*
 import models.dal.domain.publications.EnaStudiesTable
 import models.domain.publications.EnaStudy
@@ -13,6 +14,7 @@ trait EnaStudyRepository {
   def findByAccession(accession: String): Future[Option[EnaStudy]]
   def getAllAccessions: Future[Seq[String]]
   def saveStudy(study: EnaStudy): Future[EnaStudy]
+  def findIdByAccession(accession: String): Future[Option[Int]]
 }
 
 class EnaStudyRepositoryImpl @Inject()(
@@ -21,10 +23,14 @@ class EnaStudyRepositoryImpl @Inject()(
   extends EnaStudyRepository
     with HasDatabaseConfigProvider[JdbcProfile] {
 
-  private val enaStudies = TableQuery[EnaStudiesTable]
+  private val enaStudies = DatabaseSchema.domain.publications.enaStudies
 
   override def findByAccession(accession: String): Future[Option[EnaStudy]] = {
     db.run(enaStudies.filter(_.accession === accession).result.headOption)
+  }
+
+  override def findIdByAccession(accession: String): Future[Option[Int]] = {
+    db.run(enaStudies.filter(_.accession === accession).map(_.id).result.headOption)
   }
 
   override def getAllAccessions: Future[Seq[String]] = {

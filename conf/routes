@@ -25,12 +25,8 @@ GET         /references                                                 controll
 GET         /references/details                                         controllers.PublicationController.getAllPublicationsWithDetailsHtml(page: Option[Int], pageSize: Option[Int])
 GET         /references/details/:publicationId/biosamples               controllers.BiosampleReportController.getBiosampleReportHTML(publicationId: Int, page: Option[Int] ?= Some(1))
 
-GET         /publications/submit-doi                                    controllers.PublicationController.showDoiSubmissionForm()
-POST        /publications/submit-doi                                    controllers.PublicationController.submitDoi()
-
-# ENA Study routes
-GET         /ena/submit                                                 controllers.EnaStudyController.showAccessionSubmissionForm()
-POST        /ena/submit                                                 controllers.EnaStudyController.submitAccession()
+GET         /publications/submit                                        controllers.PublicationController.showSubmissionForm()
+POST        /publications/submit                                        controllers.PublicationController.submitPaper()
 
 GET         /coverage-benchmarks                                        controllers.CoverageController.index()
 

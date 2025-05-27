@@ -1,15 +1,19 @@
 package controllers
 
-import actors.PublicationUpdateActor.UpdateSinglePublication
-import models.forms.DoiSubmissionForm
+import actors.EnaStudyUpdateActor.{UpdateSingleStudy, UpdateResult}
+import models.forms.PaperSubmissionForm
 import org.apache.pekko.actor.ActorRef
+import org.apache.pekko.pattern.ask
+import org.apache.pekko.util.Timeout
 import org.webjars.play.WebJarsUtil
+import play.api.Logging
 import play.api.i18n.I18nSupport
 import play.api.libs.json.Json
 import play.api.mvc.*
 import services.PublicationService
 
 import javax.inject.*
+import scala.concurrent.duration.DurationInt
 import scala.concurrent.{ExecutionContext, Future}
 
 /**
@@ -29,9 +33,10 @@ import scala.concurrent.{ExecutionContext, Future}
 class PublicationController @Inject()(
                                        val controllerComponents: ControllerComponents,
                                        publicationService: PublicationService,
-                                       @Named("publication-update-actor") publicationUpdateActor: ActorRef
+                                       @Named("ena-study-update-actor") enaUpdateActor: ActorRef
                                      )
-                                     (using webJarsUtil: WebJarsUtil, ec: ExecutionContext) extends BaseController with I18nSupport {
+                                     (using webJarsUtil: WebJarsUtil, ec: ExecutionContext)
+  extends BaseController with I18nSupport with Logging {
   /**
    * Renders the references page.
    *
@@ -78,32 +83,54 @@ class PublicationController @Inject()(
     }
   }
 
-  def showDoiSubmissionForm(): Action[AnyContent] = Action { implicit request =>
-    Ok(views.html.publications.submitDoi(DoiSubmissionForm.form))
+  def showSubmissionForm(): Action[AnyContent] = Action { implicit request: Request[AnyContent] =>
+    Ok(views.html.publications.submitPaper(PaperSubmissionForm.form))
   }
 
-  def submitDoi(forceRefresh: Boolean = false): Action[AnyContent] = Action.async { implicit request =>
-    DoiSubmissionForm.form.bindFromRequest().fold(
+  def submitPaper() = Action.async { implicit request =>
+    PaperSubmissionForm.form.bindFromRequest().fold(
       formWithErrors =>
-        Future.successful(BadRequest(views.html.publications.submitDoi(formWithErrors))),
+        Future.successful(BadRequest(views.html.publications.submitPaper(formWithErrors))),
       submission => {
-        val doi = submission.doi.trim
-        publicationService.findByDoi(doi).flatMap {
-          case Some(_) if !forceRefresh =>
-            Future.successful(
-              Redirect(routes.PublicationController.showDoiSubmissionForm())
-                .flashing("error" -> s"Publication with DOI $doi already exists")
-            )
-          case _ =>
-            publicationUpdateActor ! UpdateSinglePublication(doi)
-            Future.successful(
-              Redirect(routes.PublicationController.showDoiSubmissionForm())
-                .flashing("success" -> s"Request to fetch publication with DOI $doi has been queued")
-            )
+        for {
+          publicationOpt <- publicationService.processPublication(submission.doi, submission.forceRefresh)
+          result <- publicationOpt match {
+            case Some(publication) =>
+              submission.enaAccession match {
+                case Some(accession) if accession.nonEmpty =>
+                  // Send message to actor and wait for response
+                  implicit val timeout: Timeout = Timeout(30.seconds)
+                  (enaUpdateActor ? UpdateSingleStudy(accession, Some(publication.id.get)))
+                    .mapTo[UpdateResult]
+                    .map {
+                      case UpdateResult(_, true, msg) =>
+                        logger.info(s"Successfully processed ENA study: $msg")
+                        Right(())
+                      case UpdateResult(_, false, msg) =>
+                        logger.error(s"Failed to process ENA study: $msg")
+                        Left(s"Failed to process ENA study: $msg")
+                    }
+                case _ => Future.successful(Right(()))
+              }
+            case None =>
+              Future.successful(Left("Failed to process publication"))
+          }
+        } yield {
+          result match {
+            case Right(_) =>
+              Redirect(routes.PublicationController.showSubmissionForm())
+                .flashing("success" -> "Publication and associated data have been processed")
+            case Left(error) =>
+              Redirect(routes.PublicationController.showSubmissionForm())
+                .flashing("error" -> error)
+          }
         }
       }
-    )
+    ).recover {
+      case e: Exception =>
+        logger.error("Error processing submission", e)
+        Redirect(routes.PublicationController.showSubmissionForm())
+          .flashing("error" -> s"Error processing submission: ${e.getMessage}")
+    }
   }
-
-
 }

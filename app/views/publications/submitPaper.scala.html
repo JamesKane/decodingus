@@ -1,0 +1,56 @@
+@import org.webjars.play.WebJarsUtil
+@import helper._
+
+@(paperForm: Form[models.forms.PaperSubmission])(implicit request: RequestHeader, messages: Messages, webJarsUtil: WebJarsUtil)
+
+@main("Submit Publication") {
+    <div class="container mt-4">
+        <h1>Submit Publication</h1>
+
+        @request.flash.get("error").map { message =>
+            <div class="alert alert-danger">
+                @message
+            </div>
+        }
+
+        @request.flash.get("success").map { message =>
+            <div class="alert alert-success">
+                @message
+            </div>
+        }
+
+        @form(routes.PublicationController.submitPaper()) {
+            @CSRF.formField
+
+            <div class="form-group mb-3">
+            @inputText(
+                paperForm("doi"),
+                Symbol("class") -> "form-control",
+                Symbol("placeholder") -> "Enter DOI or DOI URL (e.g., 10.1234/example or https://doi.org/10.1234/example)",
+                Symbol("_label") -> "DOI",
+                Symbol("_help") -> "Enter either a DOI (10.1234/example) or the full DOI URL (https://doi.org/10.1234/example)"
+            )
+            </div>
+
+            <div class="form-group mb-3">
+            @inputText(
+                paperForm("enaAccession"),
+                Symbol("class") -> "form-control",
+                Symbol("placeholder") -> "Enter sequence archive study accession if available (e.g., PRJEB12345, PRJNA123456)",
+                Symbol("_label") -> "Sequence Archive Study Accession (Optional)",
+                Symbol("_help") -> "If the paper mentions a sequence archive study (e.g., from ENA or SRA), enter its accession here"
+            )
+            </div>
+
+            <div class="form-check mb-3">
+                <input type="checkbox" name="forceRefresh" id="forceRefresh" value="true" class="form-check-input">
+                <input type="hidden" name="forceRefresh" value="false">
+                <label class="form-check-label" for="forceRefresh">
+                    Force refresh (Update even if publication already exists)
+                </label>
+            </div>
+
+            <button type="submit" class="btn btn-primary">Submit</button>
+        }
+    </div>
+}
