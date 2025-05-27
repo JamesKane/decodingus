@@ -41,7 +41,7 @@ class EnaIntegrationService @Inject()(ws: WSClient)(implicit ec: ExecutionContex
                 accession = (studyJson \ "study_accession").as[String],
                 title = (studyJson \ "study_title").as[String].take(255),
                 centerName = (studyJson \ "center_name").asOpt[String].getOrElse("N/A"), // Handle optional
-                studyName = (studyJson \ "study_name").asOpt[String].getOrElse("N/A"),
+                studyName = (studyJson \ "study_name").asOpt[String].getOrElse("N/A").take(255),
                 details = (studyJson \ "study_description").asOpt[String].getOrElse("")
               )
             }
