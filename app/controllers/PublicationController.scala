@@ -1,10 +1,7 @@
 package controllers
 
-import actors.EnaStudyUpdateActor.{UpdateSingleStudy, UpdateResult}
 import models.forms.PaperSubmissionForm
 import org.apache.pekko.actor.ActorRef
-import org.apache.pekko.pattern.ask
-import org.apache.pekko.util.Timeout
 import org.webjars.play.WebJarsUtil
 import play.api.Logging
 import play.api.i18n.I18nSupport
@@ -13,7 +10,6 @@ import play.api.mvc.*
 import services.PublicationService
 
 import javax.inject.*
-import scala.concurrent.duration.DurationInt
 import scala.concurrent.{ExecutionContext, Future}
 
 /**
@@ -33,7 +29,7 @@ import scala.concurrent.{ExecutionContext, Future}
 class PublicationController @Inject()(
                                        val controllerComponents: ControllerComponents,
                                        publicationService: PublicationService,
-                                       @Named("ena-study-update-actor") enaUpdateActor: ActorRef
+                                       @Named("genomic-study-update-actor") studyUpdateActor: ActorRef
                                      )
                                      (using webJarsUtil: WebJarsUtil, ec: ExecutionContext)
   extends BaseController with I18nSupport with Logging {
@@ -88,7 +84,13 @@ class PublicationController @Inject()(
   }
 
   def submitPaper() = Action.async { implicit request =>
-    import actors.EnaStudyUpdateActor.UpdateResult
+    import actors.GenomicStudyUpdateActor.{UpdateStudy, UpdateResult}
+    import models.domain.publications.StudySource
+    import org.apache.pekko.pattern.ask
+    import org.apache.pekko.util.Timeout
+    import scala.concurrent.duration._
+
+    implicit val timeout: Timeout = Timeout(30.seconds)
 
     PaperSubmissionForm.form.bindFromRequest().fold(
       formWithErrors =>
@@ -97,41 +99,25 @@ class PublicationController @Inject()(
         for {
           publicationOpt <- publicationService.processPublication(submission.doi, submission.forceRefresh)
           result <- publicationOpt match {
-            case Some(publication) =>
-              submission.enaAccession match {
-                case Some(accession) if accession.nonEmpty =>
-                  implicit val timeout: Timeout = Timeout(30.seconds)
-                  (enaUpdateActor ? UpdateSingleStudy(accession, Some(publication.id.get)))
-                    .mapTo[UpdateResult]  // this is now explicitly EnaStudyUpdateActor.UpdateResult
-                    .map {
-                      case UpdateResult(_, true, msg) =>
-                        logger.info(s"Successfully processed ENA study: $msg")
-                        Right(())
-                      case UpdateResult(_, false, msg) =>
-                        logger.error(s"Failed to process ENA study: $msg")
-                        Left(s"Failed to process ENA study: $msg")
-                    }
-                case _ => Future.successful(Right(()))
-              }
-            case None =>
-              Future.successful(Left("Failed to process publication"))
+            case Some(publication) if submission.enaAccession.exists(_.nonEmpty) =>
+              (studyUpdateActor ? UpdateStudy(
+                submission.enaAccession.get,
+                StudySource.ENA,
+                Some(publication.id.get)
+              )).mapTo[UpdateResult]
+            case _ => Future.successful(UpdateResult("", true, "No ENA accession provided"))
           }
         } yield {
-          result match {
-            case Right(_) =>
-              Redirect(routes.PublicationController.showSubmissionForm())
-                .flashing("success" -> "Publication and associated data have been processed")
-            case Left(error) =>
-              Redirect(routes.PublicationController.showSubmissionForm())
-                .flashing("error" -> error)
+          if (result.success) {
+            Redirect(routes.PublicationController.showSubmissionForm())
+              .flashing("success" -> "Publication and associated data have been processed")
+          } else {
+            Redirect(routes.PublicationController.showSubmissionForm())
+              .flashing("error" -> s"Error processing study: ${result.message}")
           }
         }
       }
-    ).recover {
-      case e: Exception =>
-        logger.error("Error processing submission", e)
-        Redirect(routes.PublicationController.showSubmissionForm())
-          .flashing("error" -> s"Error processing submission: ${e.getMessage}")
-    }
+    )
   }
+
 }
