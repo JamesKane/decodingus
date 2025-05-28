@@ -4,25 +4,40 @@ import models.dal.MyPostgresProfile.api.*
 import models.domain.publications.{GenomicStudy, StudySource}
 
 /**
- * Represents the database table definition for storing ENA (European Nucleotide Archive) studies.
+ * Represents the database table definition for genomic studies.
  *
- * @constructor Initializes a new instance of the `EnaStudiesTable` class, mapping columns
- *              to the attributes of an `EnaStudy` entity.
- * @param tag A Slick `Tag` object used to scope and reference the table within the database schema.
+ * This table stores metadata related to genomic studies, including accession numbers, titles,
+ * study details, submission and update dates, as well as source-specific attributes such as
+ * project IDs, molecular information, and taxonomy identifiers.
  *
- *            Columns:
- *  - `id`: Unique identifier for the study (primary key, auto-increment).
- *  - `accession`: Unique accession string for the study, used as a reference in databases.
- *  - `title`: The title of the study, summarizing its content or purpose.
- *  - `centerName`: The name of the center or institution responsible for the study.
- *  - `studyName`: Descriptive name of the study, providing additional context or detail.
- *  - `details`: A field for textual description or additional metadata regarding the study.
+ * Columns:
+ * - `id`: An auto-incrementing primary key that uniquely identifies each genomic study.
+ * - `accession`: A unique accession number for the genomic study, providing a reference for databases.
+ * - `title`: The title of the genomic study, offering a summary or description.
+ * - `centerName`: The name of the research center or institution responsible for the study.
+ * - `studyName`: A specific or additional name assigned to the genomic study.
+ * - `details`: A textual description containing detailed information about the study.
+ * - `source`: The source of the genomic study data, represented using the `StudySource` enumeration.
+ * - `submissionDate`: An optional field capturing the date when the study was submitted.
+ * - `lastUpdate`: An optional field storing the date of the most recent update for the study information.
+ * - `bioProjectId`: An optional field containing the BioProject ID associated with the study.
+ * - `molecule`: An optional field describing the type of molecule studied in the project.
+ * - `topology`: An optional field containing information about the molecular topology.
+ * - `taxonomyId`: An optional field referencing the taxonomy ID associated with the study.
+ * - `version`: An optional field containing the version or release information for the study.
  *
  * Primary key:
- *  - `id`: The primary key for the table, auto-generated.
+ * - The `id` column serves as the primary key, which is auto-incremented.
  *
  * Mapping:
- *  - Defines a mapping to the `EnaStudy` case class.
+ * - Defines a mapping to the `GenomicStudy` case class, which models the domain representation
+ * of the genomic study entity.
+ *
+ * Table Name:
+ * - The physical table name in the database is `genomic_studies`.
+ *
+ * This table can be used in conjunction with other table definitions such as `PublicationEnaStudiesTable`
+ * to establish relationships between genomic studies and publications.
  */
 class GenomicStudiesTable(tag: Tag) extends Table[GenomicStudy](tag, "genomic_studies") {
   def id = column[Int]("id", O.PrimaryKey, O.AutoInc)
