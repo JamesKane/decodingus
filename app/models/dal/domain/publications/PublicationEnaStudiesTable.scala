@@ -1,6 +1,6 @@
 package models.dal.domain.publications
 
-import models.domain.publications.PublicationEnaStudy
+import models.domain.publications.PublicationGenomicStudy
 import slick.jdbc.PostgresProfile.api.*
 
 /**
@@ -27,12 +27,12 @@ import slick.jdbc.PostgresProfile.api.*
  *            - Defines a mapping to the `PublicationEnaStudy` case class, which represents the relationship
  *              between a publication and an ENA study in the application domain.
  */
-class PublicationEnaStudiesTable(tag: Tag) extends Table[PublicationEnaStudy](tag, "publication_ena_study") {
+class PublicationEnaStudiesTable(tag: Tag) extends Table[PublicationGenomicStudy](tag, "publication_ena_study") {
   def publicationId = column[Int]("publication_id")
 
-  def enaStudyId = column[Int]("ena_study_id")
+  def genomicStudyId = column[Int]("genomic_study_id")
 
-  def * = (publicationId, enaStudyId).mapTo[PublicationEnaStudy]
+  def * = (publicationId, genomicStudyId).mapTo[PublicationGenomicStudy]
 
-  def pkey = primaryKey("publication_ena_study_pkey", (publicationId, enaStudyId))
+  def pkey = primaryKey("publication_ena_study_genomic_study_id_fkey", (publicationId, genomicStudyId))
 }

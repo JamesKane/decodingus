@@ -100,10 +100,10 @@ object DatabaseSchema {
     }
 
     object publications {
-      val enaStudies = TableQuery[EnaStudiesTable]
+      val genomicStudies = TableQuery[GenomicStudiesTable]
       val publications = TableQuery[PublicationsTable]
       val publicationBiosamples = TableQuery[PublicationBiosamplesTable]
-      val publicationEnaStudies = TableQuery[PublicationEnaStudiesTable]
+      val publicationGenomicStudies = TableQuery[PublicationEnaStudiesTable]
     }
 
     object ibd {

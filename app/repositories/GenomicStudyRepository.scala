@@ -3,50 +3,49 @@ package repositories
 import jakarta.inject.Inject
 import models.dal.DatabaseSchema
 import models.dal.MyPostgresProfile.api.*
-import models.dal.domain.publications.EnaStudiesTable
-import models.domain.publications.EnaStudy
+import models.domain.publications.GenomicStudy
 import play.api.db.slick.{DatabaseConfigProvider, HasDatabaseConfigProvider}
 import slick.jdbc.JdbcProfile
 
 import scala.concurrent.{ExecutionContext, Future}
 
-trait EnaStudyRepository {
-  def findByAccession(accession: String): Future[Option[EnaStudy]]
+trait GenomicStudyRepository {
+  def findByAccession(accession: String): Future[Option[GenomicStudy]]
   def getAllAccessions: Future[Seq[String]]
-  def saveStudy(study: EnaStudy): Future[EnaStudy]
+  def saveStudy(study: GenomicStudy): Future[GenomicStudy]
   def findIdByAccession(accession: String): Future[Option[Int]]
 }
 
-class EnaStudyRepositoryImpl @Inject()(
+class GenomicStudyRepositoryImpl @Inject()(
                                         protected val dbConfigProvider: DatabaseConfigProvider
                                       )(implicit ec: ExecutionContext)
-  extends EnaStudyRepository
+  extends GenomicStudyRepository
     with HasDatabaseConfigProvider[JdbcProfile] {
 
-  private val enaStudies = DatabaseSchema.domain.publications.enaStudies
+  private val genomicStudies = DatabaseSchema.domain.publications.genomicStudies
 
-  override def findByAccession(accession: String): Future[Option[EnaStudy]] = {
-    db.run(enaStudies.filter(_.accession === accession).result.headOption)
+  override def findByAccession(accession: String): Future[Option[GenomicStudy]] = {
+    db.run(genomicStudies.filter(_.accession === accession).result.headOption)
   }
 
   override def findIdByAccession(accession: String): Future[Option[Int]] = {
-    db.run(enaStudies.filter(_.accession === accession).map(_.id).result.headOption)
+    db.run(genomicStudies.filter(_.accession === accession).map(_.id).result.headOption)
   }
 
   override def getAllAccessions: Future[Seq[String]] = {
-    db.run(enaStudies.map(_.accession).result)
+    db.run(genomicStudies.map(_.accession).result)
   }
 
-  override def saveStudy(study: EnaStudy): Future[EnaStudy] = {
-    val query = enaStudies.filter(_.accession === study.accession)
+  override def saveStudy(study: GenomicStudy): Future[GenomicStudy] = {
+    val query = genomicStudies.filter(_.accession === study.accession)
 
     db.run(query.result.headOption).flatMap {
       case Some(existingStudy) =>
         val studyToUpdate = study.copy(id = existingStudy.id)
-        db.run(enaStudies.filter(_.id === existingStudy.id).update(studyToUpdate))
+        db.run(genomicStudies.filter(_.id === existingStudy.id).update(studyToUpdate))
           .map(_ => studyToUpdate)
       case None =>
-        db.run((enaStudies returning enaStudies.map(_.id)
+        db.run((genomicStudies returning genomicStudies.map(_.id)
           into ((study, id) => study.copy(id = Some(id)))) += study)
     }
   }

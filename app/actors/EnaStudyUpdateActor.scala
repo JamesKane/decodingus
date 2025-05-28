@@ -4,8 +4,8 @@ import org.apache.pekko.actor.Actor
 import org.apache.pekko.stream.scaladsl.{Sink, Source}
 import org.apache.pekko.stream.{Materializer, ThrottleMode}
 import play.api.Logging
-import repositories.{BiosampleRepository, EnaStudyRepository, PublicationBiosampleRepository, PublicationEnaStudyRepository}
-import models.domain.publications.{PublicationEnaStudy, PublicationBiosample}
+import repositories.{BiosampleRepository, GenomicStudyRepository, PublicationBiosampleRepository, PublicationGenomicStudyRepository}
+import models.domain.publications.{PublicationGenomicStudy, PublicationBiosample}
 import services.EnaIntegrationService
 
 import scala.concurrent.duration.*
@@ -19,9 +19,9 @@ object EnaStudyUpdateActor {
 
 class EnaStudyUpdateActor @javax.inject.Inject()(
                                                   enaService: EnaIntegrationService,
-                                                  enaStudyRepository: EnaStudyRepository,
+                                                  enaStudyRepository: GenomicStudyRepository,
                                                   biosampleRepository: BiosampleRepository,
-                                                  publicationEnaStudyRepository: PublicationEnaStudyRepository,
+                                                  publicationEnaStudyRepository: PublicationGenomicStudyRepository,
                                                   publicationBiosampleRepository: PublicationBiosampleRepository
                                                 )(implicit ec: ExecutionContext)
   extends Actor
@@ -99,7 +99,7 @@ class EnaStudyUpdateActor @javax.inject.Inject()(
               case Some(pubId) =>
                 for {
                   // Link study to publication
-                  _ <- publicationEnaStudyRepository.create(PublicationEnaStudy(
+                  _ <- publicationEnaStudyRepository.create(PublicationGenomicStudy(
                     publicationId = pubId,
                     studyId = savedStudy.id.get
                   ))

@@ -1,6 +1,7 @@
 package models.dal
 
 import com.github.tminglei.slickpg.*
+import models.domain.publications.StudySource
 import play.api.libs.json.{JsValue, Json, OFormat, OWrites}
 import slick.basic.Capability
 import slick.jdbc.{JdbcCapabilities, JdbcType}
@@ -97,6 +98,12 @@ trait MyPostgresProfile extends ExPostgresProfile
       MappedColumnType.base[HaplogroupType, String](
         ht => ht.toString,
         s => HaplogroupType.valueOf(s)
+      )
+
+    implicit val studySourceTypeMapper: JdbcType[StudySource] =
+      MappedJdbcType.base[StudySource, String](
+        st => st.toString,
+        s => StudySource.valueOf(s)
       )
 
     implicit val strListTypeMapper: DriverJdbcType[List[String]] = new SimpleArrayJdbcType[String]("text").to(_.toList)

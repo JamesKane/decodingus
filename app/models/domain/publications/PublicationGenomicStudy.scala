@@ -12,4 +12,4 @@ package models.domain.publications
  * findings (publication) and the corresponding study stored in the ENA, facilitating
  * traceability and integration of research data.
  */
-case class PublicationEnaStudy(publicationId: Int, studyId: Int)
+case class PublicationGenomicStudy(publicationId: Int, studyId: Int)

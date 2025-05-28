@@ -1,6 +1,6 @@
 package models.api
 
-import models.domain.publications.{EnaStudy, Publication}
+import models.domain.publications.{GenomicStudy, Publication}
 import play.api.libs.json.{Json, OFormat}
 
 /**
@@ -13,7 +13,7 @@ import play.api.libs.json.{Json, OFormat}
  */
 case class PublicationWithEnaStudiesAndSampleCount(
                                                     publication: Publication,
-                                                    enaStudies: Seq[EnaStudy],
+                                                    enaStudies: Seq[GenomicStudy],
                                                     sampleCount: Int,
                                                   )
 

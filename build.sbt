@@ -13,6 +13,8 @@ val TAPIR_VERSION = "1.11.32"
 // WARNING: Updating beyond 1.1.2 will result in startup errors, since quartz schedular needs this version
 val APACHE_PEKKO_VERSION = "1.1.2"
 
+scalacOptions ++= Seq("-Xmax-inlines", "128")
+
 libraryDependencies ++= Seq(
   guice,
   caffeine,

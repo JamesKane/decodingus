@@ -26,11 +26,11 @@ class BaseModule extends AbstractModule {
     bind(classOf[HaplogroupRevisionRepository]).to(classOf[HaplogroupRevisionRepositoryImpl])
     bind(classOf[HaplogroupVariantMetadataRepository]).to(classOf[HaplogroupVariantMetadataRepositoryImpl])
     bind(classOf[HaplogroupVariantRepository]).to(classOf[HaplogroupVariantRepositoryImpl])
-    bind(classOf[EnaStudyRepository])
-      .to(classOf[EnaStudyRepositoryImpl])
+    bind(classOf[GenomicStudyRepository])
+      .to(classOf[GenomicStudyRepositoryImpl])
       .asEagerSingleton()
-    bind(classOf[PublicationEnaStudyRepository])
-      .to(classOf[PublicationEnaStudyRepositoryImpl])
+    bind(classOf[PublicationGenomicStudyRepository])
+      .to(classOf[PublicationGenomicStudyRepositoryImpl])
       .asEagerSingleton()
   }
 }

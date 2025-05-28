@@ -3,7 +3,7 @@ package repositories
 import jakarta.inject.Inject
 import models.api.PublicationWithEnaStudiesAndSampleCount
 import models.dal.DatabaseSchema
-import models.domain.publications.{EnaStudy, Publication}
+import models.domain.publications.{GenomicStudy, Publication}
 import play.api.db.slick.{DatabaseConfigProvider, HasDatabaseConfigProvider}
 import slick.jdbc.JdbcProfile
 
@@ -26,7 +26,7 @@ trait PublicationRepository {
    * @param publicationId the unique identifier of the publication for which associated EnaStudy records are to be fetched
    * @return a Future containing a sequence of EnaStudy objects related to the specified publication
    */
-  def getEnaStudiesForPublication(publicationId: Int): Future[Seq[EnaStudy]]
+  def getEnaStudiesForPublication(publicationId: Int): Future[Seq[GenomicStudy]]
 
   /**
    * Retrieves a paginated list of publications along with associated ENA studies and their sample counts.
@@ -69,16 +69,16 @@ class PublicationRepositoryImpl @Inject()(protected val dbConfigProvider: Databa
   import profile.api.*
 
   private val publications = DatabaseSchema.domain.publications.publications
-  private val publicationEnaStudies = DatabaseSchema.domain.publications.publicationEnaStudies
-  private val enaStudies = DatabaseSchema.domain.publications.enaStudies
+  private val publicationEnaStudies = DatabaseSchema.domain.publications.publicationGenomicStudies
+  private val enaStudies = DatabaseSchema.domain.publications.genomicStudies
   private val publicationBiosamples = DatabaseSchema.domain.publications.publicationBiosamples
 
   override def getAllPublications: Future[Seq[Publication]] = db.run(publications.result)
 
-  override def getEnaStudiesForPublication(publicationId: Int): Future[Seq[EnaStudy]] = {
+  override def getEnaStudiesForPublication(publicationId: Int): Future[Seq[GenomicStudy]] = {
     val query = for {
       pes <- publicationEnaStudies if pes.publicationId === publicationId
-      es <- enaStudies if es.id === pes.enaStudyId
+      es <- enaStudies if es.id === pes.genomicStudyId
     } yield es
     db.run(query.result)
   }
@@ -107,7 +107,7 @@ class PublicationRepositoryImpl @Inject()(protected val dbConfigProvider: Databa
       Future.sequence(paginatedPublications.map { publication =>
         val enaStudyQuery = (for {
           pes <- publicationEnaStudies if pes.publicationId === publication.id
-          es <- enaStudies if es.id === pes.enaStudyId
+          es <- enaStudies if es.id === pes.genomicStudyId
         } yield es).result
 
         val sampleCountQuery = publicationBiosamples.filter(_.publicationId === publication.id).length.result

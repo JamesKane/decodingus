@@ -1,7 +1,7 @@
 package models.dal.domain.publications
 
 import models.dal.MyPostgresProfile.api.*
-import models.domain.publications.EnaStudy
+import models.domain.publications.{GenomicStudy, StudySource}
 
 /**
  * Represents the database table definition for storing ENA (European Nucleotide Archive) studies.
@@ -24,7 +24,7 @@ import models.domain.publications.EnaStudy
  * Mapping:
  *  - Defines a mapping to the `EnaStudy` case class.
  */
-class EnaStudiesTable(tag: Tag) extends Table[EnaStudy](tag, "ena_study") {
+class GenomicStudiesTable(tag: Tag) extends Table[GenomicStudy](tag, "genomic_studies") {
   def id = column[Int]("id", O.PrimaryKey, O.AutoInc)
 
   def accession = column[String]("accession", O.Unique)
@@ -37,5 +37,37 @@ class EnaStudiesTable(tag: Tag) extends Table[EnaStudy](tag, "ena_study") {
 
   def details = column[String]("details")
 
-  def * = (id.?, accession, title, centerName, studyName, details).mapTo[EnaStudy]
+  def source = column[StudySource]("source")
+
+  def submissionDate = column[Option[java.time.LocalDate]]("submission_date")
+
+  def lastUpdate = column[Option[java.time.LocalDate]]("last_update")
+
+  def bioProjectId = column[Option[String]]("bio_project_id")
+
+  def molecule = column[Option[String]]("molecule")
+
+  def topology = column[Option[String]]("topology")
+
+  def taxonomyId = column[Option[Int]]("taxonomy_id")
+
+  def version = column[Option[String]]("version")
+
+
+  def * = (
+    id.?,
+    accession,
+    title,
+    centerName,
+    studyName,
+    details,
+    source,
+    submissionDate,
+    lastUpdate,
+    bioProjectId,
+    molecule,
+    topology,
+    taxonomyId,
+    version
+  ).mapTo[GenomicStudy]
 }
