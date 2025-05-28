@@ -22,6 +22,13 @@ trait PublicationBiosampleRepository {
    */
   def countSamplesForPublication(publicationId: Int): Future[Int]
 
+  /**
+   * Creates a new association between a publication and a biosample in the system.
+   *
+   * @param link The `PublicationBiosample` object representing the association to be created. 
+   *             It contains the publication ID and the biosample ID to be linked.
+   * @return A `Future` containing the created `PublicationBiosample` object with the details of the new association.
+   */
   def create(link: PublicationBiosample): Future[PublicationBiosample]
 }
 

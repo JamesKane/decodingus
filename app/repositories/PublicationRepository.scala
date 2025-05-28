@@ -51,6 +51,14 @@ trait PublicationRepository {
    */
   def getAllDois: Future[Seq[String]]
 
+  /**
+   * Finds a publication in the repository by its DOI.
+   *
+   * @param doi the DOI (Digital Object Identifier) of the publication to search for
+   * @return a Future containing an Option of Publication, where the Option is:
+   *         - Some(Publication) if a publication with the specified DOI exists
+   *         - None if no publication with the specified DOI is found
+   */
   def findByDoi(doi: String): Future[Option[Publication]]
 
   /**

@@ -10,7 +10,12 @@ import play.api.db.slick.DatabaseConfigProvider
 import scala.concurrent.{ExecutionContext, Future}
 
 /**
- * A repository that provides methods for managing and querying genetic variant data.
+ * Trait defining the repository interface for managing genetic variants.
+ *
+ * This repository provides methods for interacting with a database to perform
+ * operations such as retrieving, creating, or finding variants, either individually
+ * or in bulk. The operations are asynchronous, returning `Future` results to handle
+ * potentially long-running database interactions.
  */
 trait VariantRepository {
   /**
@@ -38,10 +43,36 @@ trait VariantRepository {
    */
   def createVariant(variant: Variant): Future[Int]
 
+  /**
+   * Creates multiple genetic variants in a single batch operation.
+   *
+   * @param variants A sequence of Variant objects, each representing a genetic variant 
+   *                 with details such as genomic location, reference allele, alternate allele, 
+   *                 and optional metadata.
+   * @return A Future containing a sequence of integers representing the IDs of the newly created variants.
+   */
   def createVariantsBatch(variants: Seq[Variant]): Future[Seq[Int]]
 
+  /**
+   * Finds an existing genetic variant in the database by its details or creates a new one if it doesn't exist.
+   *
+   * @param variant The variant object containing details such as genomic location, reference allele, alternate allele,
+   *                variant type, and optional metadata like rsId or common name.
+   * @return A Future containing the ID of the found or newly created variant as an integer.
+   */
   def findOrCreateVariant(variant: Variant): Future[Int]
 
+  /**
+   * Finds or creates a batch of genetic variants. For each variant in the input sequence:
+   * - If the variant already exists in the database, its ID is returned.
+   * - If the variant does not exist, it is created, and the ID of the newly created variant is returned.
+   *
+   * @param variants A sequence of Variant objects, each representing a genetic variant
+   *                 with details such as genomic location, reference allele, alternate allele,
+   *                 and optional metadata.
+   * @return A Future containing a sequence of integers, where each integer is the ID of the found
+   *         or newly created variant corresponding to the input sequence order.
+   */
   def findOrCreateVariantsBatch(variants: Seq[Variant]): Future[Seq[Int]]
 }
 
