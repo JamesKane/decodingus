@@ -2,7 +2,7 @@ package repositories
 
 import com.vividsolutions.jts.geom.Point
 import com.vividsolutions.jts.io.WKBReader
-import jakarta.inject.Inject
+import jakarta.inject.{Inject, Singleton}
 import models.api.{BiosampleWithOrigin, GeoCoord, PopulationInfo}
 import models.dal.{DatabaseSchema, MyPostgresProfile}
 import models.domain.genomics.Biosample
@@ -85,9 +85,10 @@ trait BiosampleRepository {
   def upsertMany(biosamples: Seq[Biosample]): Future[Seq[Biosample]]
 }
 
+@Singleton
 class BiosampleRepositoryImpl @Inject()(
-                                         dbConfigProvider: DatabaseConfigProvider
-                                       )(implicit ec: ExecutionContext)
+                                         override protected val dbConfigProvider: DatabaseConfigProvider
+                                       )(implicit override protected  val ec: ExecutionContext)
   extends BaseRepository(dbConfigProvider)
     with BiosampleRepository {
 

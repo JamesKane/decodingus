@@ -15,7 +15,10 @@ import repositories.*
  */
 class BaseModule extends AbstractModule {
   override def configure(): Unit = {
-    bind(classOf[BiosampleRepository]).to(classOf[BiosampleRepositoryImpl])
+    bind(classOf[BiosampleRepository])
+      .to(classOf[BiosampleRepositoryImpl])
+      .asEagerSingleton()
+
     bind(classOf[PublicationRepository]).to(classOf[PublicationRepositoryImpl])
     bind(classOf[PublicationBiosampleRepository]).to(classOf[PublicationBiosampleRepositoryImpl])
     bind(classOf[GenbankContigRepository]).to(classOf[GenbankContigRepositoryImpl])
@@ -26,9 +29,11 @@ class BaseModule extends AbstractModule {
     bind(classOf[HaplogroupRevisionRepository]).to(classOf[HaplogroupRevisionRepositoryImpl])
     bind(classOf[HaplogroupVariantMetadataRepository]).to(classOf[HaplogroupVariantMetadataRepositoryImpl])
     bind(classOf[HaplogroupVariantRepository]).to(classOf[HaplogroupVariantRepositoryImpl])
+
     bind(classOf[GenomicStudyRepository])
       .to(classOf[GenomicStudyRepositoryImpl])
       .asEagerSingleton()
+
     bind(classOf[PublicationGenomicStudyRepository])
       .to(classOf[PublicationGenomicStudyRepositoryImpl])
       .asEagerSingleton()
