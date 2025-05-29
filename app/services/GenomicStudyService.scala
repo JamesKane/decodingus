@@ -206,20 +206,24 @@ class GenomicStudyService @Inject()(ws: WSClient)(implicit ec: ExecutionContext)
                     ids.flatMap { id =>
                       try {
                         val expData = (data \ id.toString).as[JsObject]
-                        val expXml = (expData \ "expxml").as[JsObject]
+                        val expXmlStr = (expData \ "expxml").as[String]
+                        val expXml = scala.xml.XML.loadString(s"<root>${expXmlStr.trim}</root>")
 
-                        Some(Biosample(
-                          id = None,
-                          sampleAccession = (expXml \ "Sample" \ "Accession").asOpt[String].getOrElse(""),
-                          description = (expXml \ "Summary" \ "Description").asOpt[String].getOrElse(""),
-                          alias = (expXml \ "Sample" \ "Alias").asOpt[String],
-                          centerName = (expXml \ "Center" \ "Name").asOpt[String].getOrElse("N/A"),
-                          sex = None, // SRA doesn't typically include sex information
-                          geocoord = None, // SRA doesn't typically include coordinates
-                          specimenDonorId = None,
-                          sampleGuid = UUID.randomUUID(),
-                          locked = false
-                        ))
+                        // Only create a Biosample if we have a valid sample accession
+                        (expXml \\ "Biosample").headOption.map(_.text).filter(_.nonEmpty).map { sampleAccession =>
+                          Biosample(
+                            id = None,
+                            sampleAccession = sampleAccession,
+                            description = (expXml \\ "Summary" \\ "Title").headOption.map(_.text).getOrElse("No description available"),
+                            alias = (expXml \\ "Library_descriptor" \\ "LIBRARY_NAME").headOption.map(_.text),
+                            centerName = (expXml \\ "Submitter" \\ "@center_name").headOption.map(_.text).getOrElse("N/A"),
+                            sex = None,
+                            geocoord = None,
+                            specimenDonorId = None,
+                            sampleGuid = UUID.randomUUID(),
+                            locked = false
+                          )
+                        }
                       } catch {
                         case e: Exception =>
                           logger.error(s"Error parsing experiment $id: ${e.getMessage}")
