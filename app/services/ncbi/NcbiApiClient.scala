@@ -3,7 +3,7 @@ package services.ncbi
 import org.apache.pekko.stream.{Materializer, OverflowStrategy}
 import org.apache.pekko.stream.scaladsl.{Keep, Sink, Source}
 import play.api.Logging
-import play.api.libs.json.{JsObject, JsValue}
+import play.api.libs.json.{JsArray, JsObject, JsValue}
 import play.api.libs.ws.{WSClient, WSRequest, WSResponse}
 
 import javax.inject.{Inject, Singleton}
@@ -58,66 +58,113 @@ class NcbiApiClient @Inject()(ws: WSClient)(implicit ec: ExecutionContext, mat: 
     .toMat(Sink.ignore)(Keep.both)
     .run()
 
-  private def makeRequest(request: WSRequest): Future[WSResponse] = {
-    val promise = Promise[WSResponse]()
-    queue.offer((request, promise)).flatMap {
-      case org.apache.pekko.stream.QueueOfferResult.Enqueued => promise.future
-      case other =>
-        Future.failed(new Exception(s"Failed to enqueue request: $other"))
+  private def makeRequest(request: WSRequest, retries: Int = 3): Future[WSResponse] = {
+    request.get().flatMap { response =>
+      (response.json \ "error").asOpt[String] match {
+        case Some(error) if error.contains("API rate limit exceeded") && retries > 0 =>
+          // Wait for 1.5 seconds before retrying (NCBI allows 3 requests per second)
+          Thread.sleep(1500)
+          makeRequest(request, retries - 1)
+        case Some(error) =>
+          Future.failed(NcbiRateLimitException(error))
+        case None =>
+          Future.successful(response)
+      }
     }
   }
 
+
   def getSraStudyDetails(accession: String): Future[Option[SraStudyData]] = {
-    val searchRequest = ws.url(s"$baseUrl/esearch.fcgi")
-      .withQueryStringParameters(
-        "db" -> "sra",
-        "term" -> accession,
-        "retmode" -> "json"
-      )
+    if (accession.startsWith("PRJNA")) {
+      // Direct BioProject query
+      val bioProjectRequest = ws.url(s"$baseUrl/esummary.fcgi")
+        .withQueryStringParameters(
+          "db" -> "bioproject",
+          "id" -> accession.substring(5), // Remove "PRJNA" prefix
+          "retmode" -> "json"
+        )
 
-    // First get the SRA ID
-    makeRequest(searchRequest).flatMap { searchResponse =>
-      val ids = (searchResponse.json \\ "idlist").headOption
-        .map(_.as[Seq[String]])
-        .getOrElse(Seq.empty)
-
-      if (ids.isEmpty) {
-        Future.successful(None)
-      } else {
-        // Then get the details
-        val summaryRequest = ws.url(s"$baseUrl/esummary.fcgi")
-          .withQueryStringParameters(
-            "db" -> "sra",
-            "id" -> ids.head,
-            "retmode" -> "json"
+      makeRequest(bioProjectRequest).map { response =>
+        for {
+          result <- (response.json \ "result").asOpt[JsObject]
+          data <- (result \ "uids").asOpt[JsArray].flatMap(_.value.headOption)
+            .flatMap(uid => (result \ uid.as[String]).asOpt[JsObject])
+        } yield {
+          SraStudyData(
+            title = (data \ "project_title").asOpt[String].getOrElse(""),
+            centerName = (data \ "organization").asOpt[String].getOrElse("N/A"),
+            studyName = accession,
+            description = (data \ "project_description").asOpt[String].getOrElse(""),
+            bioProjectId = Some(accession),
+            biosampleIds = Seq.empty // We'll get these in a separate call
           )
+        }
+      }
+    } else {
+      // For SRA accessions, first get the BioProject ID, then get its details
+      val searchRequest = ws.url(s"$baseUrl/esearch.fcgi")
+        .withQueryStringParameters(
+          "db" -> "sra",
+          "term" -> accession,
+          "retmode" -> "json"
+        )
 
-        makeRequest(summaryRequest).map { summaryResponse =>
-          for {
-            result <- (summaryResponse.json \ "result").asOpt[JsObject]
-            docsum <- result.value.get(ids.head).flatMap(_.asOpt[JsObject])
-            expXmlStr <- docsum.value.get("expxml").flatMap(_.asOpt[String])
-            xml = scala.xml.XML.loadString(s"<root>${expXmlStr.trim}</root>")
-          } yield {
-            val title = (xml \\ "Summary" \\ "Title").headOption.map(_.text).getOrElse("")
-            val centerName = (xml \\ "Submitter" \\ "@center_name").headOption.map(_.text).getOrElse("N/A")
-            val studyName = (xml \\ "Study" \\ "@name").headOption.map(_.text).getOrElse(accession)
-            val bioProjectId = (xml \\ "Bioproject").headOption.map(_.text)
-            val biosampleIds = (xml \\ "Biosample").map(_.text)
+      makeRequest(searchRequest).flatMap { searchResponse =>
+        val ids = (searchResponse.json \\ "idlist").headOption
+          .map(_.as[Seq[String]])
+          .getOrElse(Seq.empty)
 
-            SraStudyData(
-              title = title,
-              centerName = centerName,
-              studyName = studyName,
-              description = title, // Often the title is the best description we have from SRA
-              bioProjectId = bioProjectId,
-              biosampleIds = biosampleIds
+        if (ids.isEmpty) {
+          Future.successful(None)
+        } else {
+          // For SRA accessions, first get the BioProject ID, then get its details
+          val searchRequest = ws.url(s"$baseUrl/esearch.fcgi")
+            .withQueryStringParameters(
+              "db" -> "sra",
+              "term" -> accession,
+              "retmode" -> "json"
             )
+
+          makeRequest(searchRequest).flatMap { searchResponse =>
+            val ids = (searchResponse.json \\ "idlist").headOption
+              .map(_.as[Seq[String]])
+              .getOrElse(Seq.empty)
+
+            if (ids.isEmpty) {
+              Future.successful(None)
+            } else {
+              val summaryRequest = ws.url(s"$baseUrl/esummary.fcgi")
+                .withQueryStringParameters(
+                  "db" -> "sra",
+                  "id" -> ids.head,
+                  "retmode" -> "json"
+                )
+
+              makeRequest(summaryRequest).flatMap { summaryResponse =>
+                // Extract BioProject ID from the summary response
+                val bioProjectIdOpt = for {
+                  result <- (summaryResponse.json \ "result").asOpt[JsObject]
+                  docsum <- result.value.get(ids.head).flatMap(_.asOpt[JsObject])
+                  expXmlStr <- docsum.value.get("expxml").flatMap(_.asOpt[String])
+                  xml = scala.xml.XML.loadString(s"<root>${expXmlStr.trim}</root>")
+                  bioProjectId <- (xml \\ "Bioproject").headOption.map(_.text)
+                } yield bioProjectId
+
+                bioProjectIdOpt match {
+                  case Some(bioProjectId) =>
+                    // Add delay before recursive call
+                    Thread.sleep(1500)
+                    getSraStudyDetails(bioProjectId)
+                  case None => Future.successful(None)
+                }
+              }
+            }
           }
         }
       }
     }
   }
+
 
   def getSraBiosamples(accession: String): Future[Seq[SraBiosampleData]] = {
     val searchRequest = ws.url(s"$baseUrl/esearch.fcgi")
