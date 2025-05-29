@@ -113,7 +113,7 @@ class BiosampleRepositoryImpl @Inject()(
   protected implicit val getBiosampleWithOriginResult: GetResult[BiosampleWithOrigin] = GetResult(r =>
     BiosampleWithOrigin(
       sampleName = r.nextStringOption(),
-      enaAccession = r.nextString(),
+      accession = r.nextString(),
       sex = r.nextStringOption(),
       geoCoord = r.nextObjectOption().flatMap(readPoint),
       yDnaHaplogroup = r.nextStringOption(),

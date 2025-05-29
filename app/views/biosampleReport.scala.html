@@ -20,7 +20,7 @@
                 <tr>
                     <td>@sample.sampleName</td>
                     <td>
-                    @{sample.enaAccession match {
+                    @{sample.accession match {
                         case acc if acc.startsWith("SAMN") => {
                                 <a href={s"https://www.ncbi.nlm.nih.gov/biosample/${acc}"}
                                 target="_blank"

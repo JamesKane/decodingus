@@ -148,10 +148,10 @@
             </section>
         }
 
-        @if(publicationWithDetails.enaStudies.nonEmpty) {
+        @if(publicationWithDetails.bioStudies.nonEmpty) {
             <section class="mb-3">
                 <h3 class="h6 mb-2">Genomic Studies</h3>
-                @defining(publicationWithDetails.enaStudies.groupBy(_.source)) { studiesBySource =>
+                @defining(publicationWithDetails.bioStudies.groupBy(_.source)) { studiesBySource =>
                     @for((source, studies) <- studiesBySource) {
                         <h4 class="h6 mt-3 mb-2">@{source match {
                             case StudySource.ENA => "European Nucleotide Archive"

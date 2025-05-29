@@ -7,13 +7,13 @@ import play.api.libs.json.{Json, OFormat}
  * Represents a publication along with its associated ENA studies and the total number of samples.
  *
  * @param publication The publication containing metadata such as title, authors, journal, and identifiers.
- * @param enaStudies  A collection of ENA studies related to the publication, each described with details 
+ * @param bioStudies  A collection of ENA studies related to the publication, each described with details
  *                    such as accession, title, and institution.
  * @param sampleCount The total number of samples associated with the ENA studies in this publication.
  */
 case class PublicationWithEnaStudiesAndSampleCount(
                                                     publication: Publication,
-                                                    enaStudies: Seq[GenomicStudy],
+                                                    bioStudies: Seq[GenomicStudy],
                                                     sampleCount: Int,
                                                   )
 

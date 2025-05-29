@@ -16,7 +16,7 @@ case class PopulationInfo(populationName: String, probability: BigDecimal, metho
  * Represents a biosample with detailed origin and associated metadata.
  *
  * @param sampleName        An optional name of the sample.
- * @param enaAccession      ENA (European Nucleotide Archive) accession identifier for the sample.
+ * @param accession      ENA (European Nucleotide Archive) accession identifier for the sample.
  * @param sex               An optional gender or sex information for the sample.
  * @param yDnaHaplogroup    An optional Y-DNA haplogroup associated with the sample.
  * @param mtDnaHaplogroup   An optional mitochondrial DNA haplogroup associated with the sample.
@@ -26,13 +26,13 @@ case class PopulationInfo(populationName: String, probability: BigDecimal, metho
  * @param bestFitPopulation An optional population information associated with the sample.
  */
 case class BiosampleWithOrigin(
-                                sampleName: Option[String], 
-                                enaAccession: String, 
-                                sex: Option[String], 
-                                yDnaHaplogroup: Option[String], 
-                                mtDnaHaplogroup: Option[String], 
-                                reads: Option[Int], 
-                                readLen: Option[Int], 
+                                sampleName: Option[String],
+                                accession: String,
+                                sex: Option[String],
+                                yDnaHaplogroup: Option[String],
+                                mtDnaHaplogroup: Option[String],
+                                reads: Option[Int],
+                                readLen: Option[Int],
                                 geoCoord: Option[GeoCoord],
                                 bestFitPopulation: Option[PopulationInfo],
                               ) {
