@@ -6,7 +6,7 @@ import org.apache.pekko.actor.Actor
 import org.apache.pekko.stream.{Materializer, ThrottleMode}
 import org.apache.pekko.stream.scaladsl.{Sink, Source}
 import repositories.{BiosampleRepository, GenomicStudyRepository, PublicationBiosampleRepository, PublicationGenomicStudyRepository}
-import services.EnaIntegrationService
+import services.GenomicStudyService
 
 import scala.concurrent.{ExecutionContextExecutor, Future}
 import scala.concurrent.duration.*
@@ -17,7 +17,7 @@ object GenomicStudyUpdateActor {
 }
 
 class GenomicStudyUpdateActor @Inject()(
-                                         enaService: EnaIntegrationService,
+                                         enaService: GenomicStudyService,
                                          studyRepository: GenomicStudyRepository,
                                          biosampleRepository: BiosampleRepository,
                                          publicationStudyRepository: PublicationGenomicStudyRepository,
