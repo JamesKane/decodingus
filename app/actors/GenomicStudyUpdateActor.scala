@@ -17,7 +17,7 @@ object GenomicStudyUpdateActor {
 }
 
 class GenomicStudyUpdateActor @Inject()(
-                                         enaService: GenomicStudyService,
+                                         genomicStudyService: GenomicStudyService,
                                          studyRepository: GenomicStudyRepository,
                                          biosampleRepository: BiosampleRepository,
                                          publicationStudyRepository: PublicationGenomicStudyRepository,
@@ -30,34 +30,31 @@ class GenomicStudyUpdateActor @Inject()(
 
   // Rate limiting configuration
   private val elementsPerUnit = 1
-  private val perDuration = 150.millis
+  private val perDuration = 2.second  // Increased to handle NCBI rate limits
   private val maxBurst = 1
   private val throttleMode = ThrottleMode.shaping
 
   def receive = {
-    case UpdateStudy(accession, StudySource.ENA, publicationId) =>
+    case UpdateStudy(accession, source, publicationId) =>
       val sender = context.sender()
 
       Source.single(accession)
         .throttle(elementsPerUnit, perDuration, maxBurst, throttleMode)
         .mapAsync(1) { acc =>
-          updateEnaStudy(acc, publicationId)
+          updateStudy(acc, source, publicationId)
         }
         .runWith(Sink.head)
         .foreach(result => sender ! result)
-
-    case UpdateStudy(accession, _, _) =>
-      sender() ! UpdateResult(accession, false, "Source not implemented")
   }
 
-  private def updateEnaStudy(accession: String, publicationId: Option[Int]) = {
+  private def updateStudy(accession: String, source: StudySource, publicationId: Option[Int]) = {
     (for {
-      studyOpt <- enaService.getStudyDetails(accession)
+      studyOpt <- genomicStudyService.getStudyDetails(accession)
       result <- studyOpt match {
         case Some(study) =>
           for {
             savedStudy <- studyRepository.saveStudy(study)
-            biosamples <- enaService.getBiosamplesForStudy(accession)
+            biosamples <- genomicStudyService.getBiosamplesForStudy(accession)
             savedBiosamples <- if (biosamples.nonEmpty) {
               biosampleRepository.upsertMany(biosamples)
             } else Future.successful(Seq.empty)
@@ -81,11 +78,11 @@ class GenomicStudyUpdateActor @Inject()(
           } yield UpdateResult(
             accession,
             true,
-            s"Study updated successfully with ${savedBiosamples.size} biosamples" +
+            s"${source} study updated successfully with ${savedBiosamples.size} biosamples" +
               publicationId.map(id => s" and linked to publication $id").getOrElse("")
           )
         case None =>
-          Future.successful(UpdateResult(accession, false, "No data found in ENA"))
+          Future.successful(UpdateResult(accession, false, s"No data found in ${source}"))
       }
     } yield result).recover {
       case e: Exception =>
