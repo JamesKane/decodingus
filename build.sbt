@@ -18,9 +18,10 @@ scalacOptions ++= Seq("-Xmax-inlines", "128")
 libraryDependencies ++= Seq(
   guice,
   caffeine,
+  "org.scala-lang.modules" %% "scala-xml" % "2.4.0",
   "org.playframework" %% "play-slick" % SLICK_VERSION,
   "org.playframework" %% "play-slick-evolutions" % SLICK_VERSION,
-  "org.postgresql" % "postgresql" % "42.7.5",
+  "org.postgresql" % "postgresql" % "42.7.6",
   "com.github.tminglei" %% "slick-pg" % SLICK_PG_VERSION,
   "com.github.tminglei" %% "slick-pg_jts" % SLICK_PG_VERSION,
   "com.github.tminglei" %% "slick-pg_play-json" % SLICK_PG_VERSION,

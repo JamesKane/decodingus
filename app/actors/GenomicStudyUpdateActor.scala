@@ -52,7 +52,7 @@ class GenomicStudyUpdateActor @Inject()(
 
   private def updateEnaStudy(accession: String, publicationId: Option[Int]) = {
     (for {
-      studyOpt <- enaService.getEnaStudyDetails(accession)
+      studyOpt <- enaService.getStudyDetails(accession)
       result <- studyOpt match {
         case Some(study) =>
           for {

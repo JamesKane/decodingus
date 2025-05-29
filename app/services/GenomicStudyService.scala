@@ -1,8 +1,8 @@
 package services
 
 import models.domain.genomics.Biosample
-import models.domain.publications.{GenomicStudy, StudySource}
 import models.domain.publications.StudySource.ENA
+import models.domain.publications.{GenomicStudy, StudySource}
 import play.api.Logging
 import play.api.libs.json.*
 import play.api.libs.ws.*
@@ -30,18 +30,43 @@ class GenomicStudyService @Inject()(ws: WSClient)(implicit ec: ExecutionContext)
   }
 
   private def determineSource(accession: String): StudySource = {
-    accession match {
-      case acc if acc.startsWith("PRJ") || acc.startsWith("SRP") => StudySource.NCBI_BIOPROJECT
-      // GenBank accession patterns
-      case acc if acc.matches("[A-Z]\\d{5,8}") => StudySource.NCBI_GENBANK // Traditional GenBank
-      case acc if acc.matches("[A-Z]{2}_\\d+") => StudySource.NCBI_GENBANK // RefSeq
-      case acc if acc.matches("[A-Z]{4}\\d{8,10}") => StudySource.NCBI_GENBANK // WGS
-      // Default to ENA for other patterns
+    val acc = accession.toUpperCase.trim
+
+    acc match {
+      // NCBI BioProjects
+      case a if a.startsWith("PRJNA") => StudySource.NCBI_BIOPROJECT
+      // ENA BioProjects
+      case a if a.startsWith("PRJEB") => StudySource.ENA
+      // ENA SRA Accessions
+      case a if List("ERR", "ERX", "ERS", "ERA", "ERZ", "ERP").exists(a.startsWith) => StudySource.ENA
+      // NCBI SRA Accessions
+      case a if List("SRR", "SRX", "SRS", "SRP").exists(a.startsWith) => StudySource.NCBI_BIOPROJECT
+      // NCBI RefSeq Accessions
+      case a if List("NM_", "NP_", "XM_", "XP_", "NR_", "XR_", "WP_").exists(a.startsWith) => StudySource.NCBI_GENBANK
+      // Common NCBI GenBank patterns
+      case a if (
+        // Single letter + 5 digits
+        (a.length == 6 && a.head.isLetter && a.tail.forall(_.isDigit)) ||
+          // Two letters + 6 digits
+          (a.length == 8 && a.take(2).forall(_.isLetter) && a.drop(2).forall(_.isDigit)) ||
+          // WGS pattern: four letters + "01" + 6 digits
+          (a.length >= 12 &&
+            a.take(4).forall(_.isLetter) &&
+            a.slice(4, 6) == "01" &&
+            a.drop(6).forall(_.isDigit))
+        ) => StudySource.NCBI_GENBANK
+      // Handle versioned accessions
+      case a if a.contains(".") =>
+        a.split("\\.") match {
+          case Array(base, version) if version.forall(_.isDigit) => StudySource.NCBI_GENBANK
+          case _ => StudySource.ENA // Default for unrecognized patterns
+        }
+      // Default to ENA for unrecognized patterns
       case _ => StudySource.ENA
     }
   }
 
-  def getEnaStudyDetails(accession: String): Future[Option[GenomicStudy]] = {
+  private def getEnaStudyDetails(accession: String): Future[Option[GenomicStudy]] = {
     // Example for PRJEB (Study) accessions. Other accessions (ERA, ERR, SRR) might need different queries.
     val query = s"study_accession=$accession"
     val fields = "study_accession,study_title,center_name,study_name,study_description" // Select relevant fields
@@ -83,6 +108,14 @@ class GenomicStudyService @Inject()(ws: WSClient)(implicit ec: ExecutionContext)
   }
 
   def getBiosamplesForStudy(studyAccession: String): Future[Seq[Biosample]] = {
+    determineSource(studyAccession) match {
+      case StudySource.ENA => getEnaBiosamples(studyAccession)
+      case StudySource.NCBI_BIOPROJECT if studyAccession.startsWith("SRP") => getNcbiBiosamples(studyAccession)
+      case _ => Future.successful(Seq.empty)
+    }
+  }
+
+  def getEnaBiosamples(studyAccession: String): Future[Seq[Biosample]] = {
     val fields = "sample_accession,description,sample_alias,center_name,sex,lat,lon,collection_date"
 
     ws.url(enaPortalApiBaseUrl)
@@ -133,6 +166,81 @@ class GenomicStudyService @Inject()(ws: WSClient)(implicit ec: ExecutionContext)
       }
   }
 
+  private def getNcbiBiosamples(accession: String): Future[Seq[Biosample]] = {
+    // Step 1: Find associated SRX/SRR IDs using esearch
+    val searchUrl = s"$ncbiEutilsBaseUrl/esearch.fcgi"
+    val searchRequest = ws.url(searchUrl)
+      .withQueryStringParameters(
+        "db" -> "sra",
+        "term" -> s"$accession[BioProject]",
+        "retmode" -> "json"
+      )
+
+    logger.info(s"NCBI esearch URL: ${searchRequest.uri}")
+
+    searchRequest.get().flatMap { searchResponse =>
+      searchResponse.status match {
+        case 200 =>
+          val ids = (searchResponse.json \\ "idlist").headOption
+            .map(_.as[Seq[String]])
+            .getOrElse(Seq.empty)
+
+          if (ids.nonEmpty) {
+            // Step 2: Get details using esummary with the found IDs
+            val summaryUrl = s"$ncbiEutilsBaseUrl/esummary.fcgi"
+            val summaryRequest = ws.url(summaryUrl)
+              .withQueryStringParameters(
+                "db" -> "sra",
+                "id" -> ids.mkString(","),
+                "retmode" -> "json"
+              )
+
+            logger.info(s"NCBI esummary URL: ${summaryRequest.uri}")
+
+            summaryRequest.get().map { summaryResponse =>
+              summaryResponse.status match {
+                case 200 =>
+                  val result = summaryResponse.json \\ "result"
+                  result.headOption.map(_.as[JsObject]).map { data =>
+                    // Extract biosamples from experiment data
+                    ids.flatMap { id =>
+                      try {
+                        val expData = (data \ id.toString).as[JsObject]
+                        val expXml = (expData \ "expxml").as[JsObject]
+
+                        Some(Biosample(
+                          id = None,
+                          sampleAccession = (expXml \ "Sample" \ "Accession").asOpt[String].getOrElse(""),
+                          description = (expXml \ "Summary" \ "Description").asOpt[String].getOrElse(""),
+                          alias = (expXml \ "Sample" \ "Alias").asOpt[String],
+                          centerName = (expXml \ "Center" \ "Name").asOpt[String].getOrElse("N/A"),
+                          sex = None, // SRA doesn't typically include sex information
+                          geocoord = None, // SRA doesn't typically include coordinates
+                          specimenDonorId = None,
+                          sampleGuid = UUID.randomUUID(),
+                          locked = false
+                        ))
+                      } catch {
+                        case e: Exception =>
+                          logger.error(s"Error parsing experiment $id: ${e.getMessage}")
+                          None
+                      }
+                    }
+                  }.getOrElse(Seq.empty)
+                case _ => Seq.empty
+              }
+            }
+          } else Future.successful(Seq.empty)
+        case _ => Future.successful(Seq.empty)
+      }
+    }.recover {
+      case e: Exception =>
+        logger.error(s"Exception during NCBI SRA API call for $accession: ${e.getMessage}")
+        Seq.empty
+    }
+  }
+
+
   private def validateSex(sex: Option[String]): Option[String] = {
     sex.flatMap { s =>
       val normalized = s.toLowerCase.trim
@@ -141,37 +249,123 @@ class GenomicStudyService @Inject()(ws: WSClient)(implicit ec: ExecutionContext)
   }
 
   private def getNcbiStudyDetails(accession: String): Future[Option[GenomicStudy]] = {
-    val url = s"$ncbiEutilsBaseUrl/esummary.fcgi"
+    if (accession.startsWith("SRP")) {
+      val searchUrl = s"$ncbiEutilsBaseUrl/esearch.fcgi"
+      val searchRequest = ws.url(searchUrl)
+        .withQueryStringParameters(
+          "db" -> "sra",
+          "term" -> accession,
+          "retmode" -> "json"
+        )
 
-    ws.url(url)
+      logger.info(s"NCBI esearch URL for SRA: ${searchRequest.uri}")
+
+      searchRequest.get().flatMap { searchResponse =>
+        searchResponse.status match {
+          case 200 =>
+            val ids = (searchResponse.json \\ "idlist").headOption
+              .map(_.as[Seq[String]])
+              .getOrElse(Seq.empty)
+
+            if (ids.nonEmpty) {
+              val summaryUrl = s"$ncbiEutilsBaseUrl/esummary.fcgi"
+              val summaryRequest = ws.url(summaryUrl)
+                .withQueryStringParameters(
+                  "db" -> "sra",
+                  "id" -> ids.head,
+                  "retmode" -> "json"
+                )
+
+              logger.info(s"NCBI esummary URL for SRA: ${summaryRequest.uri}")
+
+              summaryRequest.get().flatMap { summaryResponse =>
+                summaryResponse.status match {
+                  case 200 =>
+                    try {
+                      val result = (summaryResponse.json \ "result").asOpt[JsObject]
+                      val docsum = result.flatMap(r => (r \ ids.head.toString).asOpt[JsObject])
+                      val expXmlStr = docsum.flatMap(d => (d \ "expxml").asOpt[String])
+
+                      expXmlStr match {
+                        case Some(xmlStr) =>
+                          logger.info(s"XML content for $accession:")
+                          logger.info(xmlStr)
+
+                          val wrappedXml = s"<root>${xmlStr.trim}</root>"
+                          logger.info(s"Wrapped XML content:")
+                          logger.info(wrappedXml)
+
+                          try {
+                            val xml = scala.xml.XML.loadString(wrappedXml)
+                            val bioProjectOpt = (xml \\ "Bioproject").headOption.map(_.text)
+
+                            bioProjectOpt match {
+                              case Some(bioProjectId) =>
+                                logger.info(s"Found BioProject ID: $bioProjectId for $accession")
+                                getBioProjectDetails(bioProjectId).map(_.map(_.copy(
+                                  bioProjectId = Some(bioProjectId)
+                                )))
+                              case None =>
+                                logger.error(s"No BioProject element found in XML for $accession")
+                                Future.successful(None)
+                            }
+                          } catch {
+                            case e: Exception =>
+                              logger.error(s"XML parsing error for $accession: ${e.getMessage}")
+                              Future.successful(None)
+                          }
+                        case None =>
+                          logger.error(s"No XML content found in response for $accession")
+                          Future.successful(None)
+                      }
+                    } catch {
+                      case e: Exception =>
+                        logger.error(s"Error processing NCBI SRA response for $accession: ${e.getMessage}")
+                        logger.error(s"Full response body: ${summaryResponse.body}")
+                        Future.successful(None)
+                    }
+                  case _ => Future.successful(None)
+                }
+              }
+            } else Future.successful(None)
+          case _ => Future.successful(None)
+        }
+      }
+    } else {
+      getBioProjectDetails(accession)
+    }
+  }
+
+
+  private def getBioProjectDetails(accession: String): Future[Option[GenomicStudy]] = {
+    val url = s"$ncbiEutilsBaseUrl/esummary.fcgi"
+    val request = ws.url(url)
       .withQueryStringParameters(
         "db" -> "bioproject",
-        "term" -> accession,
+        "id" -> accession,
         "retmode" -> "json"
       )
-      .get()
+
+    logger.info(s"NCBI API request URL for BioProject: ${request.uri}")
+
+    request.get()
       .map { response =>
         response.status match {
           case 200 =>
             val result = response.json \\ "result"
-            val projectData = result.head.as[JsObject]
+            val data = result.head.as[JsObject]
 
             Some(GenomicStudy(
               id = None,
               accession = accession,
-              title = (projectData \ "title").asOpt[String].getOrElse("").take(255),
-              centerName = (projectData \ "organization").asOpt[String].getOrElse("N/A"),
-              studyName = accession,  // Use accession as study name if none provided
-              details = (projectData \ "description").asOpt[String].getOrElse(""),
+              title = (data \ "title").asOpt[String].getOrElse("").take(255),
+              centerName = (data \ "organization").asOpt[String].getOrElse("N/A"),
+              studyName = accession,
+              details = (data \ "description").asOpt[String].getOrElse(""),
               source = StudySource.NCBI_BIOPROJECT
             ))
           case _ => None
         }
-      }
-      .recover {
-        case e: Exception =>
-          logger.error(s"Exception fetching NCBI BioProject details for accession $accession: $e")
-          None
       }
   }
 
