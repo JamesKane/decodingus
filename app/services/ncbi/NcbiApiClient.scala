@@ -201,17 +201,22 @@ class NcbiApiClient @Inject()(ws: WSClient)(implicit ec: ExecutionContext, mat: 
                 val expXmlStr = (expJson \ "expxml").as[String]
                 val xml = scala.xml.XML.loadString(s"<root>${expXmlStr.trim}</root>")
 
-                // Only create a Biosample if we have a valid sample accession
                 (xml \\ "Biosample").headOption.map(_.text).filter(_.nonEmpty).map { sampleAccession =>
                   val attributes = (xml \\ "Attributes" \\ "Attribute").map { attr =>
                     ((attr \ "@name").text, attr.text)
                   }.toMap
 
+                  // Try to get sample name from various possible locations
+                  val sampleName = (xml \\ "Sample" \ "@alias").headOption.map(_.text)
+                    .orElse((xml \\ "Sample_Name").headOption.map(_.text))
+                    .orElse((xml \\ "SAMPLE_NAME").headOption.map(_.text))
+                    .orElse((xml \\ "Sample" \ "SAMPLE_NAME").headOption.map(_.text))
+
                   SraBiosampleData(
                     sampleAccession = sampleAccession,
                     description = (xml \\ "Summary" \\ "Title").headOption.map(_.text)
                       .getOrElse("No description available"),
-                    alias = (xml \\ "Library_descriptor" \\ "LIBRARY_NAME").headOption.map(_.text),
+                    alias = sampleName.orElse((xml \\ "Library_descriptor" \\ "LIBRARY_NAME").headOption.map(_.text)),
                     centerName = (xml \\ "Submitter" \\ "@center_name").headOption.map(_.text)
                       .getOrElse("N/A"),
                     attributes = attributes
