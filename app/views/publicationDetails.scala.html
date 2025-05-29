@@ -1,3 +1,5 @@
+@import models.domain.publications.StudySource
+
 @(publicationWithDetails: models.api.PublicationWithEnaStudiesAndSampleCount)
 
 <article class="publication-details card shadow-sm mb-4">
@@ -148,18 +150,46 @@
 
         @if(publicationWithDetails.enaStudies.nonEmpty) {
             <section class="mb-3">
-                <h3 class="h6 mb-2">ENA Studies</h3>
-                <ul class="list-unstyled">
-                @for(study <- publicationWithDetails.enaStudies) {
-                    <li><a href="https://www.ebi.ac.uk/ena/browser/view/@{
-                        study.accession
-                    }" target="_blank" rel="noopener noreferrer"><code class="text-monospace">@study.accession</code></a>
-                        - @study.title - @study.centerName
-                    </li>
+                <h3 class="h6 mb-2">Genomic Studies</h3>
+                @defining(publicationWithDetails.enaStudies.groupBy(_.source)) { studiesBySource =>
+                    @for((source, studies) <- studiesBySource) {
+                        <h4 class="h6 mt-3 mb-2">@{source match {
+                            case StudySource.ENA => "European Nucleotide Archive"
+                            case StudySource.NCBI_BIOPROJECT => "NCBI BioProject"
+                            case _ => source.toString
+                        }}</h4>
+                        <ul class="list-unstyled">
+                        @for(study <- studies) {
+                            <li>
+                                @{source match {
+                                    case StudySource.ENA => {
+                                            <a href={s"https://www.ebi.ac.uk/ena/browser/view/${study.accession}"}
+                                            target="_blank" rel="noopener noreferrer">
+                                            <code class="text-monospace">{study.accession}</code>
+                                            </a>
+                                    }
+                                    case StudySource.NCBI_BIOPROJECT => {
+                                            <a href={s"https://www.ncbi.nlm.nih.gov/bioproject/${study.accession}"}
+                                            target="_blank" rel="noopener noreferrer">
+                                            <code class="text-monospace">{study.accession}</code>
+                                            </a>
+                                    }
+                                    case _ => {
+                                            <code class="text-monospace">{study.accession}</code>
+                                    }
+                                }}
+                                - @study.title
+                                @if(study.centerName != "N/A") {
+                                    - @study.centerName
+                            }
+                            </li>
+                        }
+                        </ul>
+                    }
                 }
-                </ul>
             </section>
         }
+
 
         @if(publicationWithDetails.sampleCount > 0) {
             <aside class="alert alert-light mb-3" role="alert">

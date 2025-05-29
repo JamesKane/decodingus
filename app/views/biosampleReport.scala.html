@@ -20,12 +20,27 @@
                 <tr>
                     <td>@sample.sampleName</td>
                     <td>
-                        <a href="https://www.ebi.ac.uk/ena/browser/view/@sample.enaAccession"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        class="text-monospace">
-                        @sample.enaAccession
-                        </a>
+                    @{sample.enaAccession match {
+                        case acc if acc.startsWith("SAMN") => {
+                                <a href={s"https://www.ncbi.nlm.nih.gov/biosample/${acc}"}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                class="text-monospace">
+                                {acc}
+                                </a>
+                        }
+                        case acc if acc.startsWith("ERS") || acc.startsWith("SAM") => {
+                                <a href={s"https://www.ebi.ac.uk/ena/browser/view/${acc}"}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                class="text-monospace">
+                                {acc}
+                                </a>
+                        }
+                        case acc => {
+                                <span class="text-monospace">{acc}</span>
+                        }
+                    }}
                     </td>
                     <td>@sample.formattedOrigin</td>
                     <td  class="text-center">@sample.estimateCoverageDepth.map(d => s"${d}x").getOrElse("???")</td>
