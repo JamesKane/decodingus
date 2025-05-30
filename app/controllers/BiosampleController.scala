@@ -1,10 +1,10 @@
 package controllers
 
 import jakarta.inject.Inject
-import models.api.{BiosampleUpdate, GeoCoord, BiosampleView}
+import models.api.{BiosampleUpdate, BiosampleView, GeoCoord}
 import models.domain.genomics.Biosample
 import play.api.libs.json.{JsValue, Json}
-import play.api.mvc.{AbstractController, Action, ControllerComponents}
+import play.api.mvc.{AbstractController, Action, AnyContent, ControllerComponents}
 import repositories.BiosampleRepository
 import utils.GeometryUtils
 
@@ -45,5 +45,11 @@ class BiosampleController @Inject()(
         }
       }
     )
+  }
+
+  def getSamplesWithStudies: Action[AnyContent] = Action.async {
+    biosampleRepository.findAllWithStudies().map { samples =>
+      Ok(Json.toJson(samples))
+    }
   }
 }

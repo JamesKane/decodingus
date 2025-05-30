@@ -42,8 +42,12 @@ GET           /api/v1/benchmarks                                                
 GET           /api/v1/references/details                                                 controllers.PublicationController.getAllPublicationsWithDetailsJson()
 GET           /api/v1/references/details/:publicationId/biosamples                       controllers.BiosampleReportController.getBiosampleReportJSON(publicationId: Int)
 
+# Sample studies endpoint
+GET           /api/v1/biosample/studies                                                    controllers.BiosampleController.getSamplesWithStudies()
+
 # Biosample API endpoint
 PATCH         /api/v1/biosample/:id                                                      controllers.BiosampleController.updateBiosample(id: Int)
+
 
 # Biosample Original Haplogroup endpoints
 PUT           /api/biosamples/:biosampleId/publications/:publicationId/haplogroup        controllers.BiosampleOriginalHaplogroupController.updateOrCreateHaplogroup(biosampleId: Int, publicationId: Int)

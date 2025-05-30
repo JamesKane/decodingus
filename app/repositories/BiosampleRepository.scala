@@ -3,10 +3,11 @@ package repositories
 import com.vividsolutions.jts.geom.Point
 import com.vividsolutions.jts.io.WKBReader
 import jakarta.inject.{Inject, Singleton}
-import models.api.{BiosampleWithOrigin, GeoCoord, PopulationInfo}
+import models.api.{BiosampleWithOrigin, GeoCoord, PopulationInfo, SampleWithStudies, StudyWithHaplogroups}
 import models.dal.{DatabaseSchema, MyPostgresProfile}
 import models.domain.genomics.Biosample
 import play.api.db.slick.DatabaseConfigProvider
+import play.api.libs.json.Json
 import slick.jdbc.GetResult
 
 import scala.concurrent.{ExecutionContext, Future}
@@ -83,6 +84,13 @@ trait BiosampleRepository {
    * @return future sequence of the upserted biosamples with their IDs
    */
   def upsertMany(biosamples: Seq[Biosample]): Future[Seq[Biosample]]
+
+  /**
+   * Retrieves all samples with their associated studies and original haplogroup assignments
+   *
+   * @return a future containing a sequence of samples with their studies and assignments
+   */
+  def findAllWithStudies(): Future[Seq[SampleWithStudies]]
 }
 
 @Singleton
@@ -264,6 +272,73 @@ class BiosampleRepositoryImpl @Inject()(
       }
 
       db.run(DBIO.sequence(actions).transactionally)
+    }
+  }
+
+  override def findAllWithStudies(): Future[Seq[SampleWithStudies]] = {
+    val query =
+      """
+      WITH sample_studies AS (
+          SELECT
+              b.id as biosample_id,
+              b.alias as sample_name,
+              b.sample_accession,
+              b.sex,
+              b.geocoord,
+              COALESCE(
+                              jsonb_agg(
+                              DISTINCT jsonb_build_object(
+                                      'accession', gs.accession,
+                                      'title', gs.title,
+                                      'centerName', gs.center_name,
+                                      'source', gs.source,
+                                      'yHaplogroup', boh.original_y_haplogroup,
+                                      'mtHaplogroup', boh.original_mt_haplogroup,
+                                      'notes', boh.notes
+                                       )
+                                       ) FILTER (WHERE gs.accession IS NOT NULL),
+                              '[]'::jsonb
+              ) as studies
+          FROM biosample b
+                   JOIN publication_biosample pb ON pb.biosample_id = b.id
+                   JOIN publication p ON p.id = pb.publication_id
+                   JOIN publication_ena_study pgs ON pgs.publication_id = pb.publication_id
+                   JOIN genomic_studies gs ON gs.id = pgs.genomic_study_id
+                   LEFT JOIN biosample_original_haplogroup boh ON
+              boh.biosample_id = b.id AND
+              boh.publication_id = p.id
+          GROUP BY b.id, b.alias, b.sample_accession, b.sex, b.geocoord
+      )
+      SELECT
+          sample_name,
+          sample_accession,
+          sex,
+          geocoord,
+          studies::text
+      FROM sample_studies
+      ORDER BY sample_accession
+      """
+
+    db.run(sql"""#$query""".as[(
+      Option[String], String, Option[String],
+        Option[AnyRef],
+        String
+      )]).map { results =>
+      results.map { case (
+        sampleName, accession, sex,
+        point,
+        studiesJson
+        ) =>
+        val studies = Json.parse(studiesJson).as[List[StudyWithHaplogroups]]
+
+        SampleWithStudies(
+          sampleName = sampleName,
+          accession = accession,
+          sex = sex,
+          geoCoord = readPoint(point),
+          studies = studies
+        )
+      }
     }
   }
 }
