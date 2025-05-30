@@ -37,5 +37,9 @@ class BaseModule extends AbstractModule {
     bind(classOf[PublicationGenomicStudyRepository])
       .to(classOf[PublicationGenomicStudyRepositoryImpl])
       .asEagerSingleton()
+    
+    bind(classOf[BiosampleOriginalHaplogroupRepository])
+      .to(classOf[BiosampleOriginalHaplogroupRepositoryImpl])
+      .asEagerSingleton()
   }
 }

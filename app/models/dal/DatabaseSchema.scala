@@ -104,6 +104,7 @@ object DatabaseSchema {
       val publications = TableQuery[PublicationsTable]
       val publicationBiosamples = TableQuery[PublicationBiosamplesTable]
       val publicationGenomicStudies = TableQuery[PublicationEnaStudiesTable]
+      val biosampleOriginalHaplogroups = TableQuery[BiosampleOriginalHaplogroupTable]
     }
 
     object ibd {

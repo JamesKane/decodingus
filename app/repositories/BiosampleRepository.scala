@@ -148,8 +148,8 @@ class BiosampleRepositoryImpl @Inject()(
            b.sample_accession,
            b.sex,
            b.geocoord,
-           MAX(CASE WHEN h.haplogroup_type = 'Y' THEN h.name END) AS y_haplogroup_name,
-           MAX(CASE WHEN h.haplogroup_type = 'MT' THEN h.name END) AS mt_haplogroup_name,
+           boh.original_y_haplogroup AS y_haplogroup_name,
+           boh.original_mt_haplogroup AS mt_haplogroup_name,
            sl.reads,
            sl.read_length,
            bp.population_name,
@@ -157,13 +157,11 @@ class BiosampleRepositoryImpl @Inject()(
            bp.method_name
     FROM publication_biosample pb
     INNER JOIN public.biosample b ON b.id = pb.biosample_id
-    LEFT JOIN biosample_haplogroup bh ON bh.sample_guid = b.sample_guid
-    LEFT JOIN haplogroup h ON h.haplogroup_id = bh.y_haplogroup_id AND h.haplogroup_type IN ('Y', 'MT')
+    LEFT JOIN biosample_original_haplogroup boh ON boh.biosample_id = b.id
+      AND boh.publication_id = $publicationId
     LEFT JOIN sequence_library sl on sl.sample_guid = b.sample_guid
     LEFT JOIN best_population bp ON bp.sample_guid = b.sample_guid AND bp.rn = 1
     WHERE pb.publication_id = $publicationId
-    GROUP BY b.alias, b.sample_accession, b.sex, b.geocoord, sl.reads, sl.read_length,
-        bp.population_name, bp.probability, bp.method_name
     ORDER BY b.alias
   """
 
