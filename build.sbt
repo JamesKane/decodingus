@@ -8,7 +8,7 @@ scalaVersion := "3.3.5"
 
 val SLICK_VERSION = "6.2.0"
 val SLICK_PG_VERSION = "0.23.0"
-val TAPIR_VERSION = "1.11.32"
+val TAPIR_VERSION = "1.11.33"
 
 // WARNING: Updating beyond 1.1.2 will result in startup errors, since quartz schedular needs this version
 val APACHE_PEKKO_VERSION = "1.1.2"
@@ -48,6 +48,8 @@ libraryDependencies ++= Seq(
   "org.apache.pekko" %% "pekko-protobuf-v3" % APACHE_PEKKO_VERSION,
   "org.apache.pekko" %% "pekko-serialization-jackson" % APACHE_PEKKO_VERSION,
   "org.apache.pekko" %% "pekko-stream" % APACHE_PEKKO_VERSION,
+
+  "software.amazon.awssdk" % "secretsmanager" % "2.31.54"
 )
 
 // Adds additional packages into Twirl
