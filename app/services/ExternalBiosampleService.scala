@@ -12,6 +12,23 @@ import java.time.LocalDateTime
 import java.util.UUID
 import scala.concurrent.{ExecutionContext, Future}
 
+/**
+ * Service class responsible for managing external biosample data.
+ *
+ * This service facilitates the creation, updating, and linking of biosample data
+ * with associated sequence data, publications, and other related entities.
+ * It handles the persistence and association of complex hierarchical data structures.
+ *
+ * @param biosampleRepository                   Repository for managing biosample entities.
+ * @param sequenceLibraryRepository             Repository for managing sequence library entities.
+ * @param sequenceFileRepository                Repository for managing sequence file entities.
+ * @param sequenceHttpLocationRepository        Repository for managing sequence HTTP location entities.
+ * @param publicationRepository                 Repository for managing publication entities.
+ * @param biosampleOriginalHaplogroupRepository Repository for managing biosample original haplogroup entities.
+ * @param sequenceFileChecksumRepository        Repository for managing sequence file checksum entities.
+ * @param publicationBiosampleRepository        Repository for managing publication-biosample relationships.
+ * @param ec                                    Execution context used for executing asynchronous computations.
+ */
 @Singleton
 class ExternalBiosampleService @Inject()(
                                           biosampleRepository: BiosampleRepository,
@@ -24,6 +41,13 @@ class ExternalBiosampleService @Inject()(
                                           publicationBiosampleRepository: PublicationBiosampleRepository
                                         )(implicit ec: ExecutionContext) {
 
+  /**
+   * Creates a biosample along with associated sequence data and optional publication information.
+   *
+   * @param request an instance of `ExternalBiosampleRequest` containing the details of the biosample to be created,
+   *                including metadata, geographical coordinates, sequencing data, and optional publication information.
+   * @return a `Future` containing the UUID of the created biosample.
+   */
   def createBiosampleWithData(request: ExternalBiosampleRequest): Future[UUID] = {
     val sampleGuid = UUID.randomUUID()
 
@@ -116,11 +140,30 @@ class ExternalBiosampleService @Inject()(
     } yield ()
   }
 
+  /**
+   * Adds sequence data associated with a specific sample using its unique identifier.
+   *
+   * This method facilitates the creation or linkage of sequencing data to a
+   * biosample by invoking the underlying `createSequenceData` method.
+   *
+   * @param sampleGuid the unique identifier of the biosample to which the sequence data will be associated
+   * @param data       an instance of `SequenceDataInfo` containing metadata and details about the sequencing data
+   * @return a `Future` indicating the completion of the operation, where successful completion yields `Unit`
+   */
   def addSequenceData(sampleGuid: UUID, data: SequenceDataInfo): Future[Unit] = {
     createSequenceData(sampleGuid, data)
   }
 
 
+  /**
+   * Links a publication to a biosample by associating their records and creating any additional
+   * data relationships, such as original haplogroups, if applicable.
+   *
+   * @param sampleGuid the unique identifier of the biosample to which the publication will be linked
+   * @param pubInfo    an instance of `PublicationInfo` containing the publication details, including DOI,
+   *                   PubMed ID, and optional original haplogroup information
+   * @return a `Future` indicating the completion of the operation, where successful completion yields `Unit`
+   */
   def linkPublication(sampleGuid: UUID, pubInfo: PublicationInfo): Future[Unit] = {
     for {
       maybeBiosample <- biosampleRepository.findByGuid(sampleGuid)
