@@ -47,5 +47,17 @@ class BaseModule extends AbstractModule {
       .to(classOf[SequenceHttpLocationRepositoryImpl])
       .asEagerSingleton()
 
+    bind(classOf[SequenceFileChecksumRepository])
+      .to(classOf[SequenceFileChecksumRepositoryImpl])
+      .asEagerSingleton()
+
+    bind(classOf[SequenceFileRepository])
+      .to(classOf[SequenceFileRepositoryImpl])
+      .asEagerSingleton()
+
+    bind(classOf[SequenceLibraryRepository])
+      .to(classOf[SequenceLibraryRepositoryImpl])
+      .asEagerSingleton()
+
   }
 }
