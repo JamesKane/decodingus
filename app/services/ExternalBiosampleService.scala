@@ -4,7 +4,7 @@ import jakarta.inject.Inject
 import jakarta.inject.Singleton
 import models.api.{ExternalBiosampleRequest, PublicationInfo, SequenceDataInfo}
 import models.domain.genomics.{Biosample, SequenceFile, SequenceFileChecksum, SequenceHttpLocation, SequenceLibrary}
-import models.domain.publications.{Publication, PublicationBiosample}
+import models.domain.publications.{BiosampleOriginalHaplogroup, Publication, PublicationBiosample}
 import repositories.{BiosampleOriginalHaplogroupRepository, BiosampleRepository, PublicationBiosampleRepository, PublicationRepository, SequenceFileChecksumRepository, SequenceFileRepository, SequenceLibraryRepository, SequenceLocationRepository}
 import utils.GeometryUtils
 
@@ -63,8 +63,8 @@ class ExternalBiosampleService @Inject()(
       instrument = data.platformName,
       reads = data.reads.getOrElse(0),
       readLength = data.readLength.getOrElse(0),
-      pairedEnd = false,  // This should probably come from the request
-      insertSize = None,  // This should probably come from the request
+      pairedEnd = false, // This should probably come from the request
+      insertSize = None, // This should probably come from the request
       created_at = LocalDateTime.now(),
       updated_at = None
     )
@@ -149,8 +149,20 @@ class ExternalBiosampleService @Inject()(
       ))
       _ <- publicationBiosampleRepository.create(PublicationBiosample(
         publicationId = publication.id.get,
-        biosampleId = biosample.id.get  // Now safe because we've handled the Option[Biosample]
+        biosampleId = biosample.id.get
       ))
+      _ <- pubInfo.originalHaplogroups match {
+        case Some(haplogroupInfo) =>
+          biosampleOriginalHaplogroupRepository.create(BiosampleOriginalHaplogroup(
+            id = None,
+            biosampleId = biosample.id.get,
+            publicationId = publication.id.get,
+            originalYHaplogroup = haplogroupInfo.yHaplogroup,
+            originalMtHaplogroup = haplogroupInfo.mtHaplogroup,
+            notes = haplogroupInfo.notes
+          ))
+        case None => Future.successful(())
+      }
     } yield ()
   }
 }
