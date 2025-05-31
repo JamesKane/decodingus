@@ -22,7 +22,6 @@ case class SequenceFile(
                          libraryId: Int,
                          fileName: String,
                          fileSizeBytes: Long,
-                         fileMd5: String,
                          fileFormat: String,
                          aligner: String,
                          targetReference: String,

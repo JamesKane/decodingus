@@ -18,4 +18,8 @@ object GeometryUtils {
   def geoCoordToPoint(geoCoord: GeoCoord): Point = {
     geometryFactory.createPoint(new Coordinate(geoCoord.lon, geoCoord.lat))
   }
+
+  def createPoint(lat: Double, lon: Double): Point = {
+    geometryFactory.createPoint(new Coordinate(lon, lat))
+  }
 }

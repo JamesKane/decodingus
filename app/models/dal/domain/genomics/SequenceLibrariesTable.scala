@@ -52,7 +52,7 @@ class SequenceLibrariesTable(tag: Tag) extends Table[SequenceLibrary](tag, "sequ
 
   def pairedEnd = column[Boolean]("paired_end")
 
-  def insertSize = column[Int]("insert_size")
+  def insertSize = column[Option[Int]]("insert_size")
 
   def createdAt = column[LocalDateTime]("created_at")
 

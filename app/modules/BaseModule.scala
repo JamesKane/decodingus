@@ -1,6 +1,7 @@
 package modules
 
-import com.google.inject.AbstractModule
+import com.google.inject.{AbstractModule, TypeLiteral}
+import models.domain.genomics.SequenceHttpLocation
 import repositories.*
 
 /**
@@ -41,5 +42,10 @@ class BaseModule extends AbstractModule {
     bind(classOf[BiosampleOriginalHaplogroupRepository])
       .to(classOf[BiosampleOriginalHaplogroupRepositoryImpl])
       .asEagerSingleton()
+
+    bind(new TypeLiteral[SequenceLocationRepository[SequenceHttpLocation]]() {})
+      .to(classOf[SequenceHttpLocationRepositoryImpl])
+      .asEagerSingleton()
+
   }
 }

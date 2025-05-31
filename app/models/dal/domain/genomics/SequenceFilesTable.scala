@@ -35,8 +35,6 @@ class SequenceFilesTable(tag: Tag) extends Table[SequenceFile](tag, "sequence_fi
 
   def fileSizeBytes = column[Long]("file_size_bytes")
 
-  def fileMd5 = column[String]("file_md5")
-
   def fileFormat = column[String]("file_format")
 
   def aligner = column[String]("aligner")
@@ -47,5 +45,5 @@ class SequenceFilesTable(tag: Tag) extends Table[SequenceFile](tag, "sequence_fi
 
   def updatedAt = column[Option[LocalDateTime]]("updated_at")
 
-  def * = (id.?, libraryId, fileName, fileSizeBytes, fileMd5, fileFormat, aligner, targetReference, createdAt, updatedAt).mapTo[SequenceFile]
+  def * = (id.?, libraryId, fileName, fileSizeBytes, fileFormat, aligner, targetReference, createdAt, updatedAt).mapTo[SequenceFile]
 }

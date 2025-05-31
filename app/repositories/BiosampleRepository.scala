@@ -10,6 +10,7 @@ import play.api.db.slick.DatabaseConfigProvider
 import play.api.libs.json.Json
 import slick.jdbc.GetResult
 
+import java.util.UUID
 import scala.concurrent.{ExecutionContext, Future}
 
 /**
@@ -24,6 +25,14 @@ trait BiosampleRepository {
    * @return a future containing an optional biosample if found, or none if not found
    */
   def findById(id: Int): Future[Option[Biosample]]
+
+  /**
+   * Creates a new biosample record.
+   *
+   * @param biosample the biosample to create
+   * @return a future containing the created biosample with its assigned ID
+   */
+  def create(biosample: Biosample): Future[Biosample]
 
   /**
    * Updates specific fields of a biosample
@@ -93,6 +102,14 @@ trait BiosampleRepository {
   def findAllWithStudies(): Future[Seq[SampleWithStudies]]
 
   def findByAliasOrAccession(query: String): Future[Option[Biosample]]
+
+  /**
+   * Retrieves a biosample by its GUID (Globally Unique Identifier).
+   *
+   * @param guid the UUID of the biosample to be retrieved
+   * @return a future containing an optional biosample if found
+   */
+  def findByGuid(guid: UUID): Future[Option[Biosample]]
 }
 
 @Singleton
@@ -177,6 +194,14 @@ class BiosampleRepositoryImpl @Inject()(
 
   override def findById(id: Int): Future[Option[Biosample]] = {
     db.run(biosamplesTable.filter(_.id === id).result.headOption)
+  }
+
+  def create(biosample: Biosample): Future[Biosample] = {
+    val insertQuery = (biosamplesTable returning biosamplesTable.map(_.id)
+      into ((bs, id) => bs.copy(id = Some(id))))
+      .+=(biosample)
+
+    db.run(insertQuery.transactionally)
   }
 
   override def update(biosample: Biosample): Future[Boolean] = {
@@ -348,5 +373,9 @@ class BiosampleRepositoryImpl @Inject()(
     val byAlias = biosamplesTable.filter(_.alias === query)
     val byAccession = biosamplesTable.filter(_.sampleAccession === query)
     db.run((byAlias union byAccession).result.headOption)
+  }
+
+  override def findByGuid(guid: UUID): Future[Option[Biosample]] = {
+    db.run(biosamplesTable.filter(_.sampleGuid === guid).result.headOption)
   }
 }

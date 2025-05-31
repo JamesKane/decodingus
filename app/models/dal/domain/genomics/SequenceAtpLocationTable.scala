@@ -37,7 +37,7 @@ class SequenceAtpLocationTable(tag: Tag) extends Table[SequenceAtpLocation](tag,
 
   def indexDid = column[String]("index_did")
 
-  def indexCid = column[String]("index_cid")
+  def indexCid = column[Option[String]]("index_cid")
 
   def * = (id.?, sequenceFileId, repoDid, recordCid, recordPath, indexDid, indexCid).mapTo[SequenceAtpLocation]
 }
