@@ -110,7 +110,7 @@ class BiosampleRepositoryImpl @Inject()(
       try {
         val wkbReader = new WKBReader()
         val point = wkbReader.read(WKBReader.hexToBytes(pgObj.toString)).asInstanceOf[Point]
-        Some(GeoCoord(point.getX, point.getY))
+        Some(GeoCoord(point.getY, point.getX))
       } catch {
         case e: Exception =>
           println(s"Error reading WKB: ${pgObj.toString} - ${e.getMessage}")
