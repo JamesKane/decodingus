@@ -91,6 +91,8 @@ trait BiosampleRepository {
    * @return a future containing a sequence of samples with their studies and assignments
    */
   def findAllWithStudies(): Future[Seq[SampleWithStudies]]
+
+  def findByAliasOrAccession(query: String): Future[Option[Biosample]]
 }
 
 @Singleton
@@ -340,5 +342,11 @@ class BiosampleRepositoryImpl @Inject()(
         )
       }
     }
+  }
+
+  def findByAliasOrAccession(query: String): Future[Option[Biosample]] = {
+    val byAlias = biosamplesTable.filter(_.alias === query)
+    val byAccession = biosamplesTable.filter(_.sampleAccession === query)
+    db.run((byAlias union byAccession).result.headOption)
   }
 }

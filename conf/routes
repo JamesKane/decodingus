@@ -43,16 +43,16 @@ GET           /api/v1/references/details                                        
 GET           /api/v1/references/details/:publicationId/biosamples                       controllers.BiosampleReportController.getBiosampleReportJSON(publicationId: Int)
 
 # Sample studies endpoint
-GET           /api/v1/biosample/studies                                                    controllers.BiosampleController.getSamplesWithStudies()
+GET           /api/v1/biosample/studies                                                  controllers.BiosampleController.getSamplesWithStudies()
 
 # Biosample API endpoint
-PATCH         /api/v1/biosample/:id                                                      controllers.BiosampleController.updateBiosample(id: Int)
-
+PATCH         /api/private/biosamples/:id                                                      controllers.BiosampleController.updateBiosample(id: Int)
+GET           /api/private/biosamples/search                                             controllers.BiosampleController.findByAliasOrAccession(query: String)
 
 # Biosample Original Haplogroup endpoints
-PUT           /api/biosamples/:biosampleId/publications/:publicationId/haplogroup        controllers.BiosampleOriginalHaplogroupController.updateOrCreateHaplogroup(biosampleId: Int, publicationId: Int)
-GET           /api/biosamples/:biosampleId/publications/:publicationId/haplogroup        controllers.BiosampleOriginalHaplogroupController.getHaplogroup(biosampleId: Int, publicationId: Int)
-DELETE        /api/biosamples/:biosampleId/publications/:publicationId/haplogroup        controllers.BiosampleOriginalHaplogroupController.deleteHaplogroup(biosampleId: Int, publicationId: Int)
+PUT           /api/private/biosamples/:biosampleId/publications/:publicationId/haplogroup        controllers.BiosampleOriginalHaplogroupController.updateOrCreateHaplogroup(biosampleId: Int, publicationId: Int)
+GET           /api/private/biosamples/:biosampleId/publications/:publicationId/haplogroup        controllers.BiosampleOriginalHaplogroupController.getHaplogroup(biosampleId: Int, publicationId: Int)
+DELETE        /api/private/biosamples/:biosampleId/publications/:publicationId/haplogroup        controllers.BiosampleOriginalHaplogroupController.deleteHaplogroup(biosampleId: Int, publicationId: Int)
 
 # --- API Routes (Handled by Tapir, including Swagger UI) ---
 # Delegate all requests starting with /api to the Tapir-based ApiRouter

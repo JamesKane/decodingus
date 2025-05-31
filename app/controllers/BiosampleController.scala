@@ -26,8 +26,8 @@ class BiosampleController @Inject()(
           biosampleRepository.findById(id).flatMap {
             case None =>
               Future.successful(NotFound(Json.obj("error" -> "Biosample not found")))
-            case Some(existingBiosample) if existingBiosample.locked && !update.locked.contains(false) =>
-              Future.successful(Forbidden(Json.obj("error" -> "Biosample is locked")))
+/*            case Some(existingBiosample) if existingBiosample.locked && !update.locked.contains(false) =>
+              Future.successful(Forbidden(Json.obj("error" -> "Biosample is locked")))*/
             case Some(existingBiosample) =>
               val updatedBiosample = existingBiosample.copy(
                 sex = update.sex.orElse(existingBiosample.sex),
@@ -50,6 +50,13 @@ class BiosampleController @Inject()(
   def getSamplesWithStudies: Action[AnyContent] = Action.async {
     biosampleRepository.findAllWithStudies().map { samples =>
       Ok(Json.toJson(samples))
+    }
+  }
+
+  def findByAliasOrAccession(query: String): Action[AnyContent] = Action.async {
+    biosampleRepository.findByAliasOrAccession(query).map {
+      case Some(biosample) => Ok(Json.toJson(BiosampleView.fromDomain(biosample)))
+      case None => NotFound(Json.obj("error" -> "Biosample not found"))
     }
   }
 }
