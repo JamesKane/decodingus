@@ -1,14 +1,12 @@
 package controllers
 
 import actions.SecureApiAction
-import jakarta.inject.Inject
-import jakarta.inject.Singleton
-import models.api.{ExternalBiosampleRequest, PublicationInfo, SequenceDataInfo}
-import services.ExternalBiosampleService
-import play.api.mvc.{Action, BaseController, ControllerComponents}
+import jakarta.inject.{Inject, Singleton}
+import models.api.ExternalBiosampleRequest
 import play.api.libs.json.{Json, OFormat}
+import play.api.mvc.{Action, BaseController, ControllerComponents}
+import services.ExternalBiosampleService
 
-import java.util.UUID
 import scala.concurrent.ExecutionContext
 
 case class ApiResponse(status: String)
@@ -18,16 +16,18 @@ object ApiResponse {
 }
 
 /**
- * Controller responsible for handling API operations related to external biosamples.
+ * Controller for managing external biosample operations, such as creating biosamples.
  *
- * This controller provides endpoints to create external biosamples, add sequence data,
- * and link publications to a specific biosample. It uses an injected service,
- * `ExternalBiosampleService`, to perform the underlying operations.
+ * This controller handles HTTP actions related to external biosamples and interacts with the
+ * `ExternalBiosampleService` to perform operations such as creating a biosample with provided data.
  *
- * Dependencies:
- * - ControllerComponents: Provides the necessary components for implementing the controller.
- * - ExternalBiosampleService: Handles the actual business logic related to biosample operations.
- * - ExecutionContext: Provides the execution context for asynchronous operations.
+ * Key functionalities include securing endpoints via `SecureApiAction` and handling JSON payloads
+ * representing external biosample requests.
+ *
+ * @param controllerComponents     The Play Framework `ControllerComponents` for handling requests and responses.
+ * @param secureApi                The `SecureApiAction` responsible for securing access to this controller's endpoints.
+ * @param externalBiosampleService The service layer used to perform operations related to external biosamples.
+ * @param ec                       An implicit `ExecutionContext` for handling asynchronous operations.
  */
 @Singleton
 class ExternalBiosampleController @Inject()(
@@ -46,7 +46,7 @@ class ExternalBiosampleController @Inject()(
    * @return An asynchronous `Action` that expects a JSON request body of type `ExternalBiosampleRequest`
    *         and responds with the GUID of the created biosample in JSON format.
    */
-  def create: Action[ExternalBiosampleRequest] =     secureApi.jsonAction[ExternalBiosampleRequest].async { request =>
+  def create: Action[ExternalBiosampleRequest] = secureApi.jsonAction[ExternalBiosampleRequest].async { request =>
     externalBiosampleService.createBiosampleWithData(request.body).map { guid =>
       Created(Json.toJson(guid))
     }

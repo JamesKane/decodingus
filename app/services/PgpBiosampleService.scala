@@ -7,6 +7,14 @@ import repositories.*
 import java.util.UUID
 import scala.concurrent.{ExecutionContext, Future}
 
+/**
+ * Service for creating and managing PGP biosamples with associated metadata and data.
+ *
+ * @constructor Constructs the service with the provided biosample repository and accession generator.
+ * @param biosampleRepository Repository interface for managing biosample data.
+ * @param accessionGenerator  Generator for creating unique accession numbers for biosamples.
+ * @param ec                  Implicit execution context for handling asynchronous operations.
+ */
 @Singleton
 class PgpBiosampleService @Inject()(
                                      biosampleRepository: BiosampleRepository,
@@ -14,14 +22,15 @@ class PgpBiosampleService @Inject()(
                                    )(implicit ec: ExecutionContext) {
 
   /**
-   * Creates a PGP biosample with associated metadata and data.
+   * Creates a new PGP biosample, generates its unique identifier and accession number,
+   * and stores it in the biosample repository.
    *
-   * @param participantId The PGP participant identifier
-   * @param sampleDid     The citizen biosample DID (Decentralized Identifier)
-   * @param description   Sample description
-   * @param centerName    Name of the center/institution
-   * @param coordinates   Optional tuple of (latitude, longitude) for sample origin
-   * @return Future containing the UUID of the created biosample
+   * @param participantId The unique identifier of the PGP participant.
+   * @param sampleDid     The decentralized identifier (DID) of the sample.
+   * @param description   A textual description of the biosample.
+   * @param centerName    The name of the institution or center managing the biosample.
+   * @param sex           An optional field indicating the sex of the biosample.
+   * @return A future containing the unique identifier (UUID) of the created biosample.
    */
   def createPgpBiosample(
                           participantId: String,

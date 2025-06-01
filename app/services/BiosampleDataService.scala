@@ -10,6 +10,22 @@ import java.time.LocalDateTime
 import java.util.UUID
 import scala.concurrent.{ExecutionContext, Future}
 
+/**
+ * Service class for managing biosample data, sequence data, and their associations with publications.
+ * This class interacts with various repository interfaces to perform database operations
+ * including the creation, association, and linking of biosample-related data.
+ *
+ * @constructor Creates an instance of the BiosampleDataService class.
+ * @param biosampleRepository                   Repository for managing biosample entities.
+ * @param sequenceLibraryRepository             Repository for managing sequence libraries.
+ * @param sequenceFileRepository                Repository for managing sequence files.
+ * @param sequenceHttpLocationRepository        Repository for managing sequence file HTTP locations.
+ * @param publicationRepository                 Repository for managing publication entities.
+ * @param biosampleOriginalHaplogroupRepository Repository for managing the original haplogroup information associated with biosamples.
+ * @param sequenceFileChecksumRepository        Repository for managing sequence file checksums.
+ * @param publicationBiosampleRepository        Repository for managing associations between publications and biosamples.
+ * @param ec                                    Execution context for handling asynchronous operations.
+ */
 @Singleton
 class BiosampleDataService @Inject()(
                                       biosampleRepository: BiosampleRepository,
@@ -22,10 +38,31 @@ class BiosampleDataService @Inject()(
                                       publicationBiosampleRepository: PublicationBiosampleRepository
                                     )(implicit ec: ExecutionContext) {
 
+  /**
+   * Adds sequencing data to a specific sample identified by its unique GUID.
+   *
+   * This method accepts metadata and related information about the sequencing data,
+   * encapsulated within the `SequenceDataInfo` object, and associates it with the specified sample.
+   *
+   * @param sampleGuid The unique identifier of the sample to which the sequencing data will be added.
+   * @param data       Metadata and details about the sequencing data, provided as a `SequenceDataInfo` object.
+   * @return A `Future` representing the asynchronous completion of the operation. The `Future` resolves to `Unit` if the operation succeeds, or it may fail with an exception if unsuccessful
+   *
+   */
   def addSequenceData(sampleGuid: UUID, data: SequenceDataInfo): Future[Unit] = {
     createSequenceData(sampleGuid, data)
   }
 
+  /**
+   * Links a publication to a biosample identified by its unique GUID in the system.
+   * Additionally, stores any original haplogroup information provided in the publication details.
+   *
+   * @param sampleGuid The unique identifier of the biosample to which the publication will be linked.
+   * @param pubInfo    The publication details, encapsulated in a `PublicationInfo` object,
+   *                   including DOI, PubMed ID, and optional original haplogroup data.
+   * @return A `Future` representing the asynchronous completion of the operation. The `Future` resolves to `Unit`
+   *         if the linking process succeeds, or it may fail with an exception if unsuccessful.
+   */
   def linkPublication(sampleGuid: UUID, pubInfo: PublicationInfo): Future[Unit] = {
     for {
       maybeBiosample <- biosampleRepository.findByGuid(sampleGuid)
