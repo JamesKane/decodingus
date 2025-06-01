@@ -5,7 +5,7 @@ import jakarta.inject.{Inject, Singleton}
 import models.api.ExternalBiosampleRequest
 import play.api.libs.json.{Json, OFormat}
 import play.api.mvc.{Action, BaseController, ControllerComponents}
-import services.ExternalBiosampleService
+import services.{BiosampleServiceException, DuplicateAccessionException, ExternalBiosampleService, InvalidCoordinatesException, PublicationLinkageException, SequenceDataValidationException}
 
 import scala.concurrent.ExecutionContext
 
@@ -48,7 +48,47 @@ class ExternalBiosampleController @Inject()(
    */
   def create: Action[ExternalBiosampleRequest] = secureApi.jsonAction[ExternalBiosampleRequest].async { request =>
     externalBiosampleService.createBiosampleWithData(request.body).map { guid =>
-      Created(Json.toJson(guid))
+      Created(Json.obj(
+        "status" -> "success",
+        "guid" -> guid
+      ))
+    }.recover {
+      case e: DuplicateAccessionException =>
+        Conflict(Json.obj(
+          "error" -> "Duplicate accession",
+          "message" -> e.getMessage
+        ))
+
+      case e: InvalidCoordinatesException =>
+        BadRequest(Json.obj(
+          "error" -> "Invalid coordinates",
+          "message" -> e.getMessage
+        ))
+
+      case e: SequenceDataValidationException =>
+        BadRequest(Json.obj(
+          "error" -> "Invalid sequence data",
+          "message" -> e.getMessage
+        ))
+
+      case e: PublicationLinkageException =>
+        BadRequest(Json.obj(
+          "error" -> "Publication linkage failed",
+          "message" -> e.getMessage
+        ))
+
+      case e: BiosampleServiceException =>
+        BadRequest(Json.obj(
+          "error" -> "Validation error",
+          "message" -> e.getMessage
+        ))
+
+      case e: Exception =>
+        InternalServerError(Json.obj(
+          "error" -> "Internal server error",
+          "message" -> "An unexpected error occurred while processing the request"
+        ))
     }
   }
+
 }

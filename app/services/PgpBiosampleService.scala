@@ -34,37 +34,50 @@ class PgpBiosampleService @Inject()(
    */
   def createPgpBiosample(
                           participantId: String,
-                          sampleDid: String,
                           description: String,
                           centerName: String,
                           sex: Option[String] = None
                         ): Future[UUID] = {
-    val sampleGuid = UUID.randomUUID()
+    // First check for existing participant
+    biosampleRepository.findByAliasOrAccession(participantId).flatMap {
+      case Some(existing) =>
+        Future.failed(DuplicateParticipantException(
+          s"Participant $participantId already has a biosample with accession ${existing.sampleAccession}"
+        ))
 
-    val metadata = AccessionMetadata(
-      pgpParticipantId = Some(participantId),
-      citizenBiosampleDid = Some(sampleDid)
-    )
+      case None =>
+        val sampleGuid = UUID.randomUUID()
+        val metadata = AccessionMetadata(
+          pgpParticipantId = Some(participantId),
+          citizenBiosampleDid = None
+        )
 
-    for {
-      accession <- accessionGenerator.generateAccession(BiosampleType.PGP, metadata)
-      biosample <- biosampleRepository.create(Biosample(
-        id = None,
-        sampleType = BiosampleType.PGP,
-        sampleGuid = sampleGuid,
-        sampleAccession = accession,
-        description = description,
-        alias = None,
-        centerName = centerName,
-        sex = sex,
-        geocoord = None,
-        specimenDonorId = None,
-        pgpParticipantId = Some(participantId),
-        citizenBiosampleDid = Some(sampleDid),
-        sourcePlatform = Some("PGP"),
-        dateRangeStart = None,
-        dateRangeEnd = None
-      ))
-    } yield sampleGuid
+        for {
+          accession <- accessionGenerator.generateAccession(BiosampleType.PGP, metadata)
+          biosample <- biosampleRepository.create(Biosample(
+            id = None,
+            sampleType = BiosampleType.PGP,
+            sampleGuid = sampleGuid,
+            sampleAccession = accession,
+            description = description,
+            alias = Some(participantId),
+            centerName = centerName,
+            sex = sex,
+            geocoord = None,
+            specimenDonorId = None,
+            pgpParticipantId = Some(participantId),
+            citizenBiosampleDid = None,
+            sourcePlatform = Some("PGP"),
+            dateRangeStart = None,
+            dateRangeEnd = None
+          ))
+        } yield sampleGuid
+    }.recoverWith {
+      case e: Exception if e.getMessage.contains("duplicate key") =>
+        // Catch any database-level uniqueness violations we might have missed
+        Future.failed(DuplicateParticipantException(
+          s"Participant $participantId already exists (caught at database level)"
+        ))
+    }
   }
 }

@@ -5,7 +5,7 @@ import jakarta.inject.{Inject, Singleton}
 import models.api.PgpBiosampleRequest
 import play.api.libs.json.Json
 import play.api.mvc.{Action, BaseController, ControllerComponents}
-import services.PgpBiosampleService
+import services.{PgpBiosampleService, DuplicateParticipantException}
 
 import scala.concurrent.ExecutionContext
 
@@ -44,12 +44,28 @@ class PgpBiosampleController @Inject()(
   def create: Action[PgpBiosampleRequest] = secureApi.jsonAction[PgpBiosampleRequest].async { request =>
     pgpBiosampleService.createPgpBiosample(
       participantId = request.body.participantId,
-      sampleDid = request.body.sampleDid,
       description = request.body.description,
       centerName = request.body.centerName,
       sex = request.body.sex
     ).map { guid =>
       Created(Json.toJson(guid))
+    }.recover {
+      case e: DuplicateParticipantException =>
+        Conflict(Json.obj(
+          "error" -> "Duplicate submission",
+          "message" -> s"A biosample for participant ${request.body.participantId} already exists",
+          "details" -> e.getMessage
+        ))
+      case e: IllegalArgumentException =>
+        BadRequest(Json.obj(
+          "error" -> "Invalid request",
+          "message" -> e.getMessage
+        ))
+      case e: Exception =>
+        InternalServerError(Json.obj(
+          "error" -> "Internal server error",
+          "message" -> "An unexpected error occurred while processing the request"
+        ))
     }
   }
 }
