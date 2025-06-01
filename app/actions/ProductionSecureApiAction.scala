@@ -11,21 +11,24 @@ import javax.inject.Inject
 import scala.concurrent.{ExecutionContext, Future}
 
 /**
- * A custom implementation of ActionBuilder that securely handles API requests
- * by enforcing an API key validation mechanism and providing specialized support
- * for JSON payloads.
+ * A secure action builder implementation for handling API requests in a production environment.
  *
- * @param apiKeyFilter         Instance of ApiKeyFilter used to validate API keys in incoming requests
- * @param defaultParser        Default body parser for handling request payloads
- * @param controllerComponents Controller components for configuration and auxiliary services
- * @param executionContext     The implicit ExecutionContext for asynchronous operations
- * @param materializer         The stream Materializer for managing Play's asynchronous streams
+ * ProductionSecureApiAction combines API key validation, JSON payload handling, and modularized
+ * request processing via the ActionBuilder pattern. It ensures that all incoming API requests
+ * are validated and handled securely.
+ *
+ * @constructor Creates a new instance of ProductionSecureApiAction.
+ * @param apiKeyFilter         The filter responsible for validating API keys in incoming requests.
+ * @param defaultParser        The default body parser for parsing HTTP requests.
+ * @param controllerComponents Components used for constructing the controller's actions and responses.
+ * @param executionContext     The ExecutionContext for handling asynchronous operations.
+ * @param materializer         The Materializer used for Play's stream processing.
  */
-class SecureApiAction @Inject()(
+class ProductionSecureApiAction @Inject()(
                                  apiKeyFilter: ApiKeyFilter,
                                  val defaultParser: BodyParsers.Default,
                                  val controllerComponents: ControllerComponents
-                               )(implicit val executionContext: ExecutionContext, materializer: Materializer) extends ActionBuilder[Request, AnyContent] {
+                               )(implicit val executionContext: ExecutionContext, materializer: Materializer) extends ApiSecurityAction {
 
   override def parser: BodyParser[AnyContent] = defaultParser
 
@@ -55,7 +58,7 @@ class SecureApiAction @Inject()(
         Accumulator.flatten(accumulator)
       }
 
-      override protected def executionContext: ExecutionContext = SecureApiAction.this.executionContext
+      override protected def executionContext: ExecutionContext = ProductionSecureApiAction.this.executionContext
 
       override def invokeBlock[B](request: Request[B], block: Request[B] => Future[Result]): Future[Result] = {
         block(request)

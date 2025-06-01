@@ -1,6 +1,6 @@
 package controllers
 
-import actions.SecureApiAction
+import actions.ApiSecurityAction
 import jakarta.inject.{Inject, Singleton}
 import models.api.PgpBiosampleRequest
 import play.api.libs.json.Json
@@ -26,7 +26,7 @@ import scala.concurrent.ExecutionContext
 @Singleton
 class PgpBiosampleController @Inject()(
                                         val controllerComponents: ControllerComponents,
-                                        secureApi: SecureApiAction,
+                                        secureApi: ApiSecurityAction,
                                         pgpBiosampleService: PgpBiosampleService
                                       )(implicit ec: ExecutionContext) extends BaseController {
 

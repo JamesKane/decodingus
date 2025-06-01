@@ -1,6 +1,6 @@
 package controllers
 
-import actions.SecureApiAction
+import actions.ApiSecurityAction
 import jakarta.inject.Inject
 import models.api.{BiosampleUpdate, BiosampleView, GeoCoord}
 import models.domain.genomics.Biosample
@@ -13,7 +13,7 @@ import scala.concurrent.{ExecutionContext, Future}
 
 class BiosampleController @Inject()(
                                      cc: ControllerComponents,
-                                     secureApi: SecureApiAction,
+                                     secureApi: ApiSecurityAction,
                                      biosampleRepository: BiosampleRepository
                                    )(implicit ec: ExecutionContext) extends AbstractController(cc) {
 

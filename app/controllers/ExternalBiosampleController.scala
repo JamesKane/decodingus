@@ -1,6 +1,6 @@
 package controllers
 
-import actions.SecureApiAction
+import actions.ApiSecurityAction
 import jakarta.inject.{Inject, Singleton}
 import models.api.ExternalBiosampleRequest
 import play.api.libs.json.{Json, OFormat}
@@ -32,7 +32,7 @@ object ApiResponse {
 @Singleton
 class ExternalBiosampleController @Inject()(
                                              val controllerComponents: ControllerComponents,
-                                             secureApi: SecureApiAction,
+                                             secureApi: ApiSecurityAction,
                                              externalBiosampleService: ExternalBiosampleService
                                            )(implicit ec: ExecutionContext) extends BaseController {
 

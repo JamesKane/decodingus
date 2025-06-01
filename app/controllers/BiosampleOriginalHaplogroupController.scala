@@ -1,6 +1,6 @@
 package controllers
 
-import actions.SecureApiAction
+import actions.ApiSecurityAction
 import jakarta.inject.Inject
 import models.api.{BiosampleOriginalHaplogroupUpdate, BiosampleOriginalHaplogroupView}
 import models.domain.publications.BiosampleOriginalHaplogroup
@@ -12,7 +12,7 @@ import scala.concurrent.{ExecutionContext, Future}
 
 class BiosampleOriginalHaplogroupController @Inject()(
                                                        cc: ControllerComponents,
-                                                       secureApi: SecureApiAction,
+                                                       secureApi: ApiSecurityAction,
                                                        haplogroupRepository: BiosampleOriginalHaplogroupRepository,
                                                        biosampleRepository: BiosampleRepository
                                                      )(implicit ec: ExecutionContext) extends AbstractController(cc) {
