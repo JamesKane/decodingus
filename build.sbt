@@ -49,11 +49,6 @@ libraryDependencies ++= Seq(
   "org.apache.pekko" %% "pekko-serialization-jackson" % APACHE_PEKKO_VERSION,
   "org.apache.pekko" %% "pekko-stream" % APACHE_PEKKO_VERSION,
 
-  "software.amazon.awssdk" % "secretsmanager" % "2.31.54"
+  "software.amazon.awssdk" % "secretsmanager" % "2.31.54",
+  "org.hashids" % "hashids" % "1.0.3"
 )
-
-// Adds additional packages into Twirl
-//TwirlKeys.templateImports += "com.example.controllers._"
-
-// Adds additional packages into conf/routes
-// play.sbt.routes.RoutesKeys.routesImport += "com.example.binders._"
