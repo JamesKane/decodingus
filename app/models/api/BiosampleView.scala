@@ -37,18 +37,4 @@ object BiosampleView {
     )
   }
 
-  def toDomain(view: BiosampleView): Biosample = {
-    Biosample(
-      id = view.id,
-      sampleAccession = view.sampleAccession,
-      description = view.description,
-      alias = view.alias,
-      centerName = view.centerName,
-      sex = view.sex,
-      geocoord = view.geoCoord.map(GeometryUtils.geoCoordToPoint),
-      specimenDonorId = view.specimenDonorId,
-      sampleGuid = view.sampleGuid,
-      locked = view.locked
-    )
-  }
 }

@@ -1,7 +1,7 @@
 package services.mappers
 
 import com.vividsolutions.jts.geom.{Coordinate, GeometryFactory}
-import models.domain.genomics.Biosample
+import models.domain.genomics.{Biosample, BiosampleType}
 import models.domain.publications.{GenomicStudy, StudySource}
 import services.ena.{EnaBiosampleData, EnaStudyData}
 import services.ncbi.{SraBiosampleData, SraStudyData}
@@ -62,6 +62,7 @@ object GenomicStudyMappers {
       sex = ena.sex,
       geocoord = geoCoord,
       specimenDonorId = None,
+      sampleType = BiosampleType.Standard,
       sampleGuid = UUID.randomUUID()
     )
   }
@@ -86,6 +87,7 @@ object GenomicStudyMappers {
       sex = sex,
       geocoord = coordinates,
       specimenDonorId = None,
+      sampleType = BiosampleType.Standard,
       sampleGuid = UUID.randomUUID()
     )
   }

@@ -3,7 +3,7 @@ package services
 import jakarta.inject.Inject
 import jakarta.inject.Singleton
 import models.api.{ExternalBiosampleRequest, PublicationInfo, SequenceDataInfo}
-import models.domain.genomics.{Biosample, SequenceFile, SequenceFileChecksum, SequenceHttpLocation, SequenceLibrary}
+import models.domain.genomics.{Biosample, BiosampleType, SequenceFile, SequenceFileChecksum, SequenceHttpLocation, SequenceLibrary}
 import models.domain.publications.{BiosampleOriginalHaplogroup, Publication, PublicationBiosample}
 import repositories.{BiosampleOriginalHaplogroupRepository, BiosampleRepository, PublicationBiosampleRepository, PublicationRepository, SequenceFileChecksumRepository, SequenceFileRepository, SequenceLibraryRepository, SequenceLocationRepository}
 import utils.GeometryUtils
@@ -65,6 +65,7 @@ class ExternalBiosampleService @Inject()(
         sex = request.sex,
         geocoord = geocoord,
         specimenDonorId = None,
+        sampleType = BiosampleType.Standard,
         sampleGuid = sampleGuid
       )
       biosampleRepository.create(biosample)

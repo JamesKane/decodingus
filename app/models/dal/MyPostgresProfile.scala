@@ -1,6 +1,7 @@
 package models.dal
 
 import com.github.tminglei.slickpg.*
+import models.domain.genomics.BiosampleType
 import models.domain.publications.StudySource
 import play.api.libs.json.{JsValue, Json, OFormat, OWrites}
 import slick.basic.Capability
@@ -105,6 +106,13 @@ trait MyPostgresProfile extends ExPostgresProfile
         st => st.toString,
         s => StudySource.valueOf(s)
       )
+
+    implicit val biosampleTypeMapper: JdbcType[BiosampleType] =
+      MappedJdbcType.base[BiosampleType, String](
+        bt => bt.toString,  // converts BiosampleType to String for storage
+        s => BiosampleType.valueOf(s)  // converts String back to BiosampleType
+      )
+
 
     implicit val strListTypeMapper: DriverJdbcType[List[String]] = new SimpleArrayJdbcType[String]("text").to(_.toList)
     implicit val intListTypeMapper: DriverJdbcType[List[Int]] = new SimpleArrayJdbcType[Int]("int4").to(_.toList)
