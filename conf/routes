@@ -49,10 +49,13 @@ GET           /api/v1/biosample/studies                                         
 PATCH         /api/private/biosamples/:id                                                        controllers.BiosampleController.updateBiosample(id: Int)
 GET           /api/private/biosamples/search                                                     controllers.BiosampleController.findByAliasOrAccession(query: String)
 
+POST          /api/private/biosamples/publication-link                                           controllers.BiosamplePublicationController.linkBiosampleToPublication
+
 # Biosample Original Haplogroup endpoints
 PUT           /api/private/biosamples/:biosampleId/publications/:publicationId/haplogroup        controllers.BiosampleOriginalHaplogroupController.updateOrCreateHaplogroup(biosampleId: Int, publicationId: Int)
 GET           /api/private/biosamples/:biosampleId/publications/:publicationId/haplogroup        controllers.BiosampleOriginalHaplogroupController.getHaplogroup(biosampleId: Int, publicationId: Int)
 DELETE        /api/private/biosamples/:biosampleId/publications/:publicationId/haplogroup        controllers.BiosampleOriginalHaplogroupController.deleteHaplogroup(biosampleId: Int, publicationId: Int)
+
 
 # PGP Biosample API endpoints
 POST          /api/private/pgp/biosamples                                                        controllers.PgpBiosampleController.create
