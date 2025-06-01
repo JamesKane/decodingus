@@ -1,7 +1,9 @@
 package actions
 
 import filters.ApiKeyFilter
+import org.apache.pekko.stream.Materializer
 import play.api.libs.json.{JsError, Json}
+import play.api.libs.streams.Accumulator
 import play.api.mvc.*
 import play.api.mvc.Results.BadRequest
 
@@ -9,85 +11,70 @@ import javax.inject.Inject
 import scala.concurrent.{ExecutionContext, Future}
 
 /**
- * A custom action builder that secures API endpoints by enforcing an API key filter.
- * This action builder requires an API key to be provided as part of the request headers
- * to determine whether the request is authorized to proceed. It provides additional
- * functionality to validate JSON payloads when needed.
+ * A custom implementation of ActionBuilder that securely handles API requests
+ * by enforcing an API key validation mechanism and providing specialized support
+ * for JSON payloads.
  *
- * @constructor Initializes the SecureApiAction with dependencies for API key filtering,
- *              request parsing, and controller components.
- * @param apiKeyFilter         An instance of ApiKeyFilter used to validate API keys in requests.
- * @param defaultParser        The default body parser for request parsing.
- * @param controllerComponents A set of helper methods to handle HTTP responses and extensions.
- * @param executionContext     An implicit ExecutionContext needed for asynchronously handling requests.
+ * @param apiKeyFilter         Instance of ApiKeyFilter used to validate API keys in incoming requests
+ * @param defaultParser        Default body parser for handling request payloads
+ * @param controllerComponents Controller components for configuration and auxiliary services
+ * @param executionContext     The implicit ExecutionContext for asynchronous operations
+ * @param materializer         The stream Materializer for managing Play's asynchronous streams
  */
 class SecureApiAction @Inject()(
                                  apiKeyFilter: ApiKeyFilter,
                                  val defaultParser: BodyParsers.Default,
                                  val controllerComponents: ControllerComponents
-                               )(implicit val executionContext: ExecutionContext) extends ActionBuilder[Request, AnyContent] {
+                               )(implicit val executionContext: ExecutionContext, materializer: Materializer) extends ActionBuilder[Request, AnyContent] {
 
-  // Implement required parser member
   override def parser: BodyParser[AnyContent] = defaultParser
 
   /**
-   * Authenticates an incoming request by filtering it using an API key mechanism and
-   * determining whether to allow or block the request based on the provided API key.
-   * If the API key is invalid or missing, a corresponding error response is returned.
-   * Otherwise, the request is passed to the specified block for further processing.
+   * Constructs an `ActionBuilder` for handling JSON requests and parsing their bodies into a specified type `A`,
+   * with support for API key filtering and JSON validation.
    *
-   * @param request the incoming HTTP request to be authenticated
-   * @param block   a function representing the next processing step to be executed if authentication succeeds
-   * @tparam A the type of the request body
-   * @return a Future containing the result of the block if authentication succeeds,
-   *         or an immediate error result if authentication fails
-   */
-  private def authenticate[A](request: Request[A], block: Request[A] => Future[Result]): Future[Result] = {
-    apiKeyFilter.filter(request).flatMap {
-      case Some(result) => Future.successful(result)
-      case None => block(request)
-    }
-  }
-
-  /**
-   * Creates an `ActionBuilder` that parses incoming JSON requests and validates them
-   * using the provided implicit `Reads` instance for the specified type `A`.
-   * Ensures that the JSON request payload conforms to the expected structure,
-   * returning a `BadRequest` with detailed validation errors if validation fails.
-   * Delegates the authenticated request to the given processing block upon successful parsing.
+   * This method ensures that incoming requests are authenticated using an API key filter.
+   * It also validates the request body as JSON and attempts to parse it as type `A` using the implicit `Reads[A]`.
+   * If the API key is missing/invalid or the JSON validation fails, appropriate error responses are generated.
    *
-   * @param reader an implicit `Reads` instance that defines how to deserialize and validate
-   *               the JSON request body into type `A`
-   * @return an `ActionBuilder` that parses and validates the JSON body of incoming HTTP requests
-   *         and passes the successfully parsed body to the provided block for further processing
+   * @param reader an implicit JSON `Reads[A]` type class, used to validate and parse the JSON body into type `A`
+   * @return a configured `ActionBuilder` that processes JSON requests as type `A` and applies API key authentication
    */
   def jsonAction[A](implicit reader: play.api.libs.json.Reads[A]): ActionBuilder[Request, A] = {
     new ActionBuilder[Request, A] {
-      override def parser: BodyParser[A] = controllerComponents.parsers.json.validate(
-        _.validate[A].asEither.left.map(e => BadRequest(Json.obj("message" -> JsError.toJson(e))))
-      )
+      override def parser: BodyParser[A] = BodyParser { requestHeader =>
+        val jsonParser = controllerComponents.parsers.json.validate(
+          _.validate[A].asEither.left.map(e => BadRequest(Json.obj("message" -> JsError.toJson(e))))
+        )
+
+        val accumulator = apiKeyFilter.filter(requestHeader).map {
+          case Some(result) => Accumulator.done(Left(result))
+          case None => jsonParser(requestHeader)
+        }
+
+        Accumulator.flatten(accumulator)
+      }
 
       override protected def executionContext: ExecutionContext = SecureApiAction.this.executionContext
 
       override def invokeBlock[B](request: Request[B], block: Request[B] => Future[Result]): Future[Result] = {
-        authenticate(request, block)
+        block(request)
       }
     }
   }
 
   /**
-   * Overrides the `invokeBlock` method to add authentication logic to the incoming request
-   * by leveraging the `authenticate` method. If authentication succeeds, the provided block
-   * is invoked for further processing of the request.
+   * Invokes the provided block of request handling logic after applying the API key filter to the incoming request.
+   * If the request passes authentication, the block is executed. Otherwise, an appropriate error response is returned.
    *
-   * @param request the incoming HTTP request to be authenticated and processed
-   * @param block   a function representing the next processing step, executed if authentication is successful
-   * @tparam A the type of the request body
-   * @return a Future containing the result of the block if authentication succeeds,
-   *         or an error result if authentication fails
+   * @param request the incoming HTTP request of type `A`
+   * @param block   a function that processes the authenticated HTTP request and returns a `Future[Result]`
+   * @return a `Future[Result]` representing the HTTP response, either from the API key filter or the provided block
    */
   override def invokeBlock[A](request: Request[A], block: Request[A] => Future[Result]): Future[Result] = {
-    authenticate(request, block)
+    apiKeyFilter.filter(request).flatMap {
+      case Some(result) => Future.successful(result)
+      case None => block(request)
+    }
   }
-
 }
