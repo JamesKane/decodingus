@@ -8,10 +8,22 @@ import services.ncbi.{SraBiosampleData, SraStudyData}
 
 import java.util.UUID
 
+/**
+ * `GenomicStudyMappers` provides utility methods to map ENA and SRA study and biosample data 
+ * into corresponding domain-specific representations (`GenomicStudy` and `Biosample`). 
+ * The class handles transformations, setting default values, and validating input data 
+ * during the mapping process.
+ */
 object GenomicStudyMappers {
   private val ValidSexValues = Set("male", "female", "intersex")
   private val geometryFactory = new GeometryFactory()
 
+  /**
+   * Converts an ENA (European Nucleotide Archive) study data object into a GenomicStudy object.
+   *
+   * @param ena The input data representing a study, encapsulated in an EnaStudyData object.
+   * @return A GenomicStudy object containing the mapped data from the input EnaStudyData.
+   */
   def enaToGenomicStudy(ena: EnaStudyData): GenomicStudy = GenomicStudy(
     id = None,
     accession = ena.accession,
@@ -29,6 +41,12 @@ object GenomicStudyMappers {
     version = None
   )
 
+  /**
+   * Converts a given SRA (Sequence Read Archive) study data object into a GenomicStudy object.
+   *
+   * @param sra The input data representing a study, encapsulated in an SraStudyData object.
+   * @return A GenomicStudy object containing the mapped data from the input SraStudyData.
+   */
   def sraToGenomicStudy(sra: SraStudyData): GenomicStudy = GenomicStudy(
     id = None,
     accession = sra.studyName,
@@ -46,6 +64,12 @@ object GenomicStudyMappers {
     version = None
   )
 
+  /**
+   * Converts an ENA (European Nucleotide Archive) biosample data object into a Biosample object.
+   *
+   * @param ena The input data representing a biosample, encapsulated in an EnaBiosampleData object.
+   * @return A Biosample object containing the mapped data from the input EnaBiosampleData.
+   */
   def enaToBiosample(ena: EnaBiosampleData): Biosample = {
     val geoCoord = (ena.latitude, ena.longitude) match {
       case (Some(lat), Some(lon)) =>
@@ -67,6 +91,12 @@ object GenomicStudyMappers {
     )
   }
 
+  /**
+   * Converts a given SRA (Sequence Read Archive) biosample data object into a Biosample object.
+   *
+   * @param sra The input data representing a biosample, encapsulated in an SraBiosampleData object.
+   * @return A Biosample object containing the mapped data from the input SraBiosampleData.
+   */
   def sraToBiosample(sra: SraBiosampleData): Biosample = {
     val sex = validateSex(sra.attributes.get("sex"))
     val coordinates = for {

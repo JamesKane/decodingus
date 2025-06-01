@@ -11,6 +11,16 @@ import services.ncbi.{NcbiApiClient, SraBiosampleData, SraStudyData}
 import javax.inject.*
 import scala.concurrent.{ExecutionContext, Future}
 
+/**
+ * Service responsible for retrieving and mapping genomic study details from external APIs.
+ * This class interacts with external resources such as ENA and NCBI to fetch and process genomic study data.
+ *
+ * @constructor Creates a new instance of `GenomicStudyService` with dependency-injected clients and execution context.
+ * @param ws            The `WSClient` used for making HTTP requests to external APIs.
+ * @param ncbiApiClient The client for interacting with NCBI APIs.
+ * @param enaApiClient  The client for interacting with ENA APIs.
+ * @param ec            The execution context for asynchronous operations.
+ */
 @Singleton
 class GenomicStudyService @Inject()(
                                      ws: WSClient,
@@ -24,6 +34,15 @@ class GenomicStudyService @Inject()(
 
   private val ValidSexValues = Set("male", "female", "intersex")
 
+  /**
+   * Fetches detailed information about a genomic study based on its accession.
+   * Determines the source of the study and retrieves the information accordingly.
+   *
+   * @param accession The unique accession identifier for the genomic study.
+   *                  It determines the study source (e.g., ENA, NCBI BioProject, NCBI GenBank).
+   * @return A Future containing an Option of GenomicStudy. The option is None if no study details are found.
+   *         The GenomicStudy provides detailed metadata about the study, including accession, title, center name, etc.
+   */
   def getStudyDetails(accession: String): Future[Option[GenomicStudy]] = {
     determineSource(accession) match {
       case StudySource.ENA => enaApiClient.getStudyDetails(accession)
@@ -71,6 +90,15 @@ class GenomicStudyService @Inject()(
     }
   }
 
+  /**
+   * Retrieves a list of biosample metadata associated with a given study accession.
+   * Determines the source of the study and invokes the appropriate data retrieval method.
+   *
+   * @param studyAccession The unique accession identifier for the study. This determines the study source
+   *                       (e.g., ENA, NCBI BioProject) from which biosample data is retrieved.
+   * @return A Future containing a sequence of Biosample objects. If no biosamples are found or the source
+   *         is unrecognized, the sequence will be empty.
+   */
   def getBiosamplesForStudy(studyAccession: String): Future[Seq[Biosample]] = {
     determineSource(studyAccession) match {
       case StudySource.ENA =>

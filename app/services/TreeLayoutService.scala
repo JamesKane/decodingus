@@ -4,8 +4,12 @@ import models.api.*
 import models.view.{TreeLinkViewModel, TreeNodeViewModel, TreeViewModel}
 
 import java.time.ZonedDateTime
-import java.time.temporal.ChronoUnit // Required for minusYears
+import java.time.temporal.ChronoUnit
 
+/**
+ * Provides services for laying out a tree structure for rendering, including calculating coordinates,
+ * determining node connections, and styling nodes and links based on their properties.
+ */
 object TreeLayoutService {
 
   // Configuration for layout

@@ -30,6 +30,16 @@ case class SraBiosampleData(
                              attributes: Map[String, String]
                            )
 
+/**
+ * A client for interacting with the NCBI Entrez Programming Utilities (E-utilities) API.
+ * This client supports querying and fetching study and biosample data from NCBI databases,
+ * while handling API rate limits and retries as specified by NCBI's usage guidelines.
+ *
+ * @constructor Initializes the `NcbiApiClient` with the necessary injected dependencies.
+ * @param ws  The `WSClient` used for making HTTP requests.
+ * @param ec  The execution context for asynchronous operations.
+ * @param mat The materializer for Akka streams.
+ */
 @Singleton
 class NcbiApiClient @Inject()(ws: WSClient)(implicit ec: ExecutionContext, mat: Materializer) extends Logging {
   private val baseUrl = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
@@ -74,6 +84,17 @@ class NcbiApiClient @Inject()(ws: WSClient)(implicit ec: ExecutionContext, mat: 
   }
 
 
+  /**
+   * Retrieves detailed information about an SRA study or BioProject based on its accession identifier.
+   * For BioProject accessions, the details are directly retrieved from the BioProject database.
+   * For SRA accessions, the method first resolves the corresponding BioProject, then retrieves its details.
+   *
+   * @param accession The unique accession identifier for the SRA study or BioProject. 
+   *                  For BioProject, this typically starts with "PRJNA". For SRA accessions, 
+   *                  additional queries are performed to resolve the corresponding BioProject.
+   * @return A Future containing an Option of SraStudyData. The Option is None if no details are found.
+   *         The SraStudyData contains metadata such as title, center name, description, and associated biosamples.
+   */
   def getSraStudyDetails(accession: String): Future[Option[SraStudyData]] = {
     if (accession.startsWith("PRJNA")) {
       // Direct BioProject query
@@ -166,6 +187,14 @@ class NcbiApiClient @Inject()(ws: WSClient)(implicit ec: ExecutionContext, mat: 
   }
 
 
+  /**
+   * Retrieves a list of biosample metadata associated with a given SRA BioProject accession.
+   * The function queries the NCBI Entrez API to collect biosample data, including attributes,
+   * aliases, and descriptions.
+   *
+   * @param accession The unique accession identifier for the SRA BioProject. Typically starts with "PRJNA".
+   * @return A Future containing a sequence of SraBiosampleData. If no biosample data is identified, an empty sequence is returned.
+   */
   def getSraBiosamples(accession: String): Future[Seq[SraBiosampleData]] = {
     val searchRequest = ws.url(s"$baseUrl/esearch.fcgi")
       .withQueryStringParameters(

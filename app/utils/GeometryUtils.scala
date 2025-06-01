@@ -19,6 +19,13 @@ object GeometryUtils {
     geometryFactory.createPoint(new Coordinate(geoCoord.lon, geoCoord.lat))
   }
 
+  /**
+   * Creates a geometric point from the given latitude and longitude.
+   *
+   * @param lat the latitude of the point
+   * @param lon the longitude of the point
+   * @return a Point object representing the specified latitude and longitude
+   */
   def createPoint(lat: Double, lon: Double): Point = {
     geometryFactory.createPoint(new Coordinate(lon, lat))
   }

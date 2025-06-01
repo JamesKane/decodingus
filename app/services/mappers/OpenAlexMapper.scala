@@ -8,7 +8,9 @@ import java.time.LocalDate
 import java.time.format.DateTimeParseException
 
 /**
- *
+ * Object responsible for mapping OpenAlex JSON data to domain models.
+ * Provides methods to extract structured information and transform
+ * the JSON into a `Publication` object with relevant details.
  */
 object OpenAlexMapper extends Logging {
   private case class BasicInfo(
@@ -113,6 +115,13 @@ object OpenAlexMapper extends Logging {
     )
   }
 
+  /**
+   * Converts a JSON representation of a publication and its DOI into a `Publication` object.
+   *
+   * @param json The JSON structure containing the publication data.
+   * @param doi  A string representing the DOI (Digital Object Identifier) of the publication.
+   * @return A `Publication` object populated with data extracted from the provided JSON and DOI.
+   */
   def jsonToPublication(json: JsValue, doi: String): Publication = {
     val basicInfo = extractBasicInfo(json)
     val authors = extractAuthors(json)

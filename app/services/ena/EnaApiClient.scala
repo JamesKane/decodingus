@@ -27,11 +27,33 @@ case class EnaBiosampleData(
                              collectionDate: Option[String]
                            )
 
+/**
+ * A client for interacting with the ENA (European Nucleotide Archive) portal API.
+ *
+ * This class provides methods to fetch study details and biosample data from the ENA portal API.
+ *
+ * The API client utilizes a WSClient implementation for making HTTP requests
+ * and is designed for asynchronous operations.
+ *
+ * @param ws  the WSClient instance for making HTTP requests
+ * @param ec  the execution context used for asynchronous operations
+ * @param mat the materializer required for certain asynchronous processing
+ */
 @Singleton
 class EnaApiClient @Inject()(ws: WSClient)(implicit ec: ExecutionContext, mat: Materializer) extends Logging {
   private val enaPortalApiBaseUrl = "https://www.ebi.ac.uk/ena/portal/api/search"
   private val ValidSexValues = Set("male", "female", "intersex")
 
+  /**
+   * Retrieves detailed information about a study from ENA (European Nucleotide Archive)
+   * based on a given accession identifier.
+   *
+   * @param accession The unique accession identifier for the study in ENA.
+   * @return A Future containing an Option of EnaStudyData. The Option is None if the
+   *         study details are not found or there is an error in the API call. EnaStudyData
+   *         provides metadata about the study, including accession, title, center name,
+   *         study name, and description.
+   */
   def getStudyDetails(accession: String): Future[Option[EnaStudyData]] = {
     val query = s"study_accession=$accession"
     val fields = "study_accession,study_title,center_name,study_name,study_description"
@@ -69,6 +91,13 @@ class EnaApiClient @Inject()(ws: WSClient)(implicit ec: ExecutionContext, mat: M
       }
   }
 
+  /**
+   * Fetches biosample metadata associated with a specific study accession from the ENA (European Nucleotide Archive).
+   *
+   * @param studyAccession The unique accession identifier for the study in ENA.
+   * @return A Future containing a sequence of EnaBiosampleData objects. If no biosamples are found or an error occurs,
+   *         the sequence will be empty.
+   */
   def getBiosamples(studyAccession: String): Future[Seq[EnaBiosampleData]] = {
     val fields = "sample_accession,description,sample_alias,center_name,sex,lat,lon,collection_date"
 
