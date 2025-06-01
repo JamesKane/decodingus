@@ -3,6 +3,7 @@ package modules
 import com.google.inject.{AbstractModule, TypeLiteral}
 import models.domain.genomics.SequenceHttpLocation
 import repositories.*
+import services.{AccessionNumberGenerator, BiosampleAccessionGenerator}
 
 /**
  * A Guice module for configuring bindings between repository interfaces and their concrete implementations.
@@ -57,6 +58,10 @@ class BaseModule extends AbstractModule {
 
     bind(classOf[SequenceLibraryRepository])
       .to(classOf[SequenceLibraryRepositoryImpl])
+      .asEagerSingleton()
+
+    bind(classOf[AccessionNumberGenerator])
+      .to(classOf[BiosampleAccessionGenerator])
       .asEagerSingleton()
 
   }

@@ -54,10 +54,15 @@ PUT           /api/private/biosamples/:biosampleId/publications/:publicationId/h
 GET           /api/private/biosamples/:biosampleId/publications/:publicationId/haplogroup        controllers.BiosampleOriginalHaplogroupController.getHaplogroup(biosampleId: Int, publicationId: Int)
 DELETE        /api/private/biosamples/:biosampleId/publications/:publicationId/haplogroup        controllers.BiosampleOriginalHaplogroupController.deleteHaplogroup(biosampleId: Int, publicationId: Int)
 
+# PGP Biosample API endpoints
+POST          /api/private/pgp/biosamples                                                        controllers.PgpBiosampleController.create
+POST          /api/private/pgp/biosamples/:sampleGuid/sequences                                  controllers.BiosampleDataController.addSequenceData(sampleGuid: java.util.UUID)
+POST          /api/private/pgp/biosamples/:sampleGuid/publication                                controllers.BiosampleDataController.linkPublication(sampleGuid: java.util.UUID)
+
 # External Biosample API endpoints
 POST          /api/private/external/biosamples                                                   controllers.ExternalBiosampleController.create
-POST          /api/private/external/biosamples/:sampleGuid/sequences                             controllers.ExternalBiosampleController.addSequenceData(sampleGuid: java.util.UUID)
-POST          /api/private/external/biosamples/:sampleGuid/publication                           controllers.ExternalBiosampleController.linkPublication(sampleGuid: java.util.UUID)
+POST          /api/private/external/biosamples/:sampleGuid/sequences                             controllers.BiosampleDataController.addSequenceData(sampleGuid: java.util.UUID)
+POST          /api/private/external/biosamples/:sampleGuid/publication                           controllers.BiosampleDataController.linkPublication(sampleGuid: java.util.UUID)
 
 # --- API Routes (Handled by Tapir, including Swagger UI) ---
 # Delegate all requests starting with /api to the Tapir-based ApiRouter

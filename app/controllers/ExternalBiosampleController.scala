@@ -51,43 +51,4 @@ class ExternalBiosampleController @Inject()(
       Created(Json.toJson(guid))
     }
   }
-
-
-  /**
-   * Adds sequence data associated with a sample identified by the given `sampleGuid`.
-   *
-   * This method processes a JSON payload of type `SequenceDataInfo`, sends the data to the external
-   * biosample service for addition, and returns a success response upon completion.
-   *
-   * @param sampleGuid The unique identifier for the target sample to which the sequence data will be added.
-   * @return An `Action` that expects a JSON body of type `SequenceDataInfo` and responds with a success message
-   *         in JSON format upon successfully adding the sequence data.
-   */
-  def addSequenceData(sampleGuid: UUID): Action[SequenceDataInfo] =
-    secureApi.jsonAction[SequenceDataInfo].async { request =>
-      externalBiosampleService.addSequenceData(sampleGuid, request.body).map { _ =>
-        Ok(Json.toJson(ApiResponse("success")))
-      }
-    }
-
-
-  /**
-   * Links a publication to a biosample identified by the given `sampleGuid`.
-   *
-   * This method processes a JSON payload of type `PublicationInfo`, invokes the `externalBiosampleService`
-   * to associate the publication information with the specified sample, and returns a success response
-   * upon successful linkage.
-   *
-   * @param sampleGuid The unique identifier for the biosample to which the publication will be linked.
-   * @return An `Action` that expects a JSON body of type `PublicationInfo` and responds with a success message
-   *         in JSON format upon successfully linking the publication.
-   */
-  def linkPublication(sampleGuid: UUID): Action[PublicationInfo] =
-    secureApi.jsonAction[PublicationInfo].async { request =>
-      externalBiosampleService.linkPublication(sampleGuid, request.body).map { _ =>
-        Ok(Json.toJson(ApiResponse("success")))
-      }
-    }
-
-
 }
