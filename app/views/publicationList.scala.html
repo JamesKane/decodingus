@@ -18,10 +18,10 @@
         hx-trigger="change"
         hx-include="[value]"
         name="pageSize">
-            <option value="5" @if(paginatedPublications.pageSize == 5) { selected }>5</option>
             <option value="10" @if(paginatedPublications.pageSize == 10) { selected }>10</option>
             <option value="20" @if(paginatedPublications.pageSize == 20) { selected }>20</option>
             <option value="50" @if(paginatedPublications.pageSize == 50) { selected }>50</option>
+            <option value="100" @if(paginatedPublications.pageSize == 100) { selected }>100</option>
         </select>
     </div>
     <div>
