@@ -5,7 +5,7 @@ import jakarta.inject.{Inject, Singleton}
 import models.api.PgpBiosampleRequest
 import play.api.libs.json.Json
 import play.api.mvc.{Action, BaseController, ControllerComponents}
-import services.{PgpBiosampleService, DuplicateParticipantException}
+import services.{DuplicateParticipantException, InvalidCoordinatesException, PgpBiosampleService}
 
 import scala.concurrent.ExecutionContext
 
@@ -31,22 +31,24 @@ class PgpBiosampleController @Inject()(
                                       )(implicit ec: ExecutionContext) extends BaseController {
 
   /**
-   * Handles the creation of a PGP biosample by processing an incoming HTTP request, extracting
-   * and validating the data, and delegating the actual creation operation to the service layer.
+   * Handles the creation of a new PGP biosample. Validates the input request, creates the biosample in the system,
+   * and returns a response with the unique identifier of the created biosample. If an error occurs during processing,
+   * appropriate HTTP responses are returned based on the error type.
    *
-   * The method expects a JSON payload that conforms to the structure of `PgpBiosampleRequest`,
-   * containing the participant identifier, the sample's decentralized identifier (DID), a description,
-   * the name of the center that provided the sample, and optionally, the sex of the participant.
-   *
-   * @return An `Action` that asynchronously creates a new biosample and responds with the unique identifier (UUID)
-   *         of the created sample upon success.
+   * @return A Play `Action` for processing a request with a `PgpBiosampleRequest` body. Returns the following:
+   *         - `201 Created` with the unique identifier of the created biosample on success.
+   *         - `409 Conflict` if a biosample for the specified participant already exists.
+   *         - `400 Bad Request` if the input request contains invalid data (e.g., invalid coordinates).
+   *         - `500 Internal Server Error` if an unexpected issue occurs during processing.
    */
   def create: Action[PgpBiosampleRequest] = secureApi.jsonAction[PgpBiosampleRequest].async { request =>
     pgpBiosampleService.createPgpBiosample(
       participantId = request.body.participantId,
       description = request.body.description,
       centerName = request.body.centerName,
-      sex = request.body.sex
+      sex = request.body.sex,
+      latitude = request.body.latitude,
+      longitude = request.body.longitude
     ).map { guid =>
       Created(Json.toJson(guid))
     }.recover {
@@ -55,6 +57,11 @@ class PgpBiosampleController @Inject()(
           "error" -> "Duplicate submission",
           "message" -> s"A biosample for participant ${request.body.participantId} already exists",
           "details" -> e.getMessage
+        ))
+      case e: InvalidCoordinatesException =>
+        BadRequest(Json.obj(
+          "error" -> "Invalid coordinates",
+          "message" -> e.getMessage
         ))
       case e: IllegalArgumentException =>
         BadRequest(Json.obj(
@@ -68,4 +75,5 @@ class PgpBiosampleController @Inject()(
         ))
     }
   }
+
 }

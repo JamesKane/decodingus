@@ -27,7 +27,7 @@ import scala.concurrent.{ExecutionContext, Future}
 class ExternalBiosampleService @Inject()(
                                           biosampleRepository: BiosampleRepository,
                                           biosampleDataService: BiosampleDataService
-                                        )(implicit ec: ExecutionContext) {
+                                        )(implicit ec: ExecutionContext) extends CoordinateValidation {
 
   /**
    * Creates a new biosample record from the provided external biosample request and associates
@@ -40,21 +40,6 @@ class ExternalBiosampleService @Inject()(
    */
   def createBiosampleWithData(request: ExternalBiosampleRequest): Future[UUID] = {
     val sampleGuid = UUID.randomUUID()
-
-    def validateCoordinates(lat: Option[Double], lon: Option[Double]): Future[Option[Point]] = {
-      (lat, lon) match {
-        case (Some(latitude), Some(longitude)) =>
-          if (latitude >= -90 && latitude <= 90 && longitude >= -180 && longitude <= 180) {
-            Future.successful(Some(GeometryUtils.createPoint(latitude, longitude)))
-          } else {
-            Future.failed(InvalidCoordinatesException(latitude, longitude))
-          }
-        case (None, None) => Future.successful(None)
-        case _ => Future.failed(InvalidCoordinatesException(
-          lat.getOrElse(0.0), lon.getOrElse(0.0)
-        ))
-      }
-    }
 
     def createBiosample(geocoord: Option[Point]) = {
       val biosample = Biosample(
