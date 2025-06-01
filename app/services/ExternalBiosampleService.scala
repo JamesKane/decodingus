@@ -76,7 +76,7 @@ class ExternalBiosampleService @Inject()(
       }
     }
 
-    def handleDataAssociation(biosample: Biosample) = {
+    def handleDataAssociation() = {
       val publicationFuture = request.publication
         .map(pub => biosampleDataService.linkPublication(sampleGuid, pub)
           .recoverWith { case e =>
@@ -98,7 +98,7 @@ class ExternalBiosampleService @Inject()(
     (for {
       geocoord <- validateCoordinates(request.latitude, request.longitude)
       biosample <- createBiosample(geocoord)
-      guid <- handleDataAssociation(biosample)
+      guid <- handleDataAssociation()
     } yield guid).recoverWith {
       case e: BiosampleServiceException => Future.failed(e)
       case e: Exception => Future.failed(new RuntimeException(
