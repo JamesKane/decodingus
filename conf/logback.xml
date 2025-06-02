@@ -28,28 +28,16 @@
 
         <encoder class="PatternLayoutEncoder">
             <charset>UTF-8</charset>
-            <pattern>%d{yyyy-MM-dd HH:mm:ss} %highlight(%-5level) %cyan(%logger{36}) %magenta(%X{pekkoSource}) %msg%n
-            </pattern>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss} %highlight(%-5level) %cyan(%logger{36}) %magenta(%X{pekkoSource}) %msg%n</pattern>
         </encoder>
     </appender>
 
-    <!-- Console appender configuration -->
-    <if condition='!property("play.mode").equals("PROD")'>
-        <then>
-            <appender name="STDOUT" class="ConsoleAppender">
-                <encoder class="PatternLayoutEncoder">
-                    <charset>UTF-8</charset>
-                    <pattern>%d{yyyy-MM-dd HH:mm:ss} %highlight(%-5level) %cyan(%logger{36}) %magenta(%X{pekkoSource}) %msg%n
-                    </pattern>
-                </encoder>
-            </appender>
-
-            <appender name="ASYNCSTDOUT" class="AsyncAppender">
-                <appender-ref ref="STDOUT"/>
-            </appender>
-        </then>
-    </if>
-
+    <appender name="STDOUT" class="ConsoleAppender">
+        <encoder class="PatternLayoutEncoder">
+            <charset>UTF-8</charset>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss} %highlight(%-5level) %cyan(%logger{36}) %magenta(%X{pekkoSource}) %msg%n</pattern>
+        </encoder>
+    </appender>
 
     <appender name="ASYNCFILE" class="AsyncAppender">
         <appender-ref ref="FILE"/>
@@ -66,9 +54,14 @@
     <logger name="slick.jdbc.JdbcBackend.parameter" level="error"/>
     <logger name="models.dal.MyPostgresProfile" level="error"/>
 
+    <!-- Use conditional appender references instead of conditional appender definitions -->
     <root level="INFO">
         <appender-ref ref="ASYNCFILE"/>
-        <appender-ref ref="ASYNCSTDOUT"/>
+        <if condition='!property("play.mode").equals("PROD")'>
+            <then>
+                <appender-ref ref="ASYNCSTDOUT"/>
+            </then>
+        </if>
     </root>
 
 </configuration>
