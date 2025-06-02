@@ -50,5 +50,6 @@ libraryDependencies ++= Seq(
   "org.apache.pekko" %% "pekko-stream" % APACHE_PEKKO_VERSION,
 
   "software.amazon.awssdk" % "secretsmanager" % "2.31.54",
+  "software.amazon.awssdk" % "ses" % "2.31.54",
   "org.hashids" % "hashids" % "1.0.3"
 )

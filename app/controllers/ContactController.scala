@@ -22,6 +22,7 @@ class ContactController @Inject()(
                                  )(implicit ec: ExecutionContext, widgetHelper: WidgetHelper, webJarsUtil: WebJarsUtil) extends BaseController with I18nSupport with Logging {
 
   private val recipientEmail = config.get[String]("contact.recipient.email")
+  private val serviceEmail = "info@decoding-us.com"
   private val isProd = env.mode == play.api.Mode.Prod
   private val botRegex = "(?i)bot|crawl|spider|curl|wget|python|httpclient".r
 
@@ -63,16 +64,19 @@ class ContactController @Inject()(
           case contact =>
             emailService.sendEmail(
               to = Seq(recipientEmail),
-              from = contact.email,
+              from = serviceEmail,
               subject = s"Contact Form Submission: ${contact.subject}",
               body =
                 s"""
-                   |Name: ${contact.name}
-                   |Email: ${contact.email}
+                   |From: ${contact.name} <${contact.email}>
                    |Subject: ${contact.subject}
                    |
                    |Message:
                    |${contact.message}
+                   |
+                   |---
+                   |This message was sent via the contact form.
+                   |Reply to this email will go to: ${contact.email}
                    |""".stripMargin
             ) match {
               case Right(_) =>
