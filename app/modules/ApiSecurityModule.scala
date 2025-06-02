@@ -21,8 +21,6 @@ import play.api.{Configuration, Environment, Logging, Mode}
  */
 class ApiSecurityModule(environment: Environment, configuration: Configuration) extends AbstractModule with Logging {
   override def configure(): Unit = {
-    logger.info(s"Current mode ${environment.mode}")
-
     environment.mode match {
       case Mode.Prod =>
         logger.info("Binding ProductionSecureApiAction for API security")
