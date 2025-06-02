@@ -2,7 +2,7 @@ package modules
 
 import actions.{ApiSecurityAction, DevelopmentSecureApiAction, ProductionSecureApiAction}
 import com.google.inject.{AbstractModule, Singleton}
-import play.api.{Environment, Logging, Mode}
+import play.api.{Configuration, Environment, Logging, Mode}
 
 /**
  * A Guice module for configuring API security action bindings based on the application mode.
@@ -19,11 +19,11 @@ import play.api.{Environment, Logging, Mode}
  * The module uses the application's environment to determine the appropriate binding,
  * enabling seamless toggling of security configurations between production and development.
  */
-class ApiSecurityModule extends AbstractModule with Logging {
+class ApiSecurityModule(environment: Environment, configuration: Configuration) extends AbstractModule with Logging {
   override def configure(): Unit = {
-    val env = Environment.simple()
+    logger.info(s"Current mode ${environment.mode}")
 
-    env.mode match {
+    environment.mode match {
       case Mode.Prod =>
         logger.info("Binding ProductionSecureApiAction for API security")
         bind(classOf[ApiSecurityAction])
@@ -38,3 +38,4 @@ class ApiSecurityModule extends AbstractModule with Logging {
     }
   }
 }
+
