@@ -11,14 +11,6 @@
     <!-- Set default log path -->
     <property name="LOG_PATH" value="${application.home:-.}/logs"/>
 
-    <!-- Override LOG_PATH if in Production mode -->
-    <if condition='property("play.mode").equals("PROD")'>
-        <then>
-            <property name="LOG_PATH" value="/ebs/logs"/>
-        </then>
-    </if>
-
-
     <appender name="FILE" class="RollingFileAppender">
         <!-- Use the EBS mount point for log storage -->
         <file>${LOG_PATH}/application.log</file>
