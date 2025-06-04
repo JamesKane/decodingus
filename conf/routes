@@ -42,6 +42,9 @@ GET           /api/v1/benchmarks                                                
 GET           /api/v1/references/details                                                         controllers.PublicationController.getAllPublicationsWithDetailsJson()
 GET           /api/v1/references/details/:publicationId/biosamples                               controllers.BiosampleReportController.getBiosampleReportJSON(publicationId: Int)
 
+GET           /biosamples/map                                                                    controllers.BiosampleMapController.mapView()
+GET           /biosamples/geo-data                                                               controllers.BiosampleMapController.geoData()
+
 # Sample studies endpoint
 GET           /api/v1/biosample/studies                                                          controllers.BiosampleController.getSamplesWithStudies()
 

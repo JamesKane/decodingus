@@ -1,0 +1,36 @@
+@import org.webjars.play.WebJarsUtil
+
+@()(implicit webJarsUtil: WebJarsUtil)
+
+@main("Biosamples Geographic Distribution") {
+    <div id="mapid" style="height: 800px;"></div>
+
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@@1.7.1/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@@1.7.1/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet.heat"></script>
+
+    <script>
+            const map = L.map('mapid').setView([0, 0], 2);
+
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap contributors'
+            }).addTo(map);
+
+            fetch('@routes.BiosampleMapController.geoData()')
+                    .then(response => response.json())
+                    .then(data => {
+                        const points = data.map(point => [
+                            point.lat,
+                            point.lng,
+                            point.count
+                        ]);
+
+                        L.heatLayer(points, {
+                            radius: 25,
+                            blur: 15,
+                            maxZoom: 10,
+                            max: Math.max(...data.map(p => p.count))
+                        }).addTo(map);
+                    });
+    </script>
+}

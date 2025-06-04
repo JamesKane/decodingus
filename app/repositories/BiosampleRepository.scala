@@ -110,6 +110,8 @@ trait BiosampleRepository {
    * @return a future containing an optional biosample if found
    */
   def findByGuid(guid: UUID): Future[Option[Biosample]]
+
+  def getAllGeoLocations(): Future[Seq[(Point, Int)]]
 }
 
 @Singleton
@@ -378,4 +380,16 @@ class BiosampleRepositoryImpl @Inject()(
   override def findByGuid(guid: UUID): Future[Option[Biosample]] = {
     db.run(biosamplesTable.filter(_.sampleGuid === guid).result.headOption)
   }
+
+  def getAllGeoLocations(): Future[Seq[(Point, Int)]] = {
+    val query = biosamplesTable
+      .filter(_.geocoord.isDefined)
+      .groupBy(_.geocoord)
+      .map { case (point, group) =>
+        (point.asColumnOf[Point], group.length)
+      }
+
+    db.run(query.result)
+  }
+
 }
