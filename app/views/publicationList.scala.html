@@ -1,6 +1,4 @@
 @(paginatedPublications: models.api.PaginatedResult[models.api.PublicationWithEnaStudiesAndSampleCount])
-
-<h1>References</h1>
 <div id="publications-list">
     @for(details <- paginatedPublications.items) {
         @publicationDetails(details)

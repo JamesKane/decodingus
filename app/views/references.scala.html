@@ -11,6 +11,17 @@
             .sex-unknown { color: #777777; }
     </style>
     <main class="container">
+        <nav class="navbar navbar-expand-lg navbar-light bg-light mb-4">
+            <div class="container-fluid">
+                <span class="navbar-brand">References</span>
+                <div class="navbar-nav ms-auto">
+                    <a href="@controllers.routes.BiosampleMapController.mapView()" class="btn btn-primary">
+                        <i class="bi bi-geo-alt-fill"></i> View Geographic Distribution
+                    </a>
+                </div>
+            </div>
+        </nav>
+
         <div id="publications-container" hx-get="@controllers.routes.PublicationController.getAllPublicationsWithDetailsHtml(None, None)" hx-trigger="load">
         </div>
     </main>
