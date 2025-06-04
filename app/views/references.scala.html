@@ -15,7 +15,10 @@
             <div class="container-fluid">
                 <span class="navbar-brand">References</span>
                 <div class="navbar-nav ms-auto">
-                    <a href="@controllers.routes.BiosampleMapController.mapView()" class="btn btn-primary">
+                    <a href="@controllers.routes.BiosampleMapController.mapView()"
+                    class="btn btn-primary"
+                    hx-boost="false"
+                    data-hx-preserve="true">
                         <i class="bi bi-geo-alt-fill"></i> View Geographic Distribution
                     </a>
                 </div>
