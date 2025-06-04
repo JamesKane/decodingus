@@ -54,14 +54,15 @@ class BiosampleDataService @Inject()(
   }
 
   /**
-   * Links a publication to a biosample identified by its unique GUID in the system.
-   * Additionally, stores any original haplogroup information provided in the publication details.
+   * Associates a publication with a specific biosample identified by its unique GUID. If the publication
+   * does not already exist in the repository, it is created. Optionally, original haplogroup information
+   * associated with the publication may also be stored for the biosample.
    *
-   * @param sampleGuid The unique identifier of the biosample to which the publication will be linked.
-   * @param pubInfo    The publication details, encapsulated in a `PublicationInfo` object,
-   *                   including DOI, PubMed ID, and optional original haplogroup data.
-   * @return A `Future` representing the asynchronous completion of the operation. The `Future` resolves to `Unit`
-   *         if the linking process succeeds, or it may fail with an exception if unsuccessful.
+   * @param sampleGuid The unique identifier (GUID) of the biosample to link the publication with.
+   * @param pubInfo    The publication information, encapsulated in a `PublicationInfo` instance, which
+   *                   includes optional identifiers (e.g., DOI, PubMed ID) and haplogroup data.
+   * @return A `Future` representing the asynchronous operation. The `Future` resolves to `Unit` if the
+   *         operation completes successfully, or fails with an exception if an error occurs.
    */
   def linkPublication(sampleGuid: UUID, pubInfo: PublicationInfo): Future[Unit] = {
     for {
@@ -70,25 +71,33 @@ class BiosampleDataService @Inject()(
         case Some(b) => Future.successful(b)
         case None => Future.failed(new IllegalArgumentException(s"Biosample not found for GUID: $sampleGuid"))
       }
-      publication <- publicationRepository.savePublication(Publication(
-        id = None,
-        openAlexId = None,
-        pubmedId = pubInfo.pubmedId,
-        doi = pubInfo.doi,
-        title = pubInfo.doi.map(d => s"Publication with DOI: $d").getOrElse("Unknown publication"),
-        authors = None,
-        abstractSummary = None,
-        journal = None,
-        publicationDate = None,
-        url = None,
-        citationNormalizedPercentile = None,
-        citedByCount = None,
-        openAccessStatus = None,
-        openAccessUrl = None,
-        primaryTopic = None,
-        publicationType = None,
-        publisher = None
-      ))
+      // First try to find existing publication by DOI
+      maybePublication <- pubInfo.doi.map(doi =>
+        publicationRepository.findByDoi(doi)
+      ).getOrElse(Future.successful(None))
+      // Use existing or create new publication
+      publication <- maybePublication match {
+        case Some(pub) => Future.successful(pub)
+        case None => publicationRepository.savePublication(Publication(
+          id = None,
+          openAlexId = None,
+          pubmedId = pubInfo.pubmedId,
+          doi = pubInfo.doi,
+          title = pubInfo.doi.map(d => s"Publication with DOI: $d").getOrElse("Unknown publication"),
+          authors = None,
+          abstractSummary = None,
+          journal = None,
+          publicationDate = None,
+          url = None,
+          citationNormalizedPercentile = None,
+          citedByCount = None,
+          openAccessStatus = None,
+          openAccessUrl = None,
+          primaryTopic = None,
+          publicationType = None,
+          publisher = None
+        ))
+      }
       _ <- publicationBiosampleRepository.create(PublicationBiosample(
         publicationId = publication.id.get,
         biosampleId = biosample.id.get
