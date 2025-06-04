@@ -49,6 +49,7 @@ class AwsSesEmailService @Inject()(configuration: Configuration) extends EmailSe
                  subject: String,
                  body: String
                ): Either[String, Unit] = {
+    logger.info(s"Sending Contact Request: ${(to, from, subject, body)}")
     Try {
       val destination = Destination.builder()
         .toAddresses(to.asJava)
