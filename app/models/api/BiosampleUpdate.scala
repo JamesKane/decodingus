@@ -6,7 +6,9 @@ case class BiosampleUpdate(
                             sex: Option[String] = None,
                             geoCoord: Option[GeoCoord] = None,
                             alias: Option[String] = None,
-                            locked: Option[Boolean] = None
+                            locked: Option[Boolean] = None,
+                            dateRangeStart: Option[Int] = None,
+                            dateRangeEnd: Option[Int] = None
                           )
 
 object BiosampleUpdate {
