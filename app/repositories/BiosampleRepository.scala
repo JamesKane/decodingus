@@ -213,12 +213,29 @@ class BiosampleRepositoryImpl @Inject()(
         db.run(
           biosamplesTable
             .filter(_.id === id)
-            .map(b => (b.sex, b.geocoord, b.alias, b.locked))
-            .update((biosample.sex, biosample.geocoord, biosample.alias, biosample.locked))
+            .map(b => (
+              b.sex,
+              b.geocoord,
+              b.alias,
+              b.locked,
+              b.dateRangeStart,
+              b.dateRangeEnd,
+              b.sampleType
+            ))
+            .update((
+              biosample.sex,
+              biosample.geocoord,
+              biosample.alias,
+              biosample.locked,
+              biosample.dateRangeStart,
+              biosample.dateRangeEnd,
+              biosample.sampleType
+            ))
             .map(_ > 0)
         )
     }
   }
+
 
   override def findByAccession(accession: String): Future[Option[Biosample]] = {
     db.run(biosamplesTable.filter(_.sampleAccession === accession).result.headOption)
