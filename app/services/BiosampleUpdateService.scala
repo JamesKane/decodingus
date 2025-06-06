@@ -98,37 +98,31 @@ class BiosampleUpdateService @Inject()(
    */
   private def updateHaplogroupsIfNeeded(biosampleId: Int, update: BiosampleUpdate): Future[Unit] = {
     if (update.yHaplogroup.isDefined || update.mtHaplogroup.isDefined) {
-      for {
-        count <- publicationBiosampleRepository.countSamplesForPublication(biosampleId)
-        _ <- if (count > 0) {
-          biosampleOriginalHaplogroupRepository.findByBiosampleId(biosampleId).flatMap { existingHaplogroups =>
-            val publicationIds = existingHaplogroups.map(_.publicationId)
-
-            Future.sequence(publicationIds.map { pubId =>
-              val existingHaplogroup = existingHaplogroups.find(_.publicationId == pubId)
-
-              existingHaplogroup match {
-                case Some(existing) =>
-                  biosampleOriginalHaplogroupRepository.update(existing.copy(
-                    originalYHaplogroup = update.yHaplogroup.orElse(existing.originalYHaplogroup),
-                    originalMtHaplogroup = update.mtHaplogroup.orElse(existing.originalMtHaplogroup)
-                  ))
-                case None =>
-                  biosampleOriginalHaplogroupRepository.create(BiosampleOriginalHaplogroup(
-                    id = None,
-                    biosampleId = biosampleId,
-                    publicationId = pubId,
-                    originalYHaplogroup = update.yHaplogroup,
-                    originalMtHaplogroup = update.mtHaplogroup,
-                    notes = None
-                  ))
-              }
-            })
-          }
-        } else Future.successful(())
-      } yield ()
+      publicationBiosampleRepository.findByBiosampleId(biosampleId).flatMap { pubBiosamples =>
+        Future.sequence(pubBiosamples.map { pubBiosample =>
+          biosampleOriginalHaplogroupRepository
+            .findByBiosampleAndPublication(biosampleId, pubBiosample.publicationId)
+            .flatMap {
+              case Some(existing) =>
+                biosampleOriginalHaplogroupRepository.update(existing.copy(
+                  originalYHaplogroup = update.yHaplogroup.orElse(existing.originalYHaplogroup),
+                  originalMtHaplogroup = update.mtHaplogroup.orElse(existing.originalMtHaplogroup)
+                ))
+              case None =>
+                biosampleOriginalHaplogroupRepository.create(BiosampleOriginalHaplogroup(
+                  id = None,
+                  biosampleId = biosampleId,
+                  publicationId = pubBiosample.publicationId,
+                  originalYHaplogroup = update.yHaplogroup,
+                  originalMtHaplogroup = update.mtHaplogroup,
+                  notes = None
+                ))
+            }
+        })
+      }.map(_ => ())
     } else {
       Future.successful(())
     }
   }
+
 }

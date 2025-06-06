@@ -30,6 +30,14 @@ trait PublicationBiosampleRepository {
    * @return A `Future` containing the created `PublicationBiosample` object with the details of the new association.
    */
   def create(link: PublicationBiosample): Future[PublicationBiosample]
+
+  /**
+   * Retrieves all `PublicationBiosample` entries associated with the specified biosample ID.
+   *
+   * @param biosampleId The unique identifier of the biosample for which associated entries are to be retrieved.
+   * @return A `Future` containing a sequence of `PublicationBiosample` objects associated with the given biosample ID.
+   */
+  def findByBiosampleId(biosampleId: Int): Future[Seq[PublicationBiosample]]
 }
 
 class PublicationBiosampleRepositoryImpl @Inject()(protected val dbConfigProvider: DatabaseConfigProvider)(implicit ec: ExecutionContext)
@@ -65,5 +73,9 @@ class PublicationBiosampleRepositoryImpl @Inject()(protected val dbConfigProvide
     }.transactionally
 
     db.run(upsertAction).map(_ => link)
+  }
+
+  override def findByBiosampleId(biosampleId: Int): Future[Seq[PublicationBiosample]] = {
+    db.run(publicationBiosamples.filter(_.biosampleId === biosampleId).result)
   }
 }
