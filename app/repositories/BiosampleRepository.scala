@@ -5,7 +5,7 @@ import com.vividsolutions.jts.io.WKBReader
 import jakarta.inject.{Inject, Singleton}
 import models.api.{BiosampleWithOrigin, GeoCoord, PopulationInfo, SampleWithStudies, StudyWithHaplogroups}
 import models.dal.{DatabaseSchema, MyPostgresProfile}
-import models.domain.genomics.Biosample
+import models.domain.genomics.{Biosample, BiosampleType}
 import play.api.db.slick.DatabaseConfigProvider
 import play.api.libs.json.Json
 import slick.jdbc.GetResult
@@ -143,6 +143,7 @@ class BiosampleRepositoryImpl @Inject()(
     BiosampleWithOrigin(
       sampleName = r.nextStringOption(),
       accession = r.nextString(),
+      sampleType = BiosampleType.valueOf(r.nextString()),
       sex = r.nextStringOption(),
       geoCoord = r.nextObjectOption().flatMap(readPoint),
       yDnaHaplogroup = r.nextStringOption(),
@@ -153,7 +154,9 @@ class BiosampleRepositoryImpl @Inject()(
         case (Some(popName), Some(prob), Some(methodName)) =>
           Some(PopulationInfo(popName, prob, methodName))
         case _ => None
-      }
+      },
+      dateRangeStart = r.nextIntOption(),
+      dateRangeEnd = r.nextIntOption()
     )
   )
 
@@ -175,6 +178,7 @@ class BiosampleRepositoryImpl @Inject()(
     s"""
     SELECT b.alias,
            b.sample_accession,
+           b.sample_type::text,
            b.sex,
            b.geocoord,
            boh.original_y_haplogroup AS y_haplogroup_name,
@@ -183,7 +187,9 @@ class BiosampleRepositoryImpl @Inject()(
            sl.read_length,
            bp.population_name,
            bp.probability,
-           bp.method_name
+           bp.method_name,
+           b.date_range_start,
+           b.date_range_end
     FROM publication_biosample pb
     INNER JOIN public.biosample b ON b.id = pb.biosample_id
     LEFT JOIN biosample_original_haplogroup boh ON boh.biosample_id = b.id

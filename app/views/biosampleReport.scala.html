@@ -1,3 +1,5 @@
+@import models.domain.genomics.BiosampleType
+
 @(paginatedResult: models.api.PaginatedResult[models.api.BiosampleWithOrigin], publicationId: Int)
 
 <section class="biosample-report">
@@ -5,14 +7,15 @@
     <table class="table table-sm table-striped">
         <thead class="thead-light">
             <tr>
-                <th>Sample</th>
-                <th>Accession</th>
-                <th>Origin</th>
-                <th  class="text-center">Est. Cov Depth</th>
+                <th>Sample ID</th>
+                <th>Accession Number</th>
+                <th>Geographic Origin</th>
+                <th>Time Period</th>
+                <th>Dating Period</th>
                 <th>Sex</th>
                 <th>Y-DNA Haplogroup</th>
                 <th>mt-DNA Haplogroup</th>
-                <th>Population</th>
+                <th>Population Group</th>
             </tr>
         </thead>
         <tbody>
@@ -43,7 +46,15 @@
                     }}
                     </td>
                     <td>@sample.formattedOrigin</td>
-                    <td  class="text-center">@sample.estimateCoverageDepth.map(d => s"${d}x").getOrElse("???")</td>
+                    <td>
+                        <span class="badge @{sample.sampleType match {
+                            case BiosampleType.Ancient => "bg-warning"
+                            case _ => "bg-secondary"
+                        }}">
+                        @sample.sampleTypeDescription
+                        </span>
+                    </td>
+                    <td>@sample.formattedDateRange</td>
                     <td>
                     @defining(sample.sex.map(_.toLowerCase).getOrElse("unknown")) { sex =>
                         <i class="fas @{

@@ -1,5 +1,6 @@
 package models.api
 
+import models.domain.genomics.BiosampleType
 import play.api.libs.json.{Json, OFormat}
 
 /**
@@ -28,6 +29,7 @@ case class PopulationInfo(populationName: String, probability: BigDecimal, metho
 case class BiosampleWithOrigin(
                                 sampleName: Option[String],
                                 accession: String,
+                                sampleType: BiosampleType,
                                 sex: Option[String],
                                 yDnaHaplogroup: Option[String],
                                 mtDnaHaplogroup: Option[String],
@@ -35,7 +37,10 @@ case class BiosampleWithOrigin(
                                 readLen: Option[Int],
                                 geoCoord: Option[GeoCoord],
                                 bestFitPopulation: Option[PopulationInfo],
+                                dateRangeStart: Option[Int] = None,
+                                dateRangeEnd: Option[Int] = None
                               ) {
+
   /**
    * Formats the geographic coordinate of the origin into a human-readable string.
    * If the geographic coordinate is available, it will return the latitude and longitude with appropriate directional indicators (N/S and E/W).
@@ -67,6 +72,49 @@ case class BiosampleWithOrigin(
       Some((totalBases / genomeSize).toLong)
     case _ => None
   }
+
+  /**
+   * Formats the date range in a human-readable format based on sample type.
+   * For Ancient samples: Represents archaeological date (negative for BCE, positive for CE)
+   * For other types: Represents birth/death years in CE
+   *
+   * @return A formatted string representing the date range or "N/A" if not available
+   */
+  def formattedDateRange: String = {
+    def formatYear(year: Int, isAncient: Boolean): String = {
+      if (isAncient) {
+        if (year < 0) s"${-year} BCE"
+        else if (year == 0) "1 BCE" // There is no year 0
+        else s"$year CE"
+      } else {
+        s"$year" // Modern dates are always CE
+      }
+    }
+
+    def formatRange(start: Option[Int], end: Option[Int], isAncient: Boolean): String = {
+      (start, end) match {
+        case (Some(s), Some(e)) if s == e => formatYear(s, isAncient)
+        case (Some(s), Some(e)) => s"${formatYear(s, isAncient)} - ${formatYear(e, isAncient)}"
+        case (Some(s), None) => s"${formatYear(s, isAncient)}+"
+        case (None, Some(e)) => s"Until ${formatYear(e, isAncient)}"
+        case _ => "Date unknown"
+      }
+    }
+
+    (dateRangeStart, dateRangeEnd) match {
+      case (None, None) => "N/A"
+      case _ => sampleType match {
+        case BiosampleType.Ancient => formatRange(dateRangeStart, dateRangeEnd, isAncient = true)
+        case _ => formatRange(dateRangeStart, dateRangeEnd, isAncient = false)
+      }
+    }
+  }
+
+  def sampleTypeDescription: String = sampleType match {
+    case BiosampleType.Ancient => "Ancient"
+    case _ => "Modern"
+  }
+
 }
 
 /**
