@@ -64,5 +64,9 @@ class BaseModule extends AbstractModule {
       .to(classOf[BiosampleAccessionGenerator])
       .asEagerSingleton()
 
+    bind(classOf[SpecimenDonorRepository])
+      .to(classOf[SpecimenDonorRepositoryImpl])
+      .asEagerSingleton()
+
   }
 }

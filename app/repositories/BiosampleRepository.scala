@@ -4,11 +4,12 @@ import com.vividsolutions.jts.geom.Point
 import com.vividsolutions.jts.io.WKBReader
 import jakarta.inject.{Inject, Singleton}
 import models.api.{BiosampleWithOrigin, GeoCoord, PopulationInfo, SampleWithStudies, StudyWithHaplogroups}
+import models.dal.domain.genomics.BiosamplesTable
 import models.dal.{DatabaseSchema, MyPostgresProfile}
-import models.domain.genomics.{Biosample, BiosampleType}
+import models.domain.genomics.{Biosample, BiosampleType, SpecimenDonor}
 import play.api.db.slick.DatabaseConfigProvider
 import play.api.libs.json.Json
-import slick.jdbc.GetResult
+import slick.jdbc.{GetResult, SQLActionBuilder, SetParameter}
 
 import java.util.UUID
 import scala.concurrent.{ExecutionContext, Future}
@@ -19,12 +20,13 @@ import scala.concurrent.{ExecutionContext, Future}
  */
 trait BiosampleRepository {
   /**
-   * Retrieves a biosample by its unique identifier.
+   * Retrieves a biosample and its associated specimen donor information by the given identifier.
    *
-   * @param id the unique identifier of the biosample to be retrieved
-   * @return a future containing an optional biosample if found, or none if not found
+   * @param id the unique identifier of the biosample to retrieve
+   * @return a future containing an optional tuple, where the first element is the biosample and the second element
+   *         is an optional specimen donor associated with the biosample
    */
-  def findById(id: Int): Future[Option[Biosample]]
+  def findById(id: Int): Future[Option[(Biosample, Option[SpecimenDonor])]]
 
   /**
    * Creates a new biosample record.
@@ -57,7 +59,7 @@ trait BiosampleRepository {
    * @param accession the accession number of the biosample
    * @return a future containing an optional biosample if found
    */
-  def findByAccession(accession: String): Future[Option[Biosample]]
+  def findByAccession(accession: String): Future[Option[(Biosample, Option[SpecimenDonor])]]
 
 
   /**
@@ -101,7 +103,7 @@ trait BiosampleRepository {
    */
   def findAllWithStudies(): Future[Seq[SampleWithStudies]]
 
-  def findByAliasOrAccession(query: String): Future[Option[Biosample]]
+  def findByAliasOrAccession(query: String): Future[Option[(Biosample, Option[SpecimenDonor])]]
 
   /**
    * Retrieves a biosample by its GUID (Globally Unique Identifier).
@@ -109,9 +111,9 @@ trait BiosampleRepository {
    * @param guid the UUID of the biosample to be retrieved
    * @return a future containing an optional biosample if found
    */
-  def findByGuid(guid: UUID): Future[Option[Biosample]]
+  def findByGuid(guid: UUID): Future[Option[(Biosample, Option[SpecimenDonor])]]
 
-  def getAllGeoLocations(): Future[Seq[(Point, Int)]]
+  def getAllGeoLocations: Future[Seq[(Point, Int)]]
 }
 
 @Singleton
@@ -124,6 +126,7 @@ class BiosampleRepositoryImpl @Inject()(
   import models.dal.MyPostgresProfile.api.*
 
   private val biosamplesTable = DatabaseSchema.domain.genomics.biosamples
+  private val specimenDonorsTable = DatabaseSchema.domain.genomics.specimenDonors
 
   private def readPoint(pgObj: AnyRef): Option[GeoCoord] = pgObj match {
     case null => None
@@ -137,6 +140,18 @@ class BiosampleRepositoryImpl @Inject()(
           println(s"Error reading WKB: ${pgObj.toString} - ${e.getMessage}")
           None
       }
+  }
+
+  // Helper method to get biosample with its donor
+  private def getBiosampleWithDonor(query: Query[BiosamplesTable, Biosample, Seq]): Future[Option[(Biosample, Option[SpecimenDonor])]] = {
+    db.run(
+      query
+        .joinLeft(specimenDonorsTable)
+        .on(_.specimenDonorId === _.id)
+        .result
+        .headOption
+        .map(_.map { case (biosample, donor) => (biosample, donor) })
+    )
   }
 
   protected implicit val getBiosampleWithOriginResult: GetResult[BiosampleWithOrigin] = GetResult(r =>
@@ -160,9 +175,9 @@ class BiosampleRepositoryImpl @Inject()(
     )
   )
 
-  private val bestPopulationCTE =
-    """
-    best_population AS (
+  private def makeBaseQuery(publicationId: Int) =
+    s"""
+    WITH best_population AS (
       SELECT aa.sample_guid,
              p.population_name,
              aa.probability,
@@ -172,15 +187,11 @@ class BiosampleRepositoryImpl @Inject()(
       JOIN population p ON p.population_id = aa.population_id
       JOIN analysis_method am ON am.analysis_method_id = aa.analysis_method_id
     )
-  """
-
-  private def makeBaseQuery(publicationId: Int) =
-    s"""
     SELECT b.alias,
            b.sample_accession,
-           b.sample_type::text,
-           b.sex,
-           b.geocoord,
+           sd.donor_type::text,
+           sd.sex::text,
+           sd.geocoord,
            boh.original_y_haplogroup AS y_haplogroup_name,
            boh.original_mt_haplogroup AS mt_haplogroup_name,
            sl.reads,
@@ -188,20 +199,22 @@ class BiosampleRepositoryImpl @Inject()(
            bp.population_name,
            bp.probability,
            bp.method_name,
-           b.date_range_start,
-           b.date_range_end
+           sd.date_range_start,
+           sd.date_range_end
     FROM publication_biosample pb
     INNER JOIN public.biosample b ON b.id = pb.biosample_id
+    LEFT JOIN specimen_donor sd ON sd.id = b.specimen_donor_id
     LEFT JOIN biosample_original_haplogroup boh ON boh.biosample_id = b.id
       AND boh.publication_id = $publicationId
     LEFT JOIN sequence_library sl on sl.sample_guid = b.sample_guid
     LEFT JOIN best_population bp ON bp.sample_guid = b.sample_guid AND bp.rn = 1
     WHERE pb.publication_id = $publicationId
     ORDER BY b.alias
-  """
+    """
 
-  override def findById(id: Int): Future[Option[Biosample]] = {
-    db.run(biosamplesTable.filter(_.id === id).result.headOption)
+
+  override def findById(id: Int): Future[Option[(Biosample, Option[SpecimenDonor])]] = {
+    getBiosampleWithDonor(biosamplesTable.filter(_.id === id))
   }
 
   def create(biosample: Biosample): Future[Biosample] = {
@@ -220,22 +233,12 @@ class BiosampleRepositoryImpl @Inject()(
           biosamplesTable
             .filter(_.id === id)
             .map(b => (
-              b.sex,
-              b.geocoord,
               b.alias,
-              b.locked,
-              b.dateRangeStart,
-              b.dateRangeEnd,
-              b.sampleType
+              b.locked
             ))
             .update((
-              biosample.sex,
-              biosample.geocoord,
               biosample.alias,
-              biosample.locked,
-              biosample.dateRangeStart,
-              biosample.dateRangeEnd,
-              biosample.sampleType
+              biosample.locked
             ))
             .map(_ > 0)
         )
@@ -243,26 +246,24 @@ class BiosampleRepositoryImpl @Inject()(
   }
 
 
-  override def findByAccession(accession: String): Future[Option[Biosample]] = {
-    db.run(biosamplesTable.filter(_.sampleAccession === accession).result.headOption)
+  override def findByAccession(accession: String): Future[Option[(Biosample, Option[SpecimenDonor])]] = {
+    getBiosampleWithDonor(biosamplesTable.filter(_.sampleAccession === accession))
   }
 
   override def findBiosamplesWithOriginForPublication(publicationId: Int): Future[Seq[BiosampleWithOrigin]] = {
-    withCTE[BiosampleWithOrigin](bestPopulationCTE, makeBaseQuery(publicationId))
+    db.run(
+      sql"""#${makeBaseQuery(publicationId)}"""
+        .as[BiosampleWithOrigin]
+    )
   }
 
-  override def findPaginatedBiosamplesWithOriginForPublication(
-                                                                publicationId: Int,
-                                                                page: Int,
-                                                                pageSize: Int
-                                                              ): Future[Seq[BiosampleWithOrigin]] = {
+  override def findPaginatedBiosamplesWithOriginForPublication(publicationId: Int, page: Int, pageSize: Int): Future[Seq[BiosampleWithOrigin]] = {
     val offset = (page - 1) * pageSize
-    val paginatedQuery =
-      s"""
-      ${makeBaseQuery(publicationId)}
-      LIMIT $pageSize OFFSET $offset
-    """
-    withCTE[BiosampleWithOrigin](bestPopulationCTE, paginatedQuery)
+    val paginatedQuery = s"""${makeBaseQuery(publicationId)} LIMIT $pageSize OFFSET $offset"""
+    db.run(
+      SQLActionBuilder(paginatedQuery, SetParameter.SetUnit)
+        .as[BiosampleWithOrigin]
+    )
   }
 
   override def countBiosamplesForPublication(publicationId: Int): Future[Long] = {
@@ -300,27 +301,37 @@ class BiosampleRepositoryImpl @Inject()(
       val actions = biosamples.map { biosample =>
         val query = biosamplesTable.filter(_.sampleAccession === biosample.sampleAccession)
 
-        (query.result.headOption.flatMap {
-          case Some(existing) if existing.locked =>
-            // If locked, return existing record without updates
-            DBIO.successful(existing)
+        (for {
+          existingBiosampleOpt <- query.result.headOption
 
-          case Some(existing) =>
-            // Update existing unlocked record
-            query.update(biosample.copy(
-              id = existing.id,
-              // Preserve existing values for fields we want to protect
-              sex = existing.sex.orElse(biosample.sex),
-              geocoord = existing.geocoord.orElse(biosample.geocoord),
-              locked = existing.locked
-            )).map(_ => biosample.copy(id = existing.id))
+          result <- existingBiosampleOpt match {
+            case Some(existing) if existing.locked =>
+              // If locked, return existing record without updates
+              DBIO.successful(existing)
 
-          case None =>
-            // Insert new record
-            (biosamplesTable returning biosamplesTable.map(_.id)
-              into ((bs, id) => bs.copy(id = Some(id))))
-              .+=(biosample)
-        }).transactionally
+            case Some(existing) =>
+              // For existing unlocked record, we only update biosample fields
+              query
+                .map(b => (b.alias, b.locked))
+                .update((biosample.alias, biosample.locked))
+                .map(_ => biosample.copy(id = existing.id))
+
+            case None =>
+              // For new records, insert both biosample and donor if needed
+              for {
+                // First handle the specimen donor if it exists
+                donorId <- biosample.specimenDonorId match {
+                  case Some(id) => DBIO.successful(Some(id))
+                  case None => DBIO.successful(None)
+                }
+
+                // Then insert the biosample with the donor reference
+                biosampleWithId <- (biosamplesTable returning biosamplesTable.map(_.id)
+                  into ((bs, id) => bs.copy(id = Some(id))))
+                  .+=(biosample.copy(specimenDonorId = donorId))
+              } yield biosampleWithId
+          }
+        } yield result).transactionally
       }
 
       db.run(DBIO.sequence(actions).transactionally)
@@ -335,31 +346,32 @@ class BiosampleRepositoryImpl @Inject()(
               b.id as biosample_id,
               b.alias as sample_name,
               b.sample_accession,
-              b.sex,
-              b.geocoord,
+              sd.sex::text as sex,
+              sd.geocoord,
               COALESCE(
-                              jsonb_agg(
-                              DISTINCT jsonb_build_object(
-                                      'accession', gs.accession,
-                                      'title', gs.title,
-                                      'centerName', gs.center_name,
-                                      'source', gs.source,
-                                      'yHaplogroup', boh.original_y_haplogroup,
-                                      'mtHaplogroup', boh.original_mt_haplogroup,
-                                      'notes', boh.notes
-                                       )
-                                       ) FILTER (WHERE gs.accession IS NOT NULL),
-                              '[]'::jsonb
+                  jsonb_agg(
+                      DISTINCT jsonb_build_object(
+                          'accession', gs.accession,
+                          'title', gs.title,
+                          'centerName', gs.center_name,
+                          'source', gs.source,
+                          'yHaplogroup', boh.original_y_haplogroup,
+                          'mtHaplogroup', boh.original_mt_haplogroup,
+                          'notes', boh.notes
+                      )
+                  ) FILTER (WHERE gs.accession IS NOT NULL),
+                  '[]'::jsonb
               ) as studies
           FROM biosample b
-                   JOIN publication_biosample pb ON pb.biosample_id = b.id
-                   JOIN publication p ON p.id = pb.publication_id
-                   JOIN publication_ena_study pgs ON pgs.publication_id = pb.publication_id
-                   JOIN genomic_studies gs ON gs.id = pgs.genomic_study_id
-                   LEFT JOIN biosample_original_haplogroup boh ON
+          LEFT JOIN specimen_donor sd ON sd.id = b.specimen_donor_id
+          JOIN publication_biosample pb ON pb.biosample_id = b.id
+          JOIN publication p ON p.id = pb.publication_id
+          JOIN publication_ena_study pgs ON pgs.publication_id = pb.publication_id
+          JOIN genomic_studies gs ON gs.id = pgs.genomic_study_id
+          LEFT JOIN biosample_original_haplogroup boh ON
               boh.biosample_id = b.id AND
               boh.publication_id = p.id
-          GROUP BY b.id, b.alias, b.sample_accession, b.sex, b.geocoord
+          GROUP BY b.id, b.alias, b.sample_accession, sd.sex, sd.geocoord
       )
       SELECT
           sample_name,
@@ -394,18 +406,18 @@ class BiosampleRepositoryImpl @Inject()(
     }
   }
 
-  def findByAliasOrAccession(query: String): Future[Option[Biosample]] = {
+  override def findByAliasOrAccession(query: String): Future[Option[(Biosample, Option[SpecimenDonor])]] = {
     val byAlias = biosamplesTable.filter(_.alias === query)
     val byAccession = biosamplesTable.filter(_.sampleAccession === query)
-    db.run((byAlias union byAccession).result.headOption)
+    getBiosampleWithDonor(byAlias union byAccession)
   }
 
-  override def findByGuid(guid: UUID): Future[Option[Biosample]] = {
-    db.run(biosamplesTable.filter(_.sampleGuid === guid).result.headOption)
+  override def findByGuid(guid: UUID): Future[Option[(Biosample, Option[SpecimenDonor])]] = {
+    getBiosampleWithDonor(biosamplesTable.filter(_.sampleGuid === guid))
   }
 
-  def getAllGeoLocations(): Future[Seq[(Point, Int)]] = {
-    val query = biosamplesTable
+  def getAllGeoLocations: Future[Seq[(Point, Int)]] = {
+    val query = specimenDonorsTable
       .filter(_.geocoord.isDefined)
       .groupBy(_.geocoord)
       .map { case (point, group) =>

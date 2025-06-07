@@ -1,5 +1,6 @@
 package models.api
 
+import models.domain.genomics.BiologicalSex
 import play.api.libs.json.{Json, OFormat}
 
 import java.time.LocalDateTime
@@ -20,12 +21,12 @@ import java.time.LocalDateTime
  * @param sequenceData    Information regarding the sequencing data associated with the biosample, represented by the `SequenceDataInfo` structure.
  */
 case class ExternalBiosampleRequest(
-                                     sampleAccession: String,  // Client provides their native identifier
-                                     sourceSystem: String,     // e.g., "evolbio", "pgp", etc.
+                                     sampleAccession: String, // Client provides their native identifier
+                                     sourceSystem: String, // e.g., "evolbio", "pgp", etc.
                                      description: String,
                                      alias: Option[String],
                                      centerName: String,
-                                     sex: Option[String],
+                                     sex: Option[BiologicalSex],
                                      latitude: Option[Double],
                                      longitude: Option[Double],
                                      publication: Option[PublicationInfo],

@@ -66,8 +66,8 @@ class BiosampleDataService @Inject()(
    */
   def linkPublication(sampleGuid: UUID, pubInfo: PublicationInfo): Future[Unit] = {
     for {
-      maybeBiosample <- biosampleRepository.findByGuid(sampleGuid)
-      biosample <- maybeBiosample match {
+      maybeBiosampleWithDonor <- biosampleRepository.findByGuid(sampleGuid)
+      (biosample, _) <- maybeBiosampleWithDonor match {
         case Some(b) => Future.successful(b)
         case None => Future.failed(new IllegalArgumentException(s"Biosample not found for GUID: $sampleGuid"))
       }
@@ -114,6 +114,7 @@ class BiosampleDataService @Inject()(
       }.getOrElse(Future.successful(()))
     } yield ()
   }
+
 
   private def createSequenceData(sampleGuid: UUID, data: SequenceDataInfo): Future[Unit] = {
     val library = SequenceLibrary(

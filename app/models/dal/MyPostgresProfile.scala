@@ -1,7 +1,7 @@
 package models.dal
 
 import com.github.tminglei.slickpg.*
-import models.domain.genomics.BiosampleType
+import models.domain.genomics.{BiologicalSex, BiosampleType}
 import models.domain.publications.StudySource
 import play.api.libs.json.{JsValue, Json, OFormat, OWrites}
 import slick.basic.Capability
@@ -111,6 +111,12 @@ trait MyPostgresProfile extends ExPostgresProfile
       MappedJdbcType.base[BiosampleType, String](
         bt => bt.toString,  // converts BiosampleType to String for storage
         s => BiosampleType.valueOf(s)  // converts String back to BiosampleType
+      )
+
+    implicit val biologicalSexTypeMapper: JdbcType[BiologicalSex] =
+      MappedJdbcType.base[BiologicalSex, String](
+        bs => bs.toString,
+        s => BiologicalSex.valueOf(s)
       )
 
 

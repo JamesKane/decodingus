@@ -1,7 +1,7 @@
 package services
 
 import jakarta.inject.Inject
-import models.domain.genomics.Biosample
+import models.domain.genomics.{Biosample, SpecimenDonor}
 import repositories.BiosampleRepository
 
 import scala.concurrent.Future
@@ -26,5 +26,5 @@ class BiosampleService @Inject()(biosampleRepository: BiosampleRepository) {
    * @param id the unique identifier of the biosample to be retrieved
    * @return a Future containing an optional biosample instance; None is returned if no match is found
    */
-  def getBiosampleById(id: Int): Future[Option[Biosample]] = biosampleRepository.findById(id)
+  def getBiosampleById(id: Int): Future[Option[(Biosample, Option[SpecimenDonor])]] = biosampleRepository.findById(id)
 }

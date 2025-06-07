@@ -3,8 +3,8 @@ package services
 import com.vividsolutions.jts.geom.Point
 import jakarta.inject.{Inject, Singleton}
 import models.api.ExternalBiosampleRequest
-import models.domain.genomics.{Biosample, BiosampleType}
-import repositories.BiosampleRepository
+import models.domain.genomics.{Biosample, BiosampleType, SpecimenDonor}
+import repositories.{BiosampleRepository, SpecimenDonorRepository}
 import utils.GeometryUtils
 
 import java.util.UUID
@@ -26,32 +26,39 @@ import scala.concurrent.{ExecutionContext, Future}
 @Singleton
 class ExternalBiosampleService @Inject()(
                                           biosampleRepository: BiosampleRepository,
-                                          biosampleDataService: BiosampleDataService
+                                          biosampleDataService: BiosampleDataService,
+                                          specimenDonorRepository: SpecimenDonorRepository
                                         )(implicit ec: ExecutionContext) extends CoordinateValidation {
 
-  /**
-   * Creates a new biosample record from the provided external biosample request and associates
-   * relevant data such as publication and sequencing information. Performs validation for the input data,
-   * including geographical coordinates and uniqueness of the sample accession.
-   *
-   * @param request an instance of ExternalBiosampleRequest containing metadata required to create the biosample,
-   *                such as accession, description, coordinates, related publication, and sequencing data.
-   * @return a Future containing the UUID of the newly created biosample, or an exception in case of failure.
-   */
   def createBiosampleWithData(request: ExternalBiosampleRequest): Future[UUID] = {
     val sampleGuid = UUID.randomUUID()
 
-    def createBiosample(geocoord: Option[Point]) = {
+    def createSpecimenDonor(geocoord: Option[Point]) = {
+      val donor = SpecimenDonor(
+        donorIdentifier = s"DONOR_${UUID.randomUUID().toString}",
+        originBiobank = request.centerName,
+        donorType = BiosampleType.Standard,
+        sex = request.sex,
+        geocoord = geocoord,
+        pgpParticipantId = None,
+        citizenBiosampleDid = None,
+        dateRangeStart = None,
+        dateRangeEnd = None
+      )
+      specimenDonorRepository.create(donor)
+    }
+
+    def createBiosample(donorId: Option[Int]) = {
       val biosample = Biosample(
+        id = None,
+        sampleGuid = sampleGuid,
         sampleAccession = request.sampleAccession,
         description = request.description,
         alias = request.alias,
         centerName = request.centerName,
-        sex = request.sex,
-        geocoord = geocoord,
-        specimenDonorId = None,
-        sampleType = BiosampleType.Standard,
-        sampleGuid = sampleGuid
+        specimenDonorId = donorId,
+        locked = false,
+        sourcePlatform = None
       )
 
       // Check for existing accession first
@@ -80,9 +87,18 @@ class ExternalBiosampleService @Inject()(
       } yield sampleGuid
     }
 
+    def shouldCreateDonor: Boolean = {
+      request.sex.isDefined || request.latitude.isDefined || request.longitude.isDefined
+    }
+
     (for {
       geocoord <- validateCoordinates(request.latitude, request.longitude)
-      biosample <- createBiosample(geocoord)
+      donorId <- if (shouldCreateDonor) {
+        createSpecimenDonor(geocoord).map(donor => Some(donor.id.get))
+      } else {
+        Future.successful(None)
+      }
+      biosample <- createBiosample(donorId)
       guid <- handleDataAssociation()
     } yield guid).recoverWith {
       case e: BiosampleServiceException => Future.failed(e)

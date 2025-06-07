@@ -1,5 +1,6 @@
 package models.api
 
+import models.domain.genomics.BiologicalSex
 import play.api.libs.json.{Json, OFormat}
 
 /**
@@ -16,7 +17,7 @@ case class PgpBiosampleRequest(
                                 participantId: String,
                                 description: String,
                                 centerName: String,
-                                sex: Option[String] = None,
+                                sex: Option[BiologicalSex] = None,
                                 latitude: Option[Double] = None,
                                 longitude: Option[Double] = None
                               )

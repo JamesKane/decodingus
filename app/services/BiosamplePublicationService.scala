@@ -42,15 +42,16 @@ class BiosamplePublicationService @Inject()(
     }
 
     for {
-      biosample <- biosampleRepository.findByAccession(sampleAccession).flatMap {
-        case Some(sample) => Future.successful(sample)
+      biosampleWithDonor <- biosampleRepository.findByAccession(sampleAccession).flatMap {
+        case Some(result) => Future.successful(result)
         case None => Future.failed(new IllegalArgumentException(s"Biosample with accession $sampleAccession not found"))
       }
-
       publication <- publicationRepository.findByDoi(cleanDoi(doi)).flatMap {
         case Some(pub) => Future.successful(pub)
         case None => Future.failed(new IllegalArgumentException(s"Publication with DOI $doi not found"))
       }
+
+      (biosample, _) = biosampleWithDonor  // Destructure the tuple to get just the biosample
 
       link <- publicationBiosampleRepository.create(
         PublicationBiosample(
@@ -64,4 +65,5 @@ class BiosamplePublicationService @Inject()(
       )
     } yield link
   }
+
 }
