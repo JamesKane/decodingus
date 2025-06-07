@@ -1,7 +1,7 @@
 package repositories
 
 import jakarta.inject.{Inject, Singleton}
-import models.dal.DatabaseSchema
+import models.dal.{DatabaseSchema, MyPostgresProfile}
 import models.domain.genomics.{BiologicalSex, BiosampleType, SpecimenDonor}
 import play.api.db.slick.DatabaseConfigProvider
 import com.vividsolutions.jts.geom.Point
@@ -19,6 +19,9 @@ trait SpecimenDonorRepository {
   def findBySex(sex: BiologicalSex): Future[Seq[SpecimenDonor]]
   def getAllGeoLocations: Future[Seq[(Point, Int)]]
   def findByBiobankAndType(biobank: String, donorType: BiosampleType): Future[Seq[SpecimenDonor]]
+  def deleteMany(ids: Seq[Int]): Future[Int]
+  def transferBiosamples(fromDonorIds: Seq[Int], toDonorId: Int): Future[Int]
+
 }
 
 @Singleton
@@ -31,6 +34,7 @@ class SpecimenDonorRepositoryImpl @Inject()(
   import models.dal.MyPostgresProfile.api._
 
   private val donorsTable = DatabaseSchema.domain.genomics.specimenDonors
+  private val biosamplesTable = DatabaseSchema.domain.genomics.biosamples
 
   override def findById(id: Int): Future[Option[SpecimenDonor]] = {
     db.run(donorsTable.filter(_.id === id).result.headOption)
@@ -156,4 +160,20 @@ class SpecimenDonorRepositoryImpl @Inject()(
         .result
     )
   }
+
+  override def deleteMany(ids: Seq[Int]): Future[Int] = {
+    db.run(donorsTable.filter(_.id.inSet(ids)).delete)
+  }
+
+  def transferBiosamples(fromDonorIds: Seq[Int], toDonorId: Int): Future[Int] = {
+    import MyPostgresProfile.api._
+
+    db.run(
+      biosamplesTable
+        .filter(_.specimenDonorId inSet fromDonorIds)
+        .map(_.specimenDonorId)
+        .update(Some(toDonorId))
+    )
+  }
+
 }
