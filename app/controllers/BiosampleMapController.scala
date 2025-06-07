@@ -20,7 +20,7 @@ class BiosampleMapController @Inject()(
   }
 
   def geoData() = Action.async { implicit request =>
-    biosampleRepository.getAllGeoLocations().map { locations =>
+    biosampleRepository.getAllGeoLocations.map { locations =>
       val geoJson = locations.map { case (point, count) =>
         Json.obj(
           "lat" -> point.getY,

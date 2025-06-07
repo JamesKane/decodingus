@@ -70,6 +70,9 @@ POST          /api/private/external/biosamples                                  
 POST          /api/private/external/biosamples/:sampleGuid/sequences                             controllers.BiosampleDataController.addSequenceData(sampleGuid: java.util.UUID)
 POST          /api/private/external/biosamples/:sampleGuid/publication                           controllers.BiosampleDataController.linkPublication(sampleGuid: java.util.UUID)
 
+# Specimen Donor endpoints
+POST          /api/private/donors/merge                                                          controllers.SpecimenDonorController.mergeDonors()
+
 # --- API Routes (Handled by Tapir, including Swagger UI) ---
 # Delegate all requests starting with /api to the Tapir-based ApiRouter
 ->            /api                                                                               controllers.ApiRouter

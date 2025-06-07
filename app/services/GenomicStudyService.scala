@@ -1,9 +1,10 @@
 package services
 
-import models.domain.genomics.Biosample
+import models.domain.genomics.{Biosample, SpecimenDonor}
 import models.domain.publications.{GenomicStudy, StudySource}
 import play.api.Logging
 import play.api.libs.ws.*
+import repositories.{BiosampleRepository, SpecimenDonorRepository}
 import services.ena.{EnaApiClient, EnaBiosampleData, EnaStudyData}
 import services.mappers.GenomicStudyMappers
 import services.ncbi.{NcbiApiClient, SraBiosampleData, SraStudyData}
@@ -25,7 +26,9 @@ import scala.concurrent.{ExecutionContext, Future}
 class GenomicStudyService @Inject()(
                                      ws: WSClient,
                                      ncbiApiClient: NcbiApiClient,
-                                     enaApiClient: EnaApiClient
+                                     enaApiClient: EnaApiClient,
+                                     specimenDonorRepository: SpecimenDonorRepository,
+                                     biosampleRepository: BiosampleRepository
                                    )(implicit ec: ExecutionContext) extends Logging {
 
   // ENA Browser API for XML (often more detailed for studies)
@@ -103,13 +106,95 @@ class GenomicStudyService @Inject()(
     determineSource(studyAccession) match {
       case StudySource.ENA =>
         enaApiClient.getBiosamples(studyAccession)
-          .map(_.map(GenomicStudyMappers.enaToBiosample))
+          .flatMap(processBiosamples(_, GenomicStudyMappers.enaToBiosample))
       case StudySource.NCBI_BIOPROJECT =>
         ncbiApiClient.getSraBiosamples(studyAccession)
-          .map(_.map(GenomicStudyMappers.sraToBiosample))
+          .flatMap(processBiosamples(_, GenomicStudyMappers.sraToBiosample))
       case _ =>
         Future.successful(Seq.empty)
     }
+  }
+
+  private def processBiosamples[T](
+                                    data: Seq[T],
+                                    mapper: T => GenomicStudyMappers.BiosampleMappingResult
+                                  ): Future[Seq[Biosample]] = {
+    Future.sequence(
+      data.map { item =>
+        val result = mapper(item)
+        persistBiosampleWithDonor(result)
+      }
+    )
+  }
+
+  private def persistBiosampleWithDonor(
+                                         result: GenomicStudyMappers.BiosampleMappingResult
+                                       ): Future[Biosample] = {
+    result.specimenDonor match {
+      case Some(donor) =>
+        // First try to find a matching donor
+        findMatchingDonor(donor).flatMap {
+          case Some(existingDonor) =>
+            // Use existing donor
+            val biosampleWithDonor = result.biosample.copy(
+              specimenDonorId = Some(existingDonor.id.get)
+            )
+            biosampleRepository.create(biosampleWithDonor)
+
+          case None =>
+            // Create new donor if no match found
+            specimenDonorRepository.create(donor).flatMap { createdDonor =>
+              val biosampleWithDonor = result.biosample.copy(
+                specimenDonorId = Some(createdDonor.id.get)
+              )
+              biosampleRepository.create(biosampleWithDonor)
+            }
+        }
+
+      case None =>
+        // If no donor data, just create the biosample
+        biosampleRepository.create(result.biosample)
+    }
+  }.recover {
+    case e: Exception =>
+      logger.error(s"Error persisting biosample ${result.biosample.sampleAccession}: ${e.getMessage}")
+      throw e
+  }
+
+  private def findMatchingDonor(donor: SpecimenDonor): Future[Option[SpecimenDonor]] = {
+    // Initialize empty sequence for query conditions
+    var conditions = Seq.empty[(SpecimenDonor, SpecimenDonor) => Boolean]
+
+    // Add conditions based on available donor data
+    if (donor.donorIdentifier.nonEmpty) {
+      conditions :+= (_.donorIdentifier == _.donorIdentifier)
+    }
+
+    if (donor.sex.isDefined) {
+      conditions :+= (_.sex == _.sex)
+    }
+
+    if (donor.geocoord.isDefined) {
+      conditions :+= (_.geocoord == _.geocoord)
+    }
+
+    if (donor.pgpParticipantId.isDefined) {
+      conditions :+= (_.pgpParticipantId == _.pgpParticipantId)
+    }
+
+    if (donor.citizenBiosampleDid.isDefined) {
+      conditions :+= (_.citizenBiosampleDid == _.citizenBiosampleDid)
+    }
+
+    // Get all donors with same origin biobank and type
+    specimenDonorRepository
+      .findByBiobankAndType(donor.originBiobank, donor.donorType)
+      .map { donors =>
+        // Find first donor that matches all conditions
+        donors.find(existing =>
+          conditions.forall(condition => condition(existing, donor))
+        )
+      }
   }
 
   private def getGenbankDetails(accession: String): Future[Option[GenomicStudy]] = {

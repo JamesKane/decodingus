@@ -3,6 +3,7 @@ package modules
 import com.google.inject.AbstractModule
 import play.api.Mode.Prod
 import play.api.{Configuration, Environment, Mode}
+import services.genomics.{SpecimenDonorService, SpecimenDonorServiceImpl}
 import services.{AwsSesEmailService, EmailService, LoggingEmailService}
 
 class ServicesModule(environment: Environment, configuration: Configuration) extends AbstractModule {
@@ -13,5 +14,9 @@ class ServicesModule(environment: Environment, configuration: Configuration) ext
     }
 
     bind(classOf[EmailService]).to(emailService)
+
+    bind(classOf[SpecimenDonorService])
+      .to(classOf[SpecimenDonorServiceImpl])
+      .asEagerSingleton()
   }
 }

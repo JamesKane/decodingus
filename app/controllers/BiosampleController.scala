@@ -82,7 +82,7 @@ class BiosampleController @Inject()(
    */
   def findByAliasOrAccession(query: String): Action[AnyContent] = Action.async {
     biosampleRepository.findByAliasOrAccession(query).map {
-      case Some(biosample) => Ok(Json.toJson(BiosampleView.fromDomain(biosample)))
+      case Some((biosample, specimenDonor)) => Ok(Json.toJson(BiosampleView.fromDomain(biosample, specimenDonor)))
       case None => NotFound(Json.obj("error" -> "Biosample not found"))
     }
   }

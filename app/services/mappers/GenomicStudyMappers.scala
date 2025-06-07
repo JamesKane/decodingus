@@ -1,29 +1,18 @@
 package services.mappers
 
 import com.vividsolutions.jts.geom.{Coordinate, GeometryFactory}
-import models.domain.genomics.{Biosample, BiosampleType}
+import models.domain.genomics.{Biosample, BiosampleType, BiologicalSex, SpecimenDonor}
 import models.domain.publications.{GenomicStudy, StudySource}
 import services.ena.{EnaBiosampleData, EnaStudyData}
 import services.ncbi.{SraBiosampleData, SraStudyData}
 
 import java.util.UUID
 
-/**
- * `GenomicStudyMappers` provides utility methods to map ENA and SRA study and biosample data 
- * into corresponding domain-specific representations (`GenomicStudy` and `Biosample`). 
- * The class handles transformations, setting default values, and validating input data 
- * during the mapping process.
- */
 object GenomicStudyMappers {
   private val ValidSexValues = Set("male", "female", "intersex")
   private val geometryFactory = new GeometryFactory()
 
-  /**
-   * Converts an ENA (European Nucleotide Archive) study data object into a GenomicStudy object.
-   *
-   * @param ena The input data representing a study, encapsulated in an EnaStudyData object.
-   * @return A GenomicStudy object containing the mapped data from the input EnaStudyData.
-   */
+  // Existing genomic study mapping methods remain unchanged
   def enaToGenomicStudy(ena: EnaStudyData): GenomicStudy = GenomicStudy(
     id = None,
     accession = ena.accession,
@@ -41,12 +30,6 @@ object GenomicStudyMappers {
     version = None
   )
 
-  /**
-   * Converts a given SRA (Sequence Read Archive) study data object into a GenomicStudy object.
-   *
-   * @param sra The input data representing a study, encapsulated in an SraStudyData object.
-   * @return A GenomicStudy object containing the mapped data from the input SraStudyData.
-   */
   def sraToGenomicStudy(sra: SraStudyData): GenomicStudy = GenomicStudy(
     id = None,
     accession = sra.studyName,
@@ -64,40 +47,51 @@ object GenomicStudyMappers {
     version = None
   )
 
-  /**
-   * Converts an ENA (European Nucleotide Archive) biosample data object into a Biosample object.
-   *
-   * @param ena The input data representing a biosample, encapsulated in an EnaBiosampleData object.
-   * @return A Biosample object containing the mapped data from the input EnaBiosampleData.
-   */
-  def enaToBiosample(ena: EnaBiosampleData): Biosample = {
+  case class BiosampleMappingResult(
+                                     biosample: Biosample,
+                                     specimenDonor: Option[SpecimenDonor]
+                                   )
+
+  def enaToBiosample(ena: EnaBiosampleData): BiosampleMappingResult = {
     val geoCoord = (ena.latitude, ena.longitude) match {
       case (Some(lat), Some(lon)) =>
         Some(geometryFactory.createPoint(new Coordinate(lon, lat)))
       case _ => None
     }
 
-    Biosample(
+    val donorId = UUID.randomUUID().toString
+
+    val specimenDonor = if (ena.sex.isDefined || geoCoord.isDefined) {
+      Some(SpecimenDonor(
+        id = None,
+        donorIdentifier = donorId,
+        originBiobank = ena.centerName,
+        donorType = BiosampleType.Standard,
+        sex = ena.sex.map(BiologicalSex.valueOf),
+        geocoord = geoCoord,
+        pgpParticipantId = None,
+        citizenBiosampleDid = None,
+        dateRangeStart = None,
+        dateRangeEnd = None
+      ))
+    } else None
+
+    val biosample = Biosample(
       id = None,
+      sampleGuid = UUID.randomUUID(),
       sampleAccession = ena.sampleAccession,
       description = ena.description,
       alias = ena.alias,
       centerName = ena.centerName,
-      sex = ena.sex,
-      geocoord = geoCoord,
-      specimenDonorId = None,
-      sampleType = BiosampleType.Standard,
-      sampleGuid = UUID.randomUUID()
+      specimenDonorId = None, // Will be set after donor is created
+      locked = false,
+      sourcePlatform = None
     )
+
+    BiosampleMappingResult(biosample, specimenDonor)
   }
 
-  /**
-   * Converts a given SRA (Sequence Read Archive) biosample data object into a Biosample object.
-   *
-   * @param sra The input data representing a biosample, encapsulated in an SraBiosampleData object.
-   * @return A Biosample object containing the mapped data from the input SraBiosampleData.
-   */
-  def sraToBiosample(sra: SraBiosampleData): Biosample = {
+  def sraToBiosample(sra: SraBiosampleData): BiosampleMappingResult = {
     val sex = validateSex(sra.attributes.get("sex"))
     val coordinates = for {
       lat <- sra.attributes.get("latitude")
@@ -108,18 +102,36 @@ object GenomicStudyMappers {
         .flatMap(_.toDoubleOption)
     } yield geometryFactory.createPoint(new Coordinate(lon, lat))
 
-    Biosample(
+    val donorId = UUID.randomUUID().toString
+
+    val specimenDonor = if (sex.isDefined || coordinates.isDefined) {
+      Some(SpecimenDonor(
+        id = None,
+        donorIdentifier = donorId,
+        originBiobank = sra.centerName,
+        donorType = BiosampleType.Standard,
+        sex = sex.map(BiologicalSex.valueOf),
+        geocoord = coordinates,
+        pgpParticipantId = None,
+        citizenBiosampleDid = None,
+        dateRangeStart = None,
+        dateRangeEnd = None
+      ))
+    } else None
+
+    val biosample = Biosample(
       id = None,
+      sampleGuid = UUID.randomUUID(),
       sampleAccession = sra.sampleAccession,
       description = sra.description,
       alias = sra.alias,
       centerName = sra.centerName,
-      sex = sex,
-      geocoord = coordinates,
-      specimenDonorId = None,
-      sampleType = BiosampleType.Standard,
-      sampleGuid = UUID.randomUUID()
+      specimenDonorId = None, // Will be set after donor is created
+      locked = false,
+      sourcePlatform = None
     )
+
+    BiosampleMappingResult(biosample, specimenDonor)
   }
 
   private def validateSex(sex: Option[String]): Option[String] = {

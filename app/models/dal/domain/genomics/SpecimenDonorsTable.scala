@@ -1,7 +1,8 @@
 package models.dal.domain.genomics
 
-import models.domain.genomics.SpecimenDonor
-import slick.jdbc.PostgresProfile.api.*
+import com.vividsolutions.jts.geom.Point
+import models.domain.genomics.{BiologicalSex, BiosampleType, SpecimenDonor}
+import models.dal.MyPostgresProfile.api.*
 
 /**
  * Represents the database table definition for storing specimen donor records.
@@ -25,10 +26,26 @@ import slick.jdbc.PostgresProfile.api.*
  */
 class SpecimenDonorsTable(tag: Tag) extends Table[SpecimenDonor](tag, "specimen_donor") {
   def id = column[Int]("id", O.PrimaryKey, O.AutoInc)
-
   def donorIdentifier = column[String]("donor_identifier")
-
   def originBiobank = column[String]("origin_biobank")
+  def donorType = column[BiosampleType]("donor_type")
+  def sex = column[Option[BiologicalSex]]("sex")
+  def geocoord = column[Option[Point]]("geocoord")
+  def pgpParticipantId = column[Option[String]]("pgp_participant_id")
+  def citizenBiosampleDid = column[Option[String]]("citizen_biosample_did")
+  def dateRangeStart = column[Option[Int]]("date_range_start")
+  def dateRangeEnd = column[Option[Int]]("date_range_end")
 
-  def * = (id.?, donorIdentifier, originBiobank).mapTo[SpecimenDonor]
+  def * = (
+    id.?,
+    donorIdentifier,
+    originBiobank,
+    donorType,
+    sex,
+    geocoord,
+    pgpParticipantId,
+    citizenBiosampleDid,
+    dateRangeStart,
+    dateRangeEnd
+  ).mapTo[SpecimenDonor]
 }

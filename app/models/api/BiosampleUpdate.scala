@@ -1,5 +1,6 @@
 package models.api
 
+import models.domain.genomics.BiologicalSex
 import play.api.libs.json.{Json, Reads}
 
 /**
@@ -15,7 +16,7 @@ import play.api.libs.json.{Json, Reads}
  * @param mtHaplogroup   An optional mitochondrial haplogroup assignment for the source of the biosample.
  */
 case class BiosampleUpdate(
-                            sex: Option[String] = None,
+                            sex: Option[BiologicalSex] = None,
                             geoCoord: Option[GeoCoord] = None,
                             alias: Option[String] = None,
                             locked: Option[Boolean] = None,

@@ -2,7 +2,7 @@ package services
 
 import com.vividsolutions.jts.geom.Point
 import jakarta.inject.{Inject, Singleton}
-import models.domain.genomics.{Biosample, BiosampleType}
+import models.domain.genomics.{BiologicalSex, Biosample, BiosampleType, SpecimenDonor}
 import repositories.*
 
 import java.util.UUID
@@ -19,31 +19,37 @@ import scala.concurrent.{ExecutionContext, Future}
 @Singleton
 class PgpBiosampleService @Inject()(
                                      biosampleRepository: BiosampleRepository,
-                                     accessionGenerator: AccessionNumberGenerator
+                                     accessionGenerator: AccessionNumberGenerator,
+                                     specimenDonorRepository: SpecimenDonorRepository
                                    )(implicit ec: ExecutionContext) extends CoordinateValidation {
 
-  /**
-   * Creates a new PGP biosample, generates its unique identifier and accession number,
-   * and stores it in the biosample repository.
-   *
-   * @param participantId The unique identifier of the PGP participant.
-   * @param sampleDid     The decentralized identifier (DID) of the sample.
-   * @param description   A textual description of the biosample.
-   * @param centerName    The name of the institution or center managing the biosample.
-   * @param sex           An optional field indicating the sex of the biosample.
-   * @return A future containing the unique identifier (UUID) of the created biosample.
-   */
   def createPgpBiosample(
                           participantId: String,
                           description: String,
                           centerName: String,
-                          sex: Option[String] = None,
+                          sex: Option[BiologicalSex] = None,
                           latitude: Option[Double] = None,
                           longitude: Option[Double] = None
                         ): Future[UUID] = {
     val sampleGuid = UUID.randomUUID()
 
-    def createBiosample(geocoord: Option[Point]) = {
+    def createSpecimenDonor(geocoord: Option[Point]) = {
+      val donor = SpecimenDonor(
+        id = None,
+        donorIdentifier = participantId,
+        originBiobank = centerName,
+        donorType = BiosampleType.PGP,
+        sex = sex,
+        geocoord = geocoord,
+        pgpParticipantId = Some(participantId),
+        citizenBiosampleDid = None,
+        dateRangeStart = None,
+        dateRangeEnd = None
+      )
+      specimenDonorRepository.create(donor)
+    }
+
+    def createBiosample(donorId: Option[Int]) = {
       val metadata = AccessionMetadata(
         pgpParticipantId = Some(participantId),
         citizenBiosampleDid = None
@@ -53,27 +59,25 @@ class PgpBiosampleService @Inject()(
         accession <- accessionGenerator.generateAccession(BiosampleType.PGP, metadata)
         biosample <- biosampleRepository.create(Biosample(
           id = None,
-          sampleType = BiosampleType.PGP,
           sampleGuid = sampleGuid,
           sampleAccession = accession,
           description = description,
           alias = Some(participantId),
           centerName = centerName,
-          sex = sex,
-          geocoord = geocoord,
-          specimenDonorId = None,
-          pgpParticipantId = Some(participantId),
-          citizenBiosampleDid = None,
-          sourcePlatform = Some("PGP"),
-          dateRangeStart = None,
-          dateRangeEnd = None
+          specimenDonorId = donorId,
+          locked = false,
+          sourcePlatform = Some("PGP")
         ))
       } yield sampleGuid
     }
 
+    def shouldCreateDonor: Boolean = {
+      sex.isDefined || latitude.isDefined || longitude.isDefined
+    }
+
     // First check for existing participant
     biosampleRepository.findByAliasOrAccession(participantId).flatMap {
-      case Some(existing) =>
+      case Some((existing, _)) =>
         Future.failed(DuplicateParticipantException(
           s"Participant $participantId already has a biosample with accession ${existing.sampleAccession}"
         ))
@@ -81,13 +85,21 @@ class PgpBiosampleService @Inject()(
       case None =>
         for {
           geocoord <- validateCoordinates(latitude, longitude)
-          guid <- createBiosample(geocoord)
+          donorId <- if (shouldCreateDonor) {
+            createSpecimenDonor(geocoord).map(donor => Some(donor.id.get))
+          } else {
+            Future.successful(None)
+          }
+          guid <- createBiosample(donorId)
         } yield guid
     }.recoverWith {
       case e: Exception if e.getMessage.contains("duplicate key") =>
         Future.failed(DuplicateParticipantException(
           s"Participant $participantId already exists (caught at database level)"
         ))
+      case e: BiosampleServiceException => Future.failed(e)
+      case e: Exception => Future.failed(new RuntimeException(
+        s"Failed to create PGP biosample: ${e.getMessage}", e))
     }
   }
 }

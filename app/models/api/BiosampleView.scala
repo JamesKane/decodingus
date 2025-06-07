@@ -1,6 +1,6 @@
 package models.api
 
-import models.domain.genomics.Biosample
+import models.domain.genomics.{Biosample, SpecimenDonor}
 import play.api.libs.json.{Json, OFormat}
 import utils.GeometryUtils
 
@@ -46,20 +46,21 @@ case class BiosampleView(
 object BiosampleView {
   implicit val format: OFormat[BiosampleView] = Json.format[BiosampleView]
 
-  def fromDomain(biosample: Biosample): BiosampleView = {
+  def fromDomain(biosample: Biosample, specimenDonor: Option[SpecimenDonor] = None): BiosampleView = {
     BiosampleView(
       id = biosample.id,
       sampleAccession = biosample.sampleAccession,
       description = biosample.description,
       alias = biosample.alias,
       centerName = biosample.centerName,
-      sex = biosample.sex,
-      geoCoord = biosample.geocoord.map(point => GeoCoord(point.getY, point.getX)),
+      sex = specimenDonor.flatMap(_.sex.map(_.toString)),
+      geoCoord = specimenDonor.flatMap(_.geocoord).map(point => GeoCoord(point.getY, point.getX)),
       specimenDonorId = biosample.specimenDonorId,
       sampleGuid = biosample.sampleGuid,
       locked = biosample.locked,
-      dateRangeStart = biosample.dateRangeStart,
-      dateRangeEnd = biosample.dateRangeEnd
+      dateRangeStart = specimenDonor.flatMap(_.dateRangeStart),
+      dateRangeEnd = specimenDonor.flatMap(_.dateRangeEnd)
     )
   }
 }
+
