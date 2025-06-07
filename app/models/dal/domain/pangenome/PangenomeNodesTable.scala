@@ -5,23 +5,16 @@ import models.domain.pangenome.PangenomeNode
 
 class PangenomeNodesTable(tag: Tag) extends Table[PangenomeNode](tag, "pangenome_node") {
   def id = column[Long]("id", O.PrimaryKey, O.AutoInc)
-
-  def graphId = column[Int]("graph_id")
-
-  def sequence = column[String]("sequence")
-
-  def length = column[Int]("length")
-
-  def isCore = column[Option[Boolean]]("is_core")
-
-  def annotationId = column[Option[Int]]("annotation_id")
+  def graphId = column[Long]("graph_id")
+  def nodeName = column[String]("node_name")
+  def sequenceLength = column[Option[Long]]("sequence_length")
 
   def * = (
     id.?,
     graphId,
-    sequence,
-    length,
-    isCore,
-    annotationId
+    nodeName,
+    sequenceLength
   ).mapTo[PangenomeNode]
+
+  def graphFk = foreignKey("fk_node_graph", graphId, TableQuery[PangenomeGraphsTable])(_.id)
 }

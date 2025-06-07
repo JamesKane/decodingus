@@ -4,8 +4,8 @@ import java.time.ZonedDateTime
 
 case class PangenomeGraph(
                            id: Option[Long],
-                           name: String,
+                           graphName: String,
+                           sourceGfaFile: Option[String],
                            description: Option[String],
-                           creationDate: ZonedDateTime,
-                           checksum: Option[String]
+                           creationDate: ZonedDateTime
                          )

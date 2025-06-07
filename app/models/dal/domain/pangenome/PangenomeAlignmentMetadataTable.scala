@@ -1,6 +1,7 @@
 package models.dal.domain.pangenome
 
 import models.dal.MyPostgresProfile.api.*
+import models.dal.domain.genomics.SequenceFilesTable
 import models.domain.pangenome.PangenomeAlignmentMetadata
 import play.api.libs.json.JsValue
 import slick.lifted.ProvenShape
@@ -24,7 +25,7 @@ class PangenomeAlignmentMetadataTable(tag: Tag) extends Table[PangenomeAlignment
   def notes = column[Option[String]]("notes")
   def metadata = column[Option[JsValue]]("metadata")
 
-  def * : ProvenShape[PangenomeAlignmentMetadata] = (
+  def * = (
     id.?,
     sequenceFileId,
     pangenomeGraphId,

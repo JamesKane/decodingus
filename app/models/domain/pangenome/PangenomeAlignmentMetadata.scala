@@ -5,10 +5,10 @@ import play.api.libs.json.JsValue
 import java.time.ZonedDateTime
 
 case class PangenomeAlignmentMetadata(
-                                       id: Option[Long], // Primary key
+                                       id: Option[Long],
                                        sequenceFileId: Long,
                                        pangenomeGraphId: Int,
-                                       metricLevel: String, // CHECK constraint handled by DB
+                                       metricLevel: String,
                                        pangenomePathId: Option[Int],
                                        pangenomeNodeId: Option[Int],
                                        regionStartNodeId: Option[Int],

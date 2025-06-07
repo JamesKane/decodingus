@@ -90,7 +90,6 @@ object DatabaseSchema {
       val canonicalPangenomeVariants = TableQuery[CanonicalPangenomeVariantsTable]
       val pangenomeAlignmentCoverages = TableQuery[PangenomeAlignmentCoverageTable]
       val pangenomeAlignmentMetadata = TableQuery[PangenomeAlignmentMetadataTable]
-      val pangenomeEdges = TableQuery[PangenomeEdgesTable]
       val pangenomeGraphs = TableQuery[PangenomeGraphsTable]
       val pangenomeNodes = TableQuery[PangenomeNodesTable]
       val pangenomePathsTable = TableQuery[PangenomePathsTable]

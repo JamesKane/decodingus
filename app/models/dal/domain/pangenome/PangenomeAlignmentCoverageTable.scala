@@ -5,7 +5,7 @@ import models.domain.pangenome.PangenomeAlignmentCoverage
 import slick.lifted.ProvenShape
 
 class PangenomeAlignmentCoverageTable(tag: Tag) extends Table[PangenomeAlignmentCoverage](tag, "pangenome_alignment_coverage") {
-  def alignmentMetadataId = column[Long]("alignment_metadata_id", O.PrimaryKey) // PK and FK
+  def alignmentMetadataId = column[Long]("alignment_metadata_id", O.PrimaryKey)
   def meanDepth = column[Option[Double]]("mean_depth")
   def medianDepth = column[Option[Double]]("median_depth")
   def percentCoverageAt1x = column[Option[Double]]("percent_coverage_at_1x")
@@ -18,7 +18,7 @@ class PangenomeAlignmentCoverageTable(tag: Tag) extends Table[PangenomeAlignment
   def basesCallable = column[Option[Long]]("bases_callable")
   def meanMappingQuality = column[Option[Double]]("mean_mapping_quality")
 
-  def * : ProvenShape[PangenomeAlignmentCoverage] = (
+  def * = (
     alignmentMetadataId,
     meanDepth,
     medianDepth,
@@ -32,4 +32,9 @@ class PangenomeAlignmentCoverageTable(tag: Tag) extends Table[PangenomeAlignment
     basesCallable,
     meanMappingQuality
   ).mapTo[PangenomeAlignmentCoverage]
+
+  def metadataFk = foreignKey(
+    "fk_alignment_coverage_metadata",
+    alignmentMetadataId,
+    TableQuery[PangenomeAlignmentMetadataTable])(_.id, onDelete = ForeignKeyAction.Cascade)
 }

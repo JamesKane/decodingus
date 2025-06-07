@@ -6,25 +6,20 @@ import models.domain.pangenome.PangenomePath
 
 class PangenomePathsTable(tag: Tag) extends Table[PangenomePath](tag, "pangenome_path") {
   def id = column[Long]("id", O.PrimaryKey, O.AutoInc)
-
-  def graphId = column[Int]("graph_id")
-
-  def name = column[String]("name")
-
-  def nodeSequence = column[List[Int]]("node_sequence")(MyPostgresProfile.api.intListTypeMapper)
-
-  def length = column[Long]("length")
-
-  def sourceAssemblyId = column[Option[Int]]("source_assembly_id")
-
-  def uniqueGraphName = index("idx_unique_pangenome_path_graph_name", (graphId, name), unique = true)
+  def graphId = column[Long]("graph_id")
+  def pathName = column[String]("path_name")
+  def isReference = column[Boolean]("is_reference")
+  def lengthBp = column[Option[Long]]("length_bp")
+  def description = column[Option[String]]("description")
 
   def * = (
     id.?,
     graphId,
-    name,
-    nodeSequence,
-    length,
-    sourceAssemblyId
+    pathName,
+    isReference,
+    lengthBp,
+    description
   ).mapTo[PangenomePath]
+
+  def graphFk = foreignKey("fk_path_graph", graphId, TableQuery[PangenomeGraphsTable])(_.id)
 }

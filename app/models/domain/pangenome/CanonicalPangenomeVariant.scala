@@ -4,11 +4,11 @@ import java.time.ZonedDateTime
 
 case class CanonicalPangenomeVariant(
                                       id: Option[Long],
-                                      panGenomeGraphId: Int,
+                                      pangenomeGraphId: Long,
                                       variantType: String,
                                       variantNodes: List[Int],
                                       variantEdges: List[Int],
-                                      referencePathId: Option[Int],
+                                      referencePathId: Option[Long],
                                       referenceStartPosition: Option[Int],
                                       referenceEndPosition: Option[Int],
                                       referenceAlleleSequence: Option[String],
