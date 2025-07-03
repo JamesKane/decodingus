@@ -7,11 +7,11 @@ lazy val root = (project in file(".")).enablePlugins(PlayScala)
 scalaVersion := "3.3.5"
 
 val SLICK_VERSION = "6.2.0"
-val SLICK_PG_VERSION = "0.23.0"
-val TAPIR_VERSION = "1.11.33"
+val SLICK_PG_VERSION = "0.23.1"
+val TAPIR_VERSION = "1.11.35"
 
 // WARNING: Updating beyond 1.1.2 will result in startup errors, since quartz schedular needs this version
-val APACHE_PEKKO_VERSION = "1.1.2"
+val APACHE_PEKKO_VERSION = "1.1.4"
 
 scalacOptions ++= Seq("-Xmax-inlines", "128")
 
@@ -21,14 +21,14 @@ libraryDependencies ++= Seq(
   "org.scala-lang.modules" %% "scala-xml" % "2.4.0",
   "org.playframework" %% "play-slick" % SLICK_VERSION,
   "org.playframework" %% "play-slick-evolutions" % SLICK_VERSION,
-  "org.postgresql" % "postgresql" % "42.7.6",
+  "org.postgresql" % "postgresql" % "42.7.7",
   "com.github.tminglei" %% "slick-pg" % SLICK_PG_VERSION,
   "com.github.tminglei" %% "slick-pg_jts" % SLICK_PG_VERSION,
   "com.github.tminglei" %% "slick-pg_play-json" % SLICK_PG_VERSION,
   "org.webjars" %% "webjars-play" % "3.0.2",
-  "org.webjars" % "bootstrap" % "5.3.5",
+  "org.webjars" % "bootstrap" % "5.3.7",
   "org.webjars" % "popper.js" % "2.11.7",
-  "org.webjars.npm" % "htmx.org" % "2.0.4",
+  "org.webjars.npm" % "htmx.org" % "2.0.6",
   "org.scalatestplus.play" %% "scalatestplus-play" % "7.0.1" % Test,
   "org.codehaus.janino" % "janino" % "3.1.12",
   "com.nappin" %% "play-recaptcha" % "3.0",
@@ -48,8 +48,10 @@ libraryDependencies ++= Seq(
   "org.apache.pekko" %% "pekko-protobuf-v3" % APACHE_PEKKO_VERSION,
   "org.apache.pekko" %% "pekko-serialization-jackson" % APACHE_PEKKO_VERSION,
   "org.apache.pekko" %% "pekko-stream" % APACHE_PEKKO_VERSION,
+  "org.apache.pekko" %% "pekko-actor-typed" % APACHE_PEKKO_VERSION,
+  "org.apache.pekko" %% "pekko-slf4j" % APACHE_PEKKO_VERSION,
 
-  "software.amazon.awssdk" % "secretsmanager" % "2.31.54",
-  "software.amazon.awssdk" % "ses" % "2.31.54",
+  "software.amazon.awssdk" % "secretsmanager" % "2.31.76",
+  "software.amazon.awssdk" % "ses" % "2.31.76",
   "org.hashids" % "hashids" % "1.0.3"
 )
