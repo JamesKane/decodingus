@@ -4,7 +4,7 @@ version := "1.0-SNAPSHOT"
 
 lazy val root = (project in file(".")).enablePlugins(PlayScala)
 
-scalaVersion := "3.3.5"
+scalaVersion := "3.3.6"
 
 val SLICK_VERSION = "6.2.0"
 val SLICK_PG_VERSION = "0.23.1"
