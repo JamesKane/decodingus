@@ -8,8 +8,8 @@ scalaVersion := "3.3.6"
 
 val SLICK_VERSION = "6.2.0"
 val SLICK_PG_VERSION = "0.23.1"
-val TAPIR_VERSION = "1.11.44"
-val AWS_VERSION = "2.34.5"
+val TAPIR_VERSION = "1.11.46"
+val AWS_VERSION = "2.34.7"
 
 // WARNING: Updating beyond 1.1.2 will result in startup errors, since quartz schedular needs this version
 val APACHE_PEKKO_VERSION = "1.1.4"
