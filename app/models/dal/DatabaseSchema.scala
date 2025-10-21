@@ -62,6 +62,8 @@ object DatabaseSchema {
     object genomics {
       val analysisMethods = TableQuery[AnalysisMethodTable]
       val ancestryAnalyses = TableQuery[AncestryAnalysisTable]
+      val alignmentMetadata = TableQuery[AlignmentMetadataTable]
+      val alignmentCoverages = TableQuery[AlignmentCoverageTable]
       val assemblyMetadata = TableQuery[AssemblyMetadataTable]
       val biosampleHaplogroups = TableQuery[BiosampleHaplogroupsTable]
       val biosamples = TableQuery[BiosamplesTable]

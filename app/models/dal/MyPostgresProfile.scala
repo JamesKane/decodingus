@@ -1,7 +1,7 @@
 package models.dal
 
 import com.github.tminglei.slickpg.*
-import models.domain.genomics.{BiologicalSex, BiosampleType}
+import models.domain.genomics.{BiologicalSex, BiosampleType, MetricLevel}
 import models.domain.publications.StudySource
 import play.api.libs.json.{JsValue, Json, OFormat, OWrites}
 import slick.basic.Capability
@@ -119,6 +119,11 @@ trait MyPostgresProfile extends ExPostgresProfile
         s => BiologicalSex.valueOf(s)
       )
 
+    implicit val metricLevelTypeMapper: JdbcType[MetricLevel] =
+      MappedJdbcType.base[MetricLevel, String](
+        ml => ml.toString,
+        s => MetricLevel.valueOf(s)
+      )
 
     implicit val strListTypeMapper: DriverJdbcType[List[String]] = new SimpleArrayJdbcType[String]("text").to(_.toList)
     implicit val intListTypeMapper: DriverJdbcType[List[Int]] = new SimpleArrayJdbcType[Int]("int4").to(_.toList)
