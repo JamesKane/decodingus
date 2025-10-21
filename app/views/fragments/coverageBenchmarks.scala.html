@@ -2,6 +2,21 @@
 
 @(benchmarks: Seq[CoverageBenchmark])
 
+@* Helper function to calculate 95% confidence interval *@
+@calculateCI(mean: Option[Double], stddev: Option[Double], n: Int) = @{
+    (mean, stddev) match {
+        case (Some(m), Some(sd)) if n > 1 =>
+            val margin = 1.96 * sd / math.sqrt(n)
+            val lower = m - margin
+            val upper = m + margin
+            f"$m%.1f ($lower%.1f-$upper%.1f)"
+        case (Some(m), _) =>
+            f"$m%.1f"
+        case _ =>
+            "-"
+    }
+}
+
 <div class="table-responsive">
     <table class="table table-striped table-hover">
         <thead class="table-dark">
@@ -13,52 +28,40 @@
                 <th>Read Length Range</th>
                 <th>Mean Insert Size</th>
                 <th>Insert Size Range</th>
-                <th>Mean Depth (±SD)</th>
-                <th>Bases No Coverage (±SD)</th>
-                <th>Low Quality Mapping (±SD)</th>
-                <th>Callable Bases (±SD)</th>
+                <th>Mean Depth</th>
+                <th>Bases No Coverage</th>
+                <th>Low Quality Mapping</th>
+                <th>Callable Bases</th>
                 <th>Mean Mapping Quality</th>
                 <th>Samples</th>
             </tr>
         </thead>
         <tbody>
-            @for(benchmark <- benchmarks) {
-                <tr>
-                    <td>@benchmark.lab</td>
-                    <td>@benchmark.testType</td>
-                    <td>@benchmark.contig</td>
-                    <td>@benchmark.meanReadLen.map(v => f"$v%.1f").getOrElse("-")</td>
-                    <td>
-                        @benchmark.minReadLen.map(_.toString).getOrElse("-") -
-                        @benchmark.maxReadLen.map(_.toString).getOrElse("-")
-                    </td>
-                    <td>@benchmark.meanInsertLen.map(v => f"$v%.1f").getOrElse("-")</td>
-                    <td>
-                        @benchmark.minInsertLen.map(_.toString).getOrElse("-") -
-                        @benchmark.maxInsertLen.map(_.toString).getOrElse("-")
-                    </td>
-                    <td>
-                        @benchmark.meanDepthAvg.map(v => f"$v%.1f").getOrElse("-")
-                        @benchmark.meanDepthStddev.map(sd => f" (±$sd%.1f)").getOrElse("")
-                    </td>
-                    <td>
-                        @benchmark.basesNoCoverageAvg.map(v => f"$v%.1f").getOrElse("-")
-                        @benchmark.basesNoCoverageStddev.map(sd => f" (±$sd%.1f)").getOrElse("")
-                    </td>
-                    <td>
-                        @benchmark.basesLowQualMappingAvg.map(v => f"$v%.1f").getOrElse("-")
-                        @benchmark.basesLowQualMappingStddev.map(sd => f" (±$sd%.1f)").getOrElse("")
-                    </td>
-                    <td>
-                        @benchmark.basesCallableAvg.map(v => f"$v%.1f").getOrElse("-")
-                        @benchmark.basesCallableStddev.map(sd => f" (±$sd%.1f)").getOrElse("")
-                    </td>
-                    <td>@benchmark.meanMappingQuality.map(v => f"$v%.1f").getOrElse("-")</td>
-                    <td>
-                        <span class="badge bg-primary">@benchmark.numSamples</span>
-                    </td>
-                </tr>
-            }
+        @for(benchmark <- benchmarks) {
+            <tr>
+                <td>@benchmark.lab</td>
+                <td>@benchmark.testType</td>
+                <td>@benchmark.contig</td>
+                <td>@benchmark.meanReadLen.map(v => f"$v%.1f").getOrElse("-")</td>
+                <td>
+                    @benchmark.minReadLen.map(_.toString).getOrElse("-") -
+                    @benchmark.maxReadLen.map(_.toString).getOrElse("-")
+                </td>
+                <td>@benchmark.meanInsertLen.map(v => f"$v%.1f").getOrElse("-")</td>
+                <td>
+                    @benchmark.minInsertLen.map(_.toString).getOrElse("-") -
+                    @benchmark.maxInsertLen.map(_.toString).getOrElse("-")
+                </td>
+                <td>@calculateCI(benchmark.meanDepthAvg, benchmark.meanDepthStddev, benchmark.numSamples)</td>
+                <td>@calculateCI(benchmark.basesNoCoverageAvg, benchmark.basesNoCoverageStddev, benchmark.numSamples)</td>
+                <td>@calculateCI(benchmark.basesLowQualMappingAvg, benchmark.basesLowQualMappingStddev, benchmark.numSamples)</td>
+                <td>@calculateCI(benchmark.basesCallableAvg, benchmark.basesCallableStddev, benchmark.numSamples)</td>
+                <td>@benchmark.meanMappingQuality.map(v => f"$v%.1f").getOrElse("-")</td>
+                <td>
+                    <span class="badge bg-primary">@benchmark.numSamples</span>
+                </td>
+            </tr>
+        }
         </tbody>
     </table>
 </div>
