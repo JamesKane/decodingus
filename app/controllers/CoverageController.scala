@@ -48,4 +48,18 @@ class CoverageController @Inject()(
       Ok(Json.toJson(benchmarks))
     }
   }
+
+  /**
+   * Handles an HTTP GET request to return benchmark information as an HTML fragment.
+   *
+   * Returns an HTML table fragment containing coverage statistics that can be embedded
+   * in the main coverage page. This is designed for use with HTMX or similar frameworks.
+   *
+   * @return An HTTP OK response containing an HTML fragment with the benchmark table.
+   */
+  def benchmarksFragment(): Action[AnyContent] = Action.async { implicit request: Request[AnyContent] =>
+    coverageRepository.getBenchmarkStatistics.map { benchmarks =>
+      Ok(views.html.fragments.coverageBenchmarks(benchmarks))
+    }
+  }
 }

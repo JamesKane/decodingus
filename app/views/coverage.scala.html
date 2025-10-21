@@ -1,10 +1,22 @@
-@import org.webjars.play.WebJarsUtil
-
-@()(implicit webJarsUtil: WebJarsUtil)
+@()(implicit request: RequestHeader, webJarsUtil: org.webjars.play.WebJarsUtil)
 
 @main("Coverage Benchmarks") {
-    <main class="container">
+    <div class="container mt-4">
         <h1>Coverage Benchmarks</h1>
-        <p>Coming soon!</p>
-    </main>
+        <p class="lead">
+            Aggregated coverage statistics grouped by laboratory, test type, and contig.
+            Standard deviations are shown for calculating 95% confidence intervals.
+        </p>
+
+        <div id="benchmarks-container"
+        hx-get="@routes.CoverageController.benchmarksFragment()"
+        hx-trigger="load"
+        hx-indicator="#loading-spinner">
+            <div id="loading-spinner" class="text-center my-5">
+                <div class="spinner-border" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+            </div>
+        </div>
+    </div>
 }

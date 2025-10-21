@@ -37,7 +37,10 @@ POST          /contact                                                          
 GET           /api/v1/y-tree                                                                     controllers.TreeController.apiYTree(rootHaplogroup: Option[String])
 GET           /api/v1/mt-tree                                                                    controllers.TreeController.apiMTree(rootHaplogroup: Option[String])
 
+# Coverage API
 GET           /api/v1/coverage/benchmarks                                                        controllers.CoverageController.apiBenchmarks()
+GET           /coverage/benchmarks/fragment                                                      controllers.CoverageController.benchmarksFragment()
+
 
 GET           /api/v1/references/details                                                         controllers.PublicationController.getAllPublicationsWithDetailsJson()
 GET           /api/v1/references/details/:publicationId/biosamples                               controllers.BiosampleReportController.getBiosampleReportJSON(publicationId: Int)

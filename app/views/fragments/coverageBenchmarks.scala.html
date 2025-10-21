@@ -1,0 +1,70 @@
+@import models.domain.genomics.CoverageBenchmark
+
+@(benchmarks: Seq[CoverageBenchmark])
+
+<div class="table-responsive">
+    <table class="table table-striped table-hover">
+        <thead class="table-dark">
+            <tr>
+                <th>Lab</th>
+                <th>Test Type</th>
+                <th>Contig</th>
+                <th>Mean Read Length</th>
+                <th>Read Length Range</th>
+                <th>Mean Insert Size</th>
+                <th>Insert Size Range</th>
+                <th>Mean Depth (±SD)</th>
+                <th>Bases No Coverage (±SD)</th>
+                <th>Low Quality Mapping (±SD)</th>
+                <th>Callable Bases (±SD)</th>
+                <th>Mean Mapping Quality</th>
+                <th>Samples</th>
+            </tr>
+        </thead>
+        <tbody>
+            @for(benchmark <- benchmarks) {
+                <tr>
+                    <td>@benchmark.lab</td>
+                    <td>@benchmark.testType</td>
+                    <td>@benchmark.contig</td>
+                    <td>@benchmark.meanReadLen.map(v => f"$v%.1f").getOrElse("-")</td>
+                    <td>
+                        @benchmark.minReadLen.map(_.toString).getOrElse("-") -
+                        @benchmark.maxReadLen.map(_.toString).getOrElse("-")
+                    </td>
+                    <td>@benchmark.meanInsertLen.map(v => f"$v%.1f").getOrElse("-")</td>
+                    <td>
+                        @benchmark.minInsertLen.map(_.toString).getOrElse("-") -
+                        @benchmark.maxInsertLen.map(_.toString).getOrElse("-")
+                    </td>
+                    <td>
+                        @benchmark.meanDepthAvg.map(v => f"$v%.1f").getOrElse("-")
+                        @benchmark.meanDepthStddev.map(sd => f" (±$sd%.1f)").getOrElse("")
+                    </td>
+                    <td>
+                        @benchmark.basesNoCoverageAvg.map(v => f"$v%.1f").getOrElse("-")
+                        @benchmark.basesNoCoverageStddev.map(sd => f" (±$sd%.1f)").getOrElse("")
+                    </td>
+                    <td>
+                        @benchmark.basesLowQualMappingAvg.map(v => f"$v%.1f").getOrElse("-")
+                        @benchmark.basesLowQualMappingStddev.map(sd => f" (±$sd%.1f)").getOrElse("")
+                    </td>
+                    <td>
+                        @benchmark.basesCallableAvg.map(v => f"$v%.1f").getOrElse("-")
+                        @benchmark.basesCallableStddev.map(sd => f" (±$sd%.1f)").getOrElse("")
+                    </td>
+                    <td>@benchmark.meanMappingQuality.map(v => f"$v%.1f").getOrElse("-")</td>
+                    <td>
+                        <span class="badge bg-primary">@benchmark.numSamples</span>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+</div>
+
+@if(benchmarks.isEmpty) {
+    <div class="alert alert-info" role="alert">
+        <i class="bi bi-info-circle"></i> No benchmark data available.
+    </div>
+}
