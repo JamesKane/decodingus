@@ -1,21 +1,28 @@
 package controllers
 
 import jakarta.inject.Singleton
+import models.domain.genomics.CoverageBenchmark
 import org.webjars.play.WebJarsUtil
 import play.api.libs.json.Json
 import play.api.mvc.{Action, AnyContent, BaseController, ControllerComponents, Request}
+import repositories.CoverageRepository
 
 import javax.inject.Inject
+import scala.concurrent.ExecutionContext
 
 /**
  * Controller responsible for managing endpoints related to coverage information and benchmarks.
  *
  * @param controllerComponents Controller components used for handling HTTP-related functionality.
+ * @param coverageRepository   Repository for accessing coverage benchmark data.
  * @param webJarsUtil          Utility for managing WebJars in Play framework.
+ * @param ec                   Execution context for asynchronous operations.
  */
 @Singleton
-class CoverageController @Inject()(val controllerComponents: ControllerComponents)
-                                  (using webJarsUtil: WebJarsUtil) extends BaseController  {
+class CoverageController @Inject()(
+                                    val controllerComponents: ControllerComponents,
+                                    coverageRepository: CoverageRepository
+                                  )(using webJarsUtil: WebJarsUtil, ec: ExecutionContext) extends BaseController {
 
   /**
    * Handles an HTTP GET request to render the coverage benchmarks page.
@@ -30,11 +37,15 @@ class CoverageController @Inject()(val controllerComponents: ControllerComponent
   /**
    * Handles an HTTP GET request to return benchmark information in JSON format.
    *
-   * TODO: Implement this endpoint.
-   * 
-   * @return An HTTP OK response containing a JSON object with the key "status" and the value "ok".
+   * Returns aggregated coverage statistics grouped by lab, test type, and contig.
+   * The standard deviation values are provided to calculate 95% confidence intervals
+   * when there is more than one sample in the group.
+   *
+   * @return An HTTP OK response containing a JSON array of coverage benchmark objects.
    */
-  def apiBenchmarks(): Action[AnyContent] = Action { implicit request: Request[AnyContent] =>
-    Ok(Json.toJson(Map("status" -> "ok")))
+  def apiBenchmarks(): Action[AnyContent] = Action.async { implicit request: Request[AnyContent] =>
+    coverageRepository.getBenchmarkStatistics.map { benchmarks =>
+      Ok(Json.toJson(benchmarks))
+    }
   }
 }
