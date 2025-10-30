@@ -75,6 +75,8 @@ object DatabaseSchema {
       val sequenceFileChecksums = TableQuery[SequenceFileChecksumTable]
       val sequenceHttpLocations = TableQuery[SequenceHttpLocationTable]
       val sequenceLibraries = TableQuery[SequenceLibrariesTable]
+      val sequencingLabs = TableQuery[SequencingLabsTable]
+      val sequencerInstruments = TableQuery[SequencerInstrumentsTable]
       val specimenDonors = TableQuery[SpecimenDonorsTable]
       val validationServices = TableQuery[ValidationServicesTable]
       val variants = TableQuery[VariantsTable]
