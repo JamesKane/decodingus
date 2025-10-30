@@ -7,14 +7,33 @@
             Aggregated coverage statistics grouped by laboratory, test type, and contig.
         </p>
 
-        <div id="benchmarks-container"
-        hx-get="@routes.CoverageController.benchmarksFragment()"
-        hx-trigger="load"
-        hx-indicator="#loading-spinner">
-            <div id="loading-spinner" class="text-center my-5">
-                <div class="spinner-border" role="status">
-                    <span class="visually-hidden">Loading...</span>
+        <div class="mb-4">
+            <label for="lab-select" class="form-label">Select Sequencing Laboratory:</label>
+            <select id="lab-select" class="form-select"
+            hx-get="@routes.CoverageController.benchmarksByLabWithDetails(0)"
+            hx-target="#benchmarks-container"
+            hx-swap="innerHTML"
+            hx-trigger="change"
+            hx-vals='js:{labId: event.target.value}'>
+                <option value="">-- Select a lab --</option>
+            </select>
+        </div>
+
+        <div id="lab-info-container" class="mb-4" style="display: none;">
+            <div class="card">
+                <div class="card-header">
+                    <h3 id="lab-name"></h3>
                 </div>
+                <div class="card-body">
+                    <div id="lab-description" class="mb-3"></div>
+                    <div id="lab-website"></div>
+                </div>
+            </div>
+        </div>
+
+        <div id="benchmarks-container">
+            <div class="alert alert-info" role="alert">
+                <i class="bi bi-info-circle"></i> Please select a laboratory to view benchmark data.
             </div>
         </div>
 
@@ -78,4 +97,57 @@
             </dl>
         </div>
     </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/marked@@11.1.1/marked.min.js"></script>
+    <script>
+            let labsData = [];
+
+            // Load labs on page load
+            document.addEventListener('DOMContentLoaded', function() {
+                fetch('@routes.CoverageController.labs')
+                        .then(response => response.json())
+                        .then(labs => {
+                            labsData = labs;
+                            const select = document.getElementById('lab-select');
+                            labs.forEach(lab => {
+                                const option = document.createElement('option');
+                                option.value = lab.id;
+                                option.textContent = lab.name;
+                                select.appendChild(option);
+                            });
+                        });
+            });
+
+            // Update lab info when selection changes
+            document.getElementById('lab-select').addEventListener('change', function(e) {
+                const labId = parseInt(e.target.value);
+                const labInfoContainer = document.getElementById('lab-info-container');
+
+                if (!labId) {
+                    labInfoContainer.style.display = 'none';
+                    return;
+                }
+
+                const lab = labsData.find(l => l.id === labId);
+                if (lab) {
+                    document.getElementById('lab-name').textContent = lab.name;
+
+                    const descriptionDiv = document.getElementById('lab-description');
+                    if (lab.descriptionMarkdown) {
+                        descriptionDiv.innerHTML = marked.parse(lab.descriptionMarkdown);
+                    } else {
+                        descriptionDiv.innerHTML = '';
+                    }
+
+                    const websiteDiv = document.getElementById('lab-website');
+                    if (lab.websiteUrl) {
+                        websiteDiv.innerHTML = `<p><strong>Website:</strong> <a href="${lab.websiteUrl}" target="_blank" rel="noopener noreferrer">${lab.websiteUrl} <i class="bi bi-box-arrow-up-right"></i></a></p>`;
+                    } else {
+                        websiteDiv.innerHTML = '';
+                    }
+
+                    labInfoContainer.style.display = 'block';
+                }
+            });
+    </script>
 }

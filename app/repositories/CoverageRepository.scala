@@ -1,6 +1,7 @@
 package repositories
 
-import models.domain.genomics.CoverageBenchmark
+import models.dal.DatabaseSchema
+import models.domain.genomics.{CoverageBenchmark, SequencingLab}
 import play.api.db.slick.DatabaseConfigProvider
 import slick.jdbc.PostgresProfile.api.*
 
@@ -53,6 +54,89 @@ class CoverageRepository @Inject()(
       JOIN public.sequence_library sl ON sl.id = sf.library_id
       GROUP BY lab, test_type, gc.common_name
       ORDER BY lab, test_type, gc.common_name
+    """.as[(String, String, String, Option[Double], Option[Int], Option[Int], Option[Double],
+      Option[Int], Option[Int], Option[Double], Option[Double], Option[Double],
+      Option[Double], Option[Double], Option[Double], Option[Double], Option[Double],
+      Option[Double], Int)]
+
+    db.run(query).map { results =>
+      results.map { case (lab, testType, contig, meanReadLen, minReadLen, maxReadLen,
+      meanInsertLen, minInsertLen, maxInsertLen, meanDepthAvg, meanDepthStddev,
+      basesNoCoverageAvg, basesNoCoverageStddev, basesLowQualMappingAvg,
+      basesLowQualMappingStddev, basesCallableAvg, basesCallableStddev,
+      meanMappingQuality, numSamples) =>
+        CoverageBenchmark(
+          lab = lab,
+          testType = testType,
+          contig = contig,
+          meanReadLen = meanReadLen,
+          minReadLen = minReadLen,
+          maxReadLen = maxReadLen,
+          meanInsertLen = meanInsertLen,
+          minInsertLen = minInsertLen,
+          maxInsertLen = maxInsertLen,
+          meanDepthAvg = meanDepthAvg,
+          meanDepthStddev = meanDepthStddev,
+          basesNoCoverageAvg = basesNoCoverageAvg,
+          basesNoCoverageStddev = basesNoCoverageStddev,
+          basesLowQualMappingAvg = basesLowQualMappingAvg,
+          basesLowQualMappingStddev = basesLowQualMappingStddev,
+          basesCallableAvg = basesCallableAvg,
+          basesCallableStddev = basesCallableStddev,
+          meanMappingQuality = meanMappingQuality,
+          numSamples = numSamples
+        )
+      }
+    }
+  }
+
+  // Add these methods to CoverageRepository
+
+  def getAllLabs: Future[Seq[SequencingLab]] = db.run {
+    DatabaseSchema.domain.genomics.sequencingLabs
+      .sortBy(_.name)
+      .result
+      .map(_.map { row =>
+        SequencingLab(
+          id = row.id,
+          name = row.name,
+          isD2c = row.isD2c,
+          websiteUrl = row.websiteUrl,
+          descriptionMarkdown = row.descriptionMarkdown
+        )
+      })
+  }
+
+  def getBenchmarksByLab(labId: Int): Future[Seq[CoverageBenchmark]] = {
+    val query = sql"""
+      SELECT sl.name                                  as lab,
+             sl2.test_type,
+             gc.common_name                           as contig,
+             AVG(sl2.read_length)                     as mean_read_len,
+             MIN(sl2.read_length)                     as min_read_len,
+             MAX(sl2.read_length)                     as max_read_len,
+             AVG(sl2.insert_size)                     as mean_insert_len,
+             MIN(sl2.insert_size)                     as min_insert_len,
+             MAX(sl2.insert_size)                     as max_insert_len,
+             AVG(ac.mean_depth)                       as mean_depth_avg,
+             STDDEV_POP(ac.mean_depth)                as mean_depth_stddev,
+             AVG(ac.bases_no_coverage)                as bases_no_coverage_avg,
+             STDDEV_POP(ac.bases_no_coverage)         as bases_no_coverage_stddev,
+             AVG(ac.bases_low_quality_mapping)        as bases_low_qual_mapping_avg,
+             STDDEV_POP(ac.bases_low_quality_mapping) as bases_low_qual_mapping_stddev,
+             AVG(ac.bases_callable)                   as bases_callable_avg,
+             STDDEV_POP(ac.bases_callable)            as bases_callable_stddev,
+             AVG(ac.mean_mapping_quality)             as mean_mapping_quality,
+             COUNT(DISTINCT sl.id)                    as num_samples
+      FROM alignment_coverage ac
+               JOIN alignment_metadata am ON ac.alignment_metadata_id = am.id
+               JOIN sequence_file sf ON sf.id = am.sequence_file_id
+               JOIN sequence_library sl2 ON sl2.id = sf.library_id
+               JOIN sequencing_lab sl ON sl2.lab = sl.name
+               JOIN genbank_contig gc ON am.genbank_contig_id = gc.genbank_contig_id
+      WHERE sl.id = $labId
+      GROUP BY sl.name, sl2.test_type, gc.common_name, gc.genbank_contig_id
+      ORDER BY sl.name, sl2.test_type, gc.genbank_contig_id
     """.as[(String, String, String, Option[Double], Option[Int], Option[Int], Option[Double],
       Option[Int], Option[Int], Option[Double], Option[Double], Option[Double],
       Option[Double], Option[Double], Option[Double], Option[Double], Option[Double],

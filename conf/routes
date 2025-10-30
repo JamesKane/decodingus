@@ -39,7 +39,8 @@ GET           /api/v1/mt-tree                                                   
 
 # Coverage API
 GET           /api/v1/coverage/benchmarks                                                        controllers.CoverageController.apiBenchmarks()
-GET           /coverage/benchmarks/fragment                                                      controllers.CoverageController.benchmarksFragment()
+GET           /coverage/labs                                                                     controllers.CoverageController.labs
+GET           /coverage/benchmarks/lab/:labId                                                    controllers.CoverageController.benchmarksByLabWithDetails(labId: Int)
 
 # Sequencer API
 GET           /api/v1/sequencer/lab                                                              controllers.SequencerController.getLabByInstrumentId(instrument_id: String)

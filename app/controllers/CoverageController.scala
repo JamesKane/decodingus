@@ -49,17 +49,27 @@ class CoverageController @Inject()(
     }
   }
 
-  /**
-   * Handles an HTTP GET request to return benchmark information as an HTML fragment.
-   *
-   * Returns an HTML table fragment containing coverage statistics that can be embedded
-   * in the main coverage page. This is designed for use with HTMX or similar frameworks.
-   *
-   * @return An HTTP OK response containing an HTML fragment with the benchmark table.
-   */
-  def benchmarksFragment(): Action[AnyContent] = Action.async { implicit request: Request[AnyContent] =>
-    coverageRepository.getBenchmarkStatistics.map { benchmarks =>
-      Ok(views.html.fragments.coverageBenchmarks(benchmarks))
+  // Add these methods to CoverageController
+
+  def labs = Action.async { implicit request =>
+    coverageRepository.getAllLabs.map { labs =>
+      Ok(Json.toJson(labs))
+    }
+  }
+
+  def benchmarksByLab(labId: Int) = Action.async { implicit request =>
+    coverageRepository.getBenchmarksByLab(labId).map { benchmarks =>
+      Ok(views.html.fragments.coverageBenchmarks(benchmarks, None))
+    }
+  }
+
+  def benchmarksByLabWithDetails(labId: Int) = Action.async { implicit request =>
+    for {
+      labs <- coverageRepository.getAllLabs
+      benchmarks <- coverageRepository.getBenchmarksByLab(labId)
+    } yield {
+      val lab = labs.find(_.id.contains(labId))
+      Ok(views.html.fragments.coverageBenchmarks(benchmarks, lab))
     }
   }
 }
