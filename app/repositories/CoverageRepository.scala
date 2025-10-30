@@ -90,8 +90,11 @@ class CoverageRepository @Inject()(
     }
   }
 
-  // Add these methods to CoverageRepository
-
+  /**
+   * Retrieves a list of all sequencing laboratories, sorted by name.
+   *
+   * @return A Future containing a sequence of SequencingLab objects, each representing a laboratory with its details.
+   */
   def getAllLabs: Future[Seq[SequencingLab]] = db.run {
     DatabaseSchema.domain.genomics.sequencingLabs
       .sortBy(_.name)
@@ -107,6 +110,18 @@ class CoverageRepository @Inject()(
       })
   }
 
+  /**
+   * Retrieves coverage benchmark statistics for a specific laboratory.
+   *
+   * The method queries the database to fetch aggregated statistics grouped by laboratory name,
+   * test type, and contig. Results include metrics such as mean, min, and max values for
+   * read length and insert size, along with coverage-related metrics and their statistical
+   * standard deviations.
+   *
+   * @param labId The unique identifier of the sequencing laboratory.
+   * @return A Future containing a sequence of CoverageBenchmark objects, each representing
+   *         the aggregated benchmark data for the specified laboratory.
+   */
   def getBenchmarksByLab(labId: Int): Future[Seq[CoverageBenchmark]] = {
     val query = sql"""
       SELECT sl.name                                  as lab,
