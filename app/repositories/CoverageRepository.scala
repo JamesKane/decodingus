@@ -60,33 +60,7 @@ class CoverageRepository @Inject()(
       Option[Double], Int)]
 
     db.run(query).map { results =>
-      results.map { case (lab, testType, contig, meanReadLen, minReadLen, maxReadLen,
-      meanInsertLen, minInsertLen, maxInsertLen, meanDepthAvg, meanDepthStddev,
-      basesNoCoverageAvg, basesNoCoverageStddev, basesLowQualMappingAvg,
-      basesLowQualMappingStddev, basesCallableAvg, basesCallableStddev,
-      meanMappingQuality, numSamples) =>
-        CoverageBenchmark(
-          lab = lab,
-          testType = testType,
-          contig = contig,
-          meanReadLen = meanReadLen,
-          minReadLen = minReadLen,
-          maxReadLen = maxReadLen,
-          meanInsertLen = meanInsertLen,
-          minInsertLen = minInsertLen,
-          maxInsertLen = maxInsertLen,
-          meanDepthAvg = meanDepthAvg,
-          meanDepthStddev = meanDepthStddev,
-          basesNoCoverageAvg = basesNoCoverageAvg,
-          basesNoCoverageStddev = basesNoCoverageStddev,
-          basesLowQualMappingAvg = basesLowQualMappingAvg,
-          basesLowQualMappingStddev = basesLowQualMappingStddev,
-          basesCallableAvg = basesCallableAvg,
-          basesCallableStddev = basesCallableStddev,
-          meanMappingQuality = meanMappingQuality,
-          numSamples = numSamples
-        )
-      }
+      mapStatistics(results)
     }
   }
 
@@ -158,33 +132,67 @@ class CoverageRepository @Inject()(
       Option[Double], Int)]
 
     db.run(query).map { results =>
-      results.map { case (lab, testType, contig, meanReadLen, minReadLen, maxReadLen,
-      meanInsertLen, minInsertLen, maxInsertLen, meanDepthAvg, meanDepthStddev,
-      basesNoCoverageAvg, basesNoCoverageStddev, basesLowQualMappingAvg,
-      basesLowQualMappingStddev, basesCallableAvg, basesCallableStddev,
-      meanMappingQuality, numSamples) =>
-        CoverageBenchmark(
-          lab = lab,
-          testType = testType,
-          contig = contig,
-          meanReadLen = meanReadLen,
-          minReadLen = minReadLen,
-          maxReadLen = maxReadLen,
-          meanInsertLen = meanInsertLen,
-          minInsertLen = minInsertLen,
-          maxInsertLen = maxInsertLen,
-          meanDepthAvg = meanDepthAvg,
-          meanDepthStddev = meanDepthStddev,
-          basesNoCoverageAvg = basesNoCoverageAvg,
-          basesNoCoverageStddev = basesNoCoverageStddev,
-          basesLowQualMappingAvg = basesLowQualMappingAvg,
-          basesLowQualMappingStddev = basesLowQualMappingStddev,
-          basesCallableAvg = basesCallableAvg,
-          basesCallableStddev = basesCallableStddev,
-          meanMappingQuality = meanMappingQuality,
-          numSamples = numSamples
-        )
-      }
+      mapStatistics(results)
+    }
+  }
+
+  /**
+   * Maps a sequence of statistical results into a sequence of CoverageBenchmark objects.
+   *
+   * This method takes raw statistical data tuples grouped by laboratory, test type, and contig,
+   * and transforms them into CoverageBenchmark objects. Each tuple contains various metrics
+   * such as mean, min, and max values for read length and insert size, as well as coverage-related
+   * statistics and their standard deviations.
+   *
+   * @param results A vector of tuples where each tuple represents statistical data. Each tuple
+   *                consists of the following elements:
+   *                - lab: The laboratory name (String).
+   *                - testType: The test type identifier (String).
+   *                - contig: The genomic contig identifier (String).
+   *                - meanReadLen: Optional mean read length (Option[Double]).
+   *                - minReadLen: Optional minimum read length (Option[Int]).
+   *                - maxReadLen: Optional maximum read length (Option[Int]).
+   *                - meanInsertLen: Optional mean insert length (Option[Double]).
+   *                - minInsertLen: Optional minimum insert length (Option[Int]).
+   *                - maxInsertLen: Optional maximum insert length (Option[Int]).
+   *                - meanDepthAvg: Optional average mean depth (Option[Double]).
+   *                - meanDepthStddev: Optional standard deviation of mean depth (Option[Double]).
+   *                - basesNoCoverageAvg: Optional average number of bases with no coverage (Option[Double]).
+   *                - basesNoCoverageStddev: Optional standard deviation of bases with no coverage (Option[Double]).
+   *                - basesLowQualMappingAvg: Optional average number of bases with low-quality mapping (Option[Double]).
+   *                - basesLowQualMappingStddev: Optional standard deviation of bases with low-quality mapping (Option[Double]).
+   *                - basesCallableAvg: Optional average number of callable bases (Option[Double]).
+   *                - basesCallableStddev: Optional standard deviation of callable bases (Option[Double]).
+   *                - meanMappingQuality: Optional mean mapping quality (Option[Double]).
+   *                - numSamples: The number of samples included in the statistics (Int).
+   */
+  private def mapStatistics(results: Vector[(String, String, String, Option[Double], Option[Int], Option[Int], Option[Double], Option[Int], Option[Int], Option[Double], Option[Double], Option[Double], Option[Double], Option[Double], Option[Double], Option[Double], Option[Double], Option[Double], Int)]) = {
+    results.map { case (lab, testType, contig, meanReadLen, minReadLen, maxReadLen,
+    meanInsertLen, minInsertLen, maxInsertLen, meanDepthAvg, meanDepthStddev,
+    basesNoCoverageAvg, basesNoCoverageStddev, basesLowQualMappingAvg,
+    basesLowQualMappingStddev, basesCallableAvg, basesCallableStddev,
+    meanMappingQuality, numSamples) =>
+      CoverageBenchmark(
+        lab = lab,
+        testType = testType,
+        contig = contig,
+        meanReadLen = meanReadLen,
+        minReadLen = minReadLen,
+        maxReadLen = maxReadLen,
+        meanInsertLen = meanInsertLen,
+        minInsertLen = minInsertLen,
+        maxInsertLen = maxInsertLen,
+        meanDepthAvg = meanDepthAvg,
+        meanDepthStddev = meanDepthStddev,
+        basesNoCoverageAvg = basesNoCoverageAvg,
+        basesNoCoverageStddev = basesNoCoverageStddev,
+        basesLowQualMappingAvg = basesLowQualMappingAvg,
+        basesLowQualMappingStddev = basesLowQualMappingStddev,
+        basesCallableAvg = basesCallableAvg,
+        basesCallableStddev = basesCallableStddev,
+        meanMappingQuality = meanMappingQuality,
+        numSamples = numSamples
+      )
     }
   }
 }
