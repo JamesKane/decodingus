@@ -9,12 +9,7 @@
 
         <div class="mb-4">
             <label for="lab-select" class="form-label">Select Sequencing Laboratory:</label>
-            <select id="lab-select" class="form-select"
-            hx-get="@routes.CoverageController.benchmarksByLabWithDetails(0)"
-            hx-target="#benchmarks-container"
-            hx-swap="innerHTML"
-            hx-trigger="change"
-            hx-vals='js:{labId: event.target.value}'>
+            <select id="lab-select" class="form-select">
                 <option value="">-- Select a lab --</option>
             </select>
         </div>
@@ -100,54 +95,62 @@
 
     <script src="https://cdn.jsdelivr.net/npm/marked@@11.1.1/marked.min.js"></script>
     <script>
-            let labsData = [];
-
-            // Load labs on page load
-            document.addEventListener('DOMContentLoaded', function() {
+            function loadLabs() {
                 fetch('@routes.CoverageController.labs')
                         .then(response => response.json())
                         .then(labs => {
-                            labsData = labs;
                             const select = document.getElementById('lab-select');
+                            select.innerHTML = '<option value="">-- Select a lab --</option>';
                             labs.forEach(lab => {
                                 const option = document.createElement('option');
                                 option.value = lab.id;
                                 option.textContent = lab.name;
+                                option.dataset.info = JSON.stringify(lab);
                                 select.appendChild(option);
                             });
-                        });
+                        })
+                        .catch(error => console.error('Error loading labs:', error));
+            }
+
+            document.addEventListener('DOMContentLoaded', loadLabs);
+            document.addEventListener('htmx:afterSettle', function(event) {
+                if (document.getElementById('lab-select')) loadLabs();
             });
 
-            // Update lab info when selection changes
-            document.getElementById('lab-select').addEventListener('change', function(e) {
-                const labId = parseInt(e.target.value);
+            document.body.addEventListener('change', function(e) {
+                if (e.target.id !== 'lab-select') return;
+
+                const labId = e.target.value;
                 const labInfoContainer = document.getElementById('lab-info-container');
 
                 if (!labId) {
                     labInfoContainer.style.display = 'none';
+                    document.getElementById('benchmarks-container').innerHTML =
+                            '<div class="alert alert-info" role="alert"><i class="bi bi-info-circle"></i> Please select a laboratory to view benchmark data.</div>';
                     return;
                 }
 
-                const lab = labsData.find(l => l.id === labId);
-                if (lab) {
-                    document.getElementById('lab-name').textContent = lab.name;
+                const lab = JSON.parse(e.target.selectedOptions[0].dataset.info);
 
-                    const descriptionDiv = document.getElementById('lab-description');
-                    if (lab.descriptionMarkdown) {
-                        descriptionDiv.innerHTML = marked.parse(lab.descriptionMarkdown);
-                    } else {
-                        descriptionDiv.innerHTML = '';
-                    }
-
-                    const websiteDiv = document.getElementById('lab-website');
-                    if (lab.websiteUrl) {
-                        websiteDiv.innerHTML = `<p><strong>Website:</strong> <a href="${lab.websiteUrl}" target="_blank" rel="noopener noreferrer">${lab.websiteUrl} <i class="bi bi-box-arrow-up-right"></i></a></p>`;
-                    } else {
-                        websiteDiv.innerHTML = '';
-                    }
-
-                    labInfoContainer.style.display = 'block';
+                // Clear and update lab info (prevents duplicates)
+                document.getElementById('lab-name').textContent = lab.name;
+                const descDiv = document.getElementById('lab-description');
+                descDiv.innerHTML = '';
+                if (lab.descriptionMarkdown) {
+                    descDiv.innerHTML = marked.parse(lab.descriptionMarkdown);
                 }
+                const webDiv = document.getElementById('lab-website');
+                webDiv.innerHTML = '';
+                if (lab.websiteUrl) {
+                    webDiv.innerHTML = `<p><strong>Website:</strong> <a href="${lab.websiteUrl}" target="_blank" rel="noopener noreferrer">${lab.websiteUrl} <i class="bi bi-box-arrow-up-right"></i></a></p>`;
+                }
+
+                labInfoContainer.style.display = 'block';
+
+                htmx.ajax('GET', '@routes.CoverageController.benchmarksByLabWithDetails(0)'.replace('/0', '/' + labId), {
+                    target: '#benchmarks-container',
+                    swap: 'innerHTML'
+                });
             });
     </script>
 }

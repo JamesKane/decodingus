@@ -17,26 +17,6 @@
     }
 }
 
-@lab.map { l =>
-    <div class="card mb-4">
-        <div class="card-header">
-            <h3>@l.name</h3>
-        </div>
-        <div class="card-body">
-            @l.descriptionMarkdown.map { desc =>
-                <div class="mb-3">
-                    @Html(desc)
-                </div>
-            }
-            @l.websiteUrl.map { url =>
-                <p>
-                    <strong>Website:</strong> <a href="@url" target="_blank" rel="noopener noreferrer">@url <i class="bi bi-box-arrow-up-right"></i></a>
-                </p>
-            }
-        </div>
-    </div>
-}
-
 <div class="table-responsive">
     <table class="table table-striped table-hover">
         <thead class="table-dark">
