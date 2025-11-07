@@ -1,6 +1,6 @@
 package api
 
-import models.api.SequencerLabInfo
+import models.api.{SequencerLabInfo, SequencerLabInstrumentsResponse}
 import sttp.tapir.*
 import sttp.tapir.generic.auto.*
 import sttp.tapir.json.play.*
@@ -21,7 +21,19 @@ object SequencerEndpoints {
       .tag("Sequencer")
   }
 
+  private val getAllLabInstruments: PublicEndpoint[Unit, String, SequencerLabInstrumentsResponse, Any] = {
+    endpoint
+      .get
+      .in("api" / "v1" / "sequencer" / "lab-instruments")
+      .out(jsonBody[SequencerLabInstrumentsResponse])
+      .errorOut(stringBody)
+      .description("Returns all lab-instrument associations")
+      .summary("Get all lab-instrument associations")
+      .tag("Sequencer")
+  }
+
   val all: List[PublicEndpoint[_, _, _, _]] = List(
-    getLabByInstrumentId
+    getLabByInstrumentId,
+    getAllLabInstruments
   )
 }

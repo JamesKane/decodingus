@@ -17,6 +17,15 @@ class SequencerInstrumentService @Inject()(
                                           ) {
 
   /**
+   * Retrieves all lab-instrument associations.
+   *
+   * @return a future containing all associations
+   */
+  def getAllLabInstrumentAssociations: Future[Seq[models.api.SequencerLabInfo]] = {
+    instrumentRepository.findAllLabInstrumentAssociations()
+  }
+
+  /**
    * Associates a lab with an instrument ID.
    * If the lab doesn't exist, a placeholder is created with the provided name.
    *

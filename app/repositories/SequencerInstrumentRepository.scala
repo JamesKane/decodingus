@@ -22,6 +22,13 @@ trait SequencerInstrumentRepository {
   def findLabByInstrumentId(instrumentId: String): Future[Option[SequencerLabInfo]]
 
   /**
+   * Retrieves all lab-instrument associations.
+   *
+   * @return a future containing a list of all lab-instrument associations
+   */
+  def findAllLabInstrumentAssociations(): Future[Seq[SequencerLabInfo]]
+  
+  /**
    * Associates a lab with an instrument ID.
    * If the lab doesn't exist, creates a placeholder record.
    *
@@ -70,6 +77,35 @@ class SequencerInstrumentRepositoryImpl @Inject()(
           websiteUrl = websiteUrl
         ))
       case None => None
+    }
+  }
+
+  override def findAllLabInstrumentAssociations(): Future[Seq[SequencerLabInfo]] = {
+    val query = instrumentsTable
+      .join(labsTable).on(_.labId === _.id)
+      .map { case (instrument, lab) =>
+        (
+          instrument.instrumentId,
+          lab.name,
+          lab.isD2c,
+          instrument.manufacturer,
+          instrument.model,
+          lab.websiteUrl
+        )
+      }
+      .sortBy(_._1) // Sort by instrumentId for consistency
+
+    db.run(query.result).map { results =>
+      results.map { case (instId, labName, isD2c, manufacturer, model, websiteUrl) =>
+        SequencerLabInfo(
+          instrumentId = instId,
+          labName = labName,
+          isD2c = isD2c,
+          manufacturer = manufacturer,
+          model = model,
+          websiteUrl = websiteUrl
+        )
+      }
     }
   }
 

@@ -44,6 +44,7 @@ GET           /coverage/benchmarks/lab/:labId                                   
 
 # Sequencer API
 GET           /api/v1/sequencer/lab                                                              controllers.SequencerController.getLabByInstrumentId(instrument_id: String)
+GET           /api/v1/sequencer/lab-instruments                                                  controllers.SequencerController.getAllLabInstruments
 POST          /api/v1/sequencer/lab/associate                                                    controllers.SequencerController.associateLabWithInstrument()
 
 GET           /api/v1/references/details                                                         controllers.PublicationController.getAllPublicationsWithDetailsJson()

@@ -2,6 +2,7 @@ package controllers
 
 import actions.ApiSecurityAction
 import jakarta.inject.{Inject, Singleton}
+import models.api.{SequencerLabInfo, SequencerLabInstrumentsResponse}
 import models.api.genomics.AssociateLabWithInstrumentRequest
 import play.api.libs.json.Json
 import play.api.mvc.{AbstractController, Action, AnyContent, ControllerComponents}
@@ -33,6 +34,23 @@ class SequencerController @Inject()(
         Ok(Json.toJson(labInfo))
       case None =>
         NotFound(s"Instrument ID '$instrumentId' not found")
+    }
+  }
+
+  /**
+   * Endpoint: GET /api/v1/sequencer/lab-instruments
+   *
+   * Returns all lab-instrument associations.
+   */
+  def getAllLabInstruments: Action[AnyContent] = Action.async { implicit request =>
+    sequencerService.getAllLabInstrumentAssociations.map { associations =>
+      Ok(Json.toJson(SequencerLabInstrumentsResponse(
+        data = associations,
+        count = associations.length
+      )))
+    }.recover {
+      case e: Exception =>
+        InternalServerError(Json.obj("error" -> "Failed to retrieve lab-instrument associations"))
     }
   }
 
