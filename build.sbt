@@ -31,6 +31,7 @@ libraryDependencies ++= Seq(
   "org.webjars" % "popper.js" % "2.11.7",
   "org.webjars.npm" % "htmx.org" % "2.0.7",
   "org.scalatestplus.play" %% "scalatestplus-play" % "7.0.2" % Test,
+  "com.h2database" % "h2" % "2.2.224" % Test,
   "org.codehaus.janino" % "janino" % "3.1.12",
   "com.nappin" %% "play-recaptcha" % "3.0",
 

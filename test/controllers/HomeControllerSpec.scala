@@ -1,45 +1,90 @@
 package controllers
 
-import org.scalatestplus.play._
-import org.scalatestplus.play.guice._
-import play.api.test._
-import play.api.test.Helpers._
+import org.scalatestplus.play.*
+import org.scalatestplus.play.guice.*
+import play.api.test.*
+import play.api.test.Helpers.*
+import org.scalatest.BeforeAndAfterAll
+import play.api.Application
+import play.api.inject.guice.GuiceApplicationBuilder
 
-/**
- * Add your spec here.
- * You can mock out a whole application including requests, plugins etc.
- *
- * For more information, see https://www.playframework.com/documentation/latest/ScalaTestingWithScalaTest
- */
-class HomeControllerSpec extends PlaySpec with GuiceOneAppPerTest with Injecting {
+class HomeControllerSpec extends PlaySpec with GuiceOneAppPerSuite with Injecting with BeforeAndAfterAll {
 
-  "HomeController GET" should {
+  override def fakeApplication(): Application = {
+    new GuiceApplicationBuilder()
+      .configure("play.evolutions.enabled" -> false)
+      .build()
+  }
 
-    "render the index page from a new instance of controller" in {
-      val controller = new HomeController(stubControllerComponents())
-      val home = controller.index().apply(FakeRequest(GET, "/"))
+  "HomeController" should {
 
-      status(home) mustBe OK
-      contentType(home) mustBe Some("text/html")
-      contentAsString(home) must include ("Welcome to Play")
-    }
-
-    "render the index page from the application" in {
-      val controller = inject[HomeController]
-      val home = controller.index().apply(FakeRequest(GET, "/"))
-
-      status(home) mustBe OK
-      contentType(home) mustBe Some("text/html")
-      contentAsString(home) must include ("Welcome to Play")
-    }
-
-    "render the index page from the router" in {
+    "render the index page" in {
       val request = FakeRequest(GET, "/")
       val home = route(app, request).get
 
       status(home) mustBe OK
       contentType(home) mustBe Some("text/html")
-      contentAsString(home) must include ("Welcome to Play")
+      contentAsString(home) must include ("Decoding Us")
+    }
+
+    "render the cookie usage page" in {
+      val request = FakeRequest(GET, "/cookie-usage")
+      val page = route(app, request).get
+
+      status(page) mustBe OK
+      contentType(page) mustBe Some("text/html")
+      contentAsString(page) must include ("Cookie Usage")
+    }
+
+    "render the privacy policy page" in {
+      val request = FakeRequest(GET, "/privacy")
+      val page = route(app, request).get
+
+      status(page) mustBe OK
+      contentType(page) mustBe Some("text/html")
+      contentAsString(page) must include ("Privacy Policy")
+    }
+
+    "render the terms of use page" in {
+      val request = FakeRequest(GET, "/terms")
+      val page = route(app, request).get
+
+      status(page) mustBe OK
+      contentType(page) mustBe Some("text/html")
+      contentAsString(page) must include ("Terms of Use")
+    }
+
+    "render the faq page" in {
+      val request = FakeRequest(GET, "/faq")
+      val page = route(app, request).get
+
+      status(page) mustBe OK
+      contentType(page) mustBe Some("text/html")
+      contentAsString(page) must include ("Frequently Asked Questions")
+    }
+
+    "generate a sitemap" in {
+      val request = FakeRequest(GET, "/sitemap.xml").withHeaders("X-Forwarded-Proto" -> "https")
+      val sitemap = route(app, request).get
+
+      status(sitemap) mustBe OK
+      contentType(sitemap) mustBe Some("application/xml")
+      val content = contentAsString(sitemap)
+      content must startWith("<?xml version=\"1.0\" encoding=\"UTF-8\"?>")
+      content must include ("<urlset")
+      content must include (s"<loc>https://${request.host}/</loc>")
+      content must include ("</urlset>")
+    }
+
+    "generate a robots.txt" in {
+      val request = FakeRequest(GET, "/robots.txt").withHeaders("X-Forwarded-Proto" -> "https")
+      val robots = route(app, request).get
+
+      status(robots) mustBe OK
+      contentType(robots) mustBe Some("text/plain")
+      val content = contentAsString(robots)
+      content must include ("User-agent: *")
+      content must include (s"Sitemap: https://${request.host}/sitemap.xml")
     }
   }
 }
