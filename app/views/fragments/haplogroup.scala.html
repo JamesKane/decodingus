@@ -3,7 +3,7 @@
 @import models.view.TreeViewModel
 @import controllers.routes.TreeController
 
-@(tree: TreeDTO, hapType: HaplogroupType, renderedTreeData: Option[TreeViewModel])
+@(tree: TreeDTO, hapType: HaplogroupType, renderedTreeData: Option[TreeViewModel], currentUrl: String)
 
 <nav aria-label="breadcrumb" itemscope itemtype="https://schema.org/BreadcrumbList">
     <ol class="breadcrumb">
@@ -16,7 +16,9 @@
             </li>
         }
     <li class="breadcrumb-item active" aria-current="page" itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
-        <span itemprop="name">@tree.name</span>
+        <a href="@currentUrl" itemprop="item">
+            <span itemprop="name">@tree.name</span>
+        </a>
         <meta itemprop="position" content="${tree.crumbs.size + 1}"/>
     </li>
     </ol>

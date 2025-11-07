@@ -192,7 +192,7 @@ class TreeController @Inject()(val controllerComponents: ControllerComponents,
               services.TreeLayoutService.layoutTree(treeDto, isAbsoluteTopRootView)
             }
 
-            Ok(views.html.fragments.haplogroup(treeDto, config.haplogroupType, treeViewModel))
+            Ok(views.html.fragments.haplogroup(treeDto, config.haplogroupType, treeViewModel, request.uri))
         }
       }
       .recover {
