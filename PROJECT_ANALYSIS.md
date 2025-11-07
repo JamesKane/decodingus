@@ -19,6 +19,7 @@ The project leverages a modern technology stack:
 - **Dependency Injection:** [Guice](https://github.com/google/guice)
 - **Testing:** [ScalaTest](https://www.scalatest.org/) with `scalatestplus-play`
 - **Build Tool:** [sbt](https://www.scala-sbt.org/)
+- **Frontend Interactivity:** [HTMX](https://htmx.org/) for HATEOAS on HTML pages
 
 ## 3. Project Structure
 
@@ -48,7 +49,11 @@ The project uses a hybrid approach for its API:
 
 This separation allows for clear API documentation while leveraging the familiar Play Framework controller pattern for implementation.
 
-## 5. Application Lifecycle
+## 5. Frontend Technologies
+
+The project utilizes [HTMX](https://htmx.org/) to enhance the interactivity of HTML pages by enabling HATEOAS (Hypermedia as the Engine of Application State) principles. This approach allows for dynamic updates to parts of the page without full page reloads, using HTML attributes to trigger AJAX requests and swap content. This minimizes the need for extensive client-side JavaScript frameworks for common interactive patterns.
+
+## 6. Application Lifecycle
 
 The application's startup and lifecycle are managed by Guice modules in the `app/modules/` directory.
 
@@ -56,7 +61,7 @@ The application's startup and lifecycle are managed by Guice modules in the `app
 - **`StartupService`**: This service is responsible for initializing the application on startup. A key task it performs is seeding the database with essential data, such as importing haplogroup trees via the `TreeInitializationService`.
 - **`Scheduler.scala`**: This module configures and schedules background jobs using the Pekko Quartz Scheduler. Job schedules are defined in `conf/application.conf`.
 
-## 6. Testing Guide
+## 7. Testing Guide
 
 Tests are located in the `test/` directory and are written using ScalaTest.
 
@@ -76,7 +81,7 @@ When adding new features, it is crucial to add corresponding tests.
 - **Service Tests:** For new services, create a new spec file in a corresponding package under `test/`. Mock any repository dependencies to isolate the business logic for unit testing.
 - **Repository Tests:** For repository tests, you may need an in-memory or test database to verify database queries.
 
-## 7. Development Guide: Adding a New Feature
+## 8. Development Guide: Adding a New Feature
 
 Here is a step-by-step guide to adding a new feature (e.g., a new API endpoint):
 
