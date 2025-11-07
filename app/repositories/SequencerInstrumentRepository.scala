@@ -27,16 +27,23 @@ trait SequencerInstrumentRepository {
    * @return a future containing a list of all lab-instrument associations
    */
   def findAllLabInstrumentAssociations(): Future[Seq[SequencerLabInfo]]
-  
+
   /**
    * Associates a lab with an instrument ID.
    * If the lab doesn't exist, creates a placeholder record.
    *
    * @param instrumentId the unique instrument ID from BAM/CRAM headers
    * @param labName      the name of the lab to associate
+   * @param manufacturer optional manufacturer name
+   * @param model        optional model name
    * @return a future containing the association response
    */
-  def associateLabWithInstrument(instrumentId: String, labName: String): Future[AssociateLabWithInstrumentResponse]
+  def associateLabWithInstrument(
+                                  instrumentId: String,
+                                  labName: String,
+                                  manufacturer: Option[String] = None,
+                                  model: Option[String] = None
+                                ): Future[AssociateLabWithInstrumentResponse]
 }
 
 @Singleton
@@ -109,7 +116,12 @@ class SequencerInstrumentRepositoryImpl @Inject()(
     }
   }
 
-  override def associateLabWithInstrument(instrumentId: String, labName: String): Future[AssociateLabWithInstrumentResponse] = {
+  override def associateLabWithInstrument(
+                                           instrumentId: String,
+                                           labName: String,
+                                           manufacturer: Option[String] = None,
+                                           model: Option[String] = None
+                                         ): Future[AssociateLabWithInstrumentResponse] = {
     db.run(
       (for {
         // Check if lab already exists
@@ -124,8 +136,11 @@ class SequencerInstrumentRepositoryImpl @Inject()(
           (labsTable returning labsTable.map(_.id)) += newLab
         }
 
-        // Update instrument with lab ID
-        _ <- instrumentsTable.filter(_.instrumentId === instrumentId).map(_.labId).update(labId)
+        // Update instrument with lab ID and instrument details
+        _ <- instrumentsTable
+          .filter(_.instrumentId === instrumentId)
+          .map(inst => (inst.labId, inst.manufacturer, inst.model))
+          .update((labId, manufacturer, model))
 
       } yield (labId, existingLab.isDefined)).transactionally
     ).map { case (labId, labExists) =>
@@ -133,6 +148,8 @@ class SequencerInstrumentRepositoryImpl @Inject()(
         instrumentId = instrumentId,
         labId = labId,
         labName = labName,
+        manufacturer = manufacturer,
+        model = model,
         isNewLab = !labExists,
         message = if (labExists) {
           s"Lab '$labName' associated with instrument '$instrumentId'"

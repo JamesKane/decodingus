@@ -31,15 +31,22 @@ class SequencerInstrumentService @Inject()(
    *
    * @param instrumentId the unique instrument ID
    * @param labName      the name of the lab to associate
+   * @param manufacturer optional manufacturer name
+   * @param model        optional model name
    * @return a future containing the association response
    */
-  def associateLabWithInstrument(instrumentId: String, labName: String): Future[AssociateLabWithInstrumentResponse] = {
+  def associateLabWithInstrument(
+                                  instrumentId: String,
+                                  labName: String,
+                                  manufacturer: Option[String] = None,
+                                  model: Option[String] = None
+                                ): Future[AssociateLabWithInstrumentResponse] = {
     if (instrumentId.isBlank) {
       Future.failed(new IllegalArgumentException("Instrument ID cannot be empty"))
     } else if (labName.isBlank) {
       Future.failed(new IllegalArgumentException("Lab name cannot be empty"))
     } else {
-      instrumentRepository.associateLabWithInstrument(instrumentId, labName)
+      instrumentRepository.associateLabWithInstrument(instrumentId, labName, manufacturer, model)
     }
   }
 }

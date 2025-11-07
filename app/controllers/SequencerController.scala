@@ -67,7 +67,9 @@ class SequencerController @Inject()(
       apiSecurityAction.invokeBlock(request, { secureRequest =>
         sequencerService.associateLabWithInstrument(
           request.body.instrumentId,
-          request.body.labName
+          request.body.labName,
+          request.body.manufacturer,
+          request.body.model
         ).map { result =>
           Ok(Json.toJson(result))
         }.recover {
