@@ -12,7 +12,7 @@ object BiosampleType {
     def reads(json: JsValue): JsResult[BiosampleType] = json match {
       case JsString(s) => BiosampleType.valueOf(s) match {
         case bt: BiosampleType => JsSuccess(bt)
-        case _ => JsError(s"Unknown BiosampleType: $s")
+        case null => JsError(s"Unknown BiosampleType: $s")
       }
       case _ => JsError("String value expected")
     }
