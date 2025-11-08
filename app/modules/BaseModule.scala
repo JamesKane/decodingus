@@ -69,5 +69,9 @@ class BaseModule extends AbstractModule {
       .asEagerSingleton()
     
     bind(classOf[SequencerInstrumentRepository]).to(classOf[SequencerInstrumentRepositoryImpl])
+
+    bind(classOf[SequencingLabRepository])
+      .to(classOf[SequencingLabRepositoryImpl])
+      .asEagerSingleton()
   }
 }

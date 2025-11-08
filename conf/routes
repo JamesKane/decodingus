@@ -81,6 +81,13 @@ POST          /api/private/external/biosamples/:sampleGuid/publication          
 # Specimen Donor endpoints
 POST          /api/private/donors/merge                                                          controllers.SpecimenDonorController.mergeDonors()
 
+# Sequencing Lab private admin CRUD (not exposed in Swagger)
+GET           /api/private/sequencing-labs                                                       controllers.SequencingLabAdminController.list
+GET           /api/private/sequencing-labs/:id                                                  controllers.SequencingLabAdminController.get(id: Int)
+POST          /api/private/sequencing-labs                                                       controllers.SequencingLabAdminController.create
+PATCH         /api/private/sequencing-labs/:id                                                  controllers.SequencingLabAdminController.update(id: Int)
+DELETE        /api/private/sequencing-labs/:id                                                  controllers.SequencingLabAdminController.delete(id: Int)
+
 # --- API Routes (Handled by Tapir, including Swagger UI) ---
 # Delegate all requests starting with /api to the Tapir-based ApiRouter
 ->            /api                                                                               controllers.ApiRouter
