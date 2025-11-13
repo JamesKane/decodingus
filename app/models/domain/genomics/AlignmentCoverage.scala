@@ -31,7 +31,12 @@ case class AlignmentCoverage(
                               basesNoCoverage: Option[Long] = None,
                               basesLowQualityMapping: Option[Long] = None,
                               basesCallable: Option[Long] = None,
-                              meanMappingQuality: Option[Double] = None
+                              meanMappingQuality: Option[Double] = None,
+                              numReads: Option[Long] = None,
+                              covBases: Option[Long] = None,
+                              coveragePct: Option[Double] = None,
+                              meanBaseq: Option[Double] = None,
+                              lowCoverage: Option[Long] = None
                             )
 
 object AlignmentCoverage {

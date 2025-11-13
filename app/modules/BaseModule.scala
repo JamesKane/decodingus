@@ -52,6 +52,18 @@ class BaseModule extends AbstractModule {
       .to(classOf[SequenceFileChecksumRepositoryImpl])
       .asEagerSingleton()
 
+    bind(classOf[SequenceFileChecksumRepository])
+      .to(classOf[SequenceFileChecksumRepositoryImpl])
+      .asEagerSingleton()
+
+    bind(classOf[AlignmentCoverageRepository])
+      .to(classOf[AlignmentCoverageRepositoryImpl])
+      .asEagerSingleton()
+
+    bind(classOf[AlignmentMetadataRepository])
+      .to(classOf[AlignmentMetadataRepositoryImpl])
+      .asEagerSingleton()
+
     bind(classOf[SequenceFileRepository])
       .to(classOf[SequenceFileRepositoryImpl])
       .asEagerSingleton()

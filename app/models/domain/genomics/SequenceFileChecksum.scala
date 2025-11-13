@@ -9,4 +9,3 @@ case class SequenceFileChecksum(
                                  algorithm: String,
                                  verifiedAt: LocalDateTime
                                )
-

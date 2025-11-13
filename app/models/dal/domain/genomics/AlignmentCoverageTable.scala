@@ -20,6 +20,11 @@ class AlignmentCoverageTable(tag: Tag) extends Table[AlignmentCoverage](tag, Som
   def basesLowQualityMapping = column[Option[Long]]("bases_low_quality_mapping")
   def basesCallable = column[Option[Long]]("bases_callable")
   def meanMappingQuality = column[Option[Double]]("mean_mapping_quality")
+  def numReads = column[Option[Long]]("num_reads")
+  def covBases = column[Option[Long]]("cov_bases")
+  def coveragePct = column[Option[Double]]("coverage_pct")
+  def meanBaseq = column[Option[Double]]("mean_baseq")
+  def lowCoverage = column[Option[Long]]("low_coverage")
 
   def * = (
     alignmentMetadataId,
@@ -33,7 +38,12 @@ class AlignmentCoverageTable(tag: Tag) extends Table[AlignmentCoverage](tag, Som
     basesNoCoverage,
     basesLowQualityMapping,
     basesCallable,
-    meanMappingQuality
+    meanMappingQuality,
+    numReads,
+    covBases,
+    coveragePct,
+    meanBaseq,
+    lowCoverage
   ) <> ((AlignmentCoverage.apply _).tupled, AlignmentCoverage.unapply)
 
   // Foreign key constraint
