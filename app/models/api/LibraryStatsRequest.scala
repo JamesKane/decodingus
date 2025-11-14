@@ -29,6 +29,7 @@ case class LibraryStatsRequest(
                                 read_len: Int,
                                 insert_len: Double,
                                 properly_paired_reads: Long,
+                                test_type: String,
                                 files: Seq[FileInfo],
                                 coverage: Seq[CoverageStat]
                               )

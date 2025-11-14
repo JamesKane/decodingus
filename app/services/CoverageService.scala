@@ -32,7 +32,7 @@ class CoverageServiceImpl @Inject()(
           id = None,
           sampleGuid = biosample.sampleGuid,
           lab = request.platform,
-          testType = "WGS", // Default value
+          testType = request.test_type,
           runDate = LocalDateTime.now(),
           instrument = request.model,
           reads = request.reads.toInt,
