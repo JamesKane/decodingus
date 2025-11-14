@@ -20,8 +20,6 @@ object CoverageStat {
   implicit val format: OFormat[CoverageStat] = Json.format[CoverageStat]
 }
 
-import models.api.FileInfo
-
 case class LibraryStatsRequest(
                                 sample_id: String,
                                 platform: String,
