@@ -24,9 +24,6 @@ class AlignmentMetadataTable(tag: Tag) extends Table[AlignmentMetadata](tag, Som
   def analysisToolVersion = column[Option[String]]("analysis_tool_version")
   def notes = column[Option[String]]("notes")
   def metadata = column[Option[JsValue]]("metadata")
-  def mappedReads = column[Option[Long]]("mapped_reads")
-  def properlyPairedReads = column[Option[Long]]("properly_paired_reads")
-
   def * = (
     id.?,
     sequenceFileId,
@@ -40,9 +37,7 @@ class AlignmentMetadataTable(tag: Tag) extends Table[AlignmentMetadata](tag, Som
     analysisTool,
     analysisToolVersion,
     notes,
-    metadata,
-    mappedReads,
-    properlyPairedReads
+    metadata
   ) <> ((AlignmentMetadata.apply _).tupled, AlignmentMetadata.unapply)
 
   // Foreign key constraints

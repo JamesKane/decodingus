@@ -4,7 +4,8 @@ import com.google.inject.ImplementedBy
 import jakarta.inject.Inject
 import models.api.LibraryStatsRequest
 import play.api.db.slick.DatabaseConfigProvider
-import repositories.{BiosampleRepository, GenbankContigRepository, SequenceFileChecksumRepository, SequenceFileRepository, SequenceLibraryRepository, AlignmentMetadataRepositoryImpl, AlignmentCoverageRepositoryImpl}
+import play.api.libs.json.{Json, JsObject}
+import repositories._
 import slick.jdbc.JdbcProfile
 
 import java.time.LocalDateTime
@@ -81,8 +82,10 @@ class CoverageServiceImpl @Inject()(
                       genbankContigId = contigId,
                       metricLevel = models.domain.genomics.MetricLevel.CONTIG_OVERALL,
                       analysisTool = fileInfo.aligner,
-                      mappedReads = Some(request.mapped_reads),
-                      properlyPairedReads = Some(request.properly_paired_reads)
+                      metadata = Some(Json.obj(
+                        "mappedReads" -> request.mapped_reads,
+                        "properlyPairedReads" -> request.properly_paired_reads
+                      ))
                     )
                     alignmentMetadataRepository.create(metadata).flatMap { createdMetadata =>
                       val coverage = models.domain.genomics.AlignmentCoverage(

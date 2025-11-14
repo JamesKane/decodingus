@@ -61,9 +61,7 @@ case class AlignmentMetadata(
                               analysisTool: String,
                               analysisToolVersion: Option[String] = None,
                               notes: Option[String] = None,
-                              metadata: Option[JsValue] = None,
-                              mappedReads: Option[Long] = None,
-                              properlyPairedReads: Option[Long] = None
+                              metadata: Option[JsValue] = None
                             )
 
 object AlignmentMetadata {
