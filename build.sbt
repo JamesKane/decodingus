@@ -58,3 +58,8 @@ libraryDependencies ++= Seq(
   "org.hashids" % "hashids" % "1.0.3",
   "org.scalatestplus" %% "mockito-5-10" % "3.2.18.0" % Test
 )
+
+// Code Coverage Configuration
+coverageMinimumStmtTotal := 5
+coverageFailOnMinimum := true
+coverageHighlighting := true
