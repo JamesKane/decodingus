@@ -55,5 +55,6 @@ libraryDependencies ++= Seq(
 
   "software.amazon.awssdk" % "secretsmanager" % AWS_VERSION,
   "software.amazon.awssdk" % "ses" % AWS_VERSION,
-  "org.hashids" % "hashids" % "1.0.3"
+  "org.hashids" % "hashids" % "1.0.3",
+  "org.scalatestplus" %% "mockito-5-10" % "3.2.18.0" % Test
 )

@@ -4,9 +4,7 @@ import jakarta.inject.{Inject, Singleton}
 import models.domain.genomics.BiosampleType
 import org.hashids.Hashids
 import play.api.Configuration
-import play.api.db.slick.{DatabaseConfigProvider, HasDatabaseConfigProvider}
-import models.dal.MyPostgresProfile
-import models.dal.MyPostgresProfile.api._
+import repositories.CitizenSequenceRepository
 
 import scala.concurrent.{ExecutionContext, Future}
 
@@ -31,21 +29,20 @@ trait AccessionNumberGenerator {
  * This implementation uses hashing and unique sequence generation to support multiple
  * biosample types including Standard, Ancient, PGP, and Citizen.
  *
- * It extends the `AccessionNumberGenerator` trait and relies on database connectivity
- * for sequence-based ID generation and a hashing library for encoding and decoding accession numbers.
+ * It extends the `AccessionNumberGenerator` trait and relies on a hashing library 
+ * for encoding and decoding accession numbers.
  *
  * @constructor Creates a new BiosampleAccessionGenerator instance.
- * @param dbConfigProvider Config provider for database connectivity.
- * @param config           Application configuration for loading settings like hashing salt.
- * @param ec               ExecutionContext for managing asynchronous operations.
+ * @param sequenceRepo   Repository for fetching sequence values.
+ * @param config         Application configuration for loading settings like hashing salt.
+ * @param ec             ExecutionContext for managing asynchronous operations.
  */
 @Singleton
 class BiosampleAccessionGenerator @Inject()(
-                                             protected val dbConfigProvider: DatabaseConfigProvider,
+                                             sequenceRepo: CitizenSequenceRepository,
                                              config: Configuration
                                            )(implicit ec: ExecutionContext)
-  extends AccessionNumberGenerator
-    with HasDatabaseConfigProvider[MyPostgresProfile] {
+  extends AccessionNumberGenerator {
 
   private val DuPrefix = "DU"
   private val alphabet = "ABCDEFGHIJKLMNPQRSTUVWXYZ1234567890" // Removed O to avoid confusion with 0
@@ -53,11 +50,6 @@ class BiosampleAccessionGenerator @Inject()(
   private val hashLength = 6 // Gives us plenty of combinations while keeping it readable
 
   private lazy val hasher = new Hashids(salt, hashLength, alphabet)
-
-  private def getNextCitizenSequence: Future[Long] = {
-    val query = sql"SELECT nextval('citizen_biosample_seq')".as[Long]
-    db.run(query).map(_.head)
-  }
 
   /**
    * Decodes the given accession string to retrieve an optional numeric identifier.
@@ -110,7 +102,7 @@ class BiosampleAccessionGenerator @Inject()(
         }
 
       case BiosampleType.Citizen =>
-        getNextCitizenSequence.map { seq =>
+        sequenceRepo.getNextSequence().map { seq =>
           s"$DuPrefix-${hasher.encode(seq)}"
         }
     }
