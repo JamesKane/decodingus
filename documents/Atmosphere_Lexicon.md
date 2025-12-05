@@ -456,3 +456,129 @@ To support robust syncing, the internal `biosamples` table requires tracking fie
 
 *   **`at_uri` (String, Unique):** The canonical decentralized address of the record. Used for lookups during Update/Delete.
 *   **`at_cid` (String):** The content identifier (hash) of the current version. Used for optimistic locking and preventing replay attacks/race conditions.
+
+### 4. Example Mock Data
+
+Below are JSON examples of how valid records would appear in the `com.decodingus.atmosphere` namespace.
+
+#### Biosample Record (`com.decodingus.atmosphere.biosample`)
+
+```json
+{
+  "$type": "com.decodingus.atmosphere.biosample",
+  "sampleAccession": "BGS-UUID-98765-XYZ",
+  "donorIdentifier": "Subject-001",
+  "description": "Deep WGS of Proband from Smith Family Trio",
+  "centerName": "DecodingUs Reference Lab",
+  "sex": "Male",
+  "createdAt": "2025-12-05T14:30:00Z",
+  "haplogroups": {
+    "yDna": {
+      "haplogroupName": "R-M269",
+      "score": 0.998,
+      "matchingSnps": 145,
+      "mismatchingSnps": 2,
+      "ancestralMatches": 3000,
+      "treeDepth": 25,
+      "lineagePath": ["R", "R1", "R1b", "R-M269"]
+    },
+    "mtDna": {
+      "haplogroupName": "H1a",
+      "score": 0.995,
+      "matchingSnps": 42,
+      "mismatchingSnps": 0,
+      "ancestralMatches": 800,
+      "treeDepth": 18,
+      "lineagePath": ["L3", "N", "R", "HV", "H", "H1", "H1a"]
+    }
+  },
+  "sequenceData": [
+    {
+      "platformName": "ILLUMINA",
+      "instrumentModel": "NovaSeq 6000",
+      "testType": "WGS",
+      "libraryLayout": "PAIRED",
+      "totalReads": 850000000,
+      "readLength": 150,
+      "meanInsertSize": 450.0,
+      "files": [
+        {
+          "fileName": "Sample001_R1.fastq.gz",
+          "fileSizeBytes": 15000000000,
+          "fileFormat": "FASTQ",
+          "checksum": "sha256-e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "location": "s3://lab-data-bucket/raw/Sample001_R1.fastq.gz"
+        },
+        {
+          "fileName": "Sample001_R2.fastq.gz",
+          "fileSizeBytes": 16000000000,
+          "fileFormat": "FASTQ",
+          "checksum": "sha256-d7a8fbb307d7809469ca9abcb0082e4f8d5651e46d3cdb762d02d0bf37c9e553",
+          "location": "s3://lab-data-bucket/raw/Sample001_R2.fastq.gz"
+        }
+      ],
+      "alignments": [
+        {
+          "referenceBuild": "GRCh38",
+          "aligner": "BWA-MEM 0.7.17",
+          "files": [
+            {
+              "fileName": "Sample001.hg38.cram",
+              "fileSizeBytes": 22000000000,
+              "fileFormat": "CRAM",
+              "checksum": "sha256-0b7c68d2266643392788995209377460244359634270247b3618245356363834",
+              "location": "s3://lab-data-bucket/aligned/Sample001.hg38.cram"
+            }
+          ],
+          "metrics": {
+            "genomeTerritory": 3100000000,
+            "meanCoverage": 32.5,
+            "medianCoverage": 31.0,
+            "sdCoverage": 8.5,
+            "pctExcDupe": 0.12,
+            "pctExcMapq": 0.02,
+            "pct10x": 0.98,
+            "pct20x": 0.95,
+            "pct30x": 0.85,
+            "hetSnpSensitivity": 0.992,
+            "contigs": [
+              {
+                "contigName": "chr1",
+                "callableBases": 240000000,
+                "meanCoverage": 33.1,
+                "poorMappingQuality": 15000,
+                "lowCoverage": 5000,
+                "noCoverage": 100
+              },
+               {
+                "contigName": "chrY",
+                "callableBases": 25000000,
+                "meanCoverage": 16.5, 
+                "poorMappingQuality": 50000,
+                "lowCoverage": 2000,
+                "noCoverage": 500
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
+```
+
+#### Project Record (`com.decodingus.atmosphere.project`)
+
+```json
+{
+  "$type": "com.decodingus.atmosphere.project",
+  "projectName": "Smith Surname Project",
+  "description": "A collaborative effort to trace the paternal lineage of the Smith family originating from Yorkshire.",
+  "administrator": "did:plc:alice123456",
+  "members": [
+    "at://did:plc:alice123456/com.decodingus.atmosphere.biosample/rkey-sample-001",
+    "at://did:plc:bob987654/com.decodingus.atmosphere.biosample/rkey-sample-002",
+    "at://did:plc:charlie111/com.decodingus.atmosphere.biosample/rkey-sample-003"
+  ]
+}
+```
