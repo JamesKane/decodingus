@@ -114,6 +114,8 @@ trait BiosampleRepository {
   def findByGuid(guid: UUID): Future[Option[(Biosample, Option[SpecimenDonor])]]
 
   def getAllGeoLocations: Future[Seq[(Point, Int)]]
+
+  def delete(id: Int): Future[Boolean]
 }
 
 @Singleton
@@ -424,15 +426,32 @@ class BiosampleRepositoryImpl @Inject()(
     getBiosampleWithDonor(biosamplesTable.filter(_.sampleGuid === guid))
   }
 
-  def getAllGeoLocations: Future[Seq[(Point, Int)]] = {
-    val query = specimenDonorsTable
-      .filter(_.geocoord.isDefined)
-      .groupBy(_.geocoord)
-      .map { case (point, group) =>
-        (point.asColumnOf[Point], group.length)
-      }
+    def getAllGeoLocations: Future[Seq[(Point, Int)]] = {
 
-    db.run(query.result)
+      val query = specimenDonorsTable
+
+        .filter(_.geocoord.isDefined)
+
+        .groupBy(_.geocoord)
+
+        .map { case (point, group) =>
+
+          (point.asColumnOf[Point], group.length)
+
+        }
+
+  
+
+      db.run(query.result)
+
+    }
+
+  
+
+    override def delete(id: Int): Future[Boolean] = {
+
+      db.run(biosamplesTable.filter(_.id === id).delete.map(_ > 0))
+
+    }
+
   }
-
-}

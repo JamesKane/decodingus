@@ -160,4 +160,19 @@ class ExternalBiosampleService @Inject()(
         s"Failed to process biosample: ${e.getMessage}", e))
     }
   }
+
+  /**
+   * Deletes a biosample and all its associated data by its sample accession.
+   *
+   * @param accession The sample accession of the biosample to delete.
+   * @return A `Future` containing `true` if the biosample was found and deleted, `false` otherwise.
+   */
+  def deleteBiosample(accession: String): Future[Boolean] = {
+    biosampleRepository.findByAccession(accession).flatMap {
+      case Some((biosample, _)) =>
+        biosampleDataService.fullyDeleteBiosampleAndDependencies(biosample.id.get, biosample.sampleGuid).map(_ => true)
+      case None =>
+        Future.successful(false)
+    }
+  }
 }

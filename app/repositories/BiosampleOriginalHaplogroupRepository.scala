@@ -63,6 +63,14 @@ trait BiosampleOriginalHaplogroupRepository {
    * @return a future containing an optional haplogroup assignment
    */
   def findByBiosampleAndPublication(biosampleId: Int, publicationId: Int): Future[Option[BiosampleOriginalHaplogroup]]
+
+  /**
+   * Deletes all `BiosampleOriginalHaplogroup` entries associated with the specified biosample ID.
+   *
+   * @param biosampleId The unique identifier of the biosample for which associated entries are to be deleted.
+   * @return A `Future` containing the number of deleted rows.
+   */
+  def deleteByBiosampleId(biosampleId: Int): Future[Int]
 }
 
 @Singleton
@@ -105,6 +113,10 @@ class BiosampleOriginalHaplogroupRepositoryImpl @Inject()(
 
   override def delete(id: Int): Future[Boolean] = {
     db.run(haplogroups.filter(_.id === id).delete.map(_ > 0))
+  }
+
+  override def deleteByBiosampleId(biosampleId: Int): Future[Int] = {
+    db.run(haplogroups.filter(_.biosampleId === biosampleId).delete)
   }
 
   override def findByBiosampleAndPublication(

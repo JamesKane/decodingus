@@ -88,7 +88,30 @@ class ExternalBiosampleController @Inject()(
           "error" -> "Internal server error",
           "message" -> "An unexpected error occurred while processing the request"
         ))
+        }
+      }
+    
+      /**
+       * Handles an HTTP request to delete an external biosample by its accession.
+       *
+       * This method processes a request to delete a biosample identified by its unique accession.
+       * Upon successful deletion, it returns a `204 No Content` HTTP response.
+       * If the biosample is not found, it returns a `404 Not Found` response.
+       *
+       * @param accession The unique accession of the biosample to be deleted.
+       * @return An asynchronous `Action` that responds with `204 No Content`, `404 Not Found`,
+       *         or `500 Internal Server Error` in case of an unexpected error.
+       */
+      def delete(accession: String): Action[AnyContent] = secureApi.async {
+        externalBiosampleService.deleteBiosample(accession).map {
+          case true => NoContent
+          case false => NotFound(Json.obj("error" -> "Biosample not found", "message" -> s"Biosample with accession '$accession' not found."))
+        }.recover {
+          case e: Exception =>
+            InternalServerError(Json.obj(
+              "error" -> "Internal server error",
+              "message" -> s"An unexpected error occurred while attempting to delete biosample with accession '$accession': ${e.getMessage}"
+            ))
+        }
+      }
     }
-  }
-
-}
