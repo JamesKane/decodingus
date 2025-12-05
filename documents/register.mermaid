@@ -1,0 +1,38 @@
+sequenceDiagram
+    participant R_Edge as "Researcher (JVM Edge App)"
+    participant R_PDS as "Researcher's PDS"
+    participant ScalaApp as "App Server (Scala/Play)"
+    participant MetadataDB as "T4 Metadata DB (DID Registry)"
+
+    title PDS Registration and Sync Setup
+
+    R_Edge->>R_PDS: 1. Login: com.atproto.server.createSession(handle, password)
+    activate R_PDS
+    R_PDS-->>R_Edge: 2. Response: Auth Token (R_Token), DID (did:plc:XYZ)
+    deactivate R_PDS
+    
+    R_Edge->>R_PDS: 3. Verify Identity: com.atproto.identity.resolveHandle
+    activate R_PDS
+    R_PDS-->>R_Edge: 4. Response: DID Document (Confirms PDS Endpoint)
+    deactivate R_PDS
+    
+    R_Edge->>ScalaApp: 5. Registration Request: POST /api/registerPDS(DID, R_Token, PDS_URL)
+    activate ScalaApp
+    
+    ScalaApp->>R_PDS: 6. *Server-Side Verification*: com.atproto.repo.getLatestCommit (Using R_Token)
+    activate R_PDS
+    R_PDS-->>ScalaApp: 7. Response: Latest Commit CID, Repo Root
+    deactivate R_PDS
+    
+    ScalaApp->>ScalaApp: 8. Validation: Confirm DID is valid and PDS is responsive
+    
+    ScalaApp->>MetadataDB: 9. Write New DID Record: INSERT(DID, PDS_URL, Initial_Cursor=0)
+    activate MetadataDB
+    MetadataDB-->>ScalaApp: 10. Success
+    deactivate MetadataDB
+    
+    ScalaApp-->>R_Edge: 11. Final Response: Registration Success
+    deactivate ScalaApp
+    
+    ScalaApp->>ScalaApp: 12. Trigger Internal Notification (e.g., Pekko Pub/Sub)
+    Note over ScalaApp, MetadataDB: Rust Sync Cluster detects new entry in Metadata DB (next poll) and begins monitoring.

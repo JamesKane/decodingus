@@ -89,6 +89,8 @@ PATCH         /api/private/sequencing-labs/:id                                  
 DELETE        /api/private/sequencing-labs/:id                                                   controllers.SequencingLabAdminController.delete(id: Int)
 
 # --- API Routes (Handled by Tapir, including Swagger UI) ---
+POST          /api/registerPDS                                       controllers.PDSRegistrationController.registerPDS()
+
 # Delegate all requests starting with /api to the Tapir-based ApiRouter
 ->            /api                                                                               controllers.ApiRouter
 
