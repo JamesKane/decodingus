@@ -58,33 +58,43 @@ class ExternalBiosampleService @Inject()(
         centerName = request.centerName,
         specimenDonorId = donorId,
         locked = false,
-        sourcePlatform = None
+        sourcePlatform = Some(request.sourceSystem)
       )
 
-      // Check for existing accession first
-      biosampleRepository.findByAccession(request.sampleAccession).flatMap {
-        case Some(_) => Future.failed(DuplicateAccessionException(request.sampleAccession))
-        case None => biosampleRepository.create(biosample)
-      }
+      biosampleRepository.create(biosample)
     }
 
-    def handleDataAssociation() = {
+    def updateBiosample(existingBiosample: Biosample, donorId: Option[Int]) = {
+      val updatedBiosample = existingBiosample.copy(
+        description = request.description,
+        alias = request.alias,
+        centerName = request.centerName,
+        specimenDonorId = donorId,
+        sourcePlatform = Some(request.sourceSystem)
+      )
+      biosampleRepository.update(updatedBiosample).map(_ => existingBiosample.sampleGuid)
+    }
+
+    def handleDataAssociation(guid: UUID, isUpdate: Boolean) = {
       val publicationFuture = request.publication
-        .map(pub => biosampleDataService.linkPublication(sampleGuid, pub)
+        .map(pub => biosampleDataService.linkPublication(guid, pub)
           .recoverWith { case e =>
             Future.failed(PublicationLinkageException(e.getMessage))
           })
         .getOrElse(Future.successful(()))
 
-      val sequenceDataFuture = biosampleDataService.addSequenceData(sampleGuid, request.sequenceData)
-        .recoverWith { case e =>
-          Future.failed(SequenceDataValidationException(e.getMessage))
-        }
+      val sequenceDataFuture = if (isUpdate) {
+        biosampleDataService.replaceSequenceData(guid, request.sequenceData)
+      } else {
+        biosampleDataService.addSequenceData(guid, request.sequenceData)
+      }
 
       for {
         _ <- publicationFuture
-        _ <- sequenceDataFuture
-      } yield sampleGuid
+        _ <- sequenceDataFuture.recoverWith { case e =>
+          Future.failed(SequenceDataValidationException(e.getMessage))
+        }
+      } yield guid
     }
 
     def shouldCreateDonor: Boolean = {
@@ -124,12 +134,30 @@ class ExternalBiosampleService @Inject()(
       } else {
         Future.successful(None)
       }
-      biosample <- createBiosample(donorId)
-      guid <- handleDataAssociation()
+      
+      // Check for existing accession
+      existing <- biosampleRepository.findByAccession(request.sampleAccession)
+      
+      guid <- existing match {
+        case Some((existingBiosample, _)) =>
+          // Update existing
+          for {
+            guid <- updateBiosample(existingBiosample, donorId)
+            _ <- handleDataAssociation(guid, isUpdate = true)
+          } yield guid
+          
+        case None =>
+          // Create new
+          for {
+            created <- createBiosample(donorId)
+            guid <- handleDataAssociation(created.sampleGuid, isUpdate = false)
+          } yield guid
+      }
+
     } yield guid).recoverWith {
       case e: BiosampleServiceException => Future.failed(e)
       case e: Exception => Future.failed(new RuntimeException(
-        s"Failed to create biosample: ${e.getMessage}", e))
+        s"Failed to process biosample: ${e.getMessage}", e))
     }
   }
 }

@@ -234,10 +234,18 @@ class BiosampleRepositoryImpl @Inject()(
             .filter(_.id === id)
             .map(b => (
               b.alias,
+              b.description,
+              b.centerName,
+              b.specimenDonorId,
+              b.sourcePlatform,
               b.locked
             ))
             .update((
               biosample.alias,
+              biosample.description,
+              biosample.centerName,
+              biosample.specimenDonorId,
+              biosample.sourcePlatform,
               biosample.locked
             ))
             .map(_ > 0)

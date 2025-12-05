@@ -54,6 +54,36 @@ class BiosampleDataService @Inject()(
   }
 
   /**
+   * Replaces the sequencing data for a specific sample.
+   *
+   * This method first removes all existing sequencing libraries and their associated files
+   * for the given sample GUID, and then adds the new sequencing data.
+   *
+   * @param sampleGuid The unique identifier of the sample to update.
+   * @param data       The new metadata and details about the sequencing data.
+   * @return A `Future` representing the asynchronous completion of the operation.
+   */
+  def replaceSequenceData(sampleGuid: UUID, data: SequenceDataInfo): Future[Unit] = {
+    for {
+      // 1. Find all existing libraries
+      libraries <- sequenceLibraryRepository.findBySampleGuid(sampleGuid)
+      
+      // 2. Delete files for each library
+      _ <- Future.sequence(libraries.map { lib =>
+        sequenceFileRepository.deleteByLibraryId(lib.id.get)
+      })
+      
+      // 3. Delete the libraries themselves
+      _ <- Future.sequence(libraries.map { lib =>
+        sequenceLibraryRepository.delete(lib.id.get)
+      })
+      
+      // 4. Create new sequence data
+      _ <- createSequenceData(sampleGuid, data)
+    } yield ()
+  }
+
+  /**
    * Associates a publication with a specific biosample identified by its unique GUID. If the publication
    * does not already exist in the repository, it is created. Optionally, original haplogroup information
    * associated with the publication may also be stored for the biosample.
