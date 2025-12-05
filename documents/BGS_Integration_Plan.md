@@ -99,9 +99,34 @@ struct ExternalBiosampleRequest {
 }
 ```
 
+    // Handle 201 Created or errors
+    Ok(())
+}
+```
+
+### 5. Integration Roadmap
+
+The integration strategy evolves through three distinct phases, moving from a simple direct connection to a robust, decentralized architecture.
+
+#### Phase 1: Direct REST API (Current / MVP)
+*   **Mechanism:** Synchronous HTTP POST.
+*   **Flow:** `BGS Server` -> `DecodingUs Controller` -> `Service` -> `DB`.
+*   **Pros:** Simplest to implement; immediate feedback on success/failure.
+*   **Cons:** Tightly coupled; requires BGS to handle retries if DecodingUs is down.
+
+#### Phase 2: Asynchronous Ingestion (Kafka)
+*   **Mechanism:** Message Queue.
+*   **Flow:** `BGS Server` -> `Kafka Topic` -> `DecodingUs Consumer` -> `Service` -> `DB`.
+*   **Change:** BGS replaces the HTTP Client with a Kafka Producer. DecodingUs adds a Kafka Consumer service.
+*   **Pros:** Decoupled; handles bursts of traffic; high resilience.
+
+#### Phase 3: Decentralized AppView (Atmosphere)
+*   **Mechanism:** AT Protocol Firehose.
+*   **Flow:** `BGS Server` -> `Researcher PDS` -> `AT Proto Relay` -> `DecodingUs Firehose Consumer` -> `Service` -> `DB`.
+*   **Change:** BGS writes directly to the user's PDS using the `com.decodingus.atmosphere.biosample` Lexicon. DecodingUs becomes a passive indexer.
+*   **Pros:** True user data ownership; interoperability with other AT Protocol apps.
+
 ### Next Steps
 1.  **Provision Key:** Ensure a valid API key is set in your AWS Secrets Manager (for prod) or `application.conf` (if configured for dev overrides).
 2.  **Deploy BGS:** Configure the BGS MVP node with the `decodingus` URL and the API Key.
-3.  **Verify:** Send a test payload from the BGS node (with and without `citizenDid`) and verify:
-    *   Data appears in `biosamples` and `sequence_libraries`.
-    *   `SpecimenDonor` is correctly linked or created for Atmosphere samples.
+3.  **Verify:** Send a test payload from the BGS node and verify the data appears in the `biosamples` and `sequence_libraries` tables.
