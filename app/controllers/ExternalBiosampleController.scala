@@ -4,7 +4,7 @@ import actions.ApiSecurityAction
 import jakarta.inject.{Inject, Singleton}
 import models.api.ExternalBiosampleRequest
 import play.api.libs.json.{Json, OFormat}
-import play.api.mvc.{Action, BaseController, ControllerComponents}
+import play.api.mvc.{Action, AnyContent, BaseController, ControllerComponents}
 import services.{BiosampleServiceException, DuplicateAccessionException, ExternalBiosampleService, InvalidCoordinatesException, PublicationLinkageException, SequenceDataValidationException}
 
 import scala.concurrent.ExecutionContext

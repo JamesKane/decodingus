@@ -140,10 +140,11 @@ class BiosampleDataService @Inject()(
           originalYHaplogroup = haplogroupInfo.yHaplogroup,
           originalMtHaplogroup = haplogroupInfo.mtHaplogroup,
           notes = haplogroupInfo.notes
-                  })
-                .getOrElse(Future.successful(()))
-            } yield ()
-          }
+        ))
+      }.getOrElse(Future.successful(()))
+    } yield ()
+  }
+
         
           /**
            * Fully deletes a biosample and all its associated data (publication links,
