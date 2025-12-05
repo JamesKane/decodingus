@@ -95,17 +95,19 @@ class ExternalBiosampleController @Inject()(
        * Handles an HTTP request to delete an external biosample by its accession.
        *
        * This method processes a request to delete a biosample identified by its unique accession.
+       * The request must include the `citizenDid` to verify ownership and prevent collisions.
        * Upon successful deletion, it returns a `204 No Content` HTTP response.
-       * If the biosample is not found, it returns a `404 Not Found` response.
+       * If the biosample is not found or the DID does not match, it returns a `404 Not Found` response.
        *
        * @param accession The unique accession of the biosample to be deleted.
+       * @param citizenDid The DID of the citizen who owns the biosample.
        * @return An asynchronous `Action` that responds with `204 No Content`, `404 Not Found`,
        *         or `500 Internal Server Error` in case of an unexpected error.
        */
-      def delete(accession: String): Action[AnyContent] = secureApi.async {
-        externalBiosampleService.deleteBiosample(accession).map {
+      def delete(accession: String, citizenDid: String): Action[AnyContent] = secureApi.async {
+        externalBiosampleService.deleteBiosample(accession, citizenDid).map {
           case true => NoContent
-          case false => NotFound(Json.obj("error" -> "Biosample not found", "message" -> s"Biosample with accession '$accession' not found."))
+          case false => NotFound(Json.obj("error" -> "Biosample not found", "message" -> s"Biosample with accession '$accession' and DID '$citizenDid' not found or mismatch."))
         }.recover {
           case e: Exception =>
             InternalServerError(Json.obj(

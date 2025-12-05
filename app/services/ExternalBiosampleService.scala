@@ -162,16 +162,17 @@ class ExternalBiosampleService @Inject()(
   }
 
   /**
-   * Deletes a biosample and all its associated data by its sample accession.
+   * Deletes a biosample and all its associated data by its sample accession and owner DID.
    *
    * @param accession The sample accession of the biosample to delete.
-   * @return A `Future` containing `true` if the biosample was found and deleted, `false` otherwise.
+   * @param citizenDid The DID of the citizen who owns the biosample.
+   * @return A `Future` containing `true` if the biosample was found, owned by the DID, and deleted; `false` otherwise.
    */
-  def deleteBiosample(accession: String): Future[Boolean] = {
+  def deleteBiosample(accession: String, citizenDid: String): Future[Boolean] = {
     biosampleRepository.findByAccession(accession).flatMap {
-      case Some((biosample, _)) =>
+      case Some((biosample, Some(donor))) if donor.citizenBiosampleDid.contains(citizenDid) =>
         biosampleDataService.fullyDeleteBiosampleAndDependencies(biosample.id.get, biosample.sampleGuid).map(_ => true)
-      case None =>
+      case _ =>
         Future.successful(false)
     }
   }
