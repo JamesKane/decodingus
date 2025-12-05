@@ -91,9 +91,35 @@ class ExternalBiosampleService @Inject()(
       request.sex.isDefined || request.latitude.isDefined || request.longitude.isDefined
     }
 
+    def handleCitizenDonor(): Future[Option[Int]] = {
+      (request.citizenDid, request.donorIdentifier) match {
+        case (Some(did), Some(identifier)) =>
+          specimenDonorRepository.findByDidAndIdentifier(did, identifier).flatMap {
+            case Some(existingDonor) => Future.successful(existingDonor.id)
+            case None =>
+              val newDonor = SpecimenDonor(
+                donorIdentifier = identifier,
+                originBiobank = request.centerName,
+                donorType = request.donorType.getOrElse(BiosampleType.Citizen),
+                sex = request.sex,
+                geocoord = None, // Coordinates handled separately if needed, or could be passed here
+                pgpParticipantId = None,
+                citizenBiosampleDid = Some(did),
+                dateRangeStart = None,
+                dateRangeEnd = None
+              )
+              specimenDonorRepository.create(newDonor).map(_.id)
+          }
+        case _ => Future.successful(None)
+      }
+    }
+
     (for {
       geocoord <- validateCoordinates(request.latitude, request.longitude)
-      donorId <- if (shouldCreateDonor) {
+      citizenDonorId <- handleCitizenDonor()
+      donorId <- if (citizenDonorId.isDefined) {
+        Future.successful(citizenDonorId)
+      } else if (shouldCreateDonor) {
         createSpecimenDonor(geocoord).map(donor => Some(donor.id.get))
       } else {
         Future.successful(None)

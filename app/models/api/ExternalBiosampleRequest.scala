@@ -1,6 +1,6 @@
 package models.api
 
-import models.domain.genomics.BiologicalSex
+import models.domain.genomics.{BiologicalSex, BiosampleType}
 import play.api.libs.json.{Json, OFormat}
 
 import java.time.LocalDateTime
@@ -17,6 +17,8 @@ import java.time.LocalDateTime
  * @param sex             Optional biological sex information for the biosample.
  * @param latitude        Optional geographical latitude information related to the biosample.
  * @param longitude       Optional geographical longitude information related to the biosample.
+ * @param citizenDid      Optional decentralized identifier (DID) for linking to a citizen/PDS user.
+ * @param donorType       Optional type of the donor (e.g., Citizen, PGP, Standard).
  * @param publication     Optional publication information related to the biosample, represented by the `PublicationInfo` structure.
  * @param sequenceData    Information regarding the sequencing data associated with the biosample, represented by the `SequenceDataInfo` structure.
  */
@@ -29,6 +31,9 @@ case class ExternalBiosampleRequest(
                                      sex: Option[BiologicalSex],
                                      latitude: Option[Double],
                                      longitude: Option[Double],
+                                     citizenDid: Option[String],
+                                     donorIdentifier: Option[String],
+                                     donorType: Option[BiosampleType],
                                      publication: Option[PublicationInfo],
                                      sequenceData: SequenceDataInfo
                                    )
