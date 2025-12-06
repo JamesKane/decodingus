@@ -1,0 +1,72 @@
+# =============================================================================
+# DecodingUs Docker Compose Configuration
+# =============================================================================
+# Development: docker compose up
+# Production:  docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # Application
+  # ---------------------------------------------------------------------------
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: decodingus-app
+    ports:
+      - "9000:9000"
+    environment:
+      # Database connection (override in production)
+      - SLICK_DBS_DEFAULT_DB_URL=jdbc:postgresql://db:5432/decodingus_db
+      - SLICK_DBS_DEFAULT_DB_USER=decodingus_user
+      - SLICK_DBS_DEFAULT_DB_PASSWORD=decodingus_password
+      - SLICK_DBS_METADATA_DB_URL=jdbc:postgresql://db:5432/decodingus_metadata
+      - SLICK_DBS_METADATA_DB_USER=decodingus_user
+      - SLICK_DBS_METADATA_DB_PASSWORD=decodingus_password
+      # Play configuration
+      - APPLICATION_SECRET=${APPLICATION_SECRET:-changeme}
+      - PLAY_HTTP_SECRET_KEY=${APPLICATION_SECRET:-changeme}
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - decodingus-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL Database
+  # ---------------------------------------------------------------------------
+  db:
+    image: postgis/postgis:16-3.4-alpine
+    container_name: decodingus-db
+    environment:
+      - POSTGRES_USER=decodingus_user
+      - POSTGRES_PASSWORD=decodingus_password
+      - POSTGRES_DB=decodingus_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+    ports:
+      - "5432:5432"
+    networks:
+      - decodingus-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U decodingus_user -d decodingus_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+networks:
+  decodingus-network:
+    driver: bridge
+
+volumes:
+  postgres_data:

@@ -172,4 +172,17 @@ class HomeController @Inject()(val controllerComponents: ControllerComponents,
       ).as("text/plain")
     }
   }
+
+  /**
+   * Health check endpoint for load balancers and container orchestration.
+   *
+   * Returns a simple JSON response indicating the application is running.
+   * This endpoint is used by Docker health checks, Kubernetes probes,
+   * and load balancer health checks.
+   *
+   * @return an action that returns a 200 OK with a JSON health status
+   */
+  def health(): Action[AnyContent] = Action {
+    Ok("""{"status":"ok"}""").as("application/json")
+  }
 }

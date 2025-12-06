@@ -3,6 +3,9 @@
 # https://www.playframework.com/documentation/latest/ScalaRouting
 # ~~~~
 
+# Health check for load balancers and container orchestration
+GET           /health                                                                            controllers.HomeController.health()
+
 GET           /                                                                                  controllers.HomeController.index()
 GET           /cookie-usage                                                                      controllers.HomeController.cookieUsage()
 GET           /terms                                                                             controllers.HomeController.terms()

@@ -7,3 +7,11 @@ target
 /.project
 /.settings
 /RUNNING_PID
+
+# Environment files (contain secrets)
+.env
+.env.local
+.env.production
+
+# Docker volumes
+postgres_data/

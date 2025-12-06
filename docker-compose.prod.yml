@@ -1,0 +1,43 @@
+# =============================================================================
+# DecodingUs Production Overrides
+# =============================================================================
+# Usage: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+# =============================================================================
+
+services:
+  app:
+    image: ${DOCKER_REGISTRY:-}decodingus:${IMAGE_TAG:-latest}
+    build:
+      context: .
+    environment:
+      # Production database (use RDS or external PostgreSQL)
+      - SLICK_DBS_DEFAULT_DB_URL=${DATABASE_URL}
+      - SLICK_DBS_DEFAULT_DB_USER=${DATABASE_USER}
+      - SLICK_DBS_DEFAULT_DB_PASSWORD=${DATABASE_PASSWORD}
+      - SLICK_DBS_METADATA_DB_URL=${METADATA_DATABASE_URL:-${DATABASE_URL}}
+      - SLICK_DBS_METADATA_DB_USER=${DATABASE_USER}
+      - SLICK_DBS_METADATA_DB_PASSWORD=${DATABASE_PASSWORD}
+      # Security
+      - APPLICATION_SECRET=${APPLICATION_SECRET}
+      - PLAY_HTTP_SECRET_KEY=${APPLICATION_SECRET}
+      # Production settings
+      - PLAY_EVOLUTIONS_AUTOCOMMIT=false
+      - ENABLE_RECAPTCHA=${ENABLE_RECAPTCHA:-true}
+      - RECAPTCHA_SECRET_KEY=${RECAPTCHA_SECRET_KEY}
+      - RECAPTCHA_SITE_KEY=${RECAPTCHA_SITE_KEY}
+      # Contact
+      - CONTACT_RECIPIENT_EMAIL=${CONTACT_RECIPIENT_EMAIL}
+    ports:
+      - "127.0.0.1:9000:9000"  # Only expose to localhost (nginx will proxy)
+    restart: always
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  # In production, typically use RDS instead of containerized PostgreSQL
+  # Comment out or remove the db service when using external database
+  db:
+    profiles:
+      - with-db  # Only start if explicitly requested: docker compose --profile with-db up
