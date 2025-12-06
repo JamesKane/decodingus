@@ -21,6 +21,7 @@ trait SpecimenDonorRepository {
   def findByBiobankAndType(biobank: String, donorType: BiosampleType): Future[Seq[SpecimenDonor]]
   def deleteMany(ids: Seq[Int]): Future[Int]
   def transferBiosamples(fromDonorIds: Seq[Int], toDonorId: Int): Future[Int]
+  def findByDidAndIdentifier(did: String, identifier: String): Future[Option[SpecimenDonor]]
 
 }
 
@@ -38,6 +39,13 @@ class SpecimenDonorRepositoryImpl @Inject()(
 
   override def findById(id: Int): Future[Option[SpecimenDonor]] = {
     db.run(donorsTable.filter(_.id === id).result.headOption)
+  }
+
+  override def findByDidAndIdentifier(did: String, identifier: String): Future[Option[SpecimenDonor]] = {
+    db.run(donorsTable
+      .filter(d => d.atUri === did && d.donorIdentifier === identifier)
+      .result.headOption
+    )
   }
 
   override def create(donor: SpecimenDonor): Future[SpecimenDonor] = {
@@ -62,7 +70,7 @@ class SpecimenDonorRepositoryImpl @Inject()(
               d.sex,
               d.geocoord,
               d.pgpParticipantId,
-              d.citizenBiosampleDid,
+              d.atUri,
               d.dateRangeStart,
               d.dateRangeEnd
             ))
@@ -73,7 +81,7 @@ class SpecimenDonorRepositoryImpl @Inject()(
               donor.sex,
               donor.geocoord,
               donor.pgpParticipantId,
-              donor.citizenBiosampleDid,
+              donor.atUri,
               donor.dateRangeStart,
               donor.dateRangeEnd
             ))
@@ -96,7 +104,7 @@ class SpecimenDonorRepositoryImpl @Inject()(
               d.sex,
               d.geocoord,
               d.pgpParticipantId,
-              d.citizenBiosampleDid,
+              d.atUri,
               d.dateRangeStart,
               d.dateRangeEnd
             ))
@@ -106,7 +114,7 @@ class SpecimenDonorRepositoryImpl @Inject()(
               donor.sex,
               donor.geocoord,
               donor.pgpParticipantId,
-              donor.citizenBiosampleDid,
+              donor.atUri,
               donor.dateRangeStart,
               donor.dateRangeEnd
             ))

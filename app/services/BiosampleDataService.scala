@@ -54,6 +54,36 @@ class BiosampleDataService @Inject()(
   }
 
   /**
+   * Replaces the sequencing data for a specific sample.
+   *
+   * This method first removes all existing sequencing libraries and their associated files
+   * for the given sample GUID, and then adds the new sequencing data.
+   *
+   * @param sampleGuid The unique identifier of the sample to update.
+   * @param data       The new metadata and details about the sequencing data.
+   * @return A `Future` representing the asynchronous completion of the operation.
+   */
+  def replaceSequenceData(sampleGuid: UUID, data: SequenceDataInfo): Future[Unit] = {
+    for {
+      // 1. Find all existing libraries
+      libraries <- sequenceLibraryRepository.findBySampleGuid(sampleGuid)
+      
+      // 2. Delete files for each library
+      _ <- Future.sequence(libraries.map { lib =>
+        sequenceFileRepository.deleteByLibraryId(lib.id.get)
+      })
+      
+      // 3. Delete the libraries themselves
+      _ <- Future.sequence(libraries.map { lib =>
+        sequenceLibraryRepository.delete(lib.id.get)
+      })
+      
+      // 4. Create new sequence data
+      _ <- createSequenceData(sampleGuid, data)
+    } yield ()
+  }
+
+  /**
    * Associates a publication with a specific biosample identified by its unique GUID. If the publication
    * does not already exist in the repository, it is created. Optionally, original haplogroup information
    * associated with the publication may also be stored for the biosample.
@@ -115,10 +145,37 @@ class BiosampleDataService @Inject()(
     } yield ()
   }
 
-
-  private def createSequenceData(sampleGuid: UUID, data: SequenceDataInfo): Future[Unit] = {
-    val library = SequenceLibrary(
-      id = None,
+        
+          /**
+           * Fully deletes a biosample and all its associated data (publication links,
+           * original haplogroups, sequence libraries, sequence files, file locations, and checksums).
+           *
+           * @param biosampleId The internal ID of the biosample to delete.
+           * @param sampleGuid The GUID of the biosample to delete.
+           * @return A `Future` that completes when all associated data and the biosample itself have been deleted.
+           */
+          def fullyDeleteBiosampleAndDependencies(biosampleId: Int, sampleGuid: UUID): Future[Unit] = {
+            for {
+              // 1. Delete associated publication links
+              _ <- publicationBiosampleRepository.deleteByBiosampleId(biosampleId)
+              // 2. Delete associated original haplogroup records
+              _ <- biosampleOriginalHaplogroupRepository.deleteByBiosampleId(biosampleId)
+              // 3. Find and delete all sequence libraries and their files
+              libraries <- sequenceLibraryRepository.findBySampleGuid(sampleGuid)
+              _ <- Future.sequence(libraries.map { lib =>
+                for {
+                  _ <- sequenceFileRepository.deleteByLibraryId(lib.id.get) // Deletes files, locations, checksums (if cascading)
+                  _ <- sequenceLibraryRepository.delete(lib.id.get) // Deletes the library
+                } yield ()
+              })
+              // 4. Delete the biosample itself
+              _ <- biosampleRepository.delete(biosampleId)
+            } yield ()
+          }
+        
+          private def createSequenceData(sampleGuid: UUID, data: SequenceDataInfo): Future[Unit] = {
+            val library = SequenceLibrary(
+              id = None,
       sampleGuid = sampleGuid,
       lab = data.platformName,
       testType = data.testType,

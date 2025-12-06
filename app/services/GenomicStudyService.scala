@@ -162,28 +162,28 @@ class GenomicStudyService @Inject()(
   }
 
   private def findMatchingDonor(donor: SpecimenDonor): Future[Option[SpecimenDonor]] = {
-    // Initialize empty sequence for query conditions
-    var conditions = Seq.empty[(SpecimenDonor, SpecimenDonor) => Boolean]
+    import scala.collection.mutable.ArrayBuffer
+    var conditions = ArrayBuffer.empty[(SpecimenDonor, SpecimenDonor) => Boolean]
 
     // Add conditions based on available donor data
     if (donor.donorIdentifier.nonEmpty) {
-      conditions :+= (_.donorIdentifier == _.donorIdentifier)
+      conditions += ((existing, incoming) => existing.donorIdentifier == incoming.donorIdentifier)
     }
 
     if (donor.sex.isDefined) {
-      conditions :+= (_.sex == _.sex)
+      conditions += ((existing, incoming) => existing.sex == incoming.sex)
     }
 
     if (donor.geocoord.isDefined) {
-      conditions :+= (_.geocoord == _.geocoord)
+      conditions += ((existing, incoming) => existing.geocoord == incoming.geocoord)
     }
 
     if (donor.pgpParticipantId.isDefined) {
-      conditions :+= (_.pgpParticipantId == _.pgpParticipantId)
+      conditions += ((existing, incoming) => existing.pgpParticipantId == incoming.pgpParticipantId)
     }
 
-    if (donor.citizenBiosampleDid.isDefined) {
-      conditions :+= (_.citizenBiosampleDid == _.citizenBiosampleDid)
+    if (donor.atUri.isDefined) {
+      conditions += ((existing, incoming) => existing.atUri == incoming.atUri)
     }
 
     // Get all donors with same origin biobank and type

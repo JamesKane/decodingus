@@ -1,10 +1,11 @@
 package models.api
 
+import models.domain.genomics.HaplogroupResult
 import play.api.libs.json.{Format, Json}
 
 case class BiosampleOriginalHaplogroupUpdate(
-                                              originalYHaplogroup: Option[String],
-                                              originalMtHaplogroup: Option[String],
+                                              originalYHaplogroup: Option[HaplogroupResult],
+                                              originalMtHaplogroup: Option[HaplogroupResult],
                                               notes: Option[String]
                                             )
 
@@ -16,8 +17,8 @@ case class BiosampleOriginalHaplogroupView(
                                             id: Option[Int],
                                             biosampleId: Int,
                                             publicationId: Int,
-                                            originalYHaplogroup: Option[String],
-                                            originalMtHaplogroup: Option[String],
+                                            originalYHaplogroup: Option[HaplogroupResult],
+                                            originalMtHaplogroup: Option[HaplogroupResult],
                                             notes: Option[String]
                                           )
 

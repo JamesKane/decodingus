@@ -42,7 +42,7 @@ class PgpBiosampleService @Inject()(
         sex = sex,
         geocoord = geocoord,
         pgpParticipantId = Some(participantId),
-        citizenBiosampleDid = None,
+        atUri = None,
         dateRangeStart = None,
         dateRangeEnd = None
       )

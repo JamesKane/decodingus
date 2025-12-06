@@ -1,0 +1,25 @@
+sequenceDiagram
+    participant AS as App Server (Play View)
+    participant PS1 as Participant PDS 1
+    participant PS2 as Participant PDS 2
+    participant DBR as Internal DID Registry
+    participant IMB as Internal Message Bus (Kafka/Akka)
+
+    title Custom BGS/Firehose Sync Flow
+
+    AS->>DBR: 1. Get List of Active DIDs and Sync Cursors
+
+    loop Sync all DIDs in Registry
+        AS->>PS1: 2a. Sync Request: com.atproto.sync.getLatestCommit(did:...)
+        PS1-->>AS: 3a. Commit Response (Root CID)
+
+        AS->>PS1: 4a. Fetch Blocks: com.atproto.sync.getRepo(did:..., since: Cursor)
+        PS1-->>AS: 5a. Response: CAR file containing new records/diff
+
+        AS->>AS: 6. Verify, Decode, Filter for "app.citizen.report"
+
+        AS->>IMB: 7. Publish Event: Decoded Citizen Report
+        AS->>DBR: 8. Update Cursor (New last synced sequence number)
+    end
+
+    AS->>AS: 9. App View Consumes IMB Topic (The Custom Firehose)

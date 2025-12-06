@@ -25,7 +25,7 @@ case class SpecimenDonor(
                           sex: Option[BiologicalSex],
                           geocoord: Option[Point],
                           pgpParticipantId: Option[String] = None,
-                          citizenBiosampleDid: Option[String] = None,
+                          atUri: Option[String] = None,
                           dateRangeStart: Option[Int] = None,
                           dateRangeEnd: Option[Int] = None
                         )

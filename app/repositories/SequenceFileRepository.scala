@@ -48,6 +48,14 @@ trait SequenceFileRepository {
    * @return a future containing a sequence of files
    */
   def findByLibraryId(libraryId: Int): Future[Seq[SequenceFile]]
+
+  /**
+   * Deletes all sequence files associated with a library.
+   *
+   * @param libraryId the ID of the sequence library
+   * @return a future containing the number of deleted files
+   */
+  def deleteByLibraryId(libraryId: Int): Future[Int]
 }
 
 @Singleton
@@ -104,6 +112,10 @@ class SequenceFileRepositoryImpl @Inject()(
 
   override def delete(id: Int): Future[Boolean] = {
     db.run(sequenceFiles.filter(_.id === id).delete.map(_ > 0))
+  }
+
+  override def deleteByLibraryId(libraryId: Int): Future[Int] = {
+    db.run(sequenceFiles.filter(_.libraryId === libraryId).delete)
   }
 
   override def findByLibraryId(libraryId: Int): Future[Seq[SequenceFile]] = {

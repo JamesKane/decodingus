@@ -2,6 +2,7 @@ package models.dal.domain.publications
 
 import models.dal.MyPostgresProfile.api.*
 import models.dal.domain.genomics.BiosamplesTable
+import models.domain.genomics.HaplogroupResult
 import models.domain.publications.BiosampleOriginalHaplogroup
 
 /**
@@ -33,9 +34,9 @@ class BiosampleOriginalHaplogroupTable(tag: Tag)
 
   def publicationId = column[Int]("publication_id")
 
-  def originalYHaplogroup = column[Option[String]]("original_y_haplogroup")
+  def originalYHaplogroup = column[Option[HaplogroupResult]]("y_haplogroup_result")
 
-  def originalMtHaplogroup = column[Option[String]]("original_mt_haplogroup")
+  def originalMtHaplogroup = column[Option[HaplogroupResult]]("mt_haplogroup_result")
 
   def notes = column[Option[String]]("notes")
 

@@ -38,6 +38,14 @@ trait PublicationBiosampleRepository {
    * @return A `Future` containing a sequence of `PublicationBiosample` objects associated with the given biosample ID.
    */
   def findByBiosampleId(biosampleId: Int): Future[Seq[PublicationBiosample]]
+
+  /**
+   * Deletes all `PublicationBiosample` entries associated with the specified biosample ID.
+   *
+   * @param biosampleId The unique identifier of the biosample for which associated entries are to be deleted.
+   * @return A `Future` containing the number of deleted rows.
+   */
+  def deleteByBiosampleId(biosampleId: Int): Future[Int]
 }
 
 class PublicationBiosampleRepositoryImpl @Inject()(protected val dbConfigProvider: DatabaseConfigProvider)(implicit ec: ExecutionContext)
@@ -77,5 +85,9 @@ class PublicationBiosampleRepositoryImpl @Inject()(protected val dbConfigProvide
 
   override def findByBiosampleId(biosampleId: Int): Future[Seq[PublicationBiosample]] = {
     db.run(publicationBiosamples.filter(_.biosampleId === biosampleId).result)
+  }
+
+  override def deleteByBiosampleId(biosampleId: Int): Future[Int] = {
+    db.run(publicationBiosamples.filter(_.biosampleId === biosampleId).delete)
   }
 }
