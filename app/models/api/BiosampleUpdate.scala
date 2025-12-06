@@ -1,6 +1,6 @@
 package models.api
 
-import models.domain.genomics.BiologicalSex
+import models.domain.genomics.{BiologicalSex, HaplogroupResult}
 import play.api.libs.json.{Json, Reads}
 
 /**
@@ -22,8 +22,8 @@ case class BiosampleUpdate(
                             locked: Option[Boolean] = None,
                             dateRangeStart: Option[Int] = None,
                             dateRangeEnd: Option[Int] = None,
-                            yHaplogroup: Option[String] = None,
-                            mtHaplogroup: Option[String] = None
+                            yHaplogroup: Option[HaplogroupResult] = None,
+                            mtHaplogroup: Option[HaplogroupResult] = None
                           ) {
   def hasUpdates: Boolean = {
     sex.isDefined || geoCoord.isDefined || alias.isDefined || locked.isDefined ||
