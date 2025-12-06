@@ -91,6 +91,10 @@ This record represents a single biological sample processed by a BGS node. It ma
         "type": "string",
         "description": "The Decentralized Identifier (DID) of the citizen/researcher who owns this biosample record."
       },
+      "atUri": {
+        "type": "string",
+        "description": "The AT URI (at://did/collection/rkey) of this biosample record, assigned by the PDS. This uniquely identifies the record within the AT Protocol network."
+      },
       "description": {
         "type": "string",
         "description": "Human-readable description of the sample."
