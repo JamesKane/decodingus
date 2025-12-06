@@ -25,6 +25,7 @@ trait CitizenBiosampleRepository {
   def update(biosample: CitizenBiosample, expectedAtCid: Option[String]): Future[Boolean]
   
   def softDelete(guid: UUID): Future[Boolean]
+  def softDeleteByAtUri(atUri: String): Future[Boolean]
 }
 
 @Singleton
@@ -89,6 +90,13 @@ class CitizenBiosampleRepositoryImpl @Inject()(
 
   override def softDelete(guid: UUID): Future[Boolean] = {
     val q = citizenBiosamples.filter(_.sampleGuid === guid)
+      .map(b => (b.deleted, b.updatedAt))
+      .update((true, LocalDateTime.now()))
+    db.run(q.map(_ > 0))
+  }
+
+  override def softDeleteByAtUri(atUri: String): Future[Boolean] = {
+    val q = citizenBiosamples.filter(_.atUri === atUri)
       .map(b => (b.deleted, b.updatedAt))
       .update((true, LocalDateTime.now()))
     db.run(q.map(_ > 0))

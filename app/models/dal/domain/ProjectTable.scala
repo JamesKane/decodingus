@@ -14,6 +14,7 @@ class ProjectTable(tag: Tag) extends Table[Project](tag, "project") {
   def createdAt = column[LocalDateTime]("created_at")
   def updatedAt = column[LocalDateTime]("updated_at")
   def deleted = column[Boolean]("deleted", O.Default(false))
+  def atUri = column[Option[String]]("at_uri")
   def atCid = column[Option[String]]("at_cid")
 
   def * = (
@@ -25,6 +26,7 @@ class ProjectTable(tag: Tag) extends Table[Project](tag, "project") {
     createdAt,
     updatedAt,
     deleted,
+    atUri,
     atCid
   ).mapTo[Project]
 }

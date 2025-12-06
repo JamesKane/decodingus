@@ -6,6 +6,7 @@ import java.util.UUID
 case class ProjectRequest(
                            name: String,
                            description: Option[String] = None,
+                           atUri: Option[String] = None,
                            atCid: Option[String] = None
                          )
 

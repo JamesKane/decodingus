@@ -12,5 +12,6 @@ case class Project(
                     createdAt: LocalDateTime,
                     updatedAt: LocalDateTime,
                     deleted: Boolean = false,
+                    atUri: Option[String] = None,
                     atCid: Option[String] = None
                   )

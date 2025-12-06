@@ -20,10 +20,10 @@ object CitizenBiosampleEndpoints {
       .tag("Citizen Biosamples")
   }
 
-  private val updateBiosample: PublicEndpoint[(UUID, ExternalBiosampleRequest), String, BiosampleOperationResponse, Any] = {
+  private val updateBiosample: PublicEndpoint[(String, ExternalBiosampleRequest), String, BiosampleOperationResponse, Any] = {
     endpoint
       .put
-      .in("api" / "external-biosamples" / path[UUID]("sampleGuid"))
+      .in("api" / "external-biosamples" / path[String]("atUri"))
       .in(jsonBody[ExternalBiosampleRequest])
       .out(jsonBody[BiosampleOperationResponse])
       .errorOut(stringBody)
@@ -32,10 +32,10 @@ object CitizenBiosampleEndpoints {
       .tag("Citizen Biosamples")
   }
 
-  private val deleteBiosample: PublicEndpoint[UUID, String, Unit, Any] = {
+  private val deleteBiosample: PublicEndpoint[String, String, Unit, Any] = {
     endpoint
       .delete
-      .in("api" / "external-biosamples" / path[UUID]("sampleGuid"))
+      .in("api" / "external-biosamples" / path[String]("atUri"))
       .out(statusCode(sttp.model.StatusCode.NoContent))
       .errorOut(stringBody)
       .description("Soft deletes a Citizen Biosample.")

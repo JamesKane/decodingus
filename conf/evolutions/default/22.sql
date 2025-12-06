@@ -36,8 +36,11 @@ CREATE TABLE project
     created_at       TIMESTAMP NOT NULL DEFAULT now(),
     updated_at       TIMESTAMP NOT NULL DEFAULT now(),
     deleted          BOOLEAN DEFAULT false NOT NULL,
+    at_uri           VARCHAR(255),
     at_cid           VARCHAR(255)
 );
+
+CREATE UNIQUE INDEX project_at_uri_uindex ON project (at_uri);
 
 # --- !Downs
 DROP TABLE project;

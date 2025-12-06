@@ -57,9 +57,9 @@ class CitizenBiosampleService @Inject()(
     }
   }
 
-  def updateBiosample(sampleGuid: UUID, request: ExternalBiosampleRequest): Future[UUID] = {
+  def updateBiosample(atUri: String, request: ExternalBiosampleRequest): Future[UUID] = {
     validateCoordinates(request.latitude, request.longitude).flatMap { geocoord =>
-      citizenBiosampleRepository.findByGuid(sampleGuid).flatMap {
+      citizenBiosampleRepository.findByAtUri(atUri).flatMap {
         case Some(existing) =>
            // Optimistic Locking Check
            if (request.atCid.isDefined && request.atCid != existing.atCid) {
@@ -87,7 +87,7 @@ class CitizenBiosampleService @Inject()(
              }
            }
         case None =>
-          Future.failed(new NoSuchElementException(s"Biosample not found for GUID: $sampleGuid"))
+          Future.failed(new NoSuchElementException(s"Biosample not found for atUri: $atUri"))
       }
     }
   }
@@ -159,7 +159,7 @@ class CitizenBiosampleService @Inject()(
     } yield ()
   }
 
-  def deleteBiosample(sampleGuid: UUID): Future[Boolean] = {
-    citizenBiosampleRepository.softDelete(sampleGuid)
+  def deleteBiosample(atUri: String): Future[Boolean] = {
+    citizenBiosampleRepository.softDeleteByAtUri(atUri)
   }
 }

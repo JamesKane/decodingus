@@ -25,8 +25,8 @@ class ProjectController @Inject()(
     }
   }
 
-  def update(projectGuid: UUID): Action[ProjectRequest] = secureApi.jsonAction[ProjectRequest].async { request =>
-    projectService.updateProject(projectGuid, request.body).map { response =>
+  def update(atUri: String): Action[ProjectRequest] = secureApi.jsonAction[ProjectRequest].async { request =>
+    projectService.updateProject(atUri, request.body).map { response =>
       Ok(Json.toJson(response))
     }.recover {
       case e: IllegalStateException => Conflict(Json.obj("error" -> e.getMessage))
@@ -35,8 +35,8 @@ class ProjectController @Inject()(
     }
   }
 
-  def delete(projectGuid: UUID): Action[AnyContent] = secureApi.async { request =>
-    projectService.deleteProject(projectGuid).map {
+  def delete(atUri: String): Action[AnyContent] = secureApi.async { request =>
+    projectService.deleteProject(atUri).map {
       case true => NoContent
       case false => NotFound(Json.obj("error" -> "Project not found"))
     }.recover {

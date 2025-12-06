@@ -24,14 +24,15 @@ class ProjectService @Inject()(
       createdAt = LocalDateTime.now(),
       updatedAt = LocalDateTime.now(),
       deleted = false,
+      atUri = request.atUri,
       atCid = Some(UUID.randomUUID().toString)
     )
 
     projectRepository.create(project).map(toResponse)
   }
 
-  def updateProject(projectGuid: UUID, request: ProjectRequest): Future[ProjectResponse] = {
-    projectRepository.findByProjectGuid(projectGuid).flatMap {
+  def updateProject(atUri: String, request: ProjectRequest): Future[ProjectResponse] = {
+    projectRepository.findByAtUri(atUri).flatMap {
       case Some(existing) =>
         if (request.atCid.isDefined && request.atCid != existing.atCid) {
           Future.failed(new IllegalStateException(s"Optimistic locking failure: atCid mismatch."))
@@ -39,6 +40,7 @@ class ProjectService @Inject()(
           val updatedProject = existing.copy(
             name = request.name,
             description = request.description,
+            atUri = request.atUri,
             updatedAt = LocalDateTime.now(),
             atCid = Some(UUID.randomUUID().toString)
           )
@@ -51,12 +53,12 @@ class ProjectService @Inject()(
           }
         }
       case None =>
-        Future.failed(new NoSuchElementException(s"Project not found for GUID: $projectGuid"))
+        Future.failed(new NoSuchElementException(s"Project not found for atUri: $atUri"))
     }
   }
 
-  def deleteProject(projectGuid: UUID): Future[Boolean] = {
-    projectRepository.softDelete(projectGuid)
+  def deleteProject(atUri: String): Future[Boolean] = {
+    projectRepository.softDeleteByAtUri(atUri)
   }
 
   private def toResponse(p: Project): ProjectResponse = {

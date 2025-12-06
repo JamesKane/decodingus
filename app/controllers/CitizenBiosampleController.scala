@@ -41,8 +41,8 @@ class CitizenBiosampleController @Inject()(
     }
   }
 
-  def update(sampleGuid: UUID): Action[ExternalBiosampleRequest] = secureApi.jsonAction[ExternalBiosampleRequest].async { request =>
-    citizenBiosampleService.updateBiosample(sampleGuid, request.body).map { guid =>
+  def update(atUri: String): Action[ExternalBiosampleRequest] = secureApi.jsonAction[ExternalBiosampleRequest].async { request =>
+    citizenBiosampleService.updateBiosample(atUri, request.body).map { guid =>
       Ok(Json.obj(
         "status" -> "success",
         "guid" -> guid
@@ -59,10 +59,10 @@ class CitizenBiosampleController @Inject()(
     }
   }
 
-  def delete(sampleGuid: UUID): Action[AnyContent] = secureApi.async { request =>
-    citizenBiosampleService.deleteBiosample(sampleGuid).map {
+  def delete(atUri: String): Action[AnyContent] = secureApi.async { request =>
+    citizenBiosampleService.deleteBiosample(atUri).map {
       case true => NoContent
-      case false => NotFound(Json.obj("error" -> "Biosample not found", "message" -> s"Biosample with GUID '$sampleGuid' not found."))
+      case false => NotFound(Json.obj("error" -> "Biosample not found", "message" -> s"Biosample with atUri '$atUri' not found."))
     }.recover {
       case e: Exception =>
         InternalServerError(Json.obj(

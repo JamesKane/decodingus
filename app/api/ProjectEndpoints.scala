@@ -20,10 +20,10 @@ object ProjectEndpoints {
       .tag("Projects")
   }
 
-  private val updateProject: PublicEndpoint[(UUID, ProjectRequest), String, ProjectResponse, Any] = {
+  private val updateProject: PublicEndpoint[(String, ProjectRequest), String, ProjectResponse, Any] = {
     endpoint
       .put
-      .in("api" / "projects" / path[UUID]("projectGuid"))
+      .in("api" / "projects" / path[String]("atUri"))
       .in(jsonBody[ProjectRequest])
       .out(jsonBody[ProjectResponse])
       .errorOut(stringBody)
@@ -32,10 +32,10 @@ object ProjectEndpoints {
       .tag("Projects")
   }
 
-  private val deleteProject: PublicEndpoint[UUID, String, Unit, Any] = {
+  private val deleteProject: PublicEndpoint[String, String, Unit, Any] = {
     endpoint
       .delete
-      .in("api" / "projects" / path[UUID]("projectGuid"))
+      .in("api" / "projects" / path[String]("atUri"))
       .out(statusCode(sttp.model.StatusCode.NoContent))
       .errorOut(stringBody)
       .description("Soft deletes a Project.")
