@@ -67,6 +67,7 @@ object DatabaseSchema {
       val assemblyMetadata = TableQuery[AssemblyMetadataTable]
       val biosampleHaplogroups = TableQuery[BiosampleHaplogroupsTable]
       val biosamples = TableQuery[BiosamplesTable]
+      val citizenBiosamples = TableQuery[CitizenBiosamplesTable]
       val genbankContigs = TableQuery[GenbankContigsTable]
       val geneAnnotations = TableQuery[GeneAnnotationsTable]
       val populations = TableQuery[PopulationsTable]
@@ -105,13 +106,19 @@ object DatabaseSchema {
       val genomicStudies = TableQuery[GenomicStudiesTable]
       val publications = TableQuery[PublicationsTable]
       val publicationBiosamples = TableQuery[PublicationBiosamplesTable]
+      val publicationCitizenBiosamples = TableQuery[PublicationCitizenBiosamplesTable]
       val publicationGenomicStudies = TableQuery[PublicationEnaStudiesTable]
       val biosampleOriginalHaplogroups = TableQuery[BiosampleOriginalHaplogroupTable]
+      val citizenBiosampleOriginalHaplogroups = TableQuery[CitizenBiosampleOriginalHaplogroupTable]
     }
 
     object ibd {
       val ibdDiscoveryIndices = TableQuery[IbdDiscoveryIndicesTable]
       val ibdPdsAttestationsTable = TableQuery[IbdPdsAttestationsTable]
+    }
+
+    object project {
+      val projects = TableQuery[ProjectTable]
     }
   }
 

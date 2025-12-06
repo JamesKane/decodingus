@@ -88,6 +88,16 @@ POST          /api/private/sequencing-labs                                      
 PATCH         /api/private/sequencing-labs/:id                                                   controllers.SequencingLabAdminController.update(id: Int)
 DELETE        /api/private/sequencing-labs/:id                                                   controllers.SequencingLabAdminController.delete(id: Int)
 
+# Citizen Biosample API endpoints (Firehose)
+POST          /api/external-biosamples                                                           controllers.CitizenBiosampleController.create
+PUT           /api/external-biosamples/:sampleGuid                                               controllers.CitizenBiosampleController.update(sampleGuid: java.util.UUID)
+DELETE        /api/external-biosamples/:sampleGuid                                               controllers.CitizenBiosampleController.delete(sampleGuid: java.util.UUID)
+
+# Project API endpoints
+POST          /api/projects                                                                      controllers.ProjectController.create
+PUT           /api/projects/:projectGuid                                                         controllers.ProjectController.update(projectGuid: java.util.UUID)
+DELETE        /api/projects/:projectGuid                                                         controllers.ProjectController.delete(projectGuid: java.util.UUID)
+
 # --- API Routes (Handled by Tapir, including Swagger UI) ---
 POST          /api/registerPDS                                       controllers.PDSRegistrationController.registerPDS()
 

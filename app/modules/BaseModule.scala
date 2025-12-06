@@ -73,5 +73,21 @@ class BaseModule extends AbstractModule {
     bind(classOf[SequencingLabRepository])
       .to(classOf[SequencingLabRepositoryImpl])
       .asEagerSingleton()
+
+    bind(classOf[CitizenBiosampleRepository])
+      .to(classOf[CitizenBiosampleRepositoryImpl])
+      .asEagerSingleton()
+
+    bind(classOf[ProjectRepository])
+      .to(classOf[ProjectRepositoryImpl])
+      .asEagerSingleton()
+
+    bind(classOf[PublicationCitizenBiosampleRepository])
+      .to(classOf[PublicationCitizenBiosampleRepositoryImpl])
+      .asEagerSingleton()
+
+    bind(classOf[CitizenBiosampleOriginalHaplogroupRepository])
+      .to(classOf[CitizenBiosampleOriginalHaplogroupRepositoryImpl])
+      .asEagerSingleton()
   }
 }

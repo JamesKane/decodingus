@@ -35,7 +35,8 @@ case class ExternalBiosampleRequest(
                                      donorIdentifier: Option[String],
                                      donorType: Option[BiosampleType],
                                      publication: Option[PublicationInfo],
-                                     sequenceData: SequenceDataInfo
+                                     sequenceData: SequenceDataInfo,
+                                     atCid: Option[String] = None
                                    )
 
 object ExternalBiosampleRequest {
