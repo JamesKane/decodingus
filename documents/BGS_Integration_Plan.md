@@ -1,132 +1,278 @@
-### Architecture Overview
+# BGS / Firehose Integration Plan
 
-For the MVP, we will utilize a **Secure REST API** pattern. The BGS server will act as an authenticated API client, pushing operational data directly to the `decodingus` backend.
+## Phase 1 Status: ✅ COMPLETE
 
-*   **Integration Point:** `POST /api/private/external/biosamples`
-*   **Controller:** `app/controllers/ExternalBiosampleController.scala`
+Phase 1 (Direct REST API / MVP) implementation is complete and ready for integration testing.
+
+---
+
+## Architecture Overview
+
+For the MVP, we utilize a **Secure REST API** pattern. The BGS server (or Edge App) acts as an authenticated API client, pushing operational data directly to the `decodingus` backend.
+
+### Citizen Biosample API
+
+*   **Integration Point:** `POST /api/external-biosamples`
+*   **Controller:** `app/controllers/CitizenBiosampleController.scala`
+*   **Service:** `app/services/CitizenBiosampleService.scala`
 *   **Data Model:** `app/models/api/ExternalBiosampleRequest.scala`
-*   **Security:** API Key authentication via `X-API-Key` header.
+*   **Security:** API Key authentication via `X-API-Key` header (`ApiSecurityAction`)
 
-### 2. Atmosphere / Citizen Sample Linking
+### Full CRUD Operations
 
-For **Atmosphere** (Citizen) biosamples, the system must correctly place the sample within a hierarchy:
-1.  **Researcher/User (PDS Owner):** Identified by `citizenDid`. A single researcher may manage multiple donors.
-2.  **Specimen Donor:** Identified by a unique `donorIdentifier` within the Researcher's context. A single donor may have multiple biosamples (e.g., different tissues, or different sequencing technologies like Short-read vs. HiFi).
-3.  **Biosample/Sequencing Data:** The actual data being uploaded.
+| Operation | Endpoint | Description |
+|-----------|----------|-------------|
+| **Create** | `POST /api/external-biosamples` | Create new citizen biosample with donor resolution |
+| **Update** | `PUT /api/external-biosamples/{atUri}` | Update existing biosample (optimistic locking via `atCid`) |
+| **Delete** | `DELETE /api/external-biosamples/{atUri}` | Soft delete biosample |
 
-*   **Linkage Keys:**
-    *   `citizenDid`: Identifies the Researcher/PDS.
-    *   `donorIdentifier`: Identifies the specific biological source (person) *within* that Researcher's collection.
+### Project API
 
-*   **SpecimenDonor Resolution Logic:**
-    The system attempts to find a `SpecimenDonor` matching **BOTH** the `citizenDid` and the `donorIdentifier`.
-    *   **If Found:** The new Biosample is linked to this *existing* Specimen Donor.
-        *   *Benefit:* This aggregates multiple datasets (e.g., WGS + HiFi) under the same physical donor.
-    *   **If Not Found:** A new `SpecimenDonor` record is created.
-        *   `citizenBiosampleDid` = `citizenDid`
-        *   `donorIdentifier` = `donorIdentifier`
-        *   `donorType` = "Citizen"
+| Operation | Endpoint | Description |
+|-----------|----------|-------------|
+| **Create** | `POST /api/projects` | Create new research project |
+| **Update** | `PUT /api/projects/{atUri}` | Update project (optimistic locking) |
+| **Delete** | `DELETE /api/projects/{atUri}` | Soft delete project |
 
-**Revised Sequence Diagram:**
+---
+
+## Data Model: Atmosphere / Citizen Sample Hierarchy
+
+The Edge App manages a workspace with the following hierarchy:
+
+```
+PDS Owner (Researcher running Edge App)
+  └── Workspace
+        ├── SpecimenDonor "Grandfather" (donorIdentifier: "Subject-001")
+        │     └── CitizenBiosample (multiple sequenceData entries: WGS + HiFi)
+        │
+        ├── SpecimenDonor "Father" (donorIdentifier: "Subject-002")
+        │     └── CitizenBiosample (WGS only)
+        │
+        └── SpecimenDonor "Self" (donorIdentifier: "Subject-003")
+              └── CitizenBiosample (Exome + WGS from different labs)
+```
+
+### Key Concepts
+
+1.  **PDS Owner (citizenDid):** The researcher/genealogist running the Edge App. Extracted from `atUri` or provided explicitly.
+2.  **Specimen Donor:** A physical person (family member, project participant). Identified by `donorIdentifier` within the PDS owner's context.
+3.  **Citizen Biosample:** A single biosample record containing multiple `sequenceData` entries (different sequencing runs, labs, technologies).
+
+### Linkage Keys
+
+*   `atUri`: The canonical AT Protocol identifier (`at://did:plc:xxx/collection/rkey`) - uniquely identifies the biosample record
+*   `citizenDid`: Extracted from `atUri` or provided explicitly - identifies the PDS owner
+*   `donorIdentifier`: Identifies the specific biological source (person) within that PDS owner's collection
+
+### SpecimenDonor Resolution Logic
+
+Implemented in `CitizenBiosampleService.resolveOrCreateDonor()`:
+
+1. Extract `citizenDid` from `atUri` (format: `at://did:plc:xxx/...`)
+2. Look up `SpecimenDonor` by `(citizenDid, donorIdentifier)` pair
+3. If found: Link biosample to existing donor (aggregates multiple datasets)
+4. If not found: Create new `SpecimenDonor` with `donorType = Citizen`
 
 ```mermaid
 sequenceDiagram
-    participant BGS as BGS Server
-    participant API as ExternalBiosampleController
-    participant Service as ExternalBiosampleService
-    participant Repo as SpecimenDonorRepository
+    participant BGS as Edge App / BGS
+    participant API as CitizenBiosampleController
+    participant Service as CitizenBiosampleService
+    participant DonorRepo as SpecimenDonorRepository
+    participant BioRepo as CitizenBiosampleRepository
     participant DB as Database
 
-    BGS->>API: POST /biosamples
-    Note right of BGS: citizenDid="did:123"<br/>donorIdentifier="Subject-A"
-    
-    API->>Service: createBiosample(req)
-    
-    alt citizenDid is present
-        Service->>Repo: findByDidAndIdentifier("did:123", "Subject-A")
-        Repo->>DB: SELECT * FROM specimen_donors <br/>WHERE citizen_biosample_did = 'did:123' <br/>AND donor_identifier = 'Subject-A'
-        
-        alt Donor Exists (e.g., adding HiFi to existing Subject-A)
-            DB-->>Service: Returns Donor(id=55)
-        else Donor Missing (New Subject)
-            Service->>Repo: create(SpecimenDonor{did="did:123", id="Subject-A"})
-            Repo-->>Service: Returns New Donor(id=99)
-        end
+    BGS->>API: POST /api/external-biosamples
+    Note right of BGS: atUri="at://did:plc:abc/collection/rkey"<br/>donorIdentifier="Subject-001"
+
+    API->>Service: createBiosample(request)
+    Service->>Service: extractDidFromAtUri(atUri)
+
+    Service->>DonorRepo: findByDidAndIdentifier("did:plc:abc", "Subject-001")
+    DonorRepo->>DB: SELECT * FROM specimen_donor<br/>WHERE at_uri = 'did:plc:abc'<br/>AND donor_identifier = 'Subject-001'
+
+    alt Donor Exists
+        DB-->>Service: Returns Donor(id=55)
+    else Donor Not Found
+        Service->>DonorRepo: create(SpecimenDonor{atUri, donorIdentifier, donorType=Citizen})
+        DonorRepo-->>Service: Returns New Donor(id=99)
     end
 
-    Service->>Repo: createBiosample(donorId=55 or 99)
-    Service-->>API: Returns UUID
-    API-->>BGS: 201 Created
+    Service->>BioRepo: create(CitizenBiosample{specimenDonorId=55|99, ...})
+    BioRepo-->>Service: Returns created biosample
+
+    Service-->>API: Returns sampleGuid
+    API-->>BGS: 201 Created {guid: "..."}
 ```
 
-### 1. Data Payload Specification
+---
 
-**JSON Structure:**
+## Data Payload Specification
+
+### ExternalBiosampleRequest
+
 ```json
 {
   "sampleAccession": "BGS-UUID-12345",
   "sourceSystem": "BGS_MVP",
-  "description": "Processed by BGS Node 1",
-  "centerName": "DecodingUs Ops",
+  "description": "Processed by Edge Node",
+  "centerName": "Home Lab",
   "sex": "Male",
-  "citizenDid": "did:plc:u76f5w...", 
+  "atUri": "at://did:plc:abc123/com.decodingus.atmosphere.biosample/rkey456",
   "donorIdentifier": "Subject-001",
   "donorType": "Citizen",
-  "sequenceData": { 
-      // ... (same as before)
+  "latitude": 40.7128,
+  "longitude": -74.0060,
+  "haplogroups": {
+    "yDna": {
+      "haplogroupName": "R-M269",
+      "score": 0.998,
+      "matchingSnps": 145,
+      "mismatchingSnps": 2
+    },
+    "mtDna": {
+      "haplogroupName": "H1a",
+      "score": 0.995
+    }
+  },
+  "sequenceData": {
+    "reads": 850000000,
+    "readLength": 150,
+    "coverage": 32.5,
+    "platformName": "ILLUMINA",
+    "testType": "WGS",
+    "files": [
+      {
+        "fileName": "sample.cram",
+        "fileSizeBytes": 22000000000,
+        "fileFormat": "CRAM",
+        "aligner": "BWA-MEM",
+        "targetReference": "GRCh38",
+        "checksums": [{"checksum": "abc123...", "algorithm": "SHA-256"}],
+        "location": {"fileUrl": "s3://bucket/sample.cram", "fileIndexUrl": "s3://bucket/sample.cram.crai"}
+      }
+    ]
+  },
+  "publication": {
+    "doi": "10.1234/example",
+    "originalHaplogroups": {
+      "yHaplogroup": {"haplogroupName": "R1b"},
+      "mtHaplogroup": {"haplogroupName": "H"}
+    }
   }
 }
 ```
 
-### 4. Rust Implementation (BGS Side)
+### Key Fields
 
-**Suggested Rust Structs:**
+| Field | Required | Description |
+|-------|----------|-------------|
+| `sampleAccession` | Yes | Unique identifier from the Edge App |
+| `atUri` | Yes* | AT Protocol URI - canonical identifier |
+| `donorIdentifier` | Yes* | Identifies the physical person within PDS owner's collection |
+| `sequenceData` | Yes | Sequencing run details and files |
+| `haplogroups` | No | Y-DNA and mtDNA assignments with full scoring |
+| `atCid` | No | For updates: optimistic locking version |
 
-```rust
-use serde::Serialize;
+*Required for proper donor resolution
 
-#[derive(Serialize)]
-struct ExternalBiosampleRequest {
-    sampleAccession: String,
-    sourceSystem: String, 
-    description: String,
-    centerName: String,
-    citizenDid: Option<String>, 
-    donorIdentifier: Option<String>, // New: Identifies specific donor
-    donorType: Option<String>, 
-    sequenceData: SequenceDataInfo,
-    // ...
+---
+
+## PDS Registration
+
+Before syncing data, PDS instances must be registered:
+
+**Endpoint:** `POST /api/registerPDS`
+
+```json
+{
+  "did": "did:plc:abc123",
+  "handle": "researcher.bsky.social",
+  "pdsUrl": "https://pds.example.com",
+  "rToken": "auth-token-from-edge-app"
 }
 ```
 
-    // Handle 201 Created or errors
-    Ok(())
-}
-```
+The registration process:
+1. Verifies PDS is reachable via `com.atproto.sync.getLatestCommit`
+2. Stores DID, PDS URL, and initial sync cursor
+3. Enables the Rust sync cluster to poll for updates
 
-### 5. Integration Roadmap
+### PDS Lease Management
 
-The integration strategy evolves through three distinct phases, moving from a simple direct connection to a robust, decentralized architecture.
+For parallel sync processing, the `pds_registrations` table includes:
+- `leased_by_instance_id`: Which sync worker owns this PDS
+- `lease_expires_at`: Lease expiration for failover
+- `processing_status`: idle | processing | error
 
-#### Phase 1: Direct REST API (Current / MVP)
-*   **Mechanism:** Synchronous HTTP POST.
-*   **Flow:** `BGS Server` -> `DecodingUs Controller` -> `Service` -> `DB`.
-*   **Pros:** Simplest to implement; immediate feedback on success/failure.
-*   **Cons:** Tightly coupled; requires BGS to handle retries if DecodingUs is down.
+---
 
-#### Phase 2: Asynchronous Ingestion (Kafka)
-*   **Mechanism:** Message Queue.
-*   **Flow:** `BGS Server` -> `Kafka Topic` -> `DecodingUs Consumer` -> `Service` -> `DB`.
-*   **Change:** BGS replaces the HTTP Client with a Kafka Producer. DecodingUs adds a Kafka Consumer service.
-*   **Pros:** Decoupled; handles bursts of traffic; high resilience.
+## Database Schema
 
-#### Phase 3: Decentralized AppView (Atmosphere)
-*   **Mechanism:** AT Protocol Firehose.
-*   **Flow:** `BGS Server` -> `Researcher PDS` -> `AT Proto Relay` -> `DecodingUs Firehose Consumer` -> `Service` -> `DB`.
-*   **Change:** BGS writes directly to the user's PDS using the `com.decodingus.atmosphere.biosample` Lexicon. DecodingUs becomes a passive indexer.
-*   **Pros:** True user data ownership; interoperability with other AT Protocol apps.
+### Tables
 
-### Next Steps
-1.  **Provision Key:** Ensure a valid API key is set in your AWS Secrets Manager (for prod) or `application.conf` (if configured for dev overrides).
-2.  **Deploy BGS:** Configure the BGS MVP node with the `decodingus` URL and the API Key.
-3.  **Verify:** Send a test payload from the BGS node and verify the data appears in the `biosamples` and `sequence_libraries` tables.
+| Table | Purpose |
+|-------|---------|
+| `citizen_biosample` | Citizen/Atmosphere biosample records |
+| `specimen_donor` | Physical persons (donors) - linked via `specimen_donor_id` FK |
+| `project` | Research projects grouping biosamples |
+| `pds_registrations` | Registered PDS instances for sync |
+| `publication_citizen_biosample` | Links biosamples to publications |
+| `citizen_biosample_original_haplogroup` | Publication-reported haplogroups |
+
+### Key Columns on `citizen_biosample`
+
+| Column | Type | Purpose |
+|--------|------|---------|
+| `at_uri` | VARCHAR | AT Protocol canonical identifier |
+| `at_cid` | VARCHAR | Version for optimistic locking |
+| `specimen_donor_id` | INT FK | Link to physical donor |
+| `deleted` | BOOLEAN | Soft delete flag |
+| `y_haplogroup` | JSONB | Full HaplogroupResult with scoring |
+| `mt_haplogroup` | JSONB | Full HaplogroupResult with scoring |
+
+---
+
+## Integration Roadmap
+
+### Phase 1: Direct REST API ✅ COMPLETE
+
+*   **Mechanism:** Synchronous HTTP POST
+*   **Flow:** `Edge App` → `CitizenBiosampleController` → `CitizenBiosampleService` → `DB`
+*   **Status:** Fully implemented and tested
+
+### Phase 2: Asynchronous Ingestion (Kafka)
+
+*   **Mechanism:** Message Queue
+*   **Flow:** `Edge App` → `Kafka Topic` → `DecodingUs Consumer` → `Service` → `DB`
+*   **Change:** Edge App uses Kafka Producer; DecodingUs adds Kafka Consumer service
+*   **Benefits:** Decoupled; handles traffic bursts; high resilience
+
+### Phase 3: Decentralized AppView (Atmosphere)
+
+*   **Mechanism:** AT Protocol Firehose
+*   **Flow:** `Edge App` → `User's PDS` → `AT Proto Relay` → `DecodingUs Firehose Consumer` → `DB`
+*   **Change:** Edge App writes directly to PDS using `com.decodingus.atmosphere.biosample` Lexicon; DecodingUs becomes passive indexer
+*   **Benefits:** True user data ownership; interoperability with AT Protocol ecosystem
+
+---
+
+## Deployment Checklist
+
+### For Phase 1 MVP
+
+1. **API Key:** Configure in AWS Secrets Manager (prod) or `application.conf` (dev)
+2. **Database:** Run evolution 25.sql for `specimen_donor_id` FK on `citizen_biosample`
+3. **Edge App Config:** Set DecodingUs API URL and API key
+4. **Test:** POST sample payload to `/api/external-biosamples`
+5. **Verify:** Check `citizen_biosample`, `specimen_donor`, and `sequence_library` tables
+
+### Swagger UI
+
+API documentation available at: `/api/docs`
+
+Documented endpoints:
+- Citizen Biosamples (Create, Update, Delete)
+- Projects (Create, Update, Delete)
+- References, Haplogroups, Coverage, Sequencer APIs
