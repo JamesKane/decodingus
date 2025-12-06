@@ -77,19 +77,23 @@ This record represents a single biological sample processed by a BGS node. It ma
       "key": "tid",
       "record": {
         "type": "object",
-        "required": ["sampleAccession", "donorIdentifier", "centerName", "sequenceData"],
-        "properties": {
-          "sampleAccession": {
-            "type": "string",
-            "description": "Unique identifier for the sample (e.g., UUID from BGS)."
-          },
-          "donorIdentifier": {
-            "type": "string",
-            "description": "Identifier for the specimen donor within the user's context."
-          },
-          "description": {
-            "type": "string",
-            "description": "Human-readable description of the sample."
+    "required": ["sampleAccession", "donorIdentifier", "centerName", "sequenceData", "citizenDid"],
+    "properties": {
+      "sampleAccession": {
+        "type": "string",
+        "description": "Native identifier provided by the client for the biosample."
+      },
+      "donorIdentifier": {
+        "type": "string",
+        "description": "Identifier for the specimen donor within the user's context."
+      },
+      "citizenDid": {
+        "type": "string",
+        "description": "The Decentralized Identifier (DID) of the citizen/researcher who owns this biosample record."
+      },
+      "description": {
+        "type": "string",
+        "description": "Human-readable description of the sample."
           },
           "centerName": {
             "type": "string",
