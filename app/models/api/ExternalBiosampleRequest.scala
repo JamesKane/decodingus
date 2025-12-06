@@ -36,6 +36,7 @@ case class ExternalBiosampleRequest(
                                      donorIdentifier: Option[String],
                                      donorType: Option[BiosampleType],
                                      publication: Option[PublicationInfo],
+                                     haplogroups: Option[HaplogroupAssignments],
                                      sequenceData: SequenceDataInfo,
                                      atCid: Option[String] = None
                                    )

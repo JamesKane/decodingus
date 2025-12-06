@@ -68,6 +68,8 @@ class CitizenBiosampleRepositoryImpl @Inject()(
        b.sex, 
        b.geocoord, 
        b.description,
+       b.yHaplogroup,
+       b.mtHaplogroup,
        b.atCid,
        b.updatedAt,
        b.deleted
@@ -80,6 +82,8 @@ class CitizenBiosampleRepositoryImpl @Inject()(
        biosample.sex,
        biosample.geocoord,
        biosample.description,
+       biosample.yHaplogroup,
+       biosample.mtHaplogroup,
        biosample.atCid,
        LocalDateTime.now(),
        biosample.deleted

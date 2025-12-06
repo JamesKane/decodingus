@@ -42,6 +42,8 @@ class CitizenBiosampleService @Inject()(
              sex = request.sex,
              geocoord = geocoord,
              description = Some(request.description),
+             yHaplogroup = request.haplogroups.flatMap(_.yDna),
+             mtHaplogroup = request.haplogroups.flatMap(_.mtDna),
              sampleGuid = sampleGuid,
              deleted = false,
              atCid = newAtCid,
@@ -74,6 +76,8 @@ class CitizenBiosampleService @Inject()(
                geocoord = geocoord,
                atUri = request.atUri,
                accession = Some(request.sampleAccession),
+               yHaplogroup = request.haplogroups.flatMap(_.yDna).orElse(existing.yHaplogroup),
+               mtHaplogroup = request.haplogroups.flatMap(_.mtDna).orElse(existing.mtHaplogroup),
                atCid = newAtCid,
                updatedAt = LocalDateTime.now()
              )

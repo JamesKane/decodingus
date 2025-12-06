@@ -1,7 +1,7 @@
 package models.dal.domain.genomics
 
 import models.dal.MyPostgresProfile.api.*
-import models.domain.genomics.{BiologicalSex, CitizenBiosample}
+import models.domain.genomics.{BiologicalSex, CitizenBiosample, HaplogroupResult}
 import com.vividsolutions.jts.geom.Point
 import java.time.{LocalDate, LocalDateTime}
 import java.util.UUID
@@ -16,6 +16,8 @@ class CitizenBiosamplesTable(tag: Tag) extends Table[CitizenBiosample](tag, "cit
   def sex = column[Option[BiologicalSex]]("sex")
   def geocoord = column[Option[Point]]("geocoord")
   def description = column[Option[String]]("description")
+  def yHaplogroup = column[Option[HaplogroupResult]]("y_haplogroup")
+  def mtHaplogroup = column[Option[HaplogroupResult]]("mt_haplogroup")
   def sampleGuid = column[UUID]("sample_guid")
   
   def deleted = column[Boolean]("deleted", O.Default(false))
@@ -33,6 +35,8 @@ class CitizenBiosamplesTable(tag: Tag) extends Table[CitizenBiosample](tag, "cit
     sex,
     geocoord,
     description,
+    yHaplogroup,
+    mtHaplogroup,
     sampleGuid,
     deleted,
     atCid,

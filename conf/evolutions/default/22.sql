@@ -6,6 +6,8 @@ ALTER TABLE citizen_biosample ADD COLUMN created_at TIMESTAMP DEFAULT now() NOT 
 ALTER TABLE citizen_biosample ADD COLUMN updated_at TIMESTAMP DEFAULT now() NOT NULL;
 ALTER TABLE citizen_biosample ADD COLUMN accession VARCHAR(255);
 ALTER TABLE citizen_biosample ADD COLUMN alias VARCHAR(255);
+ALTER TABLE citizen_biosample ADD COLUMN y_haplogroup JSONB;
+ALTER TABLE citizen_biosample ADD COLUMN mt_haplogroup JSONB;
 CREATE UNIQUE INDEX citizen_biosample_accession_uindex ON citizen_biosample (accession);
 
 CREATE TABLE publication_citizen_biosample
@@ -47,6 +49,8 @@ DROP TABLE project;
 DROP TABLE citizen_biosample_original_haplogroup;
 DROP TABLE publication_citizen_biosample;
 DROP INDEX citizen_biosample_accession_uindex;
+ALTER TABLE citizen_biosample DROP COLUMN mt_haplogroup;
+ALTER TABLE citizen_biosample DROP COLUMN y_haplogroup;
 ALTER TABLE citizen_biosample DROP COLUMN alias;
 ALTER TABLE citizen_biosample DROP COLUMN accession;
 ALTER TABLE citizen_biosample DROP COLUMN updated_at;

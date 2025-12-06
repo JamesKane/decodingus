@@ -18,6 +18,8 @@ case class CitizenBiosample(
                              sex: Option[BiologicalSex],
                              geocoord: Option[Point],
                              description: Option[String],
+                             yHaplogroup: Option[HaplogroupResult] = None,
+                             mtHaplogroup: Option[HaplogroupResult] = None,
                              sampleGuid: UUID,
                              deleted: Boolean = false,
                              atCid: Option[String] = None,
