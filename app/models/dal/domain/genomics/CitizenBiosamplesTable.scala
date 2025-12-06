@@ -24,6 +24,9 @@ class CitizenBiosamplesTable(tag: Tag) extends Table[CitizenBiosample](tag, "cit
   def atCid = column[Option[String]]("at_cid")
   def createdAt = column[LocalDateTime]("created_at")
   def updatedAt = column[LocalDateTime]("updated_at")
+  def specimenDonorId = column[Option[Int]]("specimen_donor_id")
+
+  def specimenDonorFk = foreignKey("citizen_biosample_specimen_donor_fk", specimenDonorId, TableQuery[SpecimenDonorsTable])(_.id.?)
 
   def * = (
     id.?,
@@ -41,6 +44,7 @@ class CitizenBiosamplesTable(tag: Tag) extends Table[CitizenBiosample](tag, "cit
     deleted,
     atCid,
     createdAt,
-    updatedAt
+    updatedAt,
+    specimenDonorId
   ).mapTo[CitizenBiosample]
 }

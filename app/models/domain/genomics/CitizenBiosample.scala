@@ -24,5 +24,6 @@ case class CitizenBiosample(
                              deleted: Boolean = false,
                              atCid: Option[String] = None,
                              createdAt: LocalDateTime = LocalDateTime.now(),
-                             updatedAt: LocalDateTime = LocalDateTime.now()
+                             updatedAt: LocalDateTime = LocalDateTime.now(),
+                             specimenDonorId: Option[Int] = None
                            )
