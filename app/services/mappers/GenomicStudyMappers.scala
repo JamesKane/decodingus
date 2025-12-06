@@ -70,7 +70,7 @@ object GenomicStudyMappers {
         sex = ena.sex.map(BiologicalSex.valueOf),
         geocoord = geoCoord,
         pgpParticipantId = None,
-        citizenBiosampleDid = None,
+        atUri = None,
         dateRangeStart = None,
         dateRangeEnd = None
       ))
@@ -113,7 +113,7 @@ object GenomicStudyMappers {
         sex = sex.map(BiologicalSex.valueOf),
         geocoord = coordinates,
         pgpParticipantId = None,
-        citizenBiosampleDid = None,
+        atUri = None,
         dateRangeStart = None,
         dateRangeEnd = None
       ))

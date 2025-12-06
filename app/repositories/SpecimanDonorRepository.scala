@@ -43,7 +43,7 @@ class SpecimenDonorRepositoryImpl @Inject()(
 
   override def findByDidAndIdentifier(did: String, identifier: String): Future[Option[SpecimenDonor]] = {
     db.run(donorsTable
-      .filter(d => d.citizenBiosampleDid === did && d.donorIdentifier === identifier)
+      .filter(d => d.atUri === did && d.donorIdentifier === identifier)
       .result.headOption
     )
   }
@@ -70,7 +70,7 @@ class SpecimenDonorRepositoryImpl @Inject()(
               d.sex,
               d.geocoord,
               d.pgpParticipantId,
-              d.citizenBiosampleDid,
+              d.atUri,
               d.dateRangeStart,
               d.dateRangeEnd
             ))
@@ -81,7 +81,7 @@ class SpecimenDonorRepositoryImpl @Inject()(
               donor.sex,
               donor.geocoord,
               donor.pgpParticipantId,
-              donor.citizenBiosampleDid,
+              donor.atUri,
               donor.dateRangeStart,
               donor.dateRangeEnd
             ))
@@ -104,7 +104,7 @@ class SpecimenDonorRepositoryImpl @Inject()(
               d.sex,
               d.geocoord,
               d.pgpParticipantId,
-              d.citizenBiosampleDid,
+              d.atUri,
               d.dateRangeStart,
               d.dateRangeEnd
             ))
@@ -114,7 +114,7 @@ class SpecimenDonorRepositoryImpl @Inject()(
               donor.sex,
               donor.geocoord,
               donor.pgpParticipantId,
-              donor.citizenBiosampleDid,
+              donor.atUri,
               donor.dateRangeStart,
               donor.dateRangeEnd
             ))

@@ -120,7 +120,7 @@ class SpecimenDonorServiceImpl @Inject()(donorRepo: SpecimenDonorRepository)
             sex = source.sex.orElse(acc.sex),
             geocoord = source.geocoord.orElse(acc.geocoord),
             pgpParticipantId = source.pgpParticipantId.orElse(acc.pgpParticipantId),
-            citizenBiosampleDid = source.citizenBiosampleDid.orElse(acc.citizenBiosampleDid),
+            atUri = source.atUri.orElse(acc.atUri),
             dateRangeStart = source.dateRangeStart.orElse(acc.dateRangeStart),
             dateRangeEnd = source.dateRangeEnd.orElse(acc.dateRangeEnd)
           )
@@ -175,7 +175,7 @@ class SpecimenDonorServiceImpl @Inject()(donorRepo: SpecimenDonorRepository)
         checkField("sex", target.sex, source.sex, result.sex),
         checkField("geocoord", target.geocoord, source.geocoord, result.geocoord),
         checkField("pgpParticipantId", target.pgpParticipantId, source.pgpParticipantId, result.pgpParticipantId),
-        checkField("citizenBiosampleDid", target.citizenBiosampleDid, source.citizenBiosampleDid, result.citizenBiosampleDid),
+        checkField("atUri", target.atUri, source.atUri, result.atUri),
         checkField("dateRangeStart", target.dateRangeStart, source.dateRangeStart, result.dateRangeStart),
         checkField("dateRangeEnd", target.dateRangeEnd, source.dateRangeEnd, result.dateRangeEnd)
       ).flatten

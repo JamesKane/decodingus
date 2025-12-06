@@ -41,7 +41,7 @@ class ExternalBiosampleService @Inject()(
         sex = request.sex,
         geocoord = geocoord,
         pgpParticipantId = None,
-        citizenBiosampleDid = None,
+        atUri = None,
         dateRangeStart = None,
         dateRangeEnd = None
       )
@@ -114,7 +114,7 @@ class ExternalBiosampleService @Inject()(
                 sex = request.sex,
                 geocoord = None, // Coordinates handled separately if needed, or could be passed here
                 pgpParticipantId = None,
-                citizenBiosampleDid = Some(did),
+                atUri = Some(did),
                 dateRangeStart = None,
                 dateRangeEnd = None
               )
@@ -170,7 +170,7 @@ class ExternalBiosampleService @Inject()(
    */
   def deleteBiosample(accession: String, citizenDid: String): Future[Boolean] = {
     biosampleRepository.findByAccession(accession).flatMap {
-      case Some((biosample, Some(donor))) if donor.citizenBiosampleDid.contains(citizenDid) =>
+      case Some((biosample, Some(donor))) if donor.atUri.contains(citizenDid) =>
         biosampleDataService.fullyDeleteBiosampleAndDependencies(biosample.id.get, biosample.sampleGuid).map(_ => true)
       case _ =>
         Future.successful(false)
