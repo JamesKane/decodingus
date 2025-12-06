@@ -32,7 +32,7 @@ class SpecimenDonorsTable(tag: Tag) extends Table[SpecimenDonor](tag, "specimen_
   def sex = column[Option[BiologicalSex]]("sex")
   def geocoord = column[Option[Point]]("geocoord")
   def pgpParticipantId = column[Option[String]]("pgp_participant_id")
-  def citizenBiosampleDid = column[Option[String]]("citizen_biosample_did")
+  def atUri = column[Option[String]]("at_uri")
   def dateRangeStart = column[Option[Int]]("date_range_start")
   def dateRangeEnd = column[Option[Int]]("date_range_end")
 
@@ -44,7 +44,7 @@ class SpecimenDonorsTable(tag: Tag) extends Table[SpecimenDonor](tag, "specimen_
     sex,
     geocoord,
     pgpParticipantId,
-    citizenBiosampleDid,
+    atUri,
     dateRangeStart,
     dateRangeEnd
   ).mapTo[SpecimenDonor]

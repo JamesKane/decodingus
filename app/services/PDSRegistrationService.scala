@@ -45,7 +45,10 @@ class PDSRegistrationService @Inject()(
               createdAt = ZonedDateTime.now(),
               updatedAt = ZonedDateTime.now()
             )
-            pdsRegistrationRepository.create(newRegistration).map(Right(_))
+            pdsRegistrationRepository.create(newRegistration).map { res =>
+              logger.info(s"Internal Notification: PDS Registered successfully for DID $did. Rust Sync Cluster will detect this via DB poll.")
+              Right(res)
+            }
           case None =>
             Future.successful(Left(s"Failed to verify PDS $pdsUrl for DID $did. Could not get latest commit."))
         }
