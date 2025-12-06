@@ -17,9 +17,13 @@ object MetadataSchema {
     def cursor = column[Long]("cursor")
     def createdAt = column[ZonedDateTime]("created_at")
     def updatedAt = column[ZonedDateTime]("updated_at")
+    def leasedByInstanceId = column[Option[String]]("leased_by_instance_id")
+    def leaseExpiresAt = column[Option[ZonedDateTime]]("lease_expires_at")
+    def processingStatus = column[String]("processing_status")
 
     def * : ProvenShape[PDSRegistration] = (
-      did, pdsUrl, handle, lastCommitCid, lastCommitSeq, cursor, createdAt, updatedAt
+      did, pdsUrl, handle, lastCommitCid, lastCommitSeq, cursor, createdAt, updatedAt,
+      leasedByInstanceId, leaseExpiresAt, processingStatus
     ) <> ((PDSRegistration.apply _).tupled, PDSRegistration.unapply)
   }
 

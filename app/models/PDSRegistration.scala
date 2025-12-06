@@ -11,7 +11,10 @@ case class PDSRegistration(
   lastCommitSeq: Option[Long],
   cursor: Long = 0L,
   createdAt: ZonedDateTime,
-  updatedAt: ZonedDateTime
+  updatedAt: ZonedDateTime,
+  leasedByInstanceId: Option[String] = None,
+  leaseExpiresAt: Option[ZonedDateTime] = None,
+  processingStatus: String = "idle"
 )
 
 object PDSRegistration {
