@@ -391,6 +391,21 @@ To support the "Citizen Biosample" segregation strategy:
 *   **Queries:** Since `CitizenBiosample` data resides in a separate table, existing `Biosample` queries will not be affected (they won't see these records). New queries targeting `citizen_biosample` must respect the `deleted` flag.
 *   **`deleteBiosample` in `ExternalBiosampleController`:** The existing `deleteBiosample` in the controller should be removed or adapted to the new soft delete logic and path.
 
+### 4.6 Firehose API Specification
+
+For direct consumption by the Firehose team, the OpenAPI (Swagger) specification for the `ExternalBiosample` endpoints will be made available.
+
+*   **Swagger UI Endpoint:** The full interactive API documentation will be accessible at `/api-docs/swagger-ui`.
+*   **Endpoints:** The relevant endpoints are:
+    *   `POST /api/external-biosamples` (Create ExternalBiosample)
+    *   `PUT /api/external-biosamples/{sampleGuid}` (Update ExternalBiosample)
+    *   `DELETE /api/external-biosamples/{sampleGuid}` (Soft Delete ExternalBiosample)
+*   **Authentication:** All endpoints are protected by the API security layer. API key authentication will be required (details to be provided separately).
+*   **Data Transfer Objects (DTOs):**
+    *   **Request:** `ExternalBiosampleRequest` (defined in `4.0 ExternalBiosample DTO Definitions`).
+    *   **Response:** `ExternalBiosampleResponse` (defined in `4.0 ExternalBiosample DTO Definitions`).
+*   **Optimistic Locking:** For `PUT` operations, ensure the `atCid` from the latest `GET` or `POST` response is included in the request body to prevent concurrent modification conflicts.
+
 ## 5. Project Design
 
 The `Project` entity will be entirely new.
