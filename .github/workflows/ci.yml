@@ -21,7 +21,20 @@ jobs:
       with:
         java-version: '21'
         distribution: 'temurin'
-        cache: 'sbt'
+
+    - name: Setup SBT
+      uses: sbt/setup-sbt@v1
+
+    - name: Cache SBT
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.sbt
+          ~/.ivy2/cache
+          ~/.cache/coursier
+        key: ${{ runner.os }}-sbt-${{ hashFiles('**/build.sbt', '**/plugins.sbt') }}
+        restore-keys: |
+          ${{ runner.os }}-sbt-
 
     - name: Run Tests with Coverage
       run: sbt clean coverage test coverageReport
