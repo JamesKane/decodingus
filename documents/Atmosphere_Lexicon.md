@@ -77,9 +77,9 @@ This record represents a single biological sample processed by a BGS node. It ma
       "key": "tid",
       "record": {
         "type": "object",
-    "required": ["sampleAccession", "donorIdentifier", "centerName", "sequenceData", "citizenDid"],
-    "properties": {
-      "sampleAccession": {
+        "required": ["sampleAccession", "donorIdentifier", "centerName", "sequenceData", "citizenDid", "atUri"],
+        "properties": {
+          "sampleAccession": {
         "type": "string",
         "description": "Native identifier provided by the client for the biosample."
       },
@@ -391,8 +391,12 @@ This record defines a research project that aggregates multiple biosamples withi
       "key": "tid",
       "record": {
         "type": "object",
-        "required": ["projectName", "administrator", "members"],
+        "required": ["projectName", "administrator", "members", "atUri"],
         "properties": {
+          "atUri": {
+            "type": "string",
+            "description": "The AT URI (at://did/collection/rkey) of this project record, assigned by the PDS."
+          },
           "projectName": {
             "type": "string",
             "description": "Name of the project (e.g., 'Smith Surname Project')."
