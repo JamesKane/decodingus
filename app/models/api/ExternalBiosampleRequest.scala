@@ -32,6 +32,7 @@ case class ExternalBiosampleRequest(
                                      latitude: Option[Double],
                                      longitude: Option[Double],
                                      citizenDid: Option[String],
+                                     atUri: Option[String],
                                      donorIdentifier: Option[String],
                                      donorType: Option[BiosampleType],
                                      publication: Option[PublicationInfo],

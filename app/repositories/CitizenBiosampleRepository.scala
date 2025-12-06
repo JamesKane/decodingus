@@ -13,7 +13,7 @@ import scala.concurrent.{ExecutionContext, Future}
 trait CitizenBiosampleRepository {
   def create(biosample: CitizenBiosample): Future[CitizenBiosample]
   def findByGuid(guid: UUID): Future[Option[CitizenBiosample]]
-  def findByDid(did: String): Future[Option[CitizenBiosample]]
+  def findByAtUri(atUri: String): Future[Option[CitizenBiosample]]
   def findByAccession(accession: String): Future[Option[CitizenBiosample]]
   
   /**
@@ -44,8 +44,8 @@ class CitizenBiosampleRepositoryImpl @Inject()(
     db.run(citizenBiosamples.filter(b => b.sampleGuid === guid && !b.deleted).result.headOption)
   }
 
-  override def findByDid(did: String): Future[Option[CitizenBiosample]] = {
-      db.run(citizenBiosamples.filter(b => b.citizenBiosampleDid === did && !b.deleted).result.headOption)
+  override def findByAtUri(atUri: String): Future[Option[CitizenBiosample]] = {
+      db.run(citizenBiosamples.filter(b => b.atUri === atUri && !b.deleted).result.headOption)
   }
 
   override def findByAccession(accession: String): Future[Option[CitizenBiosample]] = {
@@ -59,7 +59,7 @@ class CitizenBiosampleRepositoryImpl @Inject()(
      }
      
      val updateAction = query.map(b => (
-       b.citizenBiosampleDid, 
+       b.atUri,
        b.accession,
        b.alias,
        b.sourcePlatform, 
@@ -71,7 +71,7 @@ class CitizenBiosampleRepositoryImpl @Inject()(
        b.updatedAt,
        b.deleted
      )).update((
-       biosample.citizenBiosampleDid,
+       biosample.atUri,
        biosample.accession,
        biosample.alias,
        biosample.sourcePlatform,

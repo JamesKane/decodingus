@@ -34,7 +34,7 @@ class CitizenBiosampleService @Inject()(
            
            val citizenBiosample = CitizenBiosample(
              id = None,
-             citizenBiosampleDid = request.citizenDid,
+             atUri = request.atUri,
              accession = Some(request.sampleAccession),
              alias = request.alias,
              sourcePlatform = Some(request.sourceSystem),
@@ -72,7 +72,7 @@ class CitizenBiosampleService @Inject()(
                sourcePlatform = Some(request.sourceSystem),
                sex = request.sex,
                geocoord = geocoord,
-               citizenBiosampleDid = request.citizenDid,
+               atUri = request.atUri,
                accession = Some(request.sampleAccession),
                atCid = newAtCid,
                updatedAt = LocalDateTime.now()

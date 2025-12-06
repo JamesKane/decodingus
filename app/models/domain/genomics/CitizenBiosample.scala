@@ -10,7 +10,7 @@ import java.util.UUID
  */
 case class CitizenBiosample(
                              id: Option[Int] = None,
-                             citizenBiosampleDid: Option[String],
+                             atUri: Option[String],
                              accession: Option[String],
                              alias: Option[String],
                              sourcePlatform: Option[String],

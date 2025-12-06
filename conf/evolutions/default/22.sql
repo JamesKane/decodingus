@@ -1,4 +1,5 @@
 # --- !Ups
+ALTER TABLE citizen_biosample RENAME COLUMN citizen_biosample_did TO at_uri;
 ALTER TABLE citizen_biosample ADD COLUMN deleted BOOLEAN DEFAULT false NOT NULL;
 ALTER TABLE citizen_biosample ADD COLUMN at_cid VARCHAR(255);
 ALTER TABLE citizen_biosample ADD COLUMN created_at TIMESTAMP DEFAULT now() NOT NULL;
@@ -49,3 +50,4 @@ ALTER TABLE citizen_biosample DROP COLUMN updated_at;
 ALTER TABLE citizen_biosample DROP COLUMN created_at;
 ALTER TABLE citizen_biosample DROP COLUMN at_cid;
 ALTER TABLE citizen_biosample DROP COLUMN deleted;
+ALTER TABLE citizen_biosample RENAME COLUMN at_uri TO citizen_biosample_did;

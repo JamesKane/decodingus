@@ -8,7 +8,7 @@ import java.util.UUID
 
 class CitizenBiosamplesTable(tag: Tag) extends Table[CitizenBiosample](tag, "citizen_biosample") {
   def id = column[Int]("id", O.PrimaryKey, O.AutoInc)
-  def citizenBiosampleDid = column[Option[String]]("citizen_biosample_did", O.Unique)
+  def atUri = column[Option[String]]("at_uri", O.Unique)
   def accession = column[Option[String]]("accession")
   def alias = column[Option[String]]("alias")
   def sourcePlatform = column[Option[String]]("source_platform")
@@ -25,7 +25,7 @@ class CitizenBiosamplesTable(tag: Tag) extends Table[CitizenBiosample](tag, "cit
 
   def * = (
     id.?,
-    citizenBiosampleDid,
+    atUri,
     accession,
     alias,
     sourcePlatform,
