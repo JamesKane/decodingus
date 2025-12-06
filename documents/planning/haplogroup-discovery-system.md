@@ -866,7 +866,42 @@ trait TreeEvolutionService {
 
 ## API Endpoints
 
-### Discovery Management API
+### Data Flow Pattern
+
+**Important:** All citizen biosample data flows through the PDS/Firehose pattern. There are NO direct submission APIs for variant data.
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                              Data Flow                                   │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                          │
+│  Edge App                                                                │
+│     │                                                                    │
+│     └──► Creates/updates biosample record in User's PDS                  │
+│          (includes HaplogroupResult with matchingSnps, mismatchingSnps)  │
+│              │                                                           │
+│              ▼                                                           │
+│         AT Protocol Firehose                                             │
+│              │                                                           │
+│              ▼                                                           │
+│         DecodingUs App View ingests biosample                            │
+│              │                                                           │
+│              └──► PrivateVariantExtractionService processes              │
+│                   mismatchingSnps as private variant discoveries         │
+│                                                                          │
+│  External Biosamples (Curator Upload)                                    │
+│     │                                                                    │
+│     └──► Same PrivateVariantExtractionService processes                  │
+│          variant data from publications/research datasets                │
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+All endpoints below are either:
+- **Read-only queries** for discovery/proposal data
+- **Curator/Admin operations** for proposal management (not citizen submission)
+
+### Discovery Management API (Read-Only)
 
 ```
 # Proposal Queries
