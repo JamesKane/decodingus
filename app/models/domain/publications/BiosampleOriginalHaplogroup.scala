@@ -1,5 +1,7 @@
 package models.domain.publications
 
+import models.domain.genomics.HaplogroupResult
+
 /**
  * Represents an original haplogroup assignment for a biosample from a specific publication.
  *
@@ -14,8 +16,8 @@ case class BiosampleOriginalHaplogroup(
                                         id: Option[Int] = None,
                                         biosampleId: Int,
                                         publicationId: Int,
-                                        originalYHaplogroup: Option[String],
-                                        originalMtHaplogroup: Option[String],
+                                        originalYHaplogroup: Option[HaplogroupResult],
+                                        originalMtHaplogroup: Option[HaplogroupResult],
                                         notes: Option[String]
                                       )
 

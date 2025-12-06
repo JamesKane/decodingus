@@ -1,6 +1,6 @@
 package models.api
 
-import models.domain.genomics.{BiologicalSex, BiosampleType}
+import models.domain.genomics.{BiologicalSex, BiosampleType, HaplogroupResult}
 import play.api.libs.json.{Json, OFormat}
 
 import java.time.LocalDateTime
@@ -77,8 +77,8 @@ object PublicationInfo {
  *                     about the haplogroup or its context.
  */
 case class HaplogroupInfo(
-                           yHaplogroup: Option[String],
-                           mtHaplogroup: Option[String],
+                           yHaplogroup: Option[HaplogroupResult],
+                           mtHaplogroup: Option[HaplogroupResult],
                            notes: Option[String]
                          )
 

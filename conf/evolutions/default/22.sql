@@ -20,8 +20,8 @@ CREATE TABLE citizen_biosample_original_haplogroup
     id               SERIAL PRIMARY KEY,
     citizen_biosample_id INT REFERENCES citizen_biosample (id) ON DELETE CASCADE,
     publication_id   INT REFERENCES publication (id) ON DELETE CASCADE,
-    original_y_haplogroup VARCHAR(255),
-    original_mt_haplogroup VARCHAR(255),
+    y_haplogroup_result JSONB,
+    mt_haplogroup_result JSONB,
     notes            TEXT,
     UNIQUE (citizen_biosample_id, publication_id)
 );

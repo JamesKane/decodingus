@@ -94,6 +94,10 @@ trait MyPostgresProfile extends ExPostgresProfile
     with SearchAssistants {
 
     import models.HaplogroupType
+    import models.domain.genomics.HaplogroupResult
+
+    implicit val haplogroupResultJsonTypeMapper: JdbcType[HaplogroupResult] with BaseTypedType[HaplogroupResult] =
+      MappedJdbcType.base[HaplogroupResult, JsValue](Json.toJson(_), _.as[HaplogroupResult])
 
     implicit val haplogroupTypeMapper: JdbcType[HaplogroupType] =
       MappedColumnType.base[HaplogroupType, String](

@@ -2,6 +2,7 @@ package models.dal.domain.publications
 
 import models.dal.MyPostgresProfile.api.*
 import models.dal.domain.genomics.CitizenBiosamplesTable
+import models.domain.genomics.HaplogroupResult
 import models.domain.publications.CitizenBiosampleOriginalHaplogroup
 
 class CitizenBiosampleOriginalHaplogroupTable(tag: Tag)
@@ -10,8 +11,8 @@ class CitizenBiosampleOriginalHaplogroupTable(tag: Tag)
   def id = column[Int]("id", O.PrimaryKey, O.AutoInc)
   def citizenBiosampleId = column[Int]("citizen_biosample_id")
   def publicationId = column[Int]("publication_id")
-  def originalYHaplogroup = column[Option[String]]("original_y_haplogroup")
-  def originalMtHaplogroup = column[Option[String]]("original_mt_haplogroup")
+  def originalYHaplogroup = column[Option[HaplogroupResult]]("y_haplogroup_result")
+  def originalMtHaplogroup = column[Option[HaplogroupResult]]("mt_haplogroup_result")
   def notes = column[Option[String]]("notes")
 
   // Foreign key relationships
