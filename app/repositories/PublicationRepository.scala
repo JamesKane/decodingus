@@ -69,6 +69,17 @@ trait PublicationRepository {
    * @return A Future containing the saved or updated Publication object (with its database ID).
    */
   def savePublication(publication: Publication): Future[Publication]
+
+  /**
+   * Searches publications by a query string, matching against title, authors, and abstract.
+   * Results are paginated and sorted by relevance (citation percentile, cited by count, date).
+   *
+   * @param query    The search query string to match against title, authors, and abstract
+   * @param page     The page number to retrieve (1-based index)
+   * @param pageSize The number of records to include in each page
+   * @return A Future containing a tuple of (matching publications with details, total count)
+   */
+  def searchPublications(query: String, page: Int, pageSize: Int): Future[(Seq[PublicationWithEnaStudiesAndSampleCount], Long)]
 }
 
 class PublicationRepositoryImpl @Inject()(protected val dbConfigProvider: DatabaseConfigProvider)(implicit ec: ExecutionContext)
@@ -159,4 +170,49 @@ class PublicationRepositoryImpl @Inject()(protected val dbConfigProvider: Databa
   }
 
   override def findByDoi(doi: String): Future[Option[Publication]] = db.run(publications.filter(_.doi === doi).result.headOption)
+
+  override def searchPublications(query: String, page: Int, pageSize: Int): Future[(Seq[PublicationWithEnaStudiesAndSampleCount], Long)] = {
+    val offset = (page - 1) * pageSize
+    val searchPattern = s"%${query.toLowerCase}%"
+
+    // Filter by title, authors, or abstract (case-insensitive)
+    val baseQuery = publications.filter { p =>
+      p.title.toLowerCase.like(searchPattern) ||
+        p.authors.map(_.toLowerCase).like(searchPattern) ||
+        p.abstractSummary.map(_.toLowerCase).like(searchPattern)
+    }
+
+    // Get total count for pagination
+    val countQuery = baseQuery.length.result
+
+    // Apply sorting and pagination
+    val sortedAndPaginatedQuery = baseQuery
+      .sortBy { p =>
+        (
+          p.citationNormalizedPercentile.desc.nullsLast,
+          p.citedByCount.desc.nullsLast,
+          p.publicationDate.desc.nullsLast
+        )
+      }
+      .drop(offset)
+      .take(pageSize)
+
+    for {
+      totalCount <- db.run(countQuery)
+      paginatedPublications <- db.run(sortedAndPaginatedQuery.result)
+      publicationsWithDetails <- Future.sequence(paginatedPublications.map { publication =>
+        val enaStudyQuery = (for {
+          pes <- publicationEnaStudies if pes.publicationId === publication.id
+          es <- enaStudies if es.id === pes.genomicStudyId
+        } yield es).result
+
+        val sampleCountQuery = publicationBiosamples.filter(_.publicationId === publication.id).length.result
+
+        for {
+          enaStudiesResult <- db.run(enaStudyQuery)
+          sampleCountResult <- db.run(sampleCountQuery)
+        } yield PublicationWithEnaStudiesAndSampleCount(publication, enaStudiesResult, sampleCountResult)
+      })
+    } yield (publicationsWithDetails, totalCount.toLong)
+  }
 }

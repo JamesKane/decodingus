@@ -25,7 +25,7 @@ GET           /haplogroups/snp-sidebar/:haplogroupName                          
 
 
 GET           /references                                                                        controllers.PublicationController.index()
-GET           /references/details                                                                controllers.PublicationController.getAllPublicationsWithDetailsHtml(page: Option[Int], pageSize: Option[Int])
+GET           /references/details                                                                controllers.PublicationController.getAllPublicationsWithDetailsHtml(page: Option[Int], pageSize: Option[Int], query: Option[String])
 GET           /references/details/:publicationId/biosamples                                      controllers.BiosampleReportController.getBiosampleReportHTML(publicationId: Int, page: Option[Int] ?= Some(1))
 
 GET           /publications/submit                                                               controllers.PublicationController.showSubmissionForm()

@@ -9,6 +9,15 @@
             .sex-male { color: #0077BB; }
             .sex-female { color: #EE3377; }
             .sex-unknown { color: #777777; }
+            .search-indicator {
+                display: none;
+            }
+            .htmx-request .search-indicator {
+                display: inline-block;
+            }
+            .htmx-request .search-icon {
+                display: none;
+            }
     </style>
     <main class="container">
         <nav class="navbar navbar-expand-lg navbar-light bg-light mb-4">
@@ -25,7 +34,52 @@
             </div>
         </nav>
 
-        <div id="publications-container" hx-get="@controllers.routes.PublicationController.getAllPublicationsWithDetailsHtml(None, None)" hx-trigger="load">
+        <div class="row mb-4">
+            <div class="col-md-6">
+                <div class="input-group" id="search-box">
+                    <span class="input-group-text">
+                        <i class="bi bi-search search-icon"></i>
+                        <span class="spinner-border spinner-border-sm search-indicator" role="status">
+                            <span class="visually-hidden">Searching...</span>
+                        </span>
+                    </span>
+                    <input type="text"
+                           class="form-control"
+                           id="publication-search"
+                           name="query"
+                           placeholder="Search by title, author, or abstract..."
+                           hx-get="@controllers.routes.PublicationController.getAllPublicationsWithDetailsHtml(Some(1), None, None)"
+                           hx-trigger="input changed delay:300ms, search"
+                           hx-target="#publications-container"
+                           hx-swap="innerHTML"
+                           hx-indicator="#search-box"
+                           autocomplete="off">
+                    <button class="btn btn-outline-secondary"
+                            type="button"
+                            id="clear-search"
+                            title="Clear search"
+                            onclick="clearSearch()">
+                        <i class="bi bi-x-lg"></i>
+                    </button>
+                </div>
+                <small class="text-muted">Search filters publications by title, author names, or abstract content</small>
+            </div>
+        </div>
+
+        <div id="publications-container" hx-get="@controllers.routes.PublicationController.getAllPublicationsWithDetailsHtml(None, None, None)" hx-trigger="load">
+            <div class="d-flex justify-content-center">
+                <div class="spinner-border" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+            </div>
         </div>
     </main>
+
+    <script>
+        function clearSearch() {
+            const searchInput = document.getElementById('publication-search');
+            searchInput.value = '';
+            htmx.trigger(searchInput, 'search');
+        }
+    </script>
 }

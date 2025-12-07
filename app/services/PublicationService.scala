@@ -52,6 +52,20 @@ class PublicationService @Inject()(
   }
 
   /**
+   * Searches publications by a query string and returns paginated results.
+   *
+   * @param query    The search query to match against title, authors, and abstract
+   * @param page     The page number to retrieve (1-based index)
+   * @param pageSize The number of items per page
+   * @return A Future containing a PaginatedResult with matching publications
+   */
+  def searchPublications(query: String, page: Int, pageSize: Int): Future[PaginatedResult[PublicationWithEnaStudiesAndSampleCount]] = {
+    publicationRepository.searchPublications(query, page, pageSize).map { case (publications, totalCount) =>
+      PaginatedResult(publications, page, pageSize, totalCount)
+    }
+  }
+
+  /**
    * Processes a publication by DOI, optionally forcing a refresh of the data.
    *
    * @param doi The DOI of the publication to process

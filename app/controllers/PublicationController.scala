@@ -64,18 +64,27 @@ class PublicationController @Inject()(
 
   /**
    * Fetches and displays a paginated list of publications along with their details in an HTML format.
+   * If a search query is provided, filters publications by title, authors, or abstract.
    *
    * @param page     An optional parameter specifying the current page number for paginated results.
    *                 Defaults to the first page if not provided.
    * @param pageSize An optional parameter specifying the number of items per page for paginated results.
    *                 Defaults to 10 if not provided.
+   * @param query    An optional search query to filter publications by title, authors, or abstract.
    * @return An asynchronous action that renders an HTML view containing the paginated publication details.
    */
-  def getAllPublicationsWithDetailsHtml(page: Option[Int], pageSize: Option[Int]): Action[AnyContent] = Action.async { implicit request =>
+  def getAllPublicationsWithDetailsHtml(page: Option[Int], pageSize: Option[Int], query: Option[String]): Action[AnyContent] = Action.async { implicit request =>
     val currentPage = page.getOrElse(1)
     val currentPageSize = pageSize.getOrElse(10)
-    publicationService.getPaginatedPublicationsWithDetails(currentPage, currentPageSize).map { paginatedResult =>
-      Ok(views.html.publicationList(paginatedResult))
+    val searchQuery = query.filter(_.trim.nonEmpty)
+
+    val resultFuture = searchQuery match {
+      case Some(q) => publicationService.searchPublications(q.trim, currentPage, currentPageSize)
+      case None => publicationService.getPaginatedPublicationsWithDetails(currentPage, currentPageSize)
+    }
+
+    resultFuture.map { paginatedResult =>
+      Ok(views.html.publicationList(paginatedResult, searchQuery))
     }
   }
 
