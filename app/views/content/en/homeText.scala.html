@@ -1,0 +1,46 @@
+@()(implicit messages: Messages)
+
+<p>Decoding Us will be a next-generation platform for citizen science focused on empowering individuals to
+    contribute to genealogical and population studies using Whole Genome Sequencing (WGS) data and compatible
+    technologies. Recognizing the limitations of centralized data silos and the growing importance of user data
+    sovereignty, Decoding Us will be architected as a federated system, placing control and ownership firmly in
+    the hands of the participants. This approach will foster greater trust, encourage broader participation,
+    and unlock new possibilities for collaborative discovery in understanding our shared human history.</p>
+<p>The system shall be architected with these goals:</p>
+<ul>
+    <li><strong>Federated Design:</strong>
+        <ul>
+            <li><strong>Identity: </strong> Users will possess permanent decentralized identifiers for their
+                accounts using the robust and user-centric <a href="https://atproto.com/" target="_blank" rel="noopener noreferrer">
+                AT Protocol</a>.
+                This ensures portability and long-term control over their digital identity within the ecosystem.</li>
+            <li><strong>Personal Data Stores (PDS):</strong>
+                Participation will involve users securely sharing their
+                sequencing data through software operating on their own infrastructure – be it a personal computer,
+                a dedicated Virtual Private Server (VPS), or potentially even services offered by their sequencing
+                vendors. This personal data store remains under the user's direct ownership, offering the
+                flexibility to migrate between providers as needed. The software running on the PDS will manage
+                data storage, facilitate secure communication with the network, and potentially perform initial
+                data processing tasks.</li>
+        </ul>
+    </li>
+    <li><strong>Secure Computing with Gapless Reference Analysis:</strong>
+        The system will prioritize user privacy by
+        enabling participating individuals to compare specific genetic features, such as Single Nucleotide Variant (SNV) values
+        downstream of identified Y or mitochondrial DNA (mtDNA) haplogroups, in a privacy-preserving manner.
+        The system will utilize the hs1/chm13v2.0 gapless human reference genome for variant calling and analysis,
+        which currently provides the most comprehensive downstream analysis support. The necessary genetic features for comparison
+        will be exchanged with potential matches through end-to-end encrypted messages. Specialized applications
+        running on the user's PDS can then perform the computationally intensive comparisons, with a mechanism
+        for consensus checking among peers to ensure the reliability of the results. This secure exchange
+        ensures that sensitive raw genomic data remains within the user's control. While the human pangenome
+        reference offers promising future capabilities, we will continue with the proven gapless reference approach
+        until the ecosystem of analysis tools matures sufficiently to support pangenome-based workflows.
+    </li>
+</ul>
+
+<p><strong>Looking Ahead:</strong> While the initial focus is on WGS data, the federated architecture of
+    Decoding Us is designed to be extensible, potentially accommodating other compatible genomic or
+    related data types in the future. We envision a vibrant community of citizen scientists collaborating on
+    research questions, sharing insights, and contributing to a deeper understanding of human history and
+    population dynamics, all within a framework that prioritizes data ownership, privacy, and security.</p>
