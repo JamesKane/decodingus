@@ -9,7 +9,7 @@ scalaVersion := "3.3.6"
 val SLICK_VERSION = "6.2.0"
 val SLICK_PG_VERSION = "0.23.1"
 val TAPIR_VERSION = "1.11.50"
-val AWS_VERSION = "2.35.10"
+val AWS_VERSION = "2.40.3"
 
 // WARNING: Updating beyond 1.1.2 will result in startup errors, since quartz schedular needs this version
 val APACHE_PEKKO_VERSION = "1.1.5"
@@ -26,12 +26,12 @@ libraryDependencies ++= Seq(
   "com.github.tminglei" %% "slick-pg" % SLICK_PG_VERSION,
   "com.github.tminglei" %% "slick-pg_jts" % SLICK_PG_VERSION,
   "com.github.tminglei" %% "slick-pg_play-json" % SLICK_PG_VERSION,
-  "org.webjars" %% "webjars-play" % "3.0.2",
+  "org.webjars" %% "webjars-play" % "3.0.9",
   "org.webjars" % "bootstrap" % "5.3.8",
   "org.webjars" % "popper.js" % "2.11.7",
-  "org.webjars.npm" % "htmx.org" % "2.0.7",
+  "org.webjars.npm" % "htmx.org" % "2.0.8",
   "org.scalatestplus.play" %% "scalatestplus-play" % "7.0.2" % Test,
-  "com.h2database" % "h2" % "2.2.224" % Test,
+  "com.h2database" % "h2" % "2.4.240" % Test,
   "org.codehaus.janino" % "janino" % "3.1.12",
   "com.nappin" %% "play-recaptcha" % "3.0",
 
