@@ -20,6 +20,7 @@ class CitizenBiosampleController @Inject()(
                                             atmosphereEventHandler: AtmosphereEventHandler
                                           )(implicit ec: ExecutionContext) extends BaseController {
 
+  @Deprecated("Use Firehose Event API instead. This endpoint will be removed in a future release.")
   def create: Action[ExternalBiosampleRequest] = secureApi.jsonAction[ExternalBiosampleRequest].async { request =>
     citizenBiosampleService.createBiosample(request.body).map { guid =>
       Created(Json.obj(
@@ -44,6 +45,7 @@ class CitizenBiosampleController @Inject()(
     }
   }
 
+  @Deprecated("Use Firehose Event API instead. This endpoint will be removed in a future release.")
   def update(atUri: String): Action[ExternalBiosampleRequest] = secureApi.jsonAction[ExternalBiosampleRequest].async { request =>
     citizenBiosampleService.updateBiosample(atUri, request.body).map { guid =>
       Ok(Json.obj(
@@ -62,6 +64,7 @@ class CitizenBiosampleController @Inject()(
     }
   }
 
+  @Deprecated("Use Firehose Event API instead. This endpoint will be removed in a future release.")
   def delete(atUri: String): Action[AnyContent] = secureApi.async { request =>
     citizenBiosampleService.deleteBiosample(atUri).map {
       case true => NoContent

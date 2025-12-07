@@ -16,9 +16,10 @@ object ProjectEndpoints {
       .in(jsonBody[ProjectRequest])
       .out(jsonBody[ProjectResponse])
       .errorOut(stringBody)
-      .description("Creates a new Project.")
-      .summary("Create Project")
+      .description("Creates a new Project. (Deprecated: Use /api/firehose/event)")
+      .summary("Create Project (Legacy)")
       .tag("Projects")
+      .deprecated()
   }
 
   private val updateProject: PublicEndpoint[(String, ProjectRequest), String, ProjectResponse, Any] = {
@@ -28,9 +29,10 @@ object ProjectEndpoints {
       .in(jsonBody[ProjectRequest])
       .out(jsonBody[ProjectResponse])
       .errorOut(stringBody)
-      .description("Updates an existing Project using Optimistic Locking (via atCid).")
-      .summary("Update Project")
+      .description("Updates an existing Project using Optimistic Locking (via atCid). (Deprecated: Use /api/firehose/event)")
+      .summary("Update Project (Legacy)")
       .tag("Projects")
+      .deprecated()
   }
 
   private val deleteProject: PublicEndpoint[String, String, Unit, Any] = {
@@ -39,9 +41,10 @@ object ProjectEndpoints {
       .in("api" / "projects" / path[String]("atUri"))
       .out(statusCode(sttp.model.StatusCode.NoContent))
       .errorOut(stringBody)
-      .description("Soft deletes a Project.")
-      .summary("Delete Project")
+      .description("Soft deletes a Project. (Deprecated: Use /api/firehose/event)")
+      .summary("Delete Project (Legacy)")
       .tag("Projects")
+      .deprecated()
   }
 
   val all: List[PublicEndpoint[_, _, _, _]] = List(

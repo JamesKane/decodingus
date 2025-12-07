@@ -17,6 +17,7 @@ class ProjectController @Inject()(
                                    projectService: ProjectService
                                  )(implicit ec: ExecutionContext) extends BaseController {
 
+  @Deprecated("Use Firehose Event API instead. This endpoint will be removed in a future release.")
   def create: Action[ProjectRequest] = secureApi.jsonAction[ProjectRequest].async { request =>
     projectService.createProject(request.body).map { response =>
       Created(Json.toJson(response))
@@ -25,6 +26,7 @@ class ProjectController @Inject()(
     }
   }
 
+  @Deprecated("Use Firehose Event API instead. This endpoint will be removed in a future release.")
   def update(atUri: String): Action[ProjectRequest] = secureApi.jsonAction[ProjectRequest].async { request =>
     projectService.updateProject(atUri, request.body).map { response =>
       Ok(Json.toJson(response))
@@ -35,6 +37,7 @@ class ProjectController @Inject()(
     }
   }
 
+  @Deprecated("Use Firehose Event API instead. This endpoint will be removed in a future release.")
   def delete(atUri: String): Action[AnyContent] = secureApi.async { request =>
     projectService.deleteProject(atUri).map {
       case true => NoContent
