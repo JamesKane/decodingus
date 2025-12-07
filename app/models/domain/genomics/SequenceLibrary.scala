@@ -30,6 +30,8 @@ case class SequenceLibrary(
                             readLength: Int,
                             pairedEnd: Boolean,
                             insertSize: Option[Int],
+                            atUri: Option[String],
+                            atCid: Option[String],
                             created_at: LocalDateTime,
                             updated_at: Option[LocalDateTime],
                           )

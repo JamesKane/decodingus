@@ -185,6 +185,8 @@ class BiosampleDataService @Inject()(
       readLength = data.readLength.getOrElse(0),
       pairedEnd = false,
       insertSize = None,
+      atUri = None,
+      atCid = None,
       created_at = LocalDateTime.now(),
       updated_at = None
     )
@@ -199,8 +201,8 @@ class BiosampleDataService @Inject()(
           fileFormat = fileInfo.fileFormat,
           aligner = fileInfo.aligner,
           targetReference = fileInfo.targetReference,
-          created_at = LocalDateTime.now(),
-          updated_at = None
+          createdAt = LocalDateTime.now(),
+          updatedAt = None
         )
 
         for {

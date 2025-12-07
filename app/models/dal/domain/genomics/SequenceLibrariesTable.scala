@@ -54,9 +54,13 @@ class SequenceLibrariesTable(tag: Tag) extends Table[SequenceLibrary](tag, "sequ
 
   def insertSize = column[Option[Int]]("insert_size")
 
+  def atUri = column[Option[String]]("at_uri")
+
+  def atCid = column[Option[String]]("at_cid")
+
   def createdAt = column[LocalDateTime]("created_at")
 
   def updatedAt = column[Option[LocalDateTime]]("updated_at")
 
-  def * = (id.?, sampleGuid, lab, testType, runDate, instrument, reads, readLength, pairedEnd, insertSize, createdAt, updatedAt).mapTo[SequenceLibrary]
+  def * = (id.?, sampleGuid, lab, testType, runDate, instrument, reads, readLength, pairedEnd, insertSize, atUri, atCid, createdAt, updatedAt).mapTo[SequenceLibrary]
 }

@@ -58,6 +58,10 @@ trait SequenceLibraryRepository {
    * @return a future containing a sequence of matching libraries
    */
   def findByDateRange(start: LocalDateTime, end: LocalDateTime): Future[Seq[SequenceLibrary]]
+
+  def findByAtUri(atUri: String): Future[Option[SequenceLibrary]]
+
+  def deleteByAtUri(atUri: String): Future[Boolean]
 }
 
 @Singleton
@@ -83,6 +87,10 @@ class SequenceLibraryRepositoryImpl @Inject()(
     db.run(sequenceLibraries.filter(_.id === id).result.headOption)
   }
 
+  override def findByAtUri(atUri: String): Future[Option[SequenceLibrary]] = {
+    db.run(sequenceLibraries.filter(_.atUri === atUri).result.headOption)
+  }
+
   override def findBySampleGuid(sampleGuid: UUID): Future[Seq[SequenceLibrary]] = {
     db.run(sequenceLibraries.filter(_.sampleGuid === sampleGuid).result)
   }
@@ -103,6 +111,8 @@ class SequenceLibraryRepositoryImpl @Inject()(
             l.readLength,
             l.pairedEnd,
             l.insertSize,
+            l.atUri,
+            l.atCid,
             l.updatedAt
           ))
           .update((
@@ -115,6 +125,8 @@ class SequenceLibraryRepositoryImpl @Inject()(
             library.readLength,
             library.pairedEnd,
             library.insertSize,
+            library.atUri,
+            library.atCid,
             Some(LocalDateTime.now())
           ))
 
@@ -124,6 +136,10 @@ class SequenceLibraryRepositoryImpl @Inject()(
 
   override def delete(id: Int): Future[Boolean] = {
     db.run(sequenceLibraries.filter(_.id === id).delete.map(_ > 0))
+  }
+
+  override def deleteByAtUri(atUri: String): Future[Boolean] = {
+    db.run(sequenceLibraries.filter(_.atUri === atUri).delete.map(_ > 0))
   }
 
   override def findByDateRange(start: LocalDateTime, end: LocalDateTime): Future[Seq[SequenceLibrary]] = {

@@ -10,6 +10,7 @@ import java.time.LocalDateTime
 enum MetricLevel {
   case CONTIG_OVERALL  // Metrics for entire contig
   case REGION          // Metrics for specific coordinate ranges
+  case GLOBAL
 }
 
 object MetricLevel {
@@ -57,6 +58,18 @@ case class AlignmentMetadata(
                               regionStartPos: Option[Long] = None,
                               regionEndPos: Option[Long] = None,
                               regionLengthBp: Option[Long] = None,
+                              referenceBuild: Option[String] = None,
+                              variantCaller: Option[String] = None,
+                              genomeTerritory: Option[Long] = None,
+                              meanCoverage: Option[Double] = None,
+                              medianCoverage: Option[Double] = None,
+                              sdCoverage: Option[Double] = None,
+                              pctExcDupe: Option[Double] = None,
+                              pctExcMapq: Option[Double] = None,
+                              pct10x: Option[Double] = None,
+                              pct20x: Option[Double] = None,
+                              pct30x: Option[Double] = None,
+                              hetSnpSensitivity: Option[Double] = None,
                               metricsDate: LocalDateTime = LocalDateTime.now(),
                               analysisTool: String,
                               analysisToolVersion: Option[String] = None,
