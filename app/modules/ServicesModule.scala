@@ -15,20 +15,19 @@ class ServicesModule(environment: Environment, configuration: Configuration) ext
 
     bind(classOf[EmailService]).to(emailService)
 
-        bind(classOf[SpecimenDonorService])
+    bind(classOf[SpecimenDonorService])
 
-          .to(classOf[SpecimenDonorServiceImpl])
+      .to(classOf[SpecimenDonorServiceImpl])
 
-          .asEagerSingleton()
+      .asEagerSingleton()
 
-    
 
-        bind(classOf[repositories.CitizenSequenceRepository])
+    bind(classOf[repositories.CitizenSequenceRepository])
 
-          .to(classOf[repositories.SlickCitizenSequenceRepository])
+      .to(classOf[repositories.SlickCitizenSequenceRepository])
 
-      }
+  }
 
-    }
+}
 
     

@@ -115,8 +115,8 @@ class PublicationRepositoryImpl @Inject()(protected val dbConfigProvider: Databa
         // For dates, typically newer is better, so desc.
         (
           p.citationNormalizedPercentile.desc.nullsLast, // Higher percentile first, NULLs last
-          p.citedByCount.desc.nullsLast,                 // Higher count first, NULLs last
-          p.publicationDate.desc.nullsLast               // Newer publication date first, NULLs last
+          p.citedByCount.desc.nullsLast, // Higher count first, NULLs last
+          p.publicationDate.desc.nullsLast // Newer publication date first, NULLs last
         )
       }
       .drop(offset)
@@ -146,7 +146,7 @@ class PublicationRepositoryImpl @Inject()(protected val dbConfigProvider: Databa
   override def getAllDois: Future[Seq[String]] = {
     db.run(publications.filter(_.doi.isDefined).map(_.doi.get).result)
   }
-  
+
   override def savePublication(updatedPublication: Publication): Future[Publication] = {
     val query = publications.filter { p =>
       // Combine conditions with OR. If updatedPublication.openAlexId is None,

@@ -1,26 +1,38 @@
 package repositories
 
+import com.vividsolutions.jts.geom.Point
 import jakarta.inject.{Inject, Singleton}
 import models.dal.{DatabaseSchema, MyPostgresProfile}
 import models.domain.genomics.{BiologicalSex, BiosampleType, SpecimenDonor}
 import play.api.db.slick.DatabaseConfigProvider
-import com.vividsolutions.jts.geom.Point
 
 import scala.concurrent.{ExecutionContext, Future}
 
 trait SpecimenDonorRepository {
   def findById(id: Int): Future[Option[SpecimenDonor]]
+
   def create(donor: SpecimenDonor): Future[SpecimenDonor]
+
   def update(donor: SpecimenDonor): Future[Boolean]
+
   def upsert(donor: SpecimenDonor): Future[SpecimenDonor]
+
   def findByIdentifier(identifier: String): Future[Option[SpecimenDonor]]
+
   def findByOriginBiobank(biobank: String): Future[Seq[SpecimenDonor]]
+
   def findByType(donorType: BiosampleType): Future[Seq[SpecimenDonor]]
+
   def findBySex(sex: BiologicalSex): Future[Seq[SpecimenDonor]]
+
   def getAllGeoLocations: Future[Seq[(Point, Int)]]
+
   def findByBiobankAndType(biobank: String, donorType: BiosampleType): Future[Seq[SpecimenDonor]]
+
   def deleteMany(ids: Seq[Int]): Future[Int]
+
   def transferBiosamples(fromDonorIds: Seq[Int], toDonorId: Int): Future[Int]
+
   def findByDidAndIdentifier(did: String, identifier: String): Future[Option[SpecimenDonor]]
 
 }
@@ -32,7 +44,7 @@ class SpecimenDonorRepositoryImpl @Inject()(
   extends BaseRepository(dbConfigProvider)
     with SpecimenDonorRepository {
 
-  import models.dal.MyPostgresProfile.api._
+  import models.dal.MyPostgresProfile.api.*
 
   private val donorsTable = DatabaseSchema.domain.genomics.specimenDonors
   private val biosamplesTable = DatabaseSchema.domain.genomics.biosamples
@@ -174,7 +186,7 @@ class SpecimenDonorRepositoryImpl @Inject()(
   }
 
   def transferBiosamples(fromDonorIds: Seq[Int], toDonorId: Int): Future[Int] = {
-    import MyPostgresProfile.api._
+    import MyPostgresProfile.api.*
 
     db.run(
       biosamplesTable

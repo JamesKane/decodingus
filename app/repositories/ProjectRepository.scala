@@ -12,17 +12,22 @@ import scala.concurrent.{ExecutionContext, Future}
 
 trait ProjectRepository {
   def create(project: Project): Future[Project]
+
   def findByProjectGuid(projectGuid: UUID): Future[Option[Project]]
+
   def findByAtUri(atUri: String): Future[Option[Project]]
+
   def update(project: Project, expectedAtCid: Option[String]): Future[Boolean]
+
   def softDelete(projectGuid: UUID): Future[Boolean]
+
   def softDeleteByAtUri(atUri: String): Future[Boolean]
 }
 
 @Singleton
 class ProjectRepositoryImpl @Inject()(
-  protected val dbConfigProvider: DatabaseConfigProvider
-)(implicit ec: ExecutionContext) extends ProjectRepository with HasDatabaseConfigProvider[MyPostgresProfile] {
+                                       protected val dbConfigProvider: DatabaseConfigProvider
+                                     )(implicit ec: ExecutionContext) extends ProjectRepository with HasDatabaseConfigProvider[MyPostgresProfile] {
 
   private val projects = DatabaseSchema.domain.project.projects
 
@@ -43,7 +48,7 @@ class ProjectRepositoryImpl @Inject()(
   override def update(project: Project, expectedAtCid: Option[String]): Future[Boolean] = {
     val query = projects.filter { p =>
       p.projectGuid === project.projectGuid &&
-      p.atCid === expectedAtCid
+        p.atCid === expectedAtCid
     }
 
     val updateAction = query.map(p => (

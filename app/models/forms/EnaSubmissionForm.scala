@@ -7,6 +7,7 @@ case class EnaAccessionSubmission(accession: String)
 
 object EnaAccessionSubmission {
   def apply(accession: String): EnaAccessionSubmission = new EnaAccessionSubmission(accession)
+
   def unapply(submission: EnaAccessionSubmission): Option[String] = Some(submission.accession)
 }
 

@@ -2,7 +2,7 @@
 package models.forms
 
 import play.api.data.Form
-import play.api.data.Forms._
+import play.api.data.Forms.*
 
 case class PaperSubmission(
                             doi: String,

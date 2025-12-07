@@ -9,10 +9,15 @@ class CitizenBiosampleOriginalHaplogroupTable(tag: Tag)
   extends Table[CitizenBiosampleOriginalHaplogroup](tag, "citizen_biosample_original_haplogroup") {
 
   def id = column[Int]("id", O.PrimaryKey, O.AutoInc)
+
   def citizenBiosampleId = column[Int]("citizen_biosample_id")
+
   def publicationId = column[Int]("publication_id")
+
   def originalYHaplogroup = column[Option[HaplogroupResult]]("y_haplogroup_result")
+
   def originalMtHaplogroup = column[Option[HaplogroupResult]]("mt_haplogroup_result")
+
   def notes = column[Option[String]]("notes")
 
   // Foreign key relationships

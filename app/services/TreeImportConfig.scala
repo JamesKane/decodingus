@@ -1,7 +1,8 @@
 package services
 
-import javax.inject.{Inject, Singleton}
 import play.api.Configuration
+
+import javax.inject.{Inject, Singleton}
 
 @Singleton
 class TreeImportConfig @Inject()(configuration: Configuration) {

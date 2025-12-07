@@ -14,8 +14,8 @@ import java.time.LocalDateTime
  * @param fileFormat      The format of the file (e.g., FASTQ, BAM, etc.).
  * @param aligner         The name of the aligner tool used for processing the sequence data.
  * @param targetReference The reference genome or target against which the sequence data was aligned.
- * @param createdAt      The timestamp when the sequence file was created in the system.
- * @param updatedAt      An optional timestamp indicating the last update time for the sequence file.
+ * @param createdAt       The timestamp when the sequence file was created in the system.
+ * @param updatedAt       An optional timestamp indicating the last update time for the sequence file.
  */
 case class SequenceFile(
                          id: Option[Int],

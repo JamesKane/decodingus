@@ -106,8 +106,8 @@ trait PublicationGenomicStudyRepository {
 
 @Singleton
 class PublicationGenomicStudyRepositoryImpl @Inject()(
-                                                   dbConfigProvider: DatabaseConfigProvider
-                                                 )(implicit ec: ExecutionContext)
+                                                       dbConfigProvider: DatabaseConfigProvider
+                                                     )(implicit ec: ExecutionContext)
   extends BaseRepository(dbConfigProvider)
     with PublicationGenomicStudyRepository {
 

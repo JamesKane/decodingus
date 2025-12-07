@@ -81,8 +81,7 @@ class HaplogroupRevisionRepositoryImpl @Inject()(
     with HaplogroupRevisionRepository {
 
   import models.dal.DatabaseSchema.*
-  import models.dal.DatabaseSchema.domain.haplogroups.haplogroups
-  import models.dal.DatabaseSchema.domain.haplogroups.haplogroupRelationships
+  import models.dal.DatabaseSchema.domain.haplogroups.{haplogroupRelationships, haplogroups}
   import models.dal.MyPostgresProfile.api.*
 
 

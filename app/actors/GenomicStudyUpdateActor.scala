@@ -1,18 +1,19 @@
 package actors
 
-import javax.inject.Inject
 import models.domain.publications.{PublicationGenomicStudy, StudySource}
 import org.apache.pekko.actor.Actor
-import org.apache.pekko.stream.{Materializer, ThrottleMode}
 import org.apache.pekko.stream.scaladsl.{Sink, Source}
+import org.apache.pekko.stream.{Materializer, ThrottleMode}
 import repositories.{BiosampleRepository, GenomicStudyRepository, PublicationBiosampleRepository, PublicationGenomicStudyRepository}
 import services.GenomicStudyService
 
-import scala.concurrent.{ExecutionContextExecutor, Future}
+import javax.inject.Inject
 import scala.concurrent.duration.*
+import scala.concurrent.{ExecutionContextExecutor, Future}
 
 object GenomicStudyUpdateActor {
   case class UpdateStudy(accession: String, source: StudySource, publicationId: Option[Int])
+
   case class UpdateResult(accession: String, success: Boolean, message: String)
 }
 
@@ -23,6 +24,7 @@ class GenomicStudyUpdateActor @Inject()(
                                          publicationStudyRepository: PublicationGenomicStudyRepository,
                                          publicationBiosampleRepository: PublicationBiosampleRepository
                                        ) extends Actor {
+
   import GenomicStudyUpdateActor.*
 
   implicit val materializer: Materializer = Materializer(context.system)
@@ -30,7 +32,7 @@ class GenomicStudyUpdateActor @Inject()(
 
   // Rate limiting configuration
   private val elementsPerUnit = 1
-  private val perDuration = 2.second  // Increased to handle NCBI rate limits
+  private val perDuration = 2.second // Increased to handle NCBI rate limits
   private val maxBurst = 1
   private val throttleMode = ThrottleMode.shaping
 

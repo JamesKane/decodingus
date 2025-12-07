@@ -1,12 +1,11 @@
 package controllers
 
 import org.webjars.play.WebJarsUtil
-
-import javax.inject.*
 import play.api.*
 import play.api.cache.{Cached, SyncCacheApi}
-import play.api.mvc.{Action, *}
+import play.api.mvc.*
 
+import javax.inject.*
 import scala.concurrent.duration.DurationInt
 
 /**
@@ -123,7 +122,7 @@ class HomeController @Inject()(val controllerComponents: ControllerComponents,
         } else {
           "http"
         }
-      }://${request.host}"
+      }: //${request.host}"
 
         val apiDocsUrl = s"""  <url>
                        |    <loc>$baseUrl/api/docs</loc>

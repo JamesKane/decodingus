@@ -6,15 +6,26 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@@1.10.5/font/bootstrap-icons.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
     <style>
-            .sex-male { color: #0077BB; }
-            .sex-female { color: #EE3377; }
-            .sex-unknown { color: #777777; }
+            .sex-male {
+                color: #0077BB;
+            }
+
+            .sex-female {
+                color: #EE3377;
+            }
+
+            .sex-unknown {
+                color: #777777;
+            }
+
             .search-indicator {
                 display: none;
             }
+
             .htmx-request .search-indicator {
                 display: inline-block;
             }
+
             .htmx-request .search-icon {
                 display: none;
             }
@@ -44,25 +55,26 @@
                         </span>
                     </span>
                     <input type="text"
-                           class="form-control"
-                           id="publication-search"
-                           name="query"
-                           placeholder="Search by title, author, or abstract..."
-                           hx-get="@controllers.routes.PublicationController.getAllPublicationsWithDetailsHtml(Some(1), None, None)"
-                           hx-trigger="input changed delay:300ms, search"
-                           hx-target="#publications-container"
-                           hx-swap="innerHTML"
-                           hx-indicator="#search-box"
-                           autocomplete="off">
+                    class="form-control"
+                    id="publication-search"
+                    name="query"
+                    placeholder="Search by title, author, or abstract..."
+                    hx-get="@controllers.routes.PublicationController.getAllPublicationsWithDetailsHtml(Some(1), None, None)"
+                    hx-trigger="input changed delay:300ms, search"
+                    hx-target="#publications-container"
+                    hx-swap="innerHTML"
+                    hx-indicator="#search-box"
+                    autocomplete="off">
                     <button class="btn btn-outline-secondary"
-                            type="button"
-                            id="clear-search"
-                            title="Clear search"
-                            onclick="clearSearch()">
+                    type="button"
+                    id="clear-search"
+                    title="Clear search"
+                    onclick="clearSearch()">
                         <i class="bi bi-x-lg"></i>
                     </button>
                 </div>
-                <small class="text-muted">Search filters publications by title, author names, or abstract content</small>
+                <small class="text-muted">
+                    Search filters publications by title, author names, or abstract content</small>
             </div>
         </div>
 
@@ -76,10 +88,10 @@
     </main>
 
     <script>
-        function clearSearch() {
-            const searchInput = document.getElementById('publication-search');
-            searchInput.value = '';
-            htmx.trigger(searchInput, 'search');
-        }
+            function clearSearch() {
+                const searchInput = document.getElementById('publication-search');
+                searchInput.value = '';
+                htmx.trigger(searchInput, 'search');
+            }
     </script>
 }

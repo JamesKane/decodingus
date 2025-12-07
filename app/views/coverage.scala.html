@@ -49,9 +49,11 @@
                     help you verify:
                 </p>
                 <ul class="mb-0">
-                    <li><strong>Data quantity:</strong> Does the delivered data match the advertised amount and read length?</li>
+                    <li><strong>Data quantity:</strong>
+                        Does the delivered data match the advertised amount and read length?</li>
                     <li><strong>Data quality:</strong> Are the reads accurately aligned to the reference genome?</li>
-                    <li><strong>Usable coverage:</strong> How much of the genome can reliably be analyzed for variants?</li>
+                    <li><strong>Usable coverage:</strong>
+                        How much of the genome can reliably be analyzed for variants?</li>
                 </ul>
             </div>
 
@@ -117,11 +119,11 @@
             }
 
             document.addEventListener('DOMContentLoaded', loadLabs);
-            document.addEventListener('htmx:afterSettle', function(event) {
+            document.addEventListener('htmx:afterSettle', function (event) {
                 if (document.getElementById('lab-select')) loadLabs();
             });
 
-            document.body.addEventListener('change', function(e) {
+            document.body.addEventListener('change', function (e) {
                 if (e.target.id !== 'lab-select') return;
 
                 const labId = e.target.value;

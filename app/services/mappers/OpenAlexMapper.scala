@@ -1,8 +1,8 @@
 package services.mappers
 
+import models.domain.publications.Publication
 import play.api.Logging
 import play.api.libs.json.{JsArray, JsValue}
-import models.domain.publications.Publication
 
 import java.time.LocalDate
 import java.time.format.DateTimeParseException

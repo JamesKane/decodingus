@@ -1,8 +1,8 @@
+@import controllers.routes.TreeController
 @import models.HaplogroupType
 @import models.HaplogroupType.{MT, Y}
 @import models.api.TreeDTO
 @import models.view.TreeViewModel
-@import controllers.routes.TreeController
 
 @(tree: TreeDTO, hapType: HaplogroupType, renderedTreeData: Option[TreeViewModel], currentUrl: String)
 
@@ -30,12 +30,12 @@
                 <meta itemprop="position" content="${index + 1}"/>
             </li>
         }
-    <li class="breadcrumb-item active" aria-current="page" itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
-        <a href="@currentUrl" itemprop="item">
-            <span itemprop="name">@tree.name</span>
-        </a>
-        <meta itemprop="position" content="${tree.crumbs.size + 1}"/>
-    </li>
+        <li class="breadcrumb-item active" aria-current="page" itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
+            <a href="@currentUrl" itemprop="item">
+                <span itemprop="name">@tree.name</span>
+            </a>
+            <meta itemprop="position" content="${tree.crumbs.size + 1}"/>
+        </li>
     </ol>
 </nav>
 
@@ -56,51 +56,54 @@
 
 <div id="tree-and-sidebar-container">
     <div id="phylogenetic-tree-root">
-        @renderedTreeData.map { rtd =>
-        <svg id="phylogenetic-tree-svg" width="@rtd.svgWidth" height="@rtd.svgHeight">
+    @renderedTreeData.map { rtd =>
+    <svg id="phylogenetic-tree-svg" width="@rtd.svgWidth" height="@rtd.svgHeight">
 
-            @for(link <- rtd.allLinks) {
-                <path class="link" d="@link.pathData"></path>
-            }
-
-            @for(node <- rtd.allNodes) {
-                <g class="node">
-                    <rect class="node-rect"
-                    x="@(node.y - 75)"
-                    y="@(node.x - 12)"
-                    width="150" height="24" rx="3" ry="3"
-                    hx-get="@fragmentUrl(Option(node.name))"
-                    hx-target="#tree-container"
-                    hx-push-url="@fullPageUrl(Option(node.name))"
-                              style="fill: @node.fillColor ; stroke: black; cursor: pointer;">
-                            <title>@node.name (Click to re-root)</title>
-                    </rect>
-                    <text class="node-name"
-                    x="@(node.y - 75 + 5)"
-                    y="@(node.x)"
-                    text-anchor="start">
-                    @node.name
-                    </text>
-                    @if(node.variantsCount.nonEmpty) {
-                        <text class="node-variant-count"
-                        x="@(node.y - 75 + 145)"
-                        y="@(node.x)"
-                        text-anchor="end"
-                        hx-get="@TreeController.getSnpDetailSidebar(node.name, hapType)"
-                        hx-target="#snpDetailSidebarPlaceholder"
-                        hx-swap="outerHTML"
-                        hx-trigger="click"
-                                  style="cursor: pointer;">
-                                @node.variantsCount.get
-                        <title>Click to see @node.variantsCount.get defining Variants(s)</title>
-                        </text>
-                    }
-                </g>
-            }
-        </svg>
-        }.getOrElse {
-            <div class="alert alert-warning">No tree data available</div>
+        @for(link <- rtd.allLinks) {
+            <path class="link" d="@link.pathData"></path>
         }
+
+        @for(node <- rtd.allNodes) {
+            <g class="node">
+                <rect class="node-rect"
+                x="@(node.y - 75)"
+                y="@(node.x - 12)"
+                width="150" height="24" rx="3" ry="3"
+                hx-get="@fragmentUrl(Option(node.name))"
+                hx-target="#tree-container"
+                hx-push-url="@fullPageUrl(Option(node.name))"
+                style="fill:
+                @node.fillColor ;
+                    stroke: black;
+                    cursor: pointer;">
+                    <title>@node.name (Click to re-root)</title>
+                </rect>
+                <text class="node-name"
+                x="@(node.y - 75 + 5)"
+                y="@(node.x)"
+                text-anchor="start">
+                @node.name
+                </text>
+                @if(node.variantsCount.nonEmpty) {
+                    <text class="node-variant-count"
+                    x="@(node.y - 75 + 145)"
+                    y="@(node.x)"
+                    text-anchor="end"
+                    hx-get="@TreeController.getSnpDetailSidebar(node.name, hapType)"
+                    hx-target="#snpDetailSidebarPlaceholder"
+                    hx-swap="outerHTML"
+                    hx-trigger="click"
+                    style="cursor: pointer;">
+                        @node.variantsCount.get
+                        <title>Click to see @node.variantsCount.get defining Variants(s)</title>
+                    </text>
+                }
+            </g>
+        }
+    </svg>
+    }.getOrElse {
+        <div class="alert alert-warning">No tree data available</div>
+    }
     </div>
 
     <div id="snpDetailSidebarPlaceholder"></div>
@@ -118,14 +121,13 @@
             /* Add styles for scroll indicators */
             background-image: linear-gradient(to right, #f0f0f0, #f0f0f0),
             linear-gradient(to right, #f0f0f0, #f0f0f0),
-            linear-gradient(to right, rgba(0,0,0,0.25), rgba(255,255,255,0)),
-            linear-gradient(to left, rgba(0,0,0,0.25), rgba(255,255,255,0));
+            linear-gradient(to right, rgba(0, 0, 0, 0.25), rgba(255, 255, 255, 0)),
+            linear-gradient(to left, rgba(0, 0, 0, 0.25), rgba(255, 255, 255, 0));
             background-position: left center, right center, left center, right center;
             background-repeat: no-repeat;
             background-size: 20px 100%, 20px 100%, 10px 100%, 10px 100%;
             background-attachment: local, local, scroll, scroll;
         }
-
 
 
         .node {

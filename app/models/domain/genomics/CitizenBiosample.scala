@@ -1,6 +1,7 @@
 package models.domain.genomics
 
 import com.vividsolutions.jts.geom.Point
+
 import java.time.{LocalDate, LocalDateTime}
 import java.util.UUID
 

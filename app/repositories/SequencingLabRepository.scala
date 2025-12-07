@@ -9,16 +9,20 @@ import scala.concurrent.{ExecutionContext, Future}
 
 trait SequencingLabRepository {
   def list(): Future[Seq[SequencingLab]]
+
   def findById(id: Int): Future[Option[SequencingLab]]
+
   def create(lab: SequencingLab): Future[SequencingLab]
+
   def update(id: Int, update: SequencingLab): Future[Option[SequencingLab]]
+
   def delete(id: Int): Future[Boolean]
 }
 
 @Singleton
 class SequencingLabRepositoryImpl @Inject()(
-  override protected val dbConfigProvider: DatabaseConfigProvider
-)(implicit override protected val ec: ExecutionContext)
+                                             override protected val dbConfigProvider: DatabaseConfigProvider
+                                           )(implicit override protected val ec: ExecutionContext)
   extends BaseRepository(dbConfigProvider) with SequencingLabRepository {
 
   import models.dal.MyPostgresProfile.api.*

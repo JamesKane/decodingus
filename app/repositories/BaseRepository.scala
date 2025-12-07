@@ -5,7 +5,6 @@ import models.dal.{DatabaseSchema, MyPostgresProfile}
 import play.api.db.slick.{DatabaseConfigProvider, HasDatabaseConfigProvider}
 import slick.jdbc.GetResult
 
-
 import scala.concurrent.{ExecutionContext, Future}
 
 /**
@@ -39,7 +38,8 @@ abstract class BaseRepository @Inject()(
 
   // Required for Slick operators
   protected val api = models.dal.MyPostgresProfile.api
-  import api.*  // This brings === and other operators into scope
+
+  import api.* // This brings === and other operators into scope
 
 
   // Common schema access

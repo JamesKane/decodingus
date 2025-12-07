@@ -23,34 +23,38 @@
                 <tr>
                     <td>@sample.sampleName</td>
                     <td>
-                    @{sample.accession match {
-                        case acc if acc.startsWith("SAMN") => {
-                                <a href={s"https://www.ncbi.nlm.nih.gov/biosample/${acc}"}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                class="text-monospace">
-                                {acc}
-                                </a>
+                    @{
+                        sample.accession match {
+                            case acc if acc.startsWith("SAMN") => {
+                                    <a href={s"https://www.ncbi.nlm.nih.gov/biosample/${acc}"}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    class="text-monospace">
+                                    {acc}
+                                    </a>
+                            }
+                            case acc if acc.startsWith("ERS") || acc.startsWith("SAM") => {
+                                    <a href={s"https://www.ebi.ac.uk/ena/browser/view/${acc}"}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    class="text-monospace">
+                                    {acc}
+                                    </a>
+                            }
+                            case acc => {
+                                    <span class="text-monospace">{acc}</span>
+                            }
                         }
-                        case acc if acc.startsWith("ERS") || acc.startsWith("SAM") => {
-                                <a href={s"https://www.ebi.ac.uk/ena/browser/view/${acc}"}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                class="text-monospace">
-                                {acc}
-                                </a>
-                        }
-                        case acc => {
-                                <span class="text-monospace">{acc}</span>
-                        }
-                    }}
+                    }
                     </td>
                     <td>@sample.formattedOrigin</td>
                     <td>
-                        <span class="badge @{sample.sampleType match {
-                            case BiosampleType.Ancient => "bg-warning"
-                            case _ => "bg-secondary"
-                        }}">
+                        <span class="badge @{
+                            sample.sampleType match {
+                                case BiosampleType.Ancient => "bg-warning"
+                                case _ => "bg-secondary"
+                            }
+                        }">
                         @sample.sampleTypeDescription
                         </span>
                     </td>
@@ -94,7 +98,9 @@
         @if(paginatedResult.hasPreviousPage) {
             <button class="btn btn-outline-secondary btn-sm"
             hx-get="@routes.BiosampleReportController.getBiosampleReportHTML(publicationId, Some(paginatedResult.currentPage - 1))"
-            hx-target="#biosample-content-@{publicationId}"
+            hx-target="#biosample-content-@{
+                publicationId
+            }"
             hx-swap="innerHTML">
                 Previous
             </button>
@@ -103,7 +109,9 @@
         @if(paginatedResult.hasNextPage) {
             <button class="btn btn-outline-secondary btn-sm"
             hx-get="@routes.BiosampleReportController.getBiosampleReportHTML(publicationId, Some(paginatedResult.currentPage + 1))"
-            hx-target="#biosample-content-@{publicationId}"
+            hx-target="#biosample-content-@{
+                publicationId
+            }"
             hx-swap="innerHTML">
                 Next
             </button>

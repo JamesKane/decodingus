@@ -5,8 +5,7 @@ import play.api.libs.json.{JsError, JsSuccess, Json}
 import play.api.libs.ws.WSClient
 import play.api.{Configuration, Logging}
 
-import scala.concurrent.duration.* // Import for FiniteDuration
-
+import scala.concurrent.duration.*
 import scala.concurrent.{ExecutionContext, Future}
 
 /**
@@ -14,14 +13,14 @@ import scala.concurrent.{ExecutionContext, Future}
  *
  * This client provides methods to resolve DIDs to PDS endpoints and verify repository commits.
  *
- * @param ws The `WSClient` used for making HTTP requests.
+ * @param ws            The `WSClient` used for making HTTP requests.
  * @param configuration Play configuration for settings like timeouts.
- * @param ec The execution context for asynchronous operations.
+ * @param ec            The execution context for asynchronous operations.
  */
 class ATProtocolClient @Inject()(
-  ws: WSClient,
-  configuration: Configuration
-)(implicit ec: ExecutionContext) extends Logging {
+                                  ws: WSClient,
+                                  configuration: Configuration
+                                )(implicit ec: ExecutionContext) extends Logging {
 
   private val timeout: FiniteDuration = configuration.getOptional[Int]("atproto.client.timeout").getOrElse(5000).millis
 
@@ -44,8 +43,8 @@ class ATProtocolClient @Inject()(
   /**
    * Verifies a PDS and retrieves its latest commit information using the provided authentication token.
    *
-   * @param pdsUrl The base URL of the PDS.
-   * @param repoDid The DID of the repository on the PDS.
+   * @param pdsUrl    The base URL of the PDS.
+   * @param repoDid   The DID of the repository on the PDS.
    * @param authToken The authentication token (JWT) for accessing the PDS.
    * @return A Future containing `Option[LatestCommitResponse]` if successful, otherwise None.
    */
@@ -82,10 +81,10 @@ class ATProtocolClient @Inject()(
 // This is a simplified representation. The actual response might be more complex.
 // Based on AT Protocol spec, getCommit returns 'cid', 'rev', 'seq' etc.
 case class LatestCommitResponse(
-  cid: String, // The CID of the latest commit
-  rev: String, // The repository revision
-  seq: Long    // The sequence number of the latest commit
-)
+                                 cid: String, // The CID of the latest commit
+                                 rev: String, // The repository revision
+                                 seq: Long // The sequence number of the latest commit
+                               )
 
 object LatestCommitResponse {
   implicit val format: play.api.libs.json.Format[LatestCommitResponse] = Json.format[LatestCommitResponse]

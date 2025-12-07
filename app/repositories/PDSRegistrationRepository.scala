@@ -3,8 +3,8 @@ package repositories
 import models.PDSRegistration
 import models.dal.MetadataSchema.pdsRegistrations
 import play.api.db.slick.{DatabaseConfigProvider, HasDatabaseConfigProvider}
-import slick.jdbc.JdbcProfile
 import play.db.NamedDatabase
+import slick.jdbc.JdbcProfile
 
 import java.time.ZonedDateTime
 import javax.inject.{Inject, Singleton}
@@ -12,10 +12,10 @@ import scala.concurrent.{ExecutionContext, Future}
 
 @Singleton
 class PDSRegistrationRepository @Inject()(
-  @NamedDatabase("metadata") protected val dbConfigProvider: DatabaseConfigProvider
-)(implicit ec: ExecutionContext) extends HasDatabaseConfigProvider[JdbcProfile] {
+                                           @NamedDatabase("metadata") protected val dbConfigProvider: DatabaseConfigProvider
+                                         )(implicit ec: ExecutionContext) extends HasDatabaseConfigProvider[JdbcProfile] {
 
-  import profile.api._
+  import profile.api.*
 
   def create(pdsRegistration: PDSRegistration): Future[PDSRegistration] = db.run {
     pdsRegistrations += pdsRegistration

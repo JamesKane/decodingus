@@ -4,6 +4,7 @@ import models.api.{BiosampleOperationResponse, ExternalBiosampleRequest}
 import sttp.tapir.*
 import sttp.tapir.generic.auto.*
 import sttp.tapir.json.play.*
+
 import java.util.UUID
 
 object CitizenBiosampleEndpoints {

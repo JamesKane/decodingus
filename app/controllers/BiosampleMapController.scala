@@ -1,9 +1,9 @@
 package controllers
 
-import play.api.mvc.*
-import play.api.libs.json.*
 import models.dal.domain.genomics.BiosamplesTable
 import org.webjars.play.WebJarsUtil
+import play.api.libs.json.*
+import play.api.mvc.*
 import repositories.BiosampleRepository
 
 import javax.inject.*

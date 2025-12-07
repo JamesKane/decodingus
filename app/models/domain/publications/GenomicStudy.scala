@@ -1,6 +1,6 @@
 package models.domain.publications
 
-import play.api.libs.json.{Format, JsString, Json, OFormat, Reads, Writes}
+import play.api.libs.json.*
 
 enum StudySource:
   case ENA, NCBI_BIOPROJECT, NCBI_GENBANK

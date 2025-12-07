@@ -2,8 +2,8 @@ package controllers
 
 import actions.ApiSecurityAction
 import jakarta.inject.{Inject, Singleton}
-import models.api.{SequencerLabInfo, SequencerLabInstrumentsResponse}
 import models.api.genomics.AssociateLabWithInstrumentRequest
+import models.api.{SequencerLabInfo, SequencerLabInstrumentsResponse}
 import play.api.libs.json.Json
 import play.api.mvc.{AbstractController, Action, AnyContent, ControllerComponents}
 import repositories.SequencerInstrumentRepository

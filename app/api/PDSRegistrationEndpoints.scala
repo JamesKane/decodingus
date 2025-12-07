@@ -8,11 +8,11 @@ import sttp.tapir.json.play.*
 
 // --- DTOs (Data Transfer Objects) ---
 case class PdsRegistrationRequest(
-  did: String,
-  handle: String,
-  pdsUrl: String,
-  rToken: String
-)
+                                   did: String,
+                                   handle: String,
+                                   pdsUrl: String,
+                                   rToken: String
+                                 )
 
 object PdsRegistrationRequest {
   implicit val format: Format[PdsRegistrationRequest] = Json.format[PdsRegistrationRequest]

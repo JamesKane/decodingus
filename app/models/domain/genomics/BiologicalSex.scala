@@ -1,6 +1,6 @@
 package models.domain.genomics
 
-import play.api.libs.json.{Format, JsError, JsResult, JsString, JsSuccess, JsValue}
+import play.api.libs.json.*
 
 /**
  * Represents the biological sex of an individual or specimen. 
@@ -18,7 +18,7 @@ enum BiologicalSex {
     case Male => "male"
     case Female => "female"
     case Unknown => "unknown"
-    case Intersex => "intersex" 
+    case Intersex => "intersex"
   }
 }
 

@@ -17,10 +17,10 @@ import scala.concurrent.{ExecutionContext, Future}
  */
 @Singleton
 class SequencingLabAdminController @Inject()(
-  cc: ControllerComponents,
-  secureApi: ApiSecurityAction,
-  labs: SequencingLabRepository
-)(implicit ec: ExecutionContext) extends AbstractController(cc) {
+                                              cc: ControllerComponents,
+                                              secureApi: ApiSecurityAction,
+                                              labs: SequencingLabRepository
+                                            )(implicit ec: ExecutionContext) extends AbstractController(cc) {
 
   // List all labs
   def list: Action[AnyContent] = secureApi.async { _ =>
@@ -31,7 +31,7 @@ class SequencingLabAdminController @Inject()(
   def get(id: Int): Action[AnyContent] = secureApi.async { _ =>
     labs.findById(id).map {
       case Some(l) => Ok(Json.toJson(l))
-      case None    => NotFound(Json.obj("error" -> s"Sequencing lab $id not found"))
+      case None => NotFound(Json.obj("error" -> s"Sequencing lab $id not found"))
     }
   }
 
@@ -66,7 +66,7 @@ class SequencingLabAdminController @Inject()(
         )
         labs.update(id, updated).map {
           case Some(u) => Ok(Json.toJson(u))
-          case None    => InternalServerError(Json.obj("error" -> "Failed to update sequencing lab"))
+          case None => InternalServerError(Json.obj("error" -> "Failed to update sequencing lab"))
         }
     }
   }
@@ -74,7 +74,7 @@ class SequencingLabAdminController @Inject()(
   // Delete a lab
   def delete(id: Int): Action[AnyContent] = secureApi.async { _ =>
     labs.delete(id).map {
-      case true  => NoContent
+      case true => NoContent
       case false => NotFound(Json.obj("error" -> s"Sequencing lab $id not found"))
     }
   }

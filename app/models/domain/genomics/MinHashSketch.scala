@@ -2,7 +2,6 @@ package models.domain.genomics
 
 import play.api.libs.json.{Format, Json}
 
-
 import java.nio.ByteBuffer
 import java.time.LocalDateTime
 
@@ -21,7 +20,7 @@ object MinHashSketch {
   }
 }
 
-  case class SequenceLibrarySketch(
+case class SequenceLibrarySketch(
                                   id: Option[Int] = None,
                                   sequenceLibraryId: Int,
                                   autosomalSketch: MinHashSketch,

@@ -1,8 +1,8 @@
 package repositories
 
 import jakarta.inject.{Inject, Singleton}
-import models.domain.genomics.SequenceLibrary
 import models.dal.{DatabaseSchema, MyPostgresProfile}
+import models.domain.genomics.SequenceLibrary
 import play.api.db.slick.DatabaseConfigProvider
 
 import java.time.LocalDateTime
@@ -54,7 +54,7 @@ trait SequenceLibraryRepository {
    * Finds all sequence libraries created within a date range.
    *
    * @param start start date-time
-   * @param end end date-time
+   * @param end   end date-time
    * @return a future containing a sequence of matching libraries
    */
   def findByDateRange(start: LocalDateTime, end: LocalDateTime): Future[Seq[SequenceLibrary]]
@@ -71,7 +71,7 @@ class SequenceLibraryRepositoryImpl @Inject()(
   extends BaseRepository(dbConfigProvider)
     with SequenceLibraryRepository {
 
-  import models.dal.MyPostgresProfile.api._
+  import models.dal.MyPostgresProfile.api.*
 
   private val sequenceLibraries = DatabaseSchema.domain.genomics.sequenceLibraries
 

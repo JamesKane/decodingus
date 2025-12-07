@@ -5,6 +5,7 @@ import slick.jdbc.PostgresProfile.api.*
 
 class PublicationCitizenBiosamplesTable(tag: Tag) extends Table[PublicationCitizenBiosample](tag, "publication_citizen_biosample") {
   def publicationId = column[Int]("publication_id")
+
   def citizenBiosampleId = column[Int]("citizen_biosample_id")
 
   def * = (publicationId, citizenBiosampleId).mapTo[PublicationCitizenBiosample]

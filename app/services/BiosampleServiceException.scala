@@ -2,6 +2,7 @@ package services
 
 sealed trait BiosampleServiceException extends RuntimeException {
   def message: String
+
   override def getMessage: String = message
 }
 

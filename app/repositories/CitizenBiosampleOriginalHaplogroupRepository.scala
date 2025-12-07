@@ -10,6 +10,7 @@ import scala.concurrent.{ExecutionContext, Future}
 
 trait CitizenBiosampleOriginalHaplogroupRepository {
   def create(info: CitizenBiosampleOriginalHaplogroup): Future[CitizenBiosampleOriginalHaplogroup]
+
   def deleteByCitizenBiosampleId(citizenBiosampleId: Int): Future[Int]
 }
 

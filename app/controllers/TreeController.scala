@@ -11,8 +11,8 @@ import play.api.mvc.*
 import services.{ApiRoute, FragmentRoute, HaplogroupTreeService}
 
 import javax.inject.*
-import scala.concurrent.{ExecutionContext, Future}
 import scala.concurrent.duration.DurationInt
+import scala.concurrent.{ExecutionContext, Future}
 
 /**
  * Controller responsible for handling actions related to haplogroup trees.
@@ -96,8 +96,8 @@ class TreeController @Inject()(val controllerComponents: ControllerComponents,
       200,
       24.hours
     ) {
-    treeAction(rootHaplogroup, YConfig, ApiRoute)
-  }
+      treeAction(rootHaplogroup, YConfig, ApiRoute)
+    }
 
   /**
    * Handles API requests to retrieve the MT-DNA haplogroup tree structure.
@@ -180,10 +180,10 @@ class TreeController @Inject()(val controllerComponents: ControllerComponents,
    * Returns a cached tree fragment response, using the async cache API.
    */
   private def cachedTreeFragment(
-    rootHaplogroup: Option[String],
-    config: TreeConfig,
-    cacheKey: String
-  )(using request: Request[AnyContent]): Future[Result] = {
+                                  rootHaplogroup: Option[String],
+                                  config: TreeConfig,
+                                  cacheKey: String
+                                )(using request: Request[AnyContent]): Future[Result] = {
     cache.getOrElseUpdate(cacheKey, 24.hours) {
       buildTreeFragment(rootHaplogroup, config)
     }
@@ -193,9 +193,9 @@ class TreeController @Inject()(val controllerComponents: ControllerComponents,
    * Builds the tree fragment response.
    */
   private def buildTreeFragment(
-    rootHaplogroup: Option[String],
-    config: TreeConfig
-  )(using request: Request[AnyContent]): Future[Result] = {
+                                 rootHaplogroup: Option[String],
+                                 config: TreeConfig
+                               )(using request: Request[AnyContent]): Future[Result] = {
     val haplogroupName = rootHaplogroup.getOrElse(config.defaultRoot)
     val isAbsoluteTopRootView = haplogroupName == config.defaultRoot
 
@@ -221,14 +221,14 @@ class TreeController @Inject()(val controllerComponents: ControllerComponents,
    * This is where TreeLayoutService is now called for FragmentRoute responses.
    *
    * @param rootHaplogroup an optional string specifying the root haplogroup
-   * for the tree. If None, the default root defined in
-   * the configuration is used.
+   *                       for the tree. If None, the default root defined in
+   *                       the configuration is used.
    * @param config         the tree configuration containing settings such
-   * as the default root and haplogroup type.
+   *                       as the default root and haplogroup type.
    * @param routeType      the type of response to generate, either JSON
-   * (for API responses) or HTML fragments.
+   *                       (for API responses) or HTML fragments.
    * @return an Action that produces either a JSON response with the tree
-   * structure or an HTML fragment based on the route type.
+   *         structure or an HTML fragment based on the route type.
    */
   private def treeAction(
                           rootHaplogroup: Option[String],

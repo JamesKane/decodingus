@@ -38,6 +38,7 @@ trait GenomicStudyRepository {
    *         - None if no study is found with the given accession number.
    */
   def findByAccession(accession: String): Future[Option[GenomicStudy]]
+
   /**
    * Retrieves all available accession numbers of genomic studies.
    *
@@ -45,6 +46,7 @@ trait GenomicStudyRepository {
    *         an accession number of a genomic study.
    */
   def getAllAccessions: Future[Seq[String]]
+
   /**
    * Persists the provided genomic study to the data source.
    *
@@ -58,6 +60,7 @@ trait GenomicStudyRepository {
    *         include additional information such as a generated unique identifier if applicable.
    */
   def saveStudy(study: GenomicStudy): Future[GenomicStudy]
+
   /**
    * Retrieves the unique identifier associated with the given genomic study accession number.
    *
@@ -71,8 +74,8 @@ trait GenomicStudyRepository {
 }
 
 class GenomicStudyRepositoryImpl @Inject()(
-                                        protected val dbConfigProvider: DatabaseConfigProvider
-                                      )(implicit ec: ExecutionContext)
+                                            protected val dbConfigProvider: DatabaseConfigProvider
+                                          )(implicit ec: ExecutionContext)
   extends GenomicStudyRepository
     with HasDatabaseConfigProvider[JdbcProfile] {
 

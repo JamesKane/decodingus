@@ -3,7 +3,7 @@ package repositories
 import com.vividsolutions.jts.geom.Point
 import com.vividsolutions.jts.io.WKBReader
 import jakarta.inject.{Inject, Singleton}
-import models.api.{BiosampleWithOrigin, GeoCoord, PopulationInfo, SampleWithStudies, StudyWithHaplogroups}
+import models.api.*
 import models.dal.domain.genomics.BiosamplesTable
 import models.dal.{DatabaseSchema, MyPostgresProfile}
 import models.domain.genomics.{Biosample, BiosampleType, SpecimenDonor}
@@ -121,7 +121,7 @@ trait BiosampleRepository {
 @Singleton
 class BiosampleRepositoryImpl @Inject()(
                                          override protected val dbConfigProvider: DatabaseConfigProvider
-                                       )(implicit override protected  val ec: ExecutionContext)
+                                       )(implicit override protected val ec: ExecutionContext)
   extends BaseRepository(dbConfigProvider)
     with BiosampleRepository {
 
@@ -286,7 +286,7 @@ class BiosampleRepositoryImpl @Inject()(
     """
     rawSQL[Long](query).map(_.head)
   }
-  
+
   override def setLocked(id: Int, locked: Boolean): Future[Boolean] = {
     db.run(
       biosamplesTable
@@ -426,32 +426,30 @@ class BiosampleRepositoryImpl @Inject()(
     getBiosampleWithDonor(biosamplesTable.filter(_.sampleGuid === guid))
   }
 
-    def getAllGeoLocations: Future[Seq[(Point, Int)]] = {
+  def getAllGeoLocations: Future[Seq[(Point, Int)]] = {
 
-      val query = specimenDonorsTable
+    val query = specimenDonorsTable
 
-        .filter(_.geocoord.isDefined)
+      .filter(_.geocoord.isDefined)
 
-        .groupBy(_.geocoord)
+      .groupBy(_.geocoord)
 
-        .map { case (point, group) =>
+      .map { case (point, group) =>
 
-          (point.asColumnOf[Point], group.length)
+        (point.asColumnOf[Point], group.length)
 
-        }
+      }
 
-  
 
-      db.run(query.result)
-
-    }
-
-  
-
-    override def delete(id: Int): Future[Boolean] = {
-
-      db.run(biosamplesTable.filter(_.id === id).delete.map(_ > 0))
-
-    }
+    db.run(query.result)
 
   }
+
+
+  override def delete(id: Int): Future[Boolean] = {
+
+    db.run(biosamplesTable.filter(_.id === id).delete.map(_ > 0))
+
+  }
+
+}

@@ -39,7 +39,7 @@ class BaseModule extends AbstractModule {
     bind(classOf[PublicationGenomicStudyRepository])
       .to(classOf[PublicationGenomicStudyRepositoryImpl])
       .asEagerSingleton()
-    
+
     bind(classOf[BiosampleOriginalHaplogroupRepository])
       .to(classOf[BiosampleOriginalHaplogroupRepositoryImpl])
       .asEagerSingleton()
@@ -67,7 +67,7 @@ class BaseModule extends AbstractModule {
     bind(classOf[SpecimenDonorRepository])
       .to(classOf[SpecimenDonorRepositoryImpl])
       .asEagerSingleton()
-    
+
     bind(classOf[SequencerInstrumentRepository]).to(classOf[SequencerInstrumentRepositoryImpl])
 
     bind(classOf[SequencingLabRepository])

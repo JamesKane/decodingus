@@ -22,8 +22,8 @@ import scala.concurrent.{ExecutionContext, Future}
  */
 @Singleton
 class CitizenBiosampleService @Inject()(
-  eventHandler: CitizenBiosampleEventHandler
-)(implicit ec: ExecutionContext) {
+                                         eventHandler: CitizenBiosampleEventHandler
+                                       )(implicit ec: ExecutionContext) {
 
   /**
    * Create a new CitizenBiosample from an API request.

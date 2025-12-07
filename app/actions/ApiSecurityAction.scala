@@ -1,7 +1,7 @@
 package actions
 
 import play.api.libs.json.Reads
-import play.api.mvc._
+import play.api.mvc.*
 
 /**
  * A trait that defines an action builder for handling secure API requests,

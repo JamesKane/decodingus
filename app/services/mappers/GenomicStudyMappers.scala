@@ -1,7 +1,7 @@
 package services.mappers
 
 import com.vividsolutions.jts.geom.{Coordinate, GeometryFactory}
-import models.domain.genomics.{Biosample, BiosampleType, BiologicalSex, SpecimenDonor}
+import models.domain.genomics.{BiologicalSex, Biosample, BiosampleType, SpecimenDonor}
 import models.domain.publications.{GenomicStudy, StudySource}
 import services.ena.{EnaBiosampleData, EnaStudyData}
 import services.ncbi.{SraBiosampleData, SraStudyData}

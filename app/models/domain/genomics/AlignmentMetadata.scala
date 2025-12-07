@@ -8,13 +8,14 @@ import java.time.LocalDateTime
  * Represents the scope level at which alignment metrics are calculated.
  */
 enum MetricLevel {
-  case CONTIG_OVERALL  // Metrics for entire contig
-  case REGION          // Metrics for specific coordinate ranges
+  case CONTIG_OVERALL // Metrics for entire contig
+  case REGION // Metrics for specific coordinate ranges
   case GLOBAL
 }
 
 object MetricLevel {
-  import play.api.libs.json._
+
+  import play.api.libs.json.*
 
   // Use Format instead of OFormat since we're dealing with enums (simple values, not objects)
   implicit val format: Format[MetricLevel] = new Format[MetricLevel] {

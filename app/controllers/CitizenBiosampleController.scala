@@ -5,17 +5,17 @@ import jakarta.inject.{Inject, Singleton}
 import models.api.ExternalBiosampleRequest
 import play.api.libs.json.{Json, OFormat}
 import play.api.mvc.{Action, AnyContent, BaseController, ControllerComponents}
-import services.{BiosampleServiceException, CitizenBiosampleService, DuplicateAccessionException, InvalidCoordinatesException, PublicationLinkageException, SequenceDataValidationException}
+import services.*
 
 import java.util.UUID
 import scala.concurrent.ExecutionContext
 
 @Singleton
 class CitizenBiosampleController @Inject()(
-                                             val controllerComponents: ControllerComponents,
-                                             secureApi: ApiSecurityAction,
-                                             citizenBiosampleService: CitizenBiosampleService
-                                           )(implicit ec: ExecutionContext) extends BaseController {
+                                            val controllerComponents: ControllerComponents,
+                                            secureApi: ApiSecurityAction,
+                                            citizenBiosampleService: CitizenBiosampleService
+                                          )(implicit ec: ExecutionContext) extends BaseController {
 
   def create: Action[ExternalBiosampleRequest] = secureApi.jsonAction[ExternalBiosampleRequest].async { request =>
     citizenBiosampleService.createBiosample(request.body).map { guid =>

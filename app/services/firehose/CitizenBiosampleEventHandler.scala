@@ -6,7 +6,7 @@ import models.api.{ExternalBiosampleRequest, PublicationInfo}
 import models.domain.genomics.{BiosampleType, CitizenBiosample, SpecimenDonor}
 import models.domain.publications.{CitizenBiosampleOriginalHaplogroup, Publication, PublicationCitizenBiosample}
 import play.api.Logging
-import repositories._
+import repositories.*
 import services.{BiosampleDataService, CoordinateValidation}
 
 import java.time.LocalDateTime
@@ -27,13 +27,13 @@ import scala.concurrent.{ExecutionContext, Future}
  */
 @Singleton
 class CitizenBiosampleEventHandler @Inject()(
-  citizenBiosampleRepository: CitizenBiosampleRepository,
-  biosampleDataService: BiosampleDataService,
-  publicationRepository: PublicationRepository,
-  publicationCitizenBiosampleRepository: PublicationCitizenBiosampleRepository,
-  citizenBiosampleOriginalHaplogroupRepository: CitizenBiosampleOriginalHaplogroupRepository,
-  specimenDonorRepository: SpecimenDonorRepository
-)(implicit ec: ExecutionContext) extends CoordinateValidation with Logging {
+                                              citizenBiosampleRepository: CitizenBiosampleRepository,
+                                              biosampleDataService: BiosampleDataService,
+                                              publicationRepository: PublicationRepository,
+                                              publicationCitizenBiosampleRepository: PublicationCitizenBiosampleRepository,
+                                              citizenBiosampleOriginalHaplogroupRepository: CitizenBiosampleOriginalHaplogroupRepository,
+                                              specimenDonorRepository: SpecimenDonorRepository
+                                            )(implicit ec: ExecutionContext) extends CoordinateValidation with Logging {
 
   /**
    * Process a CitizenBiosampleEvent and return a result.
@@ -118,10 +118,10 @@ class CitizenBiosampleEventHandler @Inject()(
   }
 
   private def createBiosample(
-    atUri: String,
-    request: ExternalBiosampleRequest,
-    geocoord: Option[Point]
-  ): Future[FirehoseResult] = {
+                               atUri: String,
+                               request: ExternalBiosampleRequest,
+                               geocoord: Option[Point]
+                             ): Future[FirehoseResult] = {
     for {
       donorId <- resolveOrCreateDonor(request, geocoord)
       sampleGuid = UUID.randomUUID()
@@ -153,10 +153,10 @@ class CitizenBiosampleEventHandler @Inject()(
   }
 
   private def updateBiosample(
-    existing: CitizenBiosample,
-    request: ExternalBiosampleRequest,
-    geocoord: Option[Point]
-  ): Future[FirehoseResult] = {
+                               existing: CitizenBiosample,
+                               request: ExternalBiosampleRequest,
+                               geocoord: Option[Point]
+                             ): Future[FirehoseResult] = {
     for {
       donorId <- if (request.donorIdentifier.isDefined) {
         resolveOrCreateDonor(request, geocoord)
@@ -201,9 +201,9 @@ class CitizenBiosampleEventHandler @Inject()(
   }
 
   private def resolveOrCreateDonor(
-    request: ExternalBiosampleRequest,
-    geocoord: Option[Point]
-  ): Future[Option[Int]] = {
+                                    request: ExternalBiosampleRequest,
+                                    geocoord: Option[Point]
+                                  ): Future[Option[Int]] = {
     val citizenDid = request.citizenDid.orElse(request.atUri.flatMap(extractDidFromAtUri))
 
     (citizenDid, request.donorIdentifier) match {
@@ -230,10 +230,10 @@ class CitizenBiosampleEventHandler @Inject()(
   }
 
   private def handleDataAssociation(
-    guid: UUID,
-    request: ExternalBiosampleRequest,
-    isUpdate: Boolean
-  ): Future[Unit] = {
+                                     guid: UUID,
+                                     request: ExternalBiosampleRequest,
+                                     isUpdate: Boolean
+                                   ): Future[Unit] = {
     val publicationFuture = request.publication
       .map(pub => linkPublication(guid, pub)
         .recoverWith { case e =>

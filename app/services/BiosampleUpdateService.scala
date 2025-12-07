@@ -2,7 +2,7 @@ package services
 
 import jakarta.inject.{Inject, Singleton}
 import models.api.{BiosampleUpdate, BiosampleView}
-import models.domain.genomics.{Biosample, BiosampleType, SpecimenDonor, HaplogroupResult}
+import models.domain.genomics.{Biosample, BiosampleType, HaplogroupResult, SpecimenDonor}
 import models.domain.publications.BiosampleOriginalHaplogroup
 import repositories.{BiosampleOriginalHaplogroupRepository, BiosampleRepository, PublicationBiosampleRepository, SpecimenDonorRepository}
 import utils.GeometryUtils

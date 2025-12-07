@@ -19,7 +19,7 @@ import scala.concurrent.{ExecutionContext, Future}
  */
 class ApiKeyFilter @Inject()(
                               secretsManager: CachedSecretsManagerService
-                            )(implicit ec: ExecutionContext){
+                            )(implicit ec: ExecutionContext) {
 
   private val ApiKeyHeader = "X-API-Key"
 

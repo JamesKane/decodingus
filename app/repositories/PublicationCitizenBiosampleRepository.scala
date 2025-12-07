@@ -11,6 +11,7 @@ import scala.concurrent.{ExecutionContext, Future}
 
 trait PublicationCitizenBiosampleRepository {
   def create(link: PublicationCitizenBiosample): Future[PublicationCitizenBiosample]
+
   def deleteByCitizenBiosampleId(citizenBiosampleId: Int): Future[Int]
 }
 

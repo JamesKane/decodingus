@@ -93,11 +93,12 @@ class PublicationController @Inject()(
   }
 
   def submitPaper() = Action.async { implicit request =>
-    import actors.GenomicStudyUpdateActor.{UpdateStudy, UpdateResult}
+    import actors.GenomicStudyUpdateActor.{UpdateResult, UpdateStudy}
     import models.domain.publications.StudySource
     import org.apache.pekko.pattern.ask
     import org.apache.pekko.util.Timeout
-    import scala.concurrent.duration._
+
+    import scala.concurrent.duration.*
 
     implicit val timeout: Timeout = Timeout(30.seconds)
 

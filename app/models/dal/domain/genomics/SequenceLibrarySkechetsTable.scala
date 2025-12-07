@@ -10,15 +10,19 @@ import java.time.LocalDateTime
 class SequenceLibrarySketchesTable(tag: Tag) extends Table[SequenceLibrarySketch](tag, "sequence_library_sketch") {
 
   def id = column[Int]("id", O.PrimaryKey, O.AutoInc)
+
   def sequenceLibraryId = column[Int]("sequence_library_id")
 
   def autosomalKmerHashes = column[Array[Byte]]("autosomal_kmers", O.SqlType("bytea"))
+
   def autosomalHash = column[String]("autosomal_hash")
 
   def yChromosomeKmerHashes = column[Option[Array[Byte]]]("y_chromosome_kmers", O.SqlType("bytea"))
+
   def yChromosomeHash = column[Option[String]]("y_chromosome_hash")
 
   def mtDnaKmerHashes = column[Option[Array[Byte]]]("mt_dna_kmers", O.SqlType("bytea"))
+
   def mtDnaHash = column[Option[String]]("mt_dna_hash")
 
   def createdAt = column[LocalDateTime]("created_at")
@@ -36,29 +40,25 @@ class SequenceLibrarySketchesTable(tag: Tag) extends Table[SequenceLibrarySketch
   def * = (
     id.?,
     sequenceLibraryId,
-    (autosomalKmerHashes, autosomalHash) <> (
-      { case (bytes: Array[Byte], hash: String) => toMinHashSketch(bytes, hash) },
-      { (sketch: MinHashSketch) =>
-        Some((MinHashSketch.longArrayToBytes(sketch.kmerHashes), sketch.finalHash))
-      }
+    (autosomalKmerHashes, autosomalHash) <> ( {
+      case (bytes: Array[Byte], hash: String) => toMinHashSketch(bytes, hash)
+    }, { (sketch: MinHashSketch) =>
+      Some((MinHashSketch.longArrayToBytes(sketch.kmerHashes), sketch.finalHash))
+    }
     ),
-    (yChromosomeKmerHashes, yChromosomeHash) <> (
-      { (tuple: (Option[Array[Byte]], Option[String])) => toOptionalMinHashSketch(tuple) },
-      { (optSketch: Option[MinHashSketch]) =>
-        Some((
-          optSketch.map(sketch => MinHashSketch.longArrayToBytes(sketch.kmerHashes)),
-          optSketch.map(_.finalHash)
-        ))
-      }
+    (yChromosomeKmerHashes, yChromosomeHash) <> ( { (tuple: (Option[Array[Byte]], Option[String])) => toOptionalMinHashSketch(tuple) }, { (optSketch: Option[MinHashSketch]) =>
+      Some((
+        optSketch.map(sketch => MinHashSketch.longArrayToBytes(sketch.kmerHashes)),
+        optSketch.map(_.finalHash)
+      ))
+    }
     ),
-    (mtDnaKmerHashes, mtDnaHash) <> (
-      { (tuple: (Option[Array[Byte]], Option[String])) => toOptionalMinHashSketch(tuple) },
-      { (optSketch: Option[MinHashSketch]) =>
-        Some((
-          optSketch.map(sketch => MinHashSketch.longArrayToBytes(sketch.kmerHashes)),
-          optSketch.map(_.finalHash)
-        ))
-      }
+    (mtDnaKmerHashes, mtDnaHash) <> ( { (tuple: (Option[Array[Byte]], Option[String])) => toOptionalMinHashSketch(tuple) }, { (optSketch: Option[MinHashSketch]) =>
+      Some((
+        optSketch.map(sketch => MinHashSketch.longArrayToBytes(sketch.kmerHashes)),
+        optSketch.map(_.finalHash)
+      ))
+    }
     ),
     createdAt
   ) <> ((SequenceLibrarySketch.apply _).tupled, SequenceLibrarySketch.unapply)

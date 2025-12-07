@@ -1,8 +1,8 @@
 package repositories
 
 import jakarta.inject.{Inject, Singleton}
-import models.domain.genomics.{SequenceAtpLocation, SequenceHttpLocation}
 import models.dal.{DatabaseSchema, MyPostgresProfile}
+import models.domain.genomics.{SequenceAtpLocation, SequenceHttpLocation}
 import play.api.db.slick.DatabaseConfigProvider
 
 import scala.concurrent.{ExecutionContext, Future}
@@ -56,7 +56,7 @@ class SequenceHttpLocationRepositoryImpl @Inject()(
   extends BaseRepository(dbConfigProvider)
     with SequenceLocationRepository[SequenceHttpLocation] {
 
-  import models.dal.MyPostgresProfile.api._
+  import models.dal.MyPostgresProfile.api.*
 
   private val httpLocations = DatabaseSchema.domain.genomics.sequenceHttpLocations
 
@@ -109,7 +109,7 @@ class SequenceAtpLocationRepositoryImpl @Inject()(
   extends BaseRepository(dbConfigProvider)
     with SequenceLocationRepository[SequenceAtpLocation] {
 
-  import models.dal.MyPostgresProfile.api._
+  import models.dal.MyPostgresProfile.api.*
 
   private val atpLocations = DatabaseSchema.domain.genomics.sequenceAtpLocations
 

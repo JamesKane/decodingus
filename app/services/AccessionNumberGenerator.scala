@@ -21,6 +21,7 @@ case class AccessionMetadata(
  */
 trait AccessionNumberGenerator {
   def generateAccession(biosampleType: BiosampleType, metadata: AccessionMetadata): Future[String]
+
   def decodeAccession(accession: String): Future[Option[Long]] // Added for reverse lookup
 }
 
@@ -33,9 +34,9 @@ trait AccessionNumberGenerator {
  * for encoding and decoding accession numbers.
  *
  * @constructor Creates a new BiosampleAccessionGenerator instance.
- * @param sequenceRepo   Repository for fetching sequence values.
- * @param config         Application configuration for loading settings like hashing salt.
- * @param ec             ExecutionContext for managing asynchronous operations.
+ * @param sequenceRepo Repository for fetching sequence values.
+ * @param config       Application configuration for loading settings like hashing salt.
+ * @param ec           ExecutionContext for managing asynchronous operations.
  */
 @Singleton
 class BiosampleAccessionGenerator @Inject()(

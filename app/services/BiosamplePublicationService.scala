@@ -51,7 +51,7 @@ class BiosamplePublicationService @Inject()(
         case None => Future.failed(new IllegalArgumentException(s"Publication with DOI $doi not found"))
       }
 
-      (biosample, _) = biosampleWithDonor  // Destructure the tuple to get just the biosample
+      (biosample, _) = biosampleWithDonor // Destructure the tuple to get just the biosample
 
       link <- publicationBiosampleRepository.create(
         PublicationBiosample(

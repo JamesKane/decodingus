@@ -44,12 +44,13 @@ object DatabaseSchema {
     )
 
   object domain {
-    import models.dal.domain.user.*
+
     import models.dal.domain.genomics.*
     import models.dal.domain.haplogroups.*
-    import models.dal.domain.pangenome.*
     import models.dal.domain.ibd.*
+    import models.dal.domain.pangenome.*
     import models.dal.domain.publications.*
+    import models.dal.domain.user.*
 
     object user {
       val users = TableQuery[UsersTable]

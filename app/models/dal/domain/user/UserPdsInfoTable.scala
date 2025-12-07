@@ -18,6 +18,7 @@ class UserPdsInfoTable(tag: Tag) extends Table[UserPdsInfo](tag, "user_pds_info"
   def did = column[String]("did", O.Unique)
 
   def createdAt = column[ZonedDateTime]("created_at")
+
   def updatedAt = column[ZonedDateTime]("updated_at")
 
   // Projection for the case class

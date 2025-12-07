@@ -12,26 +12,31 @@ import scala.concurrent.{ExecutionContext, Future}
 
 trait CitizenBiosampleRepository {
   def create(biosample: CitizenBiosample): Future[CitizenBiosample]
+
   def findByGuid(guid: UUID): Future[Option[CitizenBiosample]]
+
   def findByAtUri(atUri: String): Future[Option[CitizenBiosample]]
+
   def findByAccession(accession: String): Future[Option[CitizenBiosample]]
-  
+
   /**
-   * Updates the biosample. 
-   * @param biosample The biosample with new values.
+   * Updates the biosample.
+   *
+   * @param biosample     The biosample with new values.
    * @param expectedAtCid The atCid expected to be currently in the database for this record.
    * @return Future[Boolean] true if update succeeded, false otherwise (e.g. record not found or atCid mismatch).
    */
   def update(biosample: CitizenBiosample, expectedAtCid: Option[String]): Future[Boolean]
-  
+
   def softDelete(guid: UUID): Future[Boolean]
+
   def softDeleteByAtUri(atUri: String): Future[Boolean]
 }
 
 @Singleton
 class CitizenBiosampleRepositoryImpl @Inject()(
-  protected val dbConfigProvider: DatabaseConfigProvider
-)(implicit ec: ExecutionContext) extends CitizenBiosampleRepository with HasDatabaseConfigProvider[MyPostgresProfile] {
+                                                protected val dbConfigProvider: DatabaseConfigProvider
+                                              )(implicit ec: ExecutionContext) extends CitizenBiosampleRepository with HasDatabaseConfigProvider[MyPostgresProfile] {
 
   private val citizenBiosamples = DatabaseSchema.domain.genomics.citizenBiosamples
 
@@ -46,7 +51,7 @@ class CitizenBiosampleRepositoryImpl @Inject()(
   }
 
   override def findByAtUri(atUri: String): Future[Option[CitizenBiosample]] = {
-      db.run(citizenBiosamples.filter(b => b.atUri === atUri && !b.deleted).result.headOption)
+    db.run(citizenBiosamples.filter(b => b.atUri === atUri && !b.deleted).result.headOption)
   }
 
   override def findByAccession(accession: String): Future[Option[CitizenBiosample]] = {
@@ -54,42 +59,42 @@ class CitizenBiosampleRepositoryImpl @Inject()(
   }
 
   override def update(biosample: CitizenBiosample, expectedAtCid: Option[String]): Future[Boolean] = {
-     val query = citizenBiosamples.filter { b => 
-       b.sampleGuid === biosample.sampleGuid && 
-       b.atCid === expectedAtCid
-     }
-     
-     val updateAction = query.map(b => (
-       b.atUri,
-       b.accession,
-       b.alias,
-       b.sourcePlatform, 
-       b.collectionDate, 
-       b.sex, 
-       b.geocoord, 
-       b.description,
-       b.yHaplogroup,
-       b.mtHaplogroup,
-       b.atCid,
-       b.updatedAt,
-       b.deleted
-     )).update((
-       biosample.atUri,
-       biosample.accession,
-       biosample.alias,
-       biosample.sourcePlatform,
-       biosample.collectionDate,
-       biosample.sex,
-       biosample.geocoord,
-       biosample.description,
-       biosample.yHaplogroup,
-       biosample.mtHaplogroup,
-       biosample.atCid,
-       LocalDateTime.now(),
-       biosample.deleted
-     ))
-     
-     db.run(updateAction.map(_ > 0))
+    val query = citizenBiosamples.filter { b =>
+      b.sampleGuid === biosample.sampleGuid &&
+        b.atCid === expectedAtCid
+    }
+
+    val updateAction = query.map(b => (
+      b.atUri,
+      b.accession,
+      b.alias,
+      b.sourcePlatform,
+      b.collectionDate,
+      b.sex,
+      b.geocoord,
+      b.description,
+      b.yHaplogroup,
+      b.mtHaplogroup,
+      b.atCid,
+      b.updatedAt,
+      b.deleted
+    )).update((
+      biosample.atUri,
+      biosample.accession,
+      biosample.alias,
+      biosample.sourcePlatform,
+      biosample.collectionDate,
+      biosample.sex,
+      biosample.geocoord,
+      biosample.description,
+      biosample.yHaplogroup,
+      biosample.mtHaplogroup,
+      biosample.atCid,
+      LocalDateTime.now(),
+      biosample.deleted
+    ))
+
+    db.run(updateAction.map(_ > 0))
   }
 
   override def softDelete(guid: UUID): Future[Boolean] = {

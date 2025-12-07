@@ -1,8 +1,8 @@
 package repositories
 
 import jakarta.inject.{Inject, Singleton}
-import models.domain.genomics.SequenceFileChecksum
 import models.dal.{DatabaseSchema, MyPostgresProfile}
+import models.domain.genomics.SequenceFileChecksum
 import play.api.db.slick.DatabaseConfigProvider
 
 import scala.concurrent.{ExecutionContext, Future}
@@ -51,7 +51,7 @@ trait SequenceFileChecksumRepository {
   /**
    * Finds a sequence file by its checksum value and algorithm.
    *
-   * @param value the checksum value to search for
+   * @param value     the checksum value to search for
    * @param algorithm the algorithm used to generate the checksum
    * @return a future containing an optional checksum if found
    */
@@ -65,7 +65,7 @@ class SequenceFileChecksumRepositoryImpl @Inject()(
   extends BaseRepository(dbConfigProvider)
     with SequenceFileChecksumRepository {
 
-  import models.dal.MyPostgresProfile.api._
+  import models.dal.MyPostgresProfile.api.*
 
   private val checksums = DatabaseSchema.domain.genomics.sequenceFileChecksums
 

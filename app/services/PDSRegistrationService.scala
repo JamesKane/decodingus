@@ -2,23 +2,22 @@ package services
 
 import models.PDSRegistration
 import play.api.Logging
-
-import javax.inject.{Inject, Singleton}
 import repositories.PDSRegistrationRepository
-import java.time.ZonedDateTime // Import ZonedDateTime
 
+import java.time.ZonedDateTime
+import javax.inject.{Inject, Singleton}
 import scala.concurrent.{ExecutionContext, Future}
 
 @Singleton
 class PDSRegistrationService @Inject()(
-  atProtocolClient: ATProtocolClient,
-  pdsRegistrationRepository: PDSRegistrationRepository
-)(implicit ec: ExecutionContext) extends Logging {
+                                        atProtocolClient: ATProtocolClient,
+                                        pdsRegistrationRepository: PDSRegistrationRepository
+                                      )(implicit ec: ExecutionContext) extends Logging {
 
   /**
    * Registers a new PDS, performing server-side verification with the AT Protocol.
    *
-   * @param did The Decentralized Identifier (DID) of the PDS.
+   * @param did    The Decentralized Identifier (DID) of the PDS.
    * @param handle The handle associated with the PDS.
    * @param pdsUrl The base URL of the PDS.
    * @param rToken The AT Protocol authentication token provided by the Researcher Edge App.

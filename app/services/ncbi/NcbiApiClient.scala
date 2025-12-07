@@ -1,14 +1,14 @@
 package services.ncbi
 
-import org.apache.pekko.stream.{Materializer, OverflowStrategy}
 import org.apache.pekko.stream.scaladsl.{Keep, Sink, Source}
+import org.apache.pekko.stream.{Materializer, OverflowStrategy}
 import play.api.Logging
 import play.api.libs.json.{JsArray, JsObject, JsValue}
 import play.api.libs.ws.{WSClient, WSRequest, WSResponse}
 
 import javax.inject.{Inject, Singleton}
-import scala.concurrent.{ExecutionContext, Future, Promise}
 import scala.concurrent.duration.*
+import scala.concurrent.{ExecutionContext, Future, Promise}
 import scala.util.{Failure, Success}
 
 case class NcbiRateLimitException(message: String) extends Exception(message)

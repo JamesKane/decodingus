@@ -1,8 +1,8 @@
 package services.firehose
 
 import models.api.{ExternalBiosampleRequest, ProjectRequest}
-import models.atmosphere._
-import play.api.libs.json.{Format, Json, OFormat, Reads, Writes}
+import models.atmosphere.*
+import play.api.libs.json.*
 
 /**
  * Represents events from the AT Protocol Firehose (or simulated via REST API).
@@ -20,7 +20,9 @@ import play.api.libs.json.{Format, Json, OFormat, Reads, Writes}
  */
 sealed trait FirehoseEvent {
   def atUri: String
+
   def atCid: Option[String]
+
   def action: FirehoseAction
 }
 
@@ -44,11 +46,11 @@ object FirehoseAction {
  * Uses the monolithic ExternalBiosampleRequest payload.
  */
 case class CitizenBiosampleEvent(
-  atUri: String,
-  atCid: Option[String],
-  action: FirehoseAction,
-  payload: Option[ExternalBiosampleRequest]
-) extends FirehoseEvent
+                                  atUri: String,
+                                  atCid: Option[String],
+                                  action: FirehoseAction,
+                                  payload: Option[ExternalBiosampleRequest]
+                                ) extends FirehoseEvent
 
 object CitizenBiosampleEvent {
   implicit val format: OFormat[CitizenBiosampleEvent] = Json.format
@@ -82,11 +84,11 @@ object CitizenBiosampleEvent {
  * Event for Project operations (Legacy/Phase 1).
  */
 case class ProjectEvent(
-  atUri: String,
-  atCid: Option[String],
-  action: FirehoseAction,
-  payload: Option[ProjectRequest]
-) extends FirehoseEvent
+                         atUri: String,
+                         atCid: Option[String],
+                         action: FirehoseAction,
+                         payload: Option[ProjectRequest]
+                       ) extends FirehoseEvent
 
 object ProjectEvent {
   implicit val format: OFormat[ProjectEvent] = Json.format
@@ -121,130 +123,158 @@ object ProjectEventFactory {
 // --- Atmosphere Lexicon Events (Phase 3) ---
 
 case class BiosampleEvent(
-  atUri: String,
-  atCid: Option[String],
-  action: FirehoseAction,
-  payload: Option[BiosampleRecord]
-) extends FirehoseEvent
+                           atUri: String,
+                           atCid: Option[String],
+                           action: FirehoseAction,
+                           payload: Option[BiosampleRecord]
+                         ) extends FirehoseEvent
 
-object BiosampleEvent { implicit val format: OFormat[BiosampleEvent] = Json.format }
+object BiosampleEvent {
+  implicit val format: OFormat[BiosampleEvent] = Json.format
+}
 
 case class SequenceRunEvent(
-  atUri: String,
-  atCid: Option[String],
-  action: FirehoseAction,
-  payload: Option[SequenceRunRecord]
-) extends FirehoseEvent
+                             atUri: String,
+                             atCid: Option[String],
+                             action: FirehoseAction,
+                             payload: Option[SequenceRunRecord]
+                           ) extends FirehoseEvent
 
-object SequenceRunEvent { implicit val format: OFormat[SequenceRunEvent] = Json.format }
+object SequenceRunEvent {
+  implicit val format: OFormat[SequenceRunEvent] = Json.format
+}
 
 case class AlignmentEvent(
-  atUri: String,
-  atCid: Option[String],
-  action: FirehoseAction,
-  payload: Option[AlignmentRecord]
-) extends FirehoseEvent
+                           atUri: String,
+                           atCid: Option[String],
+                           action: FirehoseAction,
+                           payload: Option[AlignmentRecord]
+                         ) extends FirehoseEvent
 
-object AlignmentEvent { implicit val format: OFormat[AlignmentEvent] = Json.format }
+object AlignmentEvent {
+  implicit val format: OFormat[AlignmentEvent] = Json.format
+}
 
 case class GenotypeEvent(
-  atUri: String,
-  atCid: Option[String],
-  action: FirehoseAction,
-  payload: Option[GenotypeRecord]
-) extends FirehoseEvent
+                          atUri: String,
+                          atCid: Option[String],
+                          action: FirehoseAction,
+                          payload: Option[GenotypeRecord]
+                        ) extends FirehoseEvent
 
-object GenotypeEvent { implicit val format: OFormat[GenotypeEvent] = Json.format }
+object GenotypeEvent {
+  implicit val format: OFormat[GenotypeEvent] = Json.format
+}
 
 case class ImputationEvent(
-  atUri: String,
-  atCid: Option[String],
-  action: FirehoseAction,
-  payload: Option[ImputationRecord]
-) extends FirehoseEvent
+                            atUri: String,
+                            atCid: Option[String],
+                            action: FirehoseAction,
+                            payload: Option[ImputationRecord]
+                          ) extends FirehoseEvent
 
-object ImputationEvent { implicit val format: OFormat[ImputationEvent] = Json.format }
+object ImputationEvent {
+  implicit val format: OFormat[ImputationEvent] = Json.format
+}
 
 case class AtmosphereProjectEvent(
-  atUri: String,
-  atCid: Option[String],
-  action: FirehoseAction,
-  payload: Option[ProjectRecord]
-) extends FirehoseEvent
+                                   atUri: String,
+                                   atCid: Option[String],
+                                   action: FirehoseAction,
+                                   payload: Option[ProjectRecord]
+                                 ) extends FirehoseEvent
 
-object AtmosphereProjectEvent { implicit val format: OFormat[AtmosphereProjectEvent] = Json.format }
+object AtmosphereProjectEvent {
+  implicit val format: OFormat[AtmosphereProjectEvent] = Json.format
+}
 
 case class PopulationBreakdownEvent(
-  atUri: String,
-  atCid: Option[String],
-  action: FirehoseAction,
-  payload: Option[PopulationBreakdownRecord]
-) extends FirehoseEvent
+                                     atUri: String,
+                                     atCid: Option[String],
+                                     action: FirehoseAction,
+                                     payload: Option[PopulationBreakdownRecord]
+                                   ) extends FirehoseEvent
 
-object PopulationBreakdownEvent { implicit val format: OFormat[PopulationBreakdownEvent] = Json.format }
+object PopulationBreakdownEvent {
+  implicit val format: OFormat[PopulationBreakdownEvent] = Json.format
+}
 
 case class InstrumentObservationEvent(
-  atUri: String,
-  atCid: Option[String],
-  action: FirehoseAction,
-  payload: Option[InstrumentObservationRecord]
-) extends FirehoseEvent
+                                       atUri: String,
+                                       atCid: Option[String],
+                                       action: FirehoseAction,
+                                       payload: Option[InstrumentObservationRecord]
+                                     ) extends FirehoseEvent
 
-object InstrumentObservationEvent { implicit val format: OFormat[InstrumentObservationEvent] = Json.format }
+object InstrumentObservationEvent {
+  implicit val format: OFormat[InstrumentObservationEvent] = Json.format
+}
 
 case class MatchConsentEvent(
-  atUri: String,
-  atCid: Option[String],
-  action: FirehoseAction,
-  payload: Option[MatchConsentRecord]
-) extends FirehoseEvent
+                              atUri: String,
+                              atCid: Option[String],
+                              action: FirehoseAction,
+                              payload: Option[MatchConsentRecord]
+                            ) extends FirehoseEvent
 
-object MatchConsentEvent { implicit val format: OFormat[MatchConsentEvent] = Json.format }
+object MatchConsentEvent {
+  implicit val format: OFormat[MatchConsentEvent] = Json.format
+}
 
 case class MatchListEvent(
-  atUri: String,
-  atCid: Option[String],
-  action: FirehoseAction,
-  payload: Option[MatchListRecord]
-) extends FirehoseEvent
+                           atUri: String,
+                           atCid: Option[String],
+                           action: FirehoseAction,
+                           payload: Option[MatchListRecord]
+                         ) extends FirehoseEvent
 
-object MatchListEvent { implicit val format: OFormat[MatchListEvent] = Json.format }
+object MatchListEvent {
+  implicit val format: OFormat[MatchListEvent] = Json.format
+}
 
 case class MatchRequestEvent(
-  atUri: String,
-  atCid: Option[String],
-  action: FirehoseAction,
-  payload: Option[MatchRequestRecord]
-) extends FirehoseEvent
+                              atUri: String,
+                              atCid: Option[String],
+                              action: FirehoseAction,
+                              payload: Option[MatchRequestRecord]
+                            ) extends FirehoseEvent
 
-object MatchRequestEvent { implicit val format: OFormat[MatchRequestEvent] = Json.format }
+object MatchRequestEvent {
+  implicit val format: OFormat[MatchRequestEvent] = Json.format
+}
 
 case class StrProfileEvent(
-  atUri: String,
-  atCid: Option[String],
-  action: FirehoseAction,
-  payload: Option[StrProfileRecord]
-) extends FirehoseEvent
+                            atUri: String,
+                            atCid: Option[String],
+                            action: FirehoseAction,
+                            payload: Option[StrProfileRecord]
+                          ) extends FirehoseEvent
 
-object StrProfileEvent { implicit val format: OFormat[StrProfileEvent] = Json.format }
+object StrProfileEvent {
+  implicit val format: OFormat[StrProfileEvent] = Json.format
+}
 
 case class HaplogroupAncestralStrEvent(
-  atUri: String,
-  atCid: Option[String],
-  action: FirehoseAction,
-  payload: Option[HaplogroupAncestralStrRecord]
-) extends FirehoseEvent
+                                        atUri: String,
+                                        atCid: Option[String],
+                                        action: FirehoseAction,
+                                        payload: Option[HaplogroupAncestralStrRecord]
+                                      ) extends FirehoseEvent
 
-object HaplogroupAncestralStrEvent { implicit val format: OFormat[HaplogroupAncestralStrEvent] = Json.format }
+object HaplogroupAncestralStrEvent {
+  implicit val format: OFormat[HaplogroupAncestralStrEvent] = Json.format
+}
 
 case class WorkspaceEvent(
-  atUri: String,
-  atCid: Option[String],
-  action: FirehoseAction,
-  payload: Option[WorkspaceRecord]
-) extends FirehoseEvent
+                           atUri: String,
+                           atCid: Option[String],
+                           action: FirehoseAction,
+                           payload: Option[WorkspaceRecord]
+                         ) extends FirehoseEvent
 
-object WorkspaceEvent { implicit val format: OFormat[WorkspaceEvent] = Json.format }
+object WorkspaceEvent {
+  implicit val format: OFormat[WorkspaceEvent] = Json.format
+}
 
 
 /**
@@ -256,17 +286,21 @@ sealed trait FirehoseResult {
 }
 
 object FirehoseResult {
+
   import java.util.UUID
 
   case class Success(
-    atUri: String,
-    newAtCid: String,
-    sampleGuid: Option[UUID] = None,
-    message: String = "OK"
-  ) extends FirehoseResult
+                      atUri: String,
+                      newAtCid: String,
+                      sampleGuid: Option[UUID] = None,
+                      message: String = "OK"
+                    ) extends FirehoseResult
 
   case class NotFound(atUri: String) extends FirehoseResult
+
   case class Conflict(atUri: String, message: String) extends FirehoseResult
+
   case class ValidationError(atUri: String, message: String) extends FirehoseResult
+
   case class Error(atUri: String, message: String, cause: Option[Throwable] = None) extends FirehoseResult
 }

@@ -1,6 +1,6 @@
 package models.api.genomics
 
-import play.api.libs.json._
+import play.api.libs.json.*
 
 /**
  * Represents the strategy for resolving conflicts or handling decisions during a merge operation

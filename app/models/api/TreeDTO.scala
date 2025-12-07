@@ -140,8 +140,8 @@ object TreeNodeDTO {
   def sortVariants(variants: Seq[VariantDTO]): Seq[VariantDTO] =
     variants.sortWith { (a, b) =>
       (a.name.contains(":"), b.name.contains(":")) match
-        case (true, false) => false  // a has chrY: prefix, b doesn't -> a comes after
-        case (false, true) => true   // b has chrY: prefix, a doesn't -> a comes before
+        case (true, false) => false // a has chrY: prefix, b doesn't -> a comes after
+        case (false, true) => true // b has chrY: prefix, a doesn't -> a comes before
         case _ => // both have or both don't have chrY: prefix
           val (prefixA, numA) = extractComponents(a.name)
           val (prefixB, numB) = extractComponents(b.name)

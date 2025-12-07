@@ -134,10 +134,10 @@ class ExternalBiosampleService @Inject()(
       } else {
         Future.successful(None)
       }
-      
+
       // Check for existing accession
       existing <- biosampleRepository.findByAccession(request.sampleAccession)
-      
+
       guid <- existing match {
         case Some((existingBiosample, _)) =>
           // Update existing
@@ -145,7 +145,7 @@ class ExternalBiosampleService @Inject()(
             guid <- updateBiosample(existingBiosample, donorId)
             _ <- handleDataAssociation(guid, isUpdate = true)
           } yield guid
-          
+
         case None =>
           // Create new
           for {
@@ -164,7 +164,7 @@ class ExternalBiosampleService @Inject()(
   /**
    * Deletes a biosample and all its associated data by its sample accession and owner DID.
    *
-   * @param accession The sample accession of the biosample to delete.
+   * @param accession  The sample accession of the biosample to delete.
    * @param citizenDid The DID of the citizen who owns the biosample.
    * @return A `Future` containing `true` if the biosample was found, owned by the DID, and deleted; `false` otherwise.
    */

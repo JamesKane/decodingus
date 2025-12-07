@@ -13,7 +13,7 @@ case class TreeNodeViewModel(
                               fillColor: String,
                               isBackbone: Boolean,
                               x: Double, // Calculated vertical position for SVG
-                              y: Double  // Calculated horizontal position (depth) for SVG
+                              y: Double // Calculated horizontal position (depth) for SVG
                             )
 
 /**
@@ -28,10 +28,10 @@ case class TreeLinkViewModel(
 /**
  * The top-level View Model holding all data needed to render the entire SVG tree.
  *
- * @param rootNode The root of the tree hierarchy in view model format.
- * @param allNodes A flat list of all nodes in view model format for easier iteration.
- * @param allLinks A flat list of all links in view model format.
- * @param svgWidth Calculated width for the SVG viewport.
+ * @param rootNode  The root of the tree hierarchy in view model format.
+ * @param allNodes  A flat list of all nodes in view model format for easier iteration.
+ * @param allLinks  A flat list of all links in view model format.
+ * @param svgWidth  Calculated width for the SVG viewport.
  * @param svgHeight Calculated height for the SVG viewport.
  */
 case class TreeViewModel(

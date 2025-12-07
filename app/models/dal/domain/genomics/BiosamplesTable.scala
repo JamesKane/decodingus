@@ -13,13 +13,21 @@ import java.util.UUID
  */
 class BiosamplesTable(tag: Tag) extends Table[Biosample](tag, "biosample") {
   def id = column[Int]("id", O.PrimaryKey, O.AutoInc)
+
   def sampleAccession = column[String]("sample_accession", O.Unique)
+
   def description = column[String]("description")
+
   def alias = column[Option[String]]("alias")
+
   def centerName = column[String]("center_name")
+
   def specimenDonorId = column[Option[Int]]("specimen_donor_id")
+
   def sampleGuid = column[UUID]("sample_guid")
+
   def locked = column[Boolean]("locked", O.Default(false))
+
   def sourcePlatform = column[Option[String]]("source_platform")
 
   def * = (

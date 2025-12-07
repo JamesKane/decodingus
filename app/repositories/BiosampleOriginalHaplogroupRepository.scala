@@ -58,7 +58,7 @@ trait BiosampleOriginalHaplogroupRepository {
   /**
    * Retrieves the original haplogroup assignment for a specific biosample-publication pair.
    *
-   * @param biosampleId the unique identifier of the biosample
+   * @param biosampleId   the unique identifier of the biosample
    * @param publicationId the unique identifier of the publication
    * @return a future containing an optional haplogroup assignment
    */

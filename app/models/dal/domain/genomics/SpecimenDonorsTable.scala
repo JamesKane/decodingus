@@ -1,8 +1,8 @@
 package models.dal.domain.genomics
 
 import com.vividsolutions.jts.geom.Point
-import models.domain.genomics.{BiologicalSex, BiosampleType, SpecimenDonor}
 import models.dal.MyPostgresProfile.api.*
+import models.domain.genomics.{BiologicalSex, BiosampleType, SpecimenDonor}
 
 /**
  * Represents the database table definition for storing specimen donor records.
@@ -26,14 +26,23 @@ import models.dal.MyPostgresProfile.api.*
  */
 class SpecimenDonorsTable(tag: Tag) extends Table[SpecimenDonor](tag, "specimen_donor") {
   def id = column[Int]("id", O.PrimaryKey, O.AutoInc)
+
   def donorIdentifier = column[String]("donor_identifier")
+
   def originBiobank = column[String]("origin_biobank")
+
   def donorType = column[BiosampleType]("donor_type")
+
   def sex = column[Option[BiologicalSex]]("sex")
+
   def geocoord = column[Option[Point]]("geocoord")
+
   def pgpParticipantId = column[Option[String]]("pgp_participant_id")
+
   def atUri = column[Option[String]]("at_uri")
+
   def dateRangeStart = column[Option[Int]]("date_range_start")
+
   def dateRangeEnd = column[Option[Int]]("date_range_end")
 
   def * = (

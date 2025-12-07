@@ -113,8 +113,8 @@ trait MyPostgresProfile extends ExPostgresProfile
 
     implicit val biosampleTypeMapper: JdbcType[BiosampleType] =
       MappedJdbcType.base[BiosampleType, String](
-        bt => bt.toString,  // converts BiosampleType to String for storage
-        s => BiosampleType.valueOf(s)  // converts String back to BiosampleType
+        bt => bt.toString, // converts BiosampleType to String for storage
+        s => BiosampleType.valueOf(s) // converts String back to BiosampleType
       )
 
     implicit val biologicalSexTypeMapper: JdbcType[BiologicalSex] =

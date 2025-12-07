@@ -1,20 +1,13 @@
 package services
 
-import software.amazon.awssdk.services.ses.SesClient
-import software.amazon.awssdk.services.ses.model.{
-  SendEmailRequest,
-  SendEmailResponse,
-  Destination,
-  Message,
-  Content,
-  Body
-}
+import play.api.{Configuration, Logging}
 import software.amazon.awssdk.regions.Region
+import software.amazon.awssdk.services.ses.SesClient
+import software.amazon.awssdk.services.ses.model.*
 
 import javax.inject.{Inject, Singleton}
-import play.api.{Configuration, Logging}
-import scala.util.Try
 import scala.jdk.CollectionConverters.*
+import scala.util.Try
 
 /**
  * A concrete implementation of the EmailService trait that uses Amazon SES to send emails.

@@ -2,21 +2,21 @@
 
 @if(paginatedPublications.items.isEmpty) {
     <div class="alert alert-info" role="alert">
-        @searchQuery match {
-            case Some(q) => {
-                No publications found matching "<strong>@q</strong>". Try a different search term.
-            }
-            case None => {
-                No publications available.
-            }
+    @searchQuery match {
+        case Some(q) => {
+            No publications found matching "<strong>@q</strong>". Try a different search term.
         }
+        case None => {
+            No publications available.
+        }
+    }
     </div>
 } else {
     <div id="publications-list">
-        @for(details <- paginatedPublications.items) {
-            @publicationDetails(details)
-            <hr/>
-        }
+    @for(details <- paginatedPublications.items) {
+        @publicationDetails(details)
+        <hr/>
+    }
     </div>
 
     <div class="mt-2 d-flex justify-content-between align-items-center">
@@ -57,7 +57,7 @@
 }
 
 <script>
-        document.addEventListener('DOMContentLoaded', function() {
+        document.addEventListener('DOMContentLoaded', function () {
             const pageSizeSelect = document.getElementById('pageSizePublications');
             if (pageSizeSelect) {
                 pageSizeSelect.value = '@paginatedPublications.pageSize';

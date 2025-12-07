@@ -10,9 +10,9 @@ import scala.concurrent.{ExecutionContext, Future}
 
 @Singleton
 class PDSRegistrationController @Inject()(
-  val controllerComponents: ControllerComponents,
-  pdsRegistrationService: PDSRegistrationService
-)(implicit ec: ExecutionContext) extends BaseController {
+                                           val controllerComponents: ControllerComponents,
+                                           pdsRegistrationService: PDSRegistrationService
+                                         )(implicit ec: ExecutionContext) extends BaseController {
 
   /**
    * Handles the registration of a new Personal Data Server (PDS).

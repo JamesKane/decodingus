@@ -1,12 +1,13 @@
 package models.forms
 
 import play.api.data.Form
-import play.api.data.Forms._
+import play.api.data.Forms.*
 
 case class DoiSubmission(doi: String)
 
 object DoiSubmission {
   def apply(doi: String): DoiSubmission = new DoiSubmission(doi)
+
   def unapply(submission: DoiSubmission): Option[String] = Some(submission.doi)
 }
 

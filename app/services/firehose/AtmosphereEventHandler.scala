@@ -1,13 +1,14 @@
 package services.firehose
 
 import jakarta.inject.{Inject, Singleton}
-import models.atmosphere._
+import models.atmosphere.*
 import models.domain.Project
-import models.domain.genomics.{AlignmentMetadata, CitizenBiosample, MetricLevel, SequenceLibrary, BiosampleType, SpecimenDonor}
-import repositories._
+import models.domain.genomics.*
 import play.api.Logging
-import java.util.UUID
+import repositories.*
+
 import java.time.{LocalDateTime, ZoneId}
+import java.util.UUID
 import scala.concurrent.{ExecutionContext, Future}
 
 /**
@@ -16,13 +17,13 @@ import scala.concurrent.{ExecutionContext, Future}
  */
 @Singleton
 class AtmosphereEventHandler @Inject()(
-  citizenBiosampleRepository: CitizenBiosampleRepository,
-  sequenceLibraryRepository: SequenceLibraryRepository,
-  sequenceFileRepository: SequenceFileRepository,
-  alignmentRepository: AlignmentRepository,
-  specimenDonorRepository: SpecimenDonorRepository,
-  projectRepository: ProjectRepository
-)(implicit ec: ExecutionContext) extends Logging {
+                                        citizenBiosampleRepository: CitizenBiosampleRepository,
+                                        sequenceLibraryRepository: SequenceLibraryRepository,
+                                        sequenceFileRepository: SequenceFileRepository,
+                                        alignmentRepository: AlignmentRepository,
+                                        specimenDonorRepository: SpecimenDonorRepository,
+                                        projectRepository: ProjectRepository
+                                      )(implicit ec: ExecutionContext) extends Logging {
 
   def handle(event: FirehoseEvent): Future[FirehoseResult] = {
     event match {
@@ -106,20 +107,20 @@ class AtmosphereEventHandler @Inject()(
           case Some(existing) =>
             resolveOrCreateDonor(record).flatMap { donorId =>
               val updated = existing.copy(
-                 description = record.description.orElse(existing.description),
-                 sourcePlatform = Some(record.centerName),
-                 sex = record.sex.map(s => models.domain.genomics.BiologicalSex.fromString(s)).orElse(existing.sex),
-                 yHaplogroup = record.haplogroups.flatMap(_.yDna).map(h => models.domain.genomics.HaplogroupResult(
-                   h.haplogroupName, h.score, h.matchingSnps.getOrElse(0), h.mismatchingSnps.getOrElse(0),
-                   h.ancestralMatches.getOrElse(0), h.treeDepth.getOrElse(0), h.lineagePath.getOrElse(Seq.empty)
-                 )).orElse(existing.yHaplogroup),
-                 mtHaplogroup = record.haplogroups.flatMap(_.mtDna).map(h => models.domain.genomics.HaplogroupResult(
-                   h.haplogroupName, h.score, h.matchingSnps.getOrElse(0), h.mismatchingSnps.getOrElse(0),
-                   h.ancestralMatches.getOrElse(0), h.treeDepth.getOrElse(0), h.lineagePath.getOrElse(Seq.empty)
-                 )).orElse(existing.mtHaplogroup),
-                 atCid = Some(UUID.randomUUID().toString),
-                 updatedAt = LocalDateTime.now(),
-                 specimenDonorId = donorId
+                description = record.description.orElse(existing.description),
+                sourcePlatform = Some(record.centerName),
+                sex = record.sex.map(s => models.domain.genomics.BiologicalSex.fromString(s)).orElse(existing.sex),
+                yHaplogroup = record.haplogroups.flatMap(_.yDna).map(h => models.domain.genomics.HaplogroupResult(
+                  h.haplogroupName, h.score, h.matchingSnps.getOrElse(0), h.mismatchingSnps.getOrElse(0),
+                  h.ancestralMatches.getOrElse(0), h.treeDepth.getOrElse(0), h.lineagePath.getOrElse(Seq.empty)
+                )).orElse(existing.yHaplogroup),
+                mtHaplogroup = record.haplogroups.flatMap(_.mtDna).map(h => models.domain.genomics.HaplogroupResult(
+                  h.haplogroupName, h.score, h.matchingSnps.getOrElse(0), h.mismatchingSnps.getOrElse(0),
+                  h.ancestralMatches.getOrElse(0), h.treeDepth.getOrElse(0), h.lineagePath.getOrElse(Seq.empty)
+                )).orElse(existing.mtHaplogroup),
+                atCid = Some(UUID.randomUUID().toString),
+                updatedAt = LocalDateTime.now(),
+                specimenDonorId = donorId
               )
               citizenBiosampleRepository.update(updated, existing.atCid).map { success =>
                 if (success) FirehoseResult.Success(event.atUri, updated.atCid.get, Some(updated.sampleGuid), "Updated Biosample")
@@ -156,26 +157,26 @@ class AtmosphereEventHandler @Inject()(
       case Some(record) =>
         citizenBiosampleRepository.findByAtUri(record.biosampleRef).flatMap {
           case Some(biosample) =>
-             val lib = SequenceLibrary(
-               id = None,
-               sampleGuid = biosample.sampleGuid,
-               lab = record.platformName,
-               testType = record.testType,
-               runDate = record.runDate.map(d => LocalDateTime.ofInstant(d, ZoneId.systemDefault())).getOrElse(LocalDateTime.now()),
-               instrument = record.instrumentModel.getOrElse("Unknown"),
-               reads = record.totalReads.getOrElse(0),
-               readLength = record.readLength.getOrElse(0),
-               pairedEnd = record.libraryLayout.exists(_.equalsIgnoreCase("PAIRED")),
-               insertSize = record.meanInsertSize.map(_.toInt),
-               atUri = Some(record.atUri),
-               atCid = Some(UUID.randomUUID().toString),
-               created_at = LocalDateTime.now(),
-               updated_at = Some(LocalDateTime.now())
-             )
-             
-             sequenceLibraryRepository.create(lib).map { _ =>
-               FirehoseResult.Success(event.atUri, lib.atCid.get, None, "Sequence Run Created")
-             }
+            val lib = SequenceLibrary(
+              id = None,
+              sampleGuid = biosample.sampleGuid,
+              lab = record.platformName,
+              testType = record.testType,
+              runDate = record.runDate.map(d => LocalDateTime.ofInstant(d, ZoneId.systemDefault())).getOrElse(LocalDateTime.now()),
+              instrument = record.instrumentModel.getOrElse("Unknown"),
+              reads = record.totalReads.getOrElse(0),
+              readLength = record.readLength.getOrElse(0),
+              pairedEnd = record.libraryLayout.exists(_.equalsIgnoreCase("PAIRED")),
+              insertSize = record.meanInsertSize.map(_.toInt),
+              atUri = Some(record.atUri),
+              atCid = Some(UUID.randomUUID().toString),
+              created_at = LocalDateTime.now(),
+              updated_at = Some(LocalDateTime.now())
+            )
+
+            sequenceLibraryRepository.create(lib).map { _ =>
+              FirehoseResult.Success(event.atUri, lib.atCid.get, None, "Sequence Run Created")
+            }
 
           case None =>
             Future.successful(FirehoseResult.ValidationError(event.atUri, s"Parent biosample not found: ${record.biosampleRef}"))
@@ -190,19 +191,19 @@ class AtmosphereEventHandler @Inject()(
         sequenceLibraryRepository.findByAtUri(record.atUri).flatMap {
           case Some(existing) =>
             val updated = existing.copy(
-               lab = record.platformName,
-               testType = record.testType,
-               runDate = record.runDate.map(d => LocalDateTime.ofInstant(d, ZoneId.systemDefault())).getOrElse(existing.runDate),
-               instrument = record.instrumentModel.getOrElse(existing.instrument),
-               reads = record.totalReads.getOrElse(existing.reads),
-               readLength = record.readLength.getOrElse(existing.readLength),
-               pairedEnd = record.libraryLayout.exists(_.equalsIgnoreCase("PAIRED")),
-               insertSize = record.meanInsertSize.map(_.toInt).orElse(existing.insertSize),
-               atCid = Some(UUID.randomUUID().toString),
-               updated_at = Some(LocalDateTime.now())
+              lab = record.platformName,
+              testType = record.testType,
+              runDate = record.runDate.map(d => LocalDateTime.ofInstant(d, ZoneId.systemDefault())).getOrElse(existing.runDate),
+              instrument = record.instrumentModel.getOrElse(existing.instrument),
+              reads = record.totalReads.getOrElse(existing.reads),
+              readLength = record.readLength.getOrElse(existing.readLength),
+              pairedEnd = record.libraryLayout.exists(_.equalsIgnoreCase("PAIRED")),
+              insertSize = record.meanInsertSize.map(_.toInt).orElse(existing.insertSize),
+              atCid = Some(UUID.randomUUID().toString),
+              updated_at = Some(LocalDateTime.now())
             )
             sequenceLibraryRepository.update(updated).map { _ =>
-               FirehoseResult.Success(event.atUri, updated.atCid.get, None, "Sequence Run Updated")
+              FirehoseResult.Success(event.atUri, updated.atCid.get, None, "Sequence Run Updated")
             }
           case None =>
             Future.successful(FirehoseResult.NotFound(event.atUri))
@@ -237,16 +238,16 @@ class AtmosphereEventHandler @Inject()(
             // Create Alignment Metadata
             // Assuming library.id is present
             val libraryId = library.id.getOrElse(throw new IllegalStateException("Library ID missing"))
-            
+
             // Note: AlignmentMetadata typically links to a SequenceFile, not directly to SequenceLibrary in some schemas,
             // but if we assume a 1:1 or 1:N mapping and we need to create a dummy file record or link to existing.
             // For now, let's assume we create a placeholder sequence file for this alignment if files are listed
             // Or if the AlignmentMetadata table links to SequenceFile. 
             // Looking at AlignmentRepository, it uses sequenceFileId.
             // We need to find or create a SequenceFile first.
-            
+
             val fileName = record.files.flatMap(_.headOption).map(_.fileName).getOrElse(s"alignment-${UUID.randomUUID()}")
-            
+
             val seqFile = models.domain.genomics.SequenceFile(
               id = None,
               libraryId = libraryId,
@@ -258,34 +259,34 @@ class AtmosphereEventHandler @Inject()(
               createdAt = LocalDateTime.now(),
               updatedAt = Some(LocalDateTime.now())
             )
-            
+
             sequenceFileRepository.create(seqFile).flatMap { createdFile =>
-               val metadata = AlignmentMetadata(
-                 id = None,
-                 sequenceFileId = createdFile.id.get,
-                 genbankContigId = 0, // Needs resolution or specific contig logic, assuming global stats for now?
-                 metricLevel = MetricLevel.GLOBAL, // Assuming global stats
-                 referenceBuild = Some(record.referenceBuild),
-                 variantCaller = record.variantCaller,
-                 genomeTerritory = record.metrics.flatMap(_.genomeTerritory),
-                 meanCoverage = record.metrics.flatMap(_.meanCoverage),
-                 medianCoverage = record.metrics.flatMap(_.medianCoverage),
-                 sdCoverage = record.metrics.flatMap(_.sdCoverage),
-                 pctExcDupe = record.metrics.flatMap(_.pctExcDupe),
-                 pctExcMapq = record.metrics.flatMap(_.pctExcMapq),
-                 pct10x = record.metrics.flatMap(_.pct10x),
-                 pct20x = record.metrics.flatMap(_.pct20x),
-                 pct30x = record.metrics.flatMap(_.pct30x),
-                 hetSnpSensitivity = record.metrics.flatMap(_.hetSnpSensitivity),
-                 analysisTool = record.aligner,
-                 metricsDate = LocalDateTime.now()
-               )
-               
-               alignmentRepository.createMetadata(metadata).map { _ =>
-                 FirehoseResult.Success(event.atUri, "cid", None, "Alignment Created")
-               }
+              val metadata = AlignmentMetadata(
+                id = None,
+                sequenceFileId = createdFile.id.get,
+                genbankContigId = 0, // Needs resolution or specific contig logic, assuming global stats for now?
+                metricLevel = MetricLevel.GLOBAL, // Assuming global stats
+                referenceBuild = Some(record.referenceBuild),
+                variantCaller = record.variantCaller,
+                genomeTerritory = record.metrics.flatMap(_.genomeTerritory),
+                meanCoverage = record.metrics.flatMap(_.meanCoverage),
+                medianCoverage = record.metrics.flatMap(_.medianCoverage),
+                sdCoverage = record.metrics.flatMap(_.sdCoverage),
+                pctExcDupe = record.metrics.flatMap(_.pctExcDupe),
+                pctExcMapq = record.metrics.flatMap(_.pctExcMapq),
+                pct10x = record.metrics.flatMap(_.pct10x),
+                pct20x = record.metrics.flatMap(_.pct20x),
+                pct30x = record.metrics.flatMap(_.pct30x),
+                hetSnpSensitivity = record.metrics.flatMap(_.hetSnpSensitivity),
+                analysisTool = record.aligner,
+                metricsDate = LocalDateTime.now()
+              )
+
+              alignmentRepository.createMetadata(metadata).map { _ =>
+                FirehoseResult.Success(event.atUri, "cid", None, "Alignment Created")
+              }
             }
-            
+
           case None =>
             Future.successful(FirehoseResult.ValidationError(event.atUri, s"Sequence Run not found: ${record.sequenceRunRef}"))
         }
@@ -376,7 +377,7 @@ class AtmosphereEventHandler @Inject()(
   private def resolveOrCreateDonor(record: BiosampleRecord): Future[Option[Int]] = {
     val citizenDid = record.citizenDid
     val identifier = record.donorIdentifier
-    
+
     specimenDonorRepository.findByDidAndIdentifier(citizenDid, identifier).flatMap {
       case Some(donor) => Future.successful(donor.id)
       case None =>

@@ -1,9 +1,10 @@
 package repositories
 
 import jakarta.inject.{Inject, Singleton}
-import models.dal.MyPostgresProfile.api._
-import play.api.db.slick.{DatabaseConfigProvider, HasDatabaseConfigProvider}
 import models.dal.MyPostgresProfile
+import models.dal.MyPostgresProfile.api.*
+import play.api.db.slick.{DatabaseConfigProvider, HasDatabaseConfigProvider}
+
 import scala.concurrent.{ExecutionContext, Future}
 
 /**
@@ -16,10 +17,10 @@ trait CitizenSequenceRepository {
 
 @Singleton
 class SlickCitizenSequenceRepository @Inject()(
-  protected val dbConfigProvider: DatabaseConfigProvider
-)(implicit ec: ExecutionContext) 
-  extends CitizenSequenceRepository 
-  with HasDatabaseConfigProvider[MyPostgresProfile] {
+                                                protected val dbConfigProvider: DatabaseConfigProvider
+                                              )(implicit ec: ExecutionContext)
+  extends CitizenSequenceRepository
+    with HasDatabaseConfigProvider[MyPostgresProfile] {
 
   override def getNextSequence(): Future[Long] = {
     // Note: 'citizen_biosample_seq' must exist in the Postgres DB

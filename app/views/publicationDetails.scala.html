@@ -153,31 +153,35 @@
                 <h3 class="h6 mb-2">Genomic Studies</h3>
                 @defining(publicationWithDetails.bioStudies.groupBy(_.source)) { studiesBySource =>
                     @for((source, studies) <- studiesBySource) {
-                        <h4 class="h6 mt-3 mb-2">@{source match {
-                            case StudySource.ENA => "European Nucleotide Archive"
-                            case StudySource.NCBI_BIOPROJECT => "NCBI BioProject"
-                            case _ => source.toString
-                        }}</h4>
+                        <h4 class="h6 mt-3 mb-2">@{
+                            source match {
+                                case StudySource.ENA => "European Nucleotide Archive"
+                                case StudySource.NCBI_BIOPROJECT => "NCBI BioProject"
+                                case _ => source.toString
+                            }
+                        }</h4>
                         <ul class="list-unstyled">
                         @for(study <- studies) {
                             <li>
-                                @{source match {
-                                    case StudySource.ENA => {
-                                            <a href={s"https://www.ebi.ac.uk/ena/browser/view/${study.accession}"}
-                                            target="_blank" rel="noopener noreferrer">
-                                            <code class="text-monospace">{study.accession}</code>
-                                            </a>
+                                @{
+                                    source match {
+                                        case StudySource.ENA => {
+                                                <a href={s"https://www.ebi.ac.uk/ena/browser/view/${study.accession}"}
+                                                target="_blank" rel="noopener noreferrer">
+                                                <code class="text-monospace">{study.accession}</code>
+                                                </a>
+                                        }
+                                        case StudySource.NCBI_BIOPROJECT => {
+                                                <a href={s"https://www.ncbi.nlm.nih.gov/bioproject/${study.accession}"}
+                                                target="_blank" rel="noopener noreferrer">
+                                                <code class="text-monospace">{study.accession}</code>
+                                                </a>
+                                        }
+                                        case _ => {
+                                                <code class="text-monospace">{study.accession}</code>
+                                        }
                                     }
-                                    case StudySource.NCBI_BIOPROJECT => {
-                                            <a href={s"https://www.ncbi.nlm.nih.gov/bioproject/${study.accession}"}
-                                            target="_blank" rel="noopener noreferrer">
-                                            <code class="text-monospace">{study.accession}</code>
-                                            </a>
-                                    }
-                                    case _ => {
-                                            <code class="text-monospace">{study.accession}</code>
-                                    }
-                                }}
+                                }
                                 - @study.title
                                 @if(study.centerName != "N/A") {
                                     - @study.centerName
@@ -198,50 +202,64 @@
                 <div class="mt-2">
                     <button class="btn btn-outline-primary btn-sm load-biosamples"
                     hx-get="@routes.BiosampleReportController.getBiosampleReportHTML(publicationWithDetails.publication.id.get)"
-                    hx-target="#biosample-content-@{publicationWithDetails.publication.id.get}"
-                    data-bs-target="#biosample-collapse-@{publicationWithDetails.publication.id.get}"
-                    aria-controls="biosample-collapse-@{publicationWithDetails.publication.id.get}"
+                    hx-target="#biosample-content-@{
+                        publicationWithDetails.publication.id.get
+                    }"
+                    data-bs-target="#biosample-collapse-@{
+                        publicationWithDetails.publication.id.get
+                    }"
+                    aria-controls="biosample-collapse-@{
+                        publicationWithDetails.publication.id.get
+                    }"
                     aria-expanded="false">
                         Show Samples
                     </button>
                     <button class="btn btn-outline-secondary btn-sm mt-2 collapse-button"
                     data-bs-toggle="collapse"
-                    data-bs-target="#biosample-collapse-@{publicationWithDetails.publication.id.get}"
+                    data-bs-target="#biosample-collapse-@{
+                        publicationWithDetails.publication.id.get
+                    }"
                     aria-expanded="false"
-                    aria-controls="biosample-collapse-@{publicationWithDetails.publication.id.get}"
+                    aria-controls="biosample-collapse-@{
+                        publicationWithDetails.publication.id.get
+                    }"
                     style="display: none;">
-                        Hide Samples
-                    </button>
-                    <div class="collapse mt-2" id="biosample-collapse-@{publicationWithDetails.publication.id.get}">
-                        <div id="biosample-content-@{publicationWithDetails.publication.id.get}"></div>
-                    </div>
+                    Hide Samples
+                    < / button >
+                    < div class = "collapse mt-2" id = "biosample-collapse- @{
+                        publicationWithDetails.publication.id.get
+                    } ">
+                        <div id="biosample-content-@{
+                            publicationWithDetails.publication.id.get
+                        }"></div>
                 </div>
-            </aside>
-        }
-        <footer class="card-footer text-muted small">
-            <nav class="d-flex flex-wrap gap-3" aria-label="Publication references">
-                @publicationWithDetails.publication.doi.map { doi =>
-                    <a href="https://doi.org/@doi" class="text-decoration-none link-secondary" target="_blank" rel="noopener noreferrer">
-                        <i class="bi bi-link-45deg"></i> DOI: @doi
-                    </a>
-                }
-                @publicationWithDetails.publication.pubmedId.map { pmid =>
-                    <a href="https://pubmed.ncbi.nlm.nih.gov/@pmid" class="text-decoration-none link-secondary" target="_blank" rel="noopener noreferrer">
-                        <i class="bi bi-journal-medical"></i> PubMed: @pmid
-                    </a>
-                }
-                @publicationWithDetails.publication.url.map { url =>
-                    <a href="@url" class="text-decoration-none link-secondary" target="_blank" rel="noopener noreferrer">
-                        <i class="bi bi-box-arrow-up-right"></i> Direct Link
-                    </a>
-                }
-                @publicationWithDetails.publication.openAlexId.map { oaId =>
-                    <a href="https://openalex.org/works/@oaId" class="text-decoration-none link-secondary" target="_blank" rel="noopener noreferrer nofollow">
-                        <i class="bi bi-database"></i> OpenAlex: @oaId
-                    </a>
-                }
-            </nav>
-        </footer>
+        </div>
+    </aside>
+    }
+    <footer class="card-footer text-muted small">
+        <nav class="d-flex flex-wrap gap-3" aria-label="Publication references">
+            @publicationWithDetails.publication.doi.map { doi =>
+                <a href="https://doi.org/@doi" class="text-decoration-none link-secondary" target="_blank" rel="noopener noreferrer">
+                    <i class="bi bi-link-45deg"></i> DOI: @doi
+                </a>
+            }
+            @publicationWithDetails.publication.pubmedId.map { pmid =>
+                <a href="https://pubmed.ncbi.nlm.nih.gov/@pmid" class="text-decoration-none link-secondary" target="_blank" rel="noopener noreferrer">
+                    <i class="bi bi-journal-medical"></i> PubMed: @pmid
+                </a>
+            }
+            @publicationWithDetails.publication.url.map { url =>
+                <a href="@url" class="text-decoration-none link-secondary" target="_blank" rel="noopener noreferrer">
+                    <i class="bi bi-box-arrow-up-right"></i> Direct Link
+                </a>
+            }
+            @publicationWithDetails.publication.openAlexId.map { oaId =>
+                <a href="https://openalex.org/works/@oaId" class="text-decoration-none link-secondary" target="_blank" rel="noopener noreferrer nofollow">
+                    <i class="bi bi-database"></i> OpenAlex: @oaId
+                </a>
+            }
+        </nav>
+    </footer>
     </div>
 
     <script>

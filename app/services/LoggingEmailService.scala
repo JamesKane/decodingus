@@ -12,7 +12,7 @@ import javax.inject.Singleton
  */
 @Singleton
 class LoggingEmailService extends EmailService with Logging {
-  
+
   /**
    * Sends an email with the specified details and logs the email information.
    *

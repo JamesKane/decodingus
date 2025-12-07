@@ -25,10 +25,10 @@ import scala.concurrent.{ExecutionContext, Future}
  * @param materializer         The Materializer used for Play's stream processing.
  */
 class ProductionSecureApiAction @Inject()(
-                                 apiKeyFilter: ApiKeyFilter,
-                                 val defaultParser: BodyParsers.Default,
-                                 val controllerComponents: ControllerComponents
-                               )(implicit val executionContext: ExecutionContext, materializer: Materializer) extends ApiSecurityAction {
+                                           apiKeyFilter: ApiKeyFilter,
+                                           val defaultParser: BodyParsers.Default,
+                                           val controllerComponents: ControllerComponents
+                                         )(implicit val executionContext: ExecutionContext, materializer: Materializer) extends ApiSecurityAction {
 
   override def parser: BodyParser[AnyContent] = defaultParser
 

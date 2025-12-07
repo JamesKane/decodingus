@@ -11,5 +11,5 @@ import java.util.UUID
  * @param populationId     The identifier of the population determined or analyzed in this study.
  * @param probability      A double representing the probability that the sample belongs to the specified population.
  */
-case class AncestryAnalysis(id: Option[Int], sampleGuid: UUID, analysisMethodId: Int, 
+case class AncestryAnalysis(id: Option[Int], sampleGuid: UUID, analysisMethodId: Int,
                             populationId: Int, probability: Double)

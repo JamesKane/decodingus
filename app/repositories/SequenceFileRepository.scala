@@ -1,8 +1,8 @@
 package repositories
 
 import jakarta.inject.{Inject, Singleton}
-import models.domain.genomics.SequenceFile
 import models.dal.{DatabaseSchema, MyPostgresProfile}
+import models.domain.genomics.SequenceFile
 import play.api.db.slick.DatabaseConfigProvider
 
 import java.time.LocalDateTime
@@ -65,7 +65,7 @@ class SequenceFileRepositoryImpl @Inject()(
   extends BaseRepository(dbConfigProvider)
     with SequenceFileRepository {
 
-  import models.dal.MyPostgresProfile.api._
+  import models.dal.MyPostgresProfile.api.*
 
   private val sequenceFiles = DatabaseSchema.domain.genomics.sequenceFiles
 

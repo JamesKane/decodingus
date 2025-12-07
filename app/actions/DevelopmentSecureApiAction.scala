@@ -2,8 +2,8 @@ package actions
 
 import org.apache.pekko.stream.Materializer
 import play.api.libs.json.{JsError, Json, Reads}
+import play.api.mvc.*
 import play.api.mvc.Results.BadRequest
-import play.api.mvc._
 
 import javax.inject.{Inject, Singleton}
 import scala.concurrent.{ExecutionContext, Future}

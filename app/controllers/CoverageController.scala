@@ -4,7 +4,7 @@ import jakarta.inject.Singleton
 import models.domain.genomics.CoverageBenchmark
 import org.webjars.play.WebJarsUtil
 import play.api.libs.json.Json
-import play.api.mvc.{Action, AnyContent, BaseController, ControllerComponents, Request}
+import play.api.mvc.*
 import repositories.CoverageRepository
 
 import javax.inject.Inject

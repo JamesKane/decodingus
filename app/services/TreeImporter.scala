@@ -244,6 +244,7 @@ class TreeImporter @Inject()(
   }
 
   import scala.util.control.NonFatal
+
   private def createVariantAssociation(
                                         haplogroupId: Int,
                                         variantId: Int,

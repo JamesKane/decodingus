@@ -4,7 +4,7 @@ import jakarta.inject.{Inject, Singleton}
 import models.api.{PublicationInfo, SequenceDataInfo}
 import models.domain.genomics.{SequenceFile, SequenceFileChecksum, SequenceHttpLocation, SequenceLibrary}
 import models.domain.publications.{BiosampleOriginalHaplogroup, Publication, PublicationBiosample}
-import repositories._
+import repositories.*
 
 import java.time.LocalDateTime
 import java.util.UUID

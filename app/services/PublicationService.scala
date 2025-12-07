@@ -68,7 +68,7 @@ class PublicationService @Inject()(
   /**
    * Processes a publication by DOI, optionally forcing a refresh of the data.
    *
-   * @param doi The DOI of the publication to process
+   * @param doi          The DOI of the publication to process
    * @param forceRefresh Whether to force a refresh of the publication data
    * @return A Future containing an Option[Publication]
    */

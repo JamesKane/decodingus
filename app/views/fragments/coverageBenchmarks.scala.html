@@ -1,7 +1,6 @@
 @import models.domain.genomics.{CoverageBenchmark, SequencingLab}
 
 @(benchmarks: Seq[CoverageBenchmark], lab: Option[SequencingLab])
-
 @* Helper function to calculate 95% confidence interval *@
 @calculateCI(mean: Option[Double], stddev: Option[Double], n: Int) = @{
     (mean, stddev) match {

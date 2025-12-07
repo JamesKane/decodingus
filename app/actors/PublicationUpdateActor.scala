@@ -22,7 +22,7 @@ object PublicationUpdateActor {
 
   /** Represents the result of a single publication update operation
    *
-   * @param doi The DOI (Digital Object Identifier) of the publication that was processed
+   * @param doi     The DOI (Digital Object Identifier) of the publication that was processed
    * @param success Whether the update operation was successful
    * @param message A descriptive message about the result of the operation
    */
@@ -43,9 +43,9 @@ object PublicationUpdateActor {
  * The actor processes publications sequentially to maintain strict rate limiting
  * and logs all operations for monitoring and debugging purposes.
  *
- * @param openAlexService Service for fetching publication data from OpenAlex
+ * @param openAlexService       Service for fetching publication data from OpenAlex
  * @param publicationRepository Repository for storing and retrieving publication data
- * @param ec Implicit execution context for Future operations
+ * @param ec                    Implicit execution context for Future operations
  */
 
 class PublicationUpdateActor @javax.inject.Inject()(
