@@ -12,6 +12,7 @@ This document serves as the central planning reference for features targeted aft
 | Sequencer Lab Inference | [`sequencer-lab-inference-system.md`](./sequencer-lab-inference-system.md) | Planned |
 | Multi-Test-Type Support | [`multi-test-type-roadmap.md`](./multi-test-type-roadmap.md) | Planned |
 | IBD Matching System | [`ibd-matching-system.md`](./ibd-matching-system.md) | Planned |
+| OpenAlex Publication Discovery | [`openalex-publication-discovery.md`](./openalex-publication-discovery.md) | Planned |
 | JSONB Consolidation | [`jsonb-consolidation-analysis.md`](./jsonb-consolidation-analysis.md) | Technical Debt |
 
 ### Non-Technical Summary
@@ -95,7 +96,26 @@ For a less technical overview of the Haplogroup Discovery System, see:
 
 ---
 
-### 5. JSONB Consolidation (Technical Debt)
+### 5. OpenAlex Publication Discovery
+
+**Purpose:** Automatically discover relevant genomic publications to reduce curator burden and ensure comprehensive literature coverage.
+
+**Key Capabilities:**
+- Scheduled OpenAlex queries with configurable search criteria
+- Candidate staging for curator review (not auto-import)
+- Relevance scoring based on keywords, concepts, citation patterns
+- Deduplication against existing publications
+- Feedback loop to improve discovery precision
+
+**Data Flow:** Scheduler → OpenAlex API → Candidate Queue → Curator Review → Publication Import
+
+**Schema Impact:** Adds 3 new tables (`publication_candidates`, `publication_search_configs`, `publication_search_runs`).
+
+**Note:** This is a quality-of-life feature for the sole curator (you!) to reduce manual literature searching.
+
+---
+
+### 6. JSONB Consolidation (Technical Debt)
 
 **Purpose:** Reduce table proliferation and JOIN overhead by consolidating 1:1 and 1:few relationships into JSONB columns.
 
@@ -167,6 +187,7 @@ For a less technical overview of the Haplogroup Discovery System, see:
 
 - **Sequencer Lab Inference** - Independent, can proceed in parallel
 - **IBD Matching** - Independent of tree work, but needs stable biosample pipeline
+- **OpenAlex Publication Discovery** - Independent, can proceed anytime (curator QoL)
 
 ---
 
@@ -195,12 +216,14 @@ For a less technical overview of the Haplogroup Discovery System, see:
 | B.2 | Haplogroup Discovery | Phase 2: Proposal engine |
 | B.3 | Multi-Test-Type | Phase 2: Chip metadata registration |
 | B.4 | Sequencer Lab | Phase 1-2: Schema + Firehose integration |
+| B.5 | OpenAlex Discovery | Phase 1: Core discovery + candidate queue |
 
 **Exit Criteria:**
 - [ ] Private variants extracted from biosamples
 - [ ] Proposals created from shared variants
 - [ ] Chip test summaries recorded
 - [ ] Instrument observations flowing through Firehose
+- [ ] Publication candidates surfacing from OpenAlex queries
 
 ---
 
@@ -257,11 +280,13 @@ For a less technical overview of the Haplogroup Discovery System, see:
 | F.1 | Haplogroup Discovery | Phase 5: UI and notifications |
 | F.2 | Sequencer Lab | Phase 5: Biosample integration + backfill |
 | F.3 | JSONB | Phase 3: haplogroup tracking consolidation |
+| F.4 | OpenAlex Discovery | Phase 2-3: Relevance scoring + smart discovery |
 
 **Exit Criteria:**
 - [ ] Curator dashboard functional
 - [ ] Existing biosamples processed for observations
 - [ ] All JSONB consolidation complete
+- [ ] OpenAlex discovery precision improving from feedback
 
 ---
 
@@ -312,6 +337,12 @@ The JSONB consolidation work is distributed across feature phases to minimize di
 - Consent completion rate
 - Successful Edge-to-Edge comparisons
 
+### OpenAlex Publication Discovery
+- Discovery-to-import lag (target: < 2 weeks for high-relevance papers)
+- Curator review time per batch
+- Precision rate (accepted/surfaced, target: > 30%)
+- Coverage (relevant papers discovered within 1 month of publication)
+
 ---
 
 ## References
@@ -321,5 +352,6 @@ The JSONB consolidation work is distributed across feature phases to minimize di
 - [Sequencer Lab Inference](./sequencer-lab-inference-system.md) - Full technical design
 - [Multi-Test-Type Roadmap](./multi-test-type-roadmap.md) - Full technical design
 - [IBD Matching System](./ibd-matching-system.md) - Full technical design
+- [OpenAlex Publication Discovery](./openalex-publication-discovery.md) - Automated literature discovery
 - [JSONB Consolidation Analysis](./jsonb-consolidation-analysis.md) - Technical debt analysis
 - [Atmosphere Lexicon](../Atmosphere_Lexicon.md) - AT Protocol record definitions
