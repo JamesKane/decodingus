@@ -9,10 +9,10 @@
 
         @* Here's where we render the page title `String`. *@
         <title>@title</title>
-        @webJarsUtil.locate("bootstrap.min.css").css()
-        @webJarsUtil.locate("popper.js/2.11.7/umd/popper.js").script()
-        @webJarsUtil.locate("bootstrap.min.js").script()
-        @webJarsUtil.locate("htmx.js").script()
+        @webJarsUtil.locate("bootstrap", "bootstrap.min.css").css()
+        @webJarsUtil.locate("popper.js", "umd/popper.js").script()
+        @webJarsUtil.locate("bootstrap", "bootstrap.min.js").script()
+        @webJarsUtil.locate("htmx.org", "htmx.js").script()
         <link rel="stylesheet" href="@routes.Assets.versioned("stylesheets/main.css")">
     </head>
     <body hx-boost="true">
