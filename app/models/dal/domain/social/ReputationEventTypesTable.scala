@@ -1,10 +1,10 @@
-package models.dal.domain.user
+package models.dal.domain.social
 
-import models.dal.MyPostgresProfile.api.*
-import models.domain.user.ReputationEventType
+import models.domain.social.ReputationEventType
+import slick.jdbc.PostgresProfile.api.*
 import slick.lifted.ProvenShape
 
-import java.time.ZonedDateTime
+import java.time.LocalDateTime
 import java.util.UUID
 
 class ReputationEventTypesTable(tag: Tag) extends Table[ReputationEventType](tag, "reputation_event_types") {
@@ -20,9 +20,9 @@ class ReputationEventTypesTable(tag: Tag) extends Table[ReputationEventType](tag
 
   def isSystemGenerated = column[Boolean]("is_system_generated")
 
-  def createdAt = column[ZonedDateTime]("created_at")
+    def createdAt = column[LocalDateTime]("created_at")
 
-  def updatedAt = column[ZonedDateTime]("updated_at")
+    def updatedAt = column[LocalDateTime]("updated_at")
 
   // Projection for the case class
   def * : ProvenShape[ReputationEventType] = (

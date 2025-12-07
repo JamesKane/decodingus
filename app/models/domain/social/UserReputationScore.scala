@@ -1,4 +1,4 @@
-package models.domain.user
+package models.domain.social
 
 import java.time.ZonedDateTime
 import java.util.UUID
