@@ -1,8 +1,8 @@
-@()(implicit request: RequestHeader, webJarsUtil: org.webjars.play.WebJarsUtil)
+@()(implicit request: RequestHeader, webJarsUtil: org.webjars.play.WebJarsUtil, messages: Messages)
 
-@main("Coverage Benchmarks") {
+@main(messages("nav.coverage")) {
     <div class="container mt-4">
-        <h1>Coverage Benchmarks</h1>
+        <h1>@messages("nav.coverage")</h1>
         <p class="lead">
             Aggregated coverage statistics grouped by laboratory, test type, and contig.
         </p>

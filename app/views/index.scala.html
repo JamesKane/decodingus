@@ -1,12 +1,12 @@
 @import org.webjars.play.WebJarsUtil
 
-@()(implicit webJarsUtil: WebJarsUtil)
+@()(implicit webJarsUtil: WebJarsUtil, messages: Messages)
 
-@main("Decoding Us") {
+@main(messages("home.title")) {
     <img src="@routes.Assets.versioned("images/decoding_us_logo_placeholder.png")"
-    alt="Welcome to Decoding Us" class="img-fluid">
+    alt="@messages("home.welcome")" class="img-fluid">
     <main class="container">
-        <h1>Welcome to Decoding Us</h1>
+        <h1>@messages("home.welcome")</h1>
         <p>Decoding Us will be a next-generation platform for citizen science focused on empowering individuals to
             contribute to genealogical and population studies using Whole Genome Sequencing (WGS) data and compatible
             technologies. Recognizing the limitations of centralized data silos and the growing importance of user data

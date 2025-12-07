@@ -1,10 +1,10 @@
 @import org.webjars.play.WebJarsUtil
 
-@()(implicit webJarsUtil: WebJarsUtil)
+@()(implicit webJarsUtil: WebJarsUtil, messages: Messages)
 
-@main("Terms of Use") {
+@main(messages("nav.terms")) {
     <main class="container">
-        <h1>Terms of Use</h1>
+        <h1>@messages("legal.terms.title")</h1>
 
         <section class="mt-4">
             <h2>Acceptance of Terms</h2>

@@ -2,6 +2,7 @@ package controllers
 
 import models.dal.domain.genomics.BiosamplesTable
 import org.webjars.play.WebJarsUtil
+import play.api.i18n.I18nSupport
 import play.api.libs.json.*
 import play.api.mvc.*
 import repositories.BiosampleRepository
@@ -13,7 +14,7 @@ import scala.concurrent.{ExecutionContext, Future}
 class BiosampleMapController @Inject()(
                                         val controllerComponents: ControllerComponents,
                                         biosampleRepository: BiosampleRepository
-                                      )(implicit ec: ExecutionContext, webJarsUtil: WebJarsUtil) extends BaseController {
+                                      )(implicit ec: ExecutionContext, webJarsUtil: WebJarsUtil) extends BaseController with I18nSupport {
 
   def mapView() = Action { implicit request: Request[AnyContent] =>
     Ok(views.html.biosamples.map())

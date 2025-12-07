@@ -11,6 +11,7 @@ GET           /cookie-usage                                                     
 GET           /terms                                                                             controllers.HomeController.terms()
 GET           /privacy                                                                           controllers.HomeController.privacy()
 GET           /faq                                                                               controllers.HomeController.faq()
+GET           /reputation                                                                        controllers.HomeController.reputation()
 
 GET           /sitemap.xml                                                                       controllers.HomeController.sitemap()
 GET           /robots.txt                                                                        controllers.HomeController.robots()

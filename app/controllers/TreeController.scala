@@ -6,6 +6,7 @@ import models.api.{SubcladeDTO, TreeNodeDTO}
 import models.view.TreeViewModel
 import org.webjars.play.WebJarsUtil
 import play.api.cache.{AsyncCacheApi, Cached}
+import play.api.i18n.I18nSupport
 import play.api.libs.json.Json
 import play.api.mvc.*
 import services.{ApiRoute, FragmentRoute, HaplogroupTreeService}
@@ -30,7 +31,7 @@ class TreeController @Inject()(val controllerComponents: ControllerComponents,
                                cached: Cached,
                                cache: AsyncCacheApi)
                               (using webJarsUtil: WebJarsUtil, ec: ExecutionContext)
-  extends BaseController {
+  extends BaseController with I18nSupport {
 
   /**
    * Configuration for initializing and handling tree-based data structures

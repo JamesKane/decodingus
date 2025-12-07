@@ -1,10 +1,10 @@
 @import org.webjars.play.WebJarsUtil
 
-@()(implicit webJarsUtil: WebJarsUtil)
+@()(implicit webJarsUtil: WebJarsUtil, messages: Messages)
 
-@main("Privacy Policy") {
+@main(messages("nav.privacy")) {
     <main class="container">
-        <h1>Privacy Statement</h1>
+        <h1>@messages("legal.privacy.title")</h1>
         <p class="lead">
             This Privacy Statement explains how Decoding-Us.com (the "Website") handles the limited data processed during your interaction with our application, including the use of data from a federated platform.</p>
 

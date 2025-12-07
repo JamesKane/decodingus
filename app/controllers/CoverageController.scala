@@ -3,6 +3,7 @@ package controllers
 import jakarta.inject.Singleton
 import models.domain.genomics.CoverageBenchmark
 import org.webjars.play.WebJarsUtil
+import play.api.i18n.I18nSupport
 import play.api.libs.json.Json
 import play.api.mvc.*
 import repositories.CoverageRepository
@@ -22,7 +23,7 @@ import scala.concurrent.ExecutionContext
 class CoverageController @Inject()(
                                     val controllerComponents: ControllerComponents,
                                     coverageRepository: CoverageRepository
-                                  )(using webJarsUtil: WebJarsUtil, ec: ExecutionContext) extends BaseController {
+                                  )(using webJarsUtil: WebJarsUtil, ec: ExecutionContext) extends BaseController with I18nSupport {
 
   /**
    * Handles an HTTP GET request to render the coverage benchmarks page.

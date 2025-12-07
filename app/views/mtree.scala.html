@@ -1,10 +1,10 @@
 @import org.webjars.play.WebJarsUtil
 
-@(rootHaplogroup: Option[String])(implicit webJarsUtil: WebJarsUtil)
+@(rootHaplogroup: Option[String])(implicit webJarsUtil: WebJarsUtil, messages: Messages)
 
-@main("MT-DNA Tree") {
+@main(messages("nav.mtree")) {
     <main class="container-fluid">
-        <h1>MT-DNA Tree</h1>
+        <h1>@messages("nav.mtree")</h1>
         <div id="tree-container"
         hx-get="@routes.TreeController.mTreeFragment(rootHaplogroup)"
         hx-trigger="load">

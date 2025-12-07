@@ -1,0 +1,35 @@
+# General
+app.name = Decoding Us
+
+# Navigation
+nav.home = Home
+nav.about = About
+nav.ytree = Y-DNA Tree
+nav.mtree = MT-DNA Tree
+nav.references = References
+nav.tools = Research Tools
+nav.coverage = Coverage Benchmarks
+nav.contact = Contact
+nav.reputation = Reputation System
+nav.terms = Terms of Use
+nav.privacy = Privacy Policy
+nav.cookies = Cookie Usage
+nav.faq = FAQ
+nav.api = API Documentation
+
+# Footer
+footer.copyright = Copyright © {0}, Decoding-Us.com
+
+# Home Page
+home.title = Decoding Us
+home.welcome = Welcome to Decoding Us
+
+# Reputation System
+reputation.title = Community Reputation System
+reputation.link = Reputation System
+
+# Legal
+legal.cookies.title = Cookie Usage
+legal.privacy.title = Privacy Policy
+legal.terms.title = Terms of Use
+legal.faq.title = FAQ

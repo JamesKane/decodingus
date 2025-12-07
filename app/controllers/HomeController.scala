@@ -3,6 +3,7 @@ package controllers
 import org.webjars.play.WebJarsUtil
 import play.api.*
 import play.api.cache.{Cached, SyncCacheApi}
+import play.api.i18n.I18nSupport
 import play.api.mvc.*
 
 import javax.inject.*
@@ -23,7 +24,7 @@ class HomeController @Inject()(val controllerComponents: ControllerComponents,
                                cached: Cached,
                                cache: SyncCacheApi
                               )
-                              (using webJarsUtil: WebJarsUtil) extends BaseController {
+                              (using webJarsUtil: WebJarsUtil) extends BaseController with I18nSupport {
 
   /**
    * Create an Action to render an HTML page.
@@ -34,6 +35,13 @@ class HomeController @Inject()(val controllerComponents: ControllerComponents,
    */
   def index(): Action[AnyContent] = Action { implicit request: Request[AnyContent] =>
     Ok(views.html.index())
+  }
+
+  /**
+   * Renders the Reputation System explainer page.
+   */
+  def reputation(): Action[AnyContent] = Action { implicit request: Request[AnyContent] =>
+    Ok(views.html.reputation())
   }
 
   /**

@@ -1,0 +1,20 @@
+@import org.webjars.play.WebJarsUtil
+@()(implicit messages: Messages, webJarsUtil: WebJarsUtil)
+
+@main(messages("reputation.title")) {
+    <div class="container py-5">
+        <h1 class="mb-4">@messages("reputation.title")</h1>
+
+        <div class="card shadow-sm">
+            <div class="card-body">
+                @{
+                    messages.lang.code match {
+                        case "es" => views.html.content.en.reputationText() 
+                        case "fr" => views.html.content.en.reputationText()
+                        case _    => views.html.content.en.reputationText()
+                    }
+                }
+            </div>
+        </div>
+    </div>
+}

@@ -1,8 +1,8 @@
 @import org.webjars.play.WebJarsUtil
-@(title: String)(content: Html)(implicit webJarsUtil: WebJarsUtil)
+@(title: String)(content: Html)(implicit webJarsUtil: WebJarsUtil, messages: Messages)
 
 <!DOCTYPE html>
-<html lang="en">
+<html lang="@messages.lang.code">
     <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">

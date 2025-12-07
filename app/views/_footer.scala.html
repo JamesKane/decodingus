@@ -1,21 +1,23 @@
-@()
+@()(implicit messages: Messages)
 <footer>
     <nav class="navbar fixed-bottom navbar-expand-lg bg-body-tertiary" data-bs-theme="dark">
         <div class="container-fluid">
             <ul class="navbar-nav m-auto">
                 <li class="nav-item"><a class="nav-link" href="@controllers.routes.ContactController.show()">
-                    Contact</a></li>
+                    @messages("nav.contact")</a></li>
+                <li class="nav-item"><a class="nav-link" href="@controllers.routes.HomeController.reputation()">
+                    @messages("nav.reputation")</a></li>
                 <li class="nav-item"><a class="nav-link" href="@controllers.routes.HomeController.terms()">
-                    Terms of Use</a></li>
+                    @messages("nav.terms")</a></li>
                 <li class="nav-item"><a class="nav-link" href="@controllers.routes.HomeController.privacy()">
-                    Privacy Policy</a></li>
+                    @messages("nav.privacy")</a></li>
                 <li class="nav-item"><a class="nav-link" href="@controllers.routes.HomeController.cookieUsage()">
-                    Cookie Usage</a></li>
-                <li class="nav-item"><a class="nav-link" href="@controllers.routes.HomeController.faq()">FAQ</a></li>
+                    @messages("nav.cookies")</a></li>
+                <li class="nav-item"><a class="nav-link" href="@controllers.routes.HomeController.faq()">@messages("nav.faq")</a></li>
                 <li class="nav-item"><a class="nav-link" href="/api/docs/" hx-boost="false" target="_blank">
-                    API Documentation</a></li>
+                    @messages("nav.api")</a></li>
             </ul>
-            <span class="navbar-text">Copyright &copy; @java.time.LocalDate.now().getYear, Decoding-Us.com</span>
+            <span class="navbar-text">@messages("footer.copyright", java.time.LocalDate.now().getYear)</span>
         </div>
     </nav>
 </footer>

@@ -1,10 +1,10 @@
 @import org.webjars.play.WebJarsUtil
 
-@(rootHaplogroup: Option[String])(implicit webJarsUtil: WebJarsUtil)
+@(rootHaplogroup: Option[String])(implicit webJarsUtil: WebJarsUtil, messages: Messages)
 
-@main("Y-DNA Tree") {
+@main(messages("nav.ytree")) {
     <main class="container-fluid">
-        <h1>Y-DNA Tree</h1>
+        <h1>@messages("nav.ytree")</h1>
         <div id="tree-container"
         hx-get="@routes.TreeController.yTreeFragment(rootHaplogroup)"
         hx-trigger="load">

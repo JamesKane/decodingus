@@ -1,10 +1,10 @@
 @import org.webjars.play.WebJarsUtil
 
-@()(implicit webJarsUtil: WebJarsUtil)
+@()(implicit webJarsUtil: WebJarsUtil, messages: Messages)
 
-@main("Cookie Usage") {
+@main(messages("nav.cookies")) {
     <main class="container">
-        <h1>Cookie Usage Policy</h1>
+        <h1>@messages("legal.cookies.title")</h1>
         <p class="lead">
             This Cookie Usage Policy explains how Decoding-Us.com (the "Website") uses cookies and similar tracking technologies.</p>
 
