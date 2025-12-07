@@ -6,3 +6,10 @@ body {
     padding-top: 56px;
     padding-bottom: 56px;
 }
+
+.logo-placeholder {
+    max-width: 900px; /* Increased for more horizontal span */
+    display: block;
+    margin: 0 auto;
+    padding: 20px 0; /* Add some vertical spacing */
+}
