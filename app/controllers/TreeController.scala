@@ -11,7 +11,7 @@ import play.api.mvc.*
 import services.{ApiRoute, FragmentRoute, HaplogroupTreeService}
 
 import javax.inject.*
-import scala.concurrent.ExecutionContext
+import scala.concurrent.{ExecutionContext, Future}
 import scala.concurrent.duration.DurationInt
 
 /**
@@ -56,10 +56,12 @@ class TreeController @Inject()(val controllerComponents: ControllerComponents,
    * the Y-DNA haplogroup tree. The view includes interactive elements such as
    * a search form for navigating to specific haplogroups.
    *
+   * @param rootHaplogroup Optional haplogroup to use as the initial root.
+   *                       If provided, the tree will load centered on this haplogroup.
    * @return an action that renders the Y-DNA tree page as an HTML response
    */
-  def ytree(): Action[AnyContent] = Action { implicit request =>
-    Ok(views.html.ytree())
+  def ytree(rootHaplogroup: Option[String]): Action[AnyContent] = Action { implicit request =>
+    Ok(views.html.ytree(rootHaplogroup))
   }
 
   /**
@@ -69,10 +71,12 @@ class TreeController @Inject()(val controllerComponents: ControllerComponents,
    * the MT-DNA haplogroup tree. The view includes interactive elements such as
    * a search form for navigating to specific haplogroups.
    *
+   * @param rootHaplogroup Optional haplogroup to use as the initial root.
+   *                       If provided, the tree will load centered on this haplogroup.
    * @return an action that renders the MT-DNA tree page as an HTML response
    */
-  def mtree(): Action[AnyContent] = Action { implicit request =>
-    Ok(views.html.mtree())
+  def mtree(rootHaplogroup: Option[String]): Action[AnyContent] = Action { implicit request =>
+    Ok(views.html.mtree(rootHaplogroup))
   }
 
   /**
@@ -122,18 +126,23 @@ class TreeController @Inject()(val controllerComponents: ControllerComponents,
    * The portion of the tree rendered can be controlled by specifying a root haplogroup. If no root haplogroup
    * is provided, the configuration's default root is used.
    *
+   * For HTMX requests (identified by the HX-Request header), returns the HTML fragment.
+   * For direct browser requests (e.g., shared URLs), redirects to the full page with the rootHaplogroup parameter.
+   *
    * @param rootHaplogroup an optional string indicating the root haplogroup for the Y-DNA tree fragment.
    *                       If None, the default root haplogroup is used.
-   * @return an Action that produces an HTML response containing the Y-DNA tree fragment.
+   * @return an Action that produces an HTML response containing the Y-DNA tree fragment,
+   *         or a redirect to the full page for non-HTMX requests.
    */
-  def yTreeFragment(rootHaplogroup: Option[String]): EssentialAction =
-    cached.status(
-      (request: RequestHeader) => s"ytree-fragment-${rootHaplogroup.getOrElse("all")}",
-      200,
-      24.hours
-    ) {
-      treeAction(rootHaplogroup, YConfig, FragmentRoute)
+  def yTreeFragment(rootHaplogroup: Option[String]): Action[AnyContent] = Action.async { implicit request =>
+    if (isHtmxRequest(request)) {
+      // HTMX request - return fragment (with caching handled internally)
+      cachedTreeFragment(rootHaplogroup, YConfig, s"ytree-fragment-${rootHaplogroup.getOrElse("all")}")
+    } else {
+      // Direct browser request - redirect to full page
+      Future.successful(Redirect(routes.TreeController.ytree(rootHaplogroup)))
     }
+  }
 
   /**
    * Handles requests to render a fragment of the MT-DNA haplogroup tree.
@@ -142,18 +151,68 @@ class TreeController @Inject()(val controllerComponents: ControllerComponents,
    * The portion of the tree rendered can be controlled by specifying a root haplogroup. If no root haplogroup
    * is provided, the configuration's default root is used.
    *
+   * For HTMX requests (identified by the HX-Request header), returns the HTML fragment.
+   * For direct browser requests (e.g., shared URLs), redirects to the full page with the rootHaplogroup parameter.
+   *
    * @param rootHaplogroup an optional string indicating the root haplogroup for the MT-DNA tree fragment.
    *                       If None, the default root haplogroup is used.
-   * @return an Action that produces an HTML response containing the MT-DNA tree fragment.
+   * @return an Action that produces an HTML response containing the MT-DNA tree fragment,
+   *         or a redirect to the full page for non-HTMX requests.
    */
-  def mTreeFragment(rootHaplogroup: Option[String]): EssentialAction =
-    cached.status(
-      (request: RequestHeader) => s"mtree-fragment-${rootHaplogroup.getOrElse("all")}",
-      200,
-      24.hours
-    ) {
-      treeAction(rootHaplogroup, MTConfig, FragmentRoute)
+  def mTreeFragment(rootHaplogroup: Option[String]): Action[AnyContent] = Action.async { implicit request =>
+    if (isHtmxRequest(request)) {
+      // HTMX request - return fragment (with caching handled internally)
+      cachedTreeFragment(rootHaplogroup, MTConfig, s"mtree-fragment-${rootHaplogroup.getOrElse("all")}")
+    } else {
+      // Direct browser request - redirect to full page
+      Future.successful(Redirect(routes.TreeController.mtree(rootHaplogroup)))
     }
+  }
+
+  /**
+   * Checks if the request is from HTMX by looking for the HX-Request header.
+   */
+  private def isHtmxRequest(request: Request[_]): Boolean = {
+    request.headers.get("HX-Request").contains("true")
+  }
+
+  /**
+   * Returns a cached tree fragment response, using the async cache API.
+   */
+  private def cachedTreeFragment(
+    rootHaplogroup: Option[String],
+    config: TreeConfig,
+    cacheKey: String
+  )(using request: Request[AnyContent]): Future[Result] = {
+    cache.getOrElseUpdate(cacheKey, 24.hours) {
+      buildTreeFragment(rootHaplogroup, config)
+    }
+  }
+
+  /**
+   * Builds the tree fragment response.
+   */
+  private def buildTreeFragment(
+    rootHaplogroup: Option[String],
+    config: TreeConfig
+  )(using request: Request[AnyContent]): Future[Result] = {
+    val haplogroupName = rootHaplogroup.getOrElse(config.defaultRoot)
+    val isAbsoluteTopRootView = haplogroupName == config.defaultRoot
+
+    treeService.buildTreeResponse(haplogroupName, config.haplogroupType, FragmentRoute)
+      .map { treeDto =>
+        val treeViewModel: Option[TreeViewModel] = treeDto.subclade.flatMap { _ =>
+          services.TreeLayoutService.layoutTree(treeDto, isAbsoluteTopRootView)
+        }
+        Ok(views.html.fragments.haplogroup(treeDto, config.haplogroupType, treeViewModel, request.uri))
+      }
+      .recover {
+        case _: IllegalArgumentException =>
+          Ok(views.html.fragments.error(s"Haplogroup $haplogroupName not found"))
+        case e =>
+          Ok(views.html.fragments.error(e.getMessage))
+      }
+  }
 
   /**
    * Generates a tree structure for a given root haplogroup and renders it as either

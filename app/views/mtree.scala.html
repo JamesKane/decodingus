@@ -1,18 +1,18 @@
 @import org.webjars.play.WebJarsUtil
 
-@()(implicit webJarsUtil: WebJarsUtil)
+@(rootHaplogroup: Option[String])(implicit webJarsUtil: WebJarsUtil)
 
 @main("MT-DNA Tree") {
     <main class="container-fluid">
         <h1>MT-DNA Tree</h1>
         <div id="tree-container"
-        hx-get="@routes.TreeController.mTreeFragment(None)"
+        hx-get="@routes.TreeController.mTreeFragment(rootHaplogroup)"
         hx-trigger="load">
             <div class="loading">Loading haplogroup tree...</div>
         </div>
 
         <div class="tree-controls">
-            <form class="search-form" hx-get="@routes.TreeController.mTreeFragment(None)" hx-target="#tree-container">
+            <form class="search-form" hx-get="@routes.TreeController.mTreeFragment(None)" hx-target="#tree-container" hx-push-url="@routes.TreeController.mtree(None)">
                 <label for="haplogroup-search">Jump to haplogroup:</label>
                 <input type="text"
                 id="haplogroup-search"

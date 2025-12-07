@@ -1,15 +1,30 @@
 @import models.HaplogroupType
+@import models.HaplogroupType.{MT, Y}
 @import models.api.TreeDTO
 @import models.view.TreeViewModel
 @import controllers.routes.TreeController
 
 @(tree: TreeDTO, hapType: HaplogroupType, renderedTreeData: Option[TreeViewModel], currentUrl: String)
 
+@fullPageUrl(haplogroup: Option[String]) = @{
+    hapType match {
+        case Y => TreeController.ytree(haplogroup)
+        case MT => TreeController.mtree(haplogroup)
+    }
+}
+
+@fragmentUrl(haplogroup: Option[String]) = @{
+    hapType match {
+        case Y => TreeController.yTreeFragment(haplogroup)
+        case MT => TreeController.mTreeFragment(haplogroup)
+    }
+}
+
 <nav aria-label="breadcrumb" itemscope itemtype="https://schema.org/BreadcrumbList">
     <ol class="breadcrumb">
         @for((crumb, index) <- tree.crumbs.zipWithIndex) {
             <li class="breadcrumb-item" itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
-                <a href="@crumb.url" itemprop="item" hx-get="@crumb.url" hx-target="#tree-container" hx-push-url="true">
+                <a href="@fullPageUrl(Some(crumb.label))" itemprop="item" hx-get="@crumb.url" hx-target="#tree-container" hx-push-url="@fullPageUrl(Some(crumb.label))">
                     <span itemprop="name">@crumb.label</span>
                 </a>
                 <meta itemprop="position" content="${index + 1}"/>
@@ -54,9 +69,9 @@
                     x="@(node.y - 75)"
                     y="@(node.x - 12)"
                     width="150" height="24" rx="3" ry="3"
-                    hx-get="@TreeController.yTreeFragment(Option(node.name))"
+                    hx-get="@fragmentUrl(Option(node.name))"
                     hx-target="#tree-container"
-                    hx-push-url="true"
+                    hx-push-url="@fullPageUrl(Option(node.name))"
                               style="fill: @node.fillColor ; stroke: black; cursor: pointer;">
                             <title>@node.name (Click to re-root)</title>
                     </rect>

@@ -15,8 +15,8 @@ GET           /faq                                                              
 GET           /sitemap.xml                                                                       controllers.HomeController.sitemap()
 GET           /robots.txt                                                                        controllers.HomeController.robots()
 
-GET           /ytree                                                                             controllers.TreeController.ytree()
-GET           /mtree                                                                             controllers.TreeController.mtree()
+GET           /ytree                                                                             controllers.TreeController.ytree(rootHaplogroup: Option[String])
+GET           /mtree                                                                             controllers.TreeController.mtree(rootHaplogroup: Option[String])
 GET           /ytree/fragment                                                                    controllers.TreeController.yTreeFragment(rootHaplogroup: Option[String])
 GET           /mtree/fragment                                                                    controllers.TreeController.mTreeFragment(rootHaplogroup: Option[String])
 
