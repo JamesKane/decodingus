@@ -95,6 +95,7 @@ DELETE        /api/private/sequencing-labs/:id                                  
 POST          /api/external-biosamples                                                           controllers.CitizenBiosampleController.create
 PUT           /api/external-biosamples/*atUri                                                    controllers.CitizenBiosampleController.update(atUri: String)
 DELETE        /api/external-biosamples/*atUri                                                    controllers.CitizenBiosampleController.delete(atUri: String)
+POST          /api/firehose/event                                                                controllers.CitizenBiosampleController.processEvent
 
 # Project API endpoints
 POST          /api/projects                                                                      controllers.ProjectController.create

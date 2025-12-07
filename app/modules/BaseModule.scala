@@ -89,5 +89,9 @@ class BaseModule extends AbstractModule {
     bind(classOf[CitizenBiosampleOriginalHaplogroupRepository])
       .to(classOf[CitizenBiosampleOriginalHaplogroupRepositoryImpl])
       .asEagerSingleton()
+
+    bind(classOf[AlignmentRepository])
+      .to(classOf[AlignmentRepositoryImpl])
+      .asEagerSingleton()
   }
 }
