@@ -5,120 +5,119 @@
         <article class="faq-entry">
             <header class="mb-3">
                 <h2 class="h5 text-primary mb-2">Question 1</h2>
-                <h3 class="h6 text-secondary">I was looking for YDNA-Warehouse. Why am I here?</h3>
-            </header>
-            <div class="card shadow-sm">
-                <div class="card-body">
-                    <p class="card-text mb-3">
-                        The site operated as YDNA-Warehouse ceased operations on
-                        <input type="date" id="display-date" value="2025-05-09" readonly
-                        class="border-0 bg-transparent p-0 fw-medium">
-                        due to run costs associated with file storage. The original warehouse was built on a fixed-cost, unlimited storage hosting
-                        platform. When that provider changed the terms, the site was moved to AWS S3 as the trendline for costs was decreasing at a
-                        rate similar to the growth in capacity needed for storing the raw data. This kept the run costs in-line up until 2020.  Recent
-                        global political forces made it difficult to ensure funding of the original warehouse, so we made the decision to end that
-                        project.  All the community-submitted data and user data were removed permanently.
-                    </p>
-                    <p class="card-text mb-3">
-                        While YDNA-Warehouse has been an important resource for the community, we encourage you to continue your genealogical and research
-                        journeys through other platforms and tools in the field of Y-DNA and genetic research.  Do keep this site in mind as you explore
-                        other options, since we will eventually provide a more robust and flexible analysis toolset for the community.
-                    </p>
-                </div>
-            </div>
-        </article>
-    </li>
-    <li id="faq2" class="list-group-item border-0 px-0">
-        <article class="faq-entry">
-            <header class="mb-3">
-                <h2 class="h5 text-primary mb-2">Question 2</h2>
                 <h3 class="h6 text-secondary">What is Decoding-Us.com?</h3>
             </header>
             <div class="card shadow-sm">
                 <div class="card-body">
                     <p class="card-text mb-3">
-                        Currently, Decoding-Us.com is a website that aims to provide a platform to gather and share
-                        information about genetic sequencing for the genealogical and genetic research community. The initial
-                        focus is on building a federated platform for the analysis of publicly available academic WGS data. We
-                        are providing alternative Y and Mitochondrial DNA trees and related information to support the
-                        research community.
+                        Decoding-Us.com is a collaborative platform designed for the genetic genealogy and population research community. It serves two main purposes:
                     </p>
+                    <ul>
+                        <li><strong>Public Resource:</strong> We analyze and visualize publicly available Whole Genome Sequencing (WGS) data from academic sources, providing alternative Y-DNA and Mitochondrial DNA trees, coverage benchmarks, and reference data.</li>
+                        <li><strong>Federated Collaboration:</strong> We are building a decentralized application using the AT Protocol (the same technology behind Bluesky) that allows researchers to securely share and compare genetic data without relying on a central server to hold their files.</li>
+                    </ul>
                     <p class="card-text mb-3">
-                        We are also designing an ambitious application built on AT Protocol's <abbr title="Personal Data Repository">
-                        PDS</abbr>
-                        that will allow researchers to collaborate on genealogical and genetic research. This application will
-                        provide a platform for researchers to share information about their haplogroups, ancestral populations,
-                        and existing matching networks.  There is a very early Alpha version of a tool set to provide common analysis
-                        reports that can eventually indexed by the federation to recreate a more robust form of data sharing.
-                        <a href="https://github.com/JamesKane/DecodingUsTools" target="_blank" rel="noopener noreferrer">
-                            Decoding-Us.com Tools</a>
-                    </p>
-                    <p class="card-text mb-3">
-                        The shift to a federated platform allows us to provide a more robust and flexible analysis toolset
-                        for the community without a centralized infrastructure for file hosting and analysis.  This paradigm
-                        moves us closer to the citizen science paradigm explored by Seti@@Home and other distributed compute projects
-                        from the past decades.  Spreading these costs solves the primary problem associated with the
-                        YDNA-Warehouse project, while opening the possibility of a whole genome toolset for the community.
-                    </p>
-                    <p class="card-text mb-3">
-                        We also make the source code available for this site for anyone who is interested in contributing to the project.
-                        <a href="https://github.com/JamesKane/DecodingUs" target="_blank" rel="noopener noreferrer">
-                            Decoding-Us.com Source Code</a>
+                        Our goal is to empower citizen scientists with tools to explore human history while maintaining complete ownership and control over their sensitive genetic data.
                     </p>
                 </div>
             </div>
         </article>
     </li>
+
+    <li id="faq2" class="list-group-item border-0 px-0">
+        <article class="faq-entry">
+            <header class="mb-3">
+                <h2 class="h5 text-primary mb-2">Question 2</h2>
+                <h3 class="h6 text-secondary">How does the "Federated" model work?</h3>
+            </header>
+            <div class="card shadow-sm">
+                <div class="card-body">
+                    <p class="card-text mb-3">
+                        In a traditional model (like AncestryDNA or 23andMe), you provide a biological sample (such as buccal swab or blood) for sequencing. The service then processes your sample, sequences your genetic data, and often maintains ownership or significant control over that data on their servers. Decoding-Us.com offers a unique alternative: our platform is designed to bridge data from <em>any</em> genetic service—be it 23&Me, Ancestry, FTDNA, YSEQ, or direct-to-consumer Whole Genome Sequencing (WGS) providers. As long as you maintain ownership and access to your sequencing data, our system empowers you to bring it into our federated network, uniting insights from across different providers.
+                    </p>
+                    <p class="card-text mb-3">
+                        In our <strong>Federated Model</strong> (Phase 3 of our roadmap), you don't upload your raw data to us. Instead:
+                    </p>
+                    <ol>
+                        <li>You run a "Personal Data Server" (PDS) application—software that lives on your own computer or private cloud.</li>
+                        <li>This software analyzes your WGS data locally to extract non-sensitive summaries (like your haplogroup or anonymous matching tokens).</li>
+                        <li>You choose to publish these summaries to the "Atmosphere"—our secure network.</li>
+                        <li>Decoding-Us.com acts as an "AppView," indexing this public information so you can find matches and collaborate with other researchers.</li>
+                    </ol>
+                    <p class="card-text mb-3">
+                        This approach, known as a "Decentralized AppView," ensures that your massive and sensitive raw data files (BAM/CRAM) never leave your control, while still allowing you to participate in community discoveries.
+                    </p>
+                </div>
+            </div>
+        </article>
+    </li>
+
     <li id="faq3" class="list-group-item border-0 px-0">
         <article class="faq-entry">
             <header class="mb-3">
                 <h2 class="h5 text-primary mb-2">Question 3</h2>
-                <h3 class="h6 text-secondary">Why the Dot Com Domain?</h3>
+                <h3 class="h6 text-secondary">Can I upload my Big Y, WGS, or other DNA files?</h3>
             </header>
             <div class="card shadow-sm">
                 <div class="card-body">
                     <p class="card-text mb-3">
-                        The domain was chosen to reflect an eventual need to commercialize portions of the site to achieve
-                        the ability to self-support the costs of the Application View.  We are considering a few options:
+                        <strong>No, we do not accept direct file uploads.</strong> To protect your privacy and reduce infrastructure costs, we do not host user data files.
                     </p>
-                    <ul class="list-unstyled">
-                        <li>
-                            <strong>Paid PDS Hosting</strong>
-                            We would provide the hosting for user's data and analysis
-                            reports.  A paid user could migrate their data to a different provider if they wanted to.
-                        </li>
-                        <li>
-                            <strong>Advertising or Industry Sponsorships</strong>
-                            The modern web is full of advertising
-                            to provide free services. We may partner with other companies to provide advertising or
-                            sponsorship services relevant to the site.  This may be complicated by our anti-Cookie philosophy and tracking policies.
-                        </li>
+                    <p class="card-text mb-3">
+                        Instead, we provide tools that allow you to process your data on your own machine. Currently, we offer an Alpha version of the <a href="https://github.com/JamesKane/decodingus-navigator" target="_blank" rel="noopener noreferrer">Decoding-Us Navigator</a> (also known as the Navigator Workbench). This edge-computing application runs locally on your PC (Windows/Linux/Mac) and empowers you to:
+                    </p>
+                    <ul>
+                        <li><strong>Analyze Locally:</strong> Process BAM/CRAM files directly on your machine to generate coverage metrics and haplogroup determinations without uploading massive files.</li>
+                        <li><strong>Integrate with Atmosphere:</strong> Future versions will allow you to publish anonymized summaries to your Personal Data Server, enabling you to share insights with the federated network while keeping your raw data private.</li>
                     </ul>
+                    <p class="card-text mb-3">
+                        The Navigator is built on the JVM (Java/Scala) for performance and cross-platform compatibility. It represents the core of our privacy-first philosophy: bring the analysis to the data, not the data to the analysis.
+                    </p>
                 </div>
             </div>
         </article>
     </li>
+
     <li id="faq4" class="list-group-item border-0 px-0">
         <article class="faq-entry">
             <header class="mb-3">
                 <h2 class="h5 text-primary mb-2">Question 4</h2>
-                <h3 class="h6 text-secondary">Can I upload my Big Y, WGS, etc?</h3>
+                <h3 class="h6 text-secondary">What is the "Atmosphere" and the AT Protocol?</h3>
             </header>
             <div class="card shadow-sm">
                 <div class="card-body">
                     <p class="card-text mb-3">
-                        No!  We are not currently accepting uploads of any kind.  We are currently working on a
-                        more robust and flexible analysis toolset for the community that runs on their personal
-                        computing devices.  This will allow users total control of their own data with an ability
-                        to share relevant information with other users in the federated network.  See <a href="#faq2">
-                        FAQ 2</a>
-                        for more information.
+                        The <strong>AT Protocol</strong> is a new technology for decentralized social networking. It allows users to own their identity and data, moving freely between different services without losing their connections.
                     </p>
-                    <p>
-                        We are exploring the capabilities of the AT Protocol <abbr title="Personal Data Repository">
-                        PDS</abbr>
-                        to provide a more robust and flexible analysis toolset for the community.  This will allow
-                        users to share relevant information with other users in the federated network.
+                    <p class="card-text mb-3">
+                        We call our implementation the <strong>Atmosphere</strong>. Just as the air connects us all, the Atmosphere connects individual researchers' Personal Data Servers. It uses "Lexicons"—standard dictionaries for genetic data—to ensure that a researcher in the UK can automatically compare notes with a researcher in the US, even if they use different software, provided they both speak the "Atmosphere" language.
+                    </p>
+                </div>
+            </div>
+        </article>
+    </li>
+
+    <li id="faq5" class="list-group-item border-0 px-0">
+        <article class="faq-entry">
+            <header class="mb-3">
+                <h2 class="h5 text-primary mb-2">Question 5</h2>
+                <h3 class="h6 text-secondary">Why the .com domain? Is this a commercial service?</h3>
+            </header>
+            <div class="card shadow-sm">
+                <div class="card-body">
+                    <p class="card-text mb-3">
+                        Decoding-Us.com is currently a free resource. However, hosting high-performance databases and indexing the global federation costs money. We chose a .com domain to keep our options open for long-term sustainability.
+                    </p>
+                    <p class="card-text mb-3">
+                        Future sustainability models might include:
+                    </p>
+                    <ul>
+                        <li><strong>Patronage Donation System:</strong> A voluntary tiered donation model where community members can become "Patrons" to support hardware and hosting costs. Contributions are optional, but help ensure the platform remains free and open for everyone.</li>
+                        <li><strong>Managed PDS Hosting:</strong> For users who don't want to run their own server, we could offer a paid, secure hosting service for their Personal Data Server.</li>
+                        <li><strong>Sponsorships:</strong> Partnerships with sequencing labs or academic institutions, provided they align with our strict privacy and anti-tracking values.</li>
+                    </ul>
+                    <p class="card-text">
+                        Regardless of the model, our commitment to open-source code and user data sovereignty will remain unchanged.
                     </p>
                 </div>
             </div>
