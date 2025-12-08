@@ -36,12 +36,6 @@ import java.time.LocalDateTime
  */
 class HaplogroupsTable(tag: Tag) extends Table[Haplogroup](tag, "haplogroup") {
 
-
-  given TypedType[HaplogroupType] = MappedColumnType.base[HaplogroupType, String](
-    _.toString,
-    HaplogroupType.valueOf
-  )
-
   def haplogroupId = column[Int]("haplogroup_id", O.PrimaryKey, O.AutoInc)
 
   def name = column[String]("name")

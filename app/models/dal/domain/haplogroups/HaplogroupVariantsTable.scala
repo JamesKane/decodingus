@@ -1,9 +1,8 @@
 package models.dal.domain.haplogroups
 
-import models.dal.domain.genomics.{Variant, VariantsTable}
-import models.dal.domain.haplogroups.HaplogroupsTable
-import models.domain.haplogroups.{Haplogroup, HaplogroupVariant}
 import models.dal.MyPostgresProfile.api.*
+import models.dal.domain.genomics.{Variant, VariantsTable}
+import models.domain.haplogroups.{Haplogroup, HaplogroupVariant}
 
 /**
  * Represents the mapping for the `haplogroup_variant` table in the database. This table defines

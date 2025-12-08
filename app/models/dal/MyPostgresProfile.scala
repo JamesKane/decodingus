@@ -1,9 +1,9 @@
 package models.dal
 
 import com.github.tminglei.slickpg.*
-import models.domain.genomics.{BiologicalSex, BiosampleType, MetricLevel, SequenceFileAtpLocationJsonb, SequenceFileChecksumJsonb, SequenceFileHttpLocationJsonb}
+import models.dal.domain.genomics.MinHashSketch.{bytesToLongArray, longArrayToBytes}
+import models.domain.genomics.*
 import models.domain.publications.StudySource
-import play.api.libs.json.{Format, JsValue, Json, OFormat, OWrites}
 import slick.basic.Capability
 import slick.jdbc.{JdbcCapabilities, JdbcType}
 
@@ -20,8 +20,7 @@ trait MyPostgresProfile extends ExPostgresProfile
   with PgNetSupport
   with PgLTreeSupport
   with PgPlayJsonSupport // For JSON/JSONB support with Play JSON
-  with array.PgArrayJdbcTypes
-{
+  with array.PgArrayJdbcTypes {
   def pgjson = "jsonb" // jsonb support is in postgres 9.4.0 onward; for 9.3.x use "json"
 
   import slick.ast.*
@@ -48,7 +47,7 @@ trait MyPostgresProfile extends ExPostgresProfile
 
     import models.HaplogroupType
     import models.domain.genomics.HaplogroupResult
-    import play.api.libs.json.{Format, JsNull, JsObject, JsValue, Json, OFormat, OWrites, Reads, Writes}
+    import play.api.libs.json.*
 
     // Implicit JSON formatters for the new JSONB case classes
     implicit val sequenceFileChecksumJsonbFormat: OFormat[SequenceFileChecksumJsonb] = Json.format[SequenceFileChecksumJsonb]
@@ -90,6 +89,13 @@ trait MyPostgresProfile extends ExPostgresProfile
         s => MetricLevel.valueOf(s)
       )
 
+    // Custom Slick mapper for Array[Long] <-> bytea
+    implicit val longArrayTypeMapper: BaseColumnType[Array[Long]] =
+      MappedColumnType.base[Array[Long], Array[Byte]](
+        longArrayToBytes,
+        bytesToLongArray
+      )
+
     // Array type mappers (from PgArraySupport)
     implicit val strListTypeMapper: DriverJdbcType[List[String]] = new SimpleArrayJdbcType[String]("text").to(_.toList)
     implicit val intListTypeMapper: DriverJdbcType[List[Int]] = new SimpleArrayJdbcType[Int]("int4").to(_.toList)
@@ -123,7 +129,6 @@ trait MyPostgresProfile extends ExPostgresProfile
         }
       )
     }
-
 
 
     // Declare the name of an aggregate function:
