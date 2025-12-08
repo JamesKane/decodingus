@@ -95,6 +95,9 @@ DELETE        /api/private/sequencing-labs/:id                                  
 # Atmosphere Firehose
 POST          /api/firehose/event                                                                controllers.FirehoseController.processEvent
 
+# Publication Discovery
+POST          /api/private/publication-discovery/run                                             controllers.PublicationDiscoveryController.triggerDiscovery()
+
 # --- API Routes (Handled by Tapir, including Swagger UI) ---
 POST          /api/registerPDS                                                                   controllers.PDSRegistrationController.registerPDS()
 
