@@ -3,13 +3,13 @@ package models.dal.domain.user
 import models.dal.MyPostgresProfile.api.*
 import models.domain.user.User
 
-import java.time.ZonedDateTime
+import java.time.LocalDateTime
 import java.util.UUID
 
 class UsersTable(tag: Tag) extends Table[User](tag, "users") {
   def id = column[UUID]("id", O.PrimaryKey) // O.AutoInc is not used for UUID defaults
 
-  def email = column[Option[String]]("email", O.Unique)
+  def emailEncrypted = column[Option[String]]("email_encrypted", O.Unique) // Renamed from email_hash
 
   def did = column[String]("did", O.Unique)
 
@@ -17,15 +17,15 @@ class UsersTable(tag: Tag) extends Table[User](tag, "users") {
 
   def displayName = column[Option[String]]("display_name")
 
-  def createdAt = column[ZonedDateTime]("created_at")
+  def createdAt = column[LocalDateTime]("created_at")
 
-  def updatedAt = column[ZonedDateTime]("updated_at")
+  def updatedAt = column[LocalDateTime]("updated_at")
 
   def isActive = column[Boolean]("is_active")
 
   def * = (
     id.?,
-    email,
+    emailEncrypted,
     did,
     handle,
     displayName,

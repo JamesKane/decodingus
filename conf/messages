@@ -176,3 +176,11 @@ publicationCandidates.rejectFailed = Failed to reject candidate.
 publicationCandidates.rejectError = Error rejecting candidate: {0}
 publicationCandidates.promptRejectReason = Please enter a reason for rejecting this candidate.
 publicationCandidates.emptyRejectReasonAlert = Rejection reason cannot be empty.
+
+# Auth
+auth.login.title = Login
+auth.login.heading = Sign In
+auth.login.handle = Handle (e.g., alice.bsky.social)
+auth.login.password = App Password
+auth.login.passwordHelp = Use an App Password, not your main account password.
+auth.login.submit = Sign In

@@ -42,21 +42,37 @@ class CachedSecretsManagerService @Inject()(
    * @return An `Option` containing the API key as a `String`, or `None` if the key could not be retrieved.
    */
   def getCachedApiKey: Option[String] = {
-    cache.get(config.apiKeySecretName) match {
+    getSecret(config.apiKeySecretName)
+  }
+
+  /**
+   * Retrieves the cached User Encryption Key for reversable email encryption.
+   */
+  def getCachedUserEncryptionKey: Option[String] = {
+    getSecret(config.userEncryptionKeySecretName)
+  }
+
+  private def getSecret(secretName: String): Option[String] = {
+    cache.get(secretName) match {
       case Some((key, expiry)) if expiry.isAfter(Instant.now) =>
         Some(key)
       case _ =>
-        getApiKey.toOption.map { key =>
-          cache.put(config.apiKeySecretName, (key, Instant.now.plusSeconds(CacheDuration.toSeconds)))
+        fetchSecret(secretName).toOption.map { key =>
+          cache.put(secretName, (key, Instant.now.plusSeconds(CacheDuration.toSeconds)))
           key
         }
     }
   }
 
   private def getApiKey: Try[String] = {
+    // Deprecated: Use getSecret instead
+    fetchSecret(config.apiKeySecretName)
+  }
+
+  private def fetchSecret(secretName: String): Try[String] = {
     Try {
       val request = GetSecretValueRequest.builder()
-        .secretId(config.apiKeySecretName)
+        .secretId(secretName)
         .build()
 
       val response = client.getSecretValue(request)

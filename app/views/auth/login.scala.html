@@ -1,0 +1,42 @@
+@import org.webjars.play.WebJarsUtil
+@(loginForm: Form[controllers.LoginData])(implicit request: Request[AnyContent], messages: Messages, webJarsUtil: WebJarsUtil)
+
+@main(messages("auth.login.title")) {
+    <div class="container py-5">
+        <div class="row justify-content-center">
+            <div class="col-md-6 col-lg-4">
+                <div class="card shadow">
+                    <div class="card-body p-4">
+                        <h2 class="text-center mb-4">@messages("auth.login.heading")</h2>
+
+                        @request.flash.get("error").map { msg =>
+                            <div class="alert alert-danger" role="alert">@msg</div>
+                        }
+                        @request.flash.get("success").map { msg =>
+                            <div class="alert alert-success" role="alert">@msg</div>
+                        }
+
+                        @helper.form(action = routes.AuthController.authenticate) {
+                            @helper.CSRF.formField
+
+                            <div class="mb-3">
+                                <label for="handle" class="form-label">@messages("auth.login.handle")</label>
+                                <input type="text" class="form-control" id="handle" name="handle" value="@loginForm("handle").value" required autofocus>
+                            </div>
+
+                            <div class="mb-3">
+                                <label for="appPassword" class="form-label">@messages("auth.login.password")</label>
+                                <input type="password" class="form-control" id="appPassword" name="appPassword" required>
+                                <div class="form-text">@messages("auth.login.passwordHelp")</div>
+                            </div>
+
+                            <div class="d-grid">
+                                <button type="submit" class="btn btn-primary">@messages("auth.login.submit")</button>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+}

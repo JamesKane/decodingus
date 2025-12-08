@@ -31,7 +31,8 @@ class UserRepository @Inject()(
   }
 
   def findByEmail(email: String): Future[Option[User]] = {
-    db.run(users.filter(_.email === email).result.headOption)
+    // WARNING: This method will likely fail if searching by plain text email because stored values are encrypted.
+    db.run(users.filter(_.emailEncrypted === email).result.headOption)
   }
 
   def update(user: User): Future[Int] = {

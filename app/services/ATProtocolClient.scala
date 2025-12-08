@@ -4,6 +4,7 @@ import com.google.inject.Inject
 import play.api.libs.json.{JsError, JsSuccess, Json}
 import play.api.libs.ws.WSClient
 import play.api.{Configuration, Logging}
+import play.api.libs.ws.JsonBodyWritables._ // Added import
 
 import scala.concurrent.duration.*
 import scala.concurrent.{ExecutionContext, Future}
@@ -38,6 +39,45 @@ class ATProtocolClient @Inject()(
     // Based on the mermaid diagram, R_Edge verifies identity via resolveHandle.
     // The ScalaApp receives DID, R_Token, PDS_URL. So, we verify the PDS_URL against the DID.
     Future.successful(None) // Placeholder for actual implementation
+  }
+
+  /**
+   * Authenticates with a PDS and creates a session.
+   *
+   * @param identifier The handle or DID of the user.
+   * @param password   The app password.
+   * @param pdsUrl     The PDS URL (defaulting to bsky.social if not provided, though in reality we should resolve it).
+   * @return A Future containing the session response if successful.
+   */
+  def createSession(identifier: String, password: String, pdsUrl: String = "https://bsky.social"): Future[Option[SessionResponse]] = {
+    val url = s"$pdsUrl/xrpc/com.atproto.server.createSession"
+    
+    val body = Json.obj(
+      "identifier" -> identifier,
+      "password" -> password
+    )
+
+    ws.url(url)
+      .withRequestTimeout(timeout)
+      .post(body)
+      .map { response =>
+        if (response.status == 200) {
+          Json.fromJson[SessionResponse](response.json) match {
+            case JsSuccess(value, _) => Some(value)
+            case JsError(errors) =>
+              logger.error(s"Failed to parse createSession response: $errors")
+              None
+          }
+        } else {
+          logger.warn(s"Failed to create session for $identifier on $pdsUrl. Status: ${response.status}, Body: ${response.body}")
+          None
+        }
+      }
+      .recover {
+        case e: Exception =>
+          logger.error(s"Error calling createSession on $pdsUrl: ${e.getMessage}", e)
+          None
+      }
   }
 
   /**
@@ -88,4 +128,16 @@ case class LatestCommitResponse(
 
 object LatestCommitResponse {
   implicit val format: play.api.libs.json.Format[LatestCommitResponse] = Json.format[LatestCommitResponse]
+}
+
+case class SessionResponse(
+                            did: String,
+                            handle: String,
+                            email: Option[String],
+                            accessJwt: String,
+                            refreshJwt: String
+                          )
+
+object SessionResponse {
+  implicit val format: play.api.libs.json.Format[SessionResponse] = Json.format[SessionResponse]
 }

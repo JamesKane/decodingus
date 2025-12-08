@@ -1,36 +1,41 @@
 package controllers
 
+import actions.{AuthenticatedAction, RoleAction}
 import jakarta.inject.{Inject, Singleton}
-import org.webjars.play.WebJarsUtil
 import play.api.Logging
 import play.api.i18n.{I18nSupport, MessagesApi}
 import play.api.libs.json.Json
 import play.api.mvc.{Action, AnyContent, BaseController, ControllerComponents}
 import repositories.PublicationCandidateRepository
 import services.PublicationDiscoveryService
+import org.webjars.play.WebJarsUtil // Added import
 
-import java.util.UUID
 import scala.concurrent.{ExecutionContext, Future}
 
 @Singleton
 class PublicationCandidateController @Inject()(
                                                 val controllerComponents: ControllerComponents,
-                                                                                                publicationCandidateRepository: PublicationCandidateRepository,
-                                                                                                publicationDiscoveryService: PublicationDiscoveryService,
-                                                                                                override val messagesApi: MessagesApi // Explicitly inject MessagesApi 
-                                                                                              )(implicit ec: ExecutionContext, webJarsUtil: WebJarsUtil) extends BaseController with I18nSupport with Logging {
-  // Placeholder user ID for temporary unprotected access
-  private val TEMPORARY_REVIEWER_ID: UUID = UUID.fromString("00000000-0000-0000-0000-000000000001") // Example UUID
+                                                publicationCandidateRepository: PublicationCandidateRepository,
+                                                publicationDiscoveryService: PublicationDiscoveryService,
+                                                override val messagesApi: MessagesApi,
+                                                authenticatedAction: AuthenticatedAction,
+                                                roleAction: RoleAction
+                                              )(implicit ec: ExecutionContext, webJarsUtil: WebJarsUtil) extends BaseController with I18nSupport with Logging {
+
+  // Combined action for authentication and RBAC
+  // Allowing both 'Curator' and 'Admin' roles
+  private def CuratorAction = authenticatedAction andThen roleAction("Curator", "Admin")
 
   // Renders the UI
-  def listCandidates(page: Int = 1, pageSize: Int = 20): Action[AnyContent] = Action.async { implicit request =>
+  def listCandidates(page: Int = 1, pageSize: Int = 20): Action[AnyContent] = CuratorAction.async { implicit request =>
+    // TODO: Fetch filters from request query string if needed
     publicationCandidateRepository.listPending(page, pageSize).map { case (candidates, total) =>
       Ok(views.html.publicationCandidates.list(candidates, page, pageSize, total.toInt))
     }
   }
 
-  def accept(id: Int): Action[AnyContent] = Action.async { implicit request =>
-    val reviewerId = TEMPORARY_REVIEWER_ID // Use placeholder UUID
+  def accept(id: Int): Action[AnyContent] = CuratorAction.async { implicit request =>
+    val reviewerId = request.user.id.get
 
     publicationDiscoveryService.acceptCandidate(id, reviewerId).map {
       case Some(pub) => Redirect(routes.PublicationCandidateController.listCandidates())
@@ -45,8 +50,8 @@ class PublicationCandidateController @Inject()(
     }
   }
 
-  def reject(id: Int): Action[AnyContent] = Action.async { implicit request =>
-    val reviewerId = TEMPORARY_REVIEWER_ID // Use placeholder UUID
+  def reject(id: Int): Action[AnyContent] = CuratorAction.async { implicit request =>
+    val reviewerId = request.user.id.get
     val reason = request.body.asFormUrlEncoded.flatMap(_.get("reason").flatMap(_.headOption))
 
     publicationDiscoveryService.rejectCandidate(id, reviewerId, reason).map { success =>

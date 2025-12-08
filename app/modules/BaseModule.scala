@@ -25,6 +25,10 @@ class BaseModule extends AbstractModule {
     bind(classOf[PublicationSearchConfigRepository]).to(classOf[PublicationSearchConfigRepositoryImpl])
     bind(classOf[PublicationSearchRunRepository]).to(classOf[PublicationSearchRunRepositoryImpl])
     bind(classOf[PublicationBiosampleRepository]).to(classOf[PublicationBiosampleRepositoryImpl])
+    
+    bind(classOf[RoleRepository]).asEagerSingleton()
+    bind(classOf[UserRoleRepository]).asEagerSingleton()
+
     bind(classOf[GenbankContigRepository]).to(classOf[GenbankContigRepositoryImpl])
     bind(classOf[VariantRepository]).to(classOf[VariantRepositoryImpl])
     bind(classOf[HaplogroupCoreRepository]).to(classOf[HaplogroupCoreRepositoryImpl])

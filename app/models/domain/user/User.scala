@@ -1,15 +1,15 @@
 package models.domain.user
 
-import java.time.ZonedDateTime
+import java.time.LocalDateTime
 import java.util.UUID
 
 case class User(
                  id: Option[UUID],
-                 email: Option[String],
+                 emailEncrypted: Option[String], // Renamed from emailHash to emailEncrypted
                  did: String,
                  handle: Option[String],
                  displayName: Option[String],
-                 createdAt: ZonedDateTime,
-                 updatedAt: ZonedDateTime,
+                 createdAt: LocalDateTime,
+                 updatedAt: LocalDateTime,
                  isActive: Boolean
                )
