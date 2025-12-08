@@ -1148,12 +1148,12 @@ class ParserFtdna extends ChipDataParser { ... }
 - Basic test type service
 
 **Deliverables:**
-- [ ] Database evolution for `test_type_definition` and related tables
-- [ ] `TestTypeDefinition` domain model
-- [ ] `TestTypeRepository`
-- [ ] `TestTypeService`
-- [ ] Seed data for initial test types
-- [ ] Migrate existing `sequence_library.test_type` to new FK
+- [X] Database evolution for `test_type_definition` and related tables
+- [X] `TestTypeDefinition` domain model
+- [ ] `TestTypeRepository` (Pending creation)
+- [ ] `TestTypeService` (Pending creation)
+- [X] Seed data for initial test types
+- [ ] Migrate existing `sequence_library.test_type` to new FK (Pending evolution script and Slick table change)
 
 ### Phase 2: Chip Data Metadata Support
 

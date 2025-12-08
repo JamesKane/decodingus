@@ -1333,10 +1333,10 @@ decodingus.discovery {
 - Update all repositories and services for schema-qualified queries
 
 **Deliverables:**
-- [ ] Database evolution script for schema creation and table migration
-- [ ] Updated Slick table definitions with `Some("tree")` schema parameter
-- [ ] Updated `DatabaseSchema.scala` with tree schema table references
-- [ ] Updated all haplogroup repositories for cross-schema queries
+- [X] Database evolution script for schema creation and table migration
+- [X] Updated Slick table definitions with `Some("tree")` schema parameter
+- [X] Updated `DatabaseSchema.scala` with tree schema table references
+- [X] Updated all haplogroup repositories for cross-schema queries
 - [ ] Regression tests to verify existing functionality
 - [ ] Documentation update for new schema structure
 
