@@ -79,6 +79,7 @@ object DatabaseSchema {
       val specimenDonors = TableQuery[SpecimenDonorsTable]
       val validationServices = TableQuery[ValidationServicesTable]
       val variants = TableQuery[VariantsTable]
+      val testTypeDefinition = TableQuery[TestTypeTable] // Added this line
     }
 
     object haplogroups {

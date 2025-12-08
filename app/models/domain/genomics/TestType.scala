@@ -64,9 +64,75 @@ object TestType {
     }
 }
 
+/**
+ * Represents the method by which genomic data was generated.
+ */
+enum DataGenerationMethod {
+  case Sequencing, Genotyping
+
+  override def toString: String = this match {
+    case Sequencing => "SEQUENCING"
+    case Genotyping => "GENOTYPING"
+  }
+}
+
+object DataGenerationMethod {
+  def fromString(str: String): Option[DataGenerationMethod] = str.toUpperCase match {
+    case "SEQUENCING" => Some(Sequencing)
+    case "GENOTYPING" => Some(Genotyping)
+    case _ => None
+  }
+}
+
+/**
+ * Represents the target region of a genetic test.
+ */
+enum TargetType {
+  case WholeGenome, YChromosome, MtDna, Autosomal, XChromosome, Mixed
+
+  override def toString: String = this match {
+    case WholeGenome => "WHOLE_GENOME"
+    case YChromosome => "Y_CHROMOSOME"
+    case MtDna => "MT_DNA"
+    case Autosomal => "AUTOSOMAL"
+    case XChromosome => "X_CHROMOSOME"
+    case Mixed => "MIXED"
+  }
+}
+
+object TargetType {
+  def fromString(str: String): Option[TargetType] = str.toUpperCase match {
+    case "WHOLE_GENOME" => Some(WholeGenome)
+    case "Y_CHROMOSOME" => Some(YChromosome)
+    case "MT_DNA" => Some(MtDna)
+    case "AUTOSOMAL" => Some(Autosomal)
+    case "X_CHROMOSOME" => Some(XChromosome)
+    case "MIXED" => Some(Mixed)
+    case _ => None
+  }
+}
+
+
 // Case class to represent a row in the test_type_definition table
 case class TestTypeRow(
   id: Option[Int] = None,
-  name: TestType,
-  description: Option[String] = None
+  code: String, // Changed from name: TestType to code: String, as table column is VARCHAR
+  displayName: String,
+  category: DataGenerationMethod, // Added
+  vendor: Option[String] = None,
+  targetType: TargetType, // Added
+  expectedMinDepth: Option[Double] = None,
+  expectedTargetDepth: Option[Double] = None,
+  expectedMarkerCount: Option[Int] = None,
+  supportsHaplogroupY: Boolean,
+  supportsHaplogroupMt: Boolean,
+  supportsAutosomalIbd: Boolean,
+  supportsAncestry: Boolean,
+  typicalFileFormats: List[String], // Changed from Seq[String] to List[String]
+  version: Option[String] = None,
+  releaseDate: Option[java.time.LocalDate] = None,
+  deprecatedAt: Option[java.time.LocalDate] = None,
+  successorTestTypeId: Option[Int] = None,
+  description: Option[String] = None,
+  documentationUrl: Option[String] = None
 )

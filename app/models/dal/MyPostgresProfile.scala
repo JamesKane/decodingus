@@ -46,7 +46,7 @@ trait MyPostgresProfile extends ExPostgresProfile
     with SearchAssistants {
 
     import models.HaplogroupType
-    import models.domain.genomics.HaplogroupResult
+    import models.domain.genomics.{DataGenerationMethod, HaplogroupResult, TargetType, TestType}
     import play.api.libs.json.*
 
     // Implicit JSON formatters for the new JSONB case classes
@@ -97,6 +97,22 @@ trait MyPostgresProfile extends ExPostgresProfile
         tt => tt.toString,
         s => TestType.fromString(s).getOrElse(
           throw new IllegalArgumentException(s"Invalid TestType value: $s")
+        )
+      )
+
+    implicit val dataGenerationMethodTypeMapper: JdbcType[DataGenerationMethod] =
+      MappedColumnType.base[DataGenerationMethod, String](
+        dgm => dgm.toString,
+        s => DataGenerationMethod.fromString(s).getOrElse(
+          throw new IllegalArgumentException(s"Invalid DataGenerationMethod value: $s")
+        )
+      )
+
+    implicit val targetTypeTypeMapper: JdbcType[TargetType] =
+      MappedColumnType.base[TargetType, String](
+        tt => tt.toString,
+        s => TargetType.fromString(s).getOrElse(
+          throw new IllegalArgumentException(s"Invalid TargetType value: $s")
         )
       )
 

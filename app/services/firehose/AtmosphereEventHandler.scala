@@ -6,6 +6,7 @@ import models.domain.Project
 import models.domain.genomics.*
 import play.api.Logging
 import repositories.*
+import services.TestTypeService // Added this import
 
 import java.time.{LocalDateTime, ZoneId}
 import java.util.UUID
@@ -22,7 +23,8 @@ class AtmosphereEventHandler @Inject()(
                                         sequenceFileRepository: SequenceFileRepository,
                                         alignmentRepository: AlignmentRepository,
                                         specimenDonorRepository: SpecimenDonorRepository,
-                                        projectRepository: ProjectRepository
+                                        projectRepository: ProjectRepository,
+                                        testTypeService: TestTypeService // <--- Added this
                                       )(implicit ec: ExecutionContext) extends Logging {
 
   def handle(event: FirehoseEvent): Future[FirehoseResult] = {
@@ -157,27 +159,32 @@ class AtmosphereEventHandler @Inject()(
       case Some(record) =>
         citizenBiosampleRepository.findByAtUri(record.biosampleRef).flatMap {
           case Some(biosample) =>
-            val lib = SequenceLibrary(
-              id = None,
-              sampleGuid = biosample.sampleGuid,
-              lab = record.platformName,
-              testType = record.testType,
-              runDate = record.runDate.map(d => LocalDateTime.ofInstant(d, ZoneId.systemDefault())).getOrElse(LocalDateTime.now()),
-              instrument = record.instrumentModel.getOrElse("Unknown"),
-              reads = record.totalReads.getOrElse(0),
-              readLength = record.readLength.getOrElse(0),
-              pairedEnd = record.libraryLayout.exists(_.equalsIgnoreCase("PAIRED")),
-              insertSize = record.meanInsertSize.map(_.toInt),
-              atUri = Some(record.atUri),
-              atCid = Some(UUID.randomUUID().toString),
-              created_at = LocalDateTime.now(),
-              updated_at = Some(LocalDateTime.now())
-            )
+            testTypeService.getByCode(record.testType).flatMap {
+              case Some(testTypeRow) =>
+                val testTypeId = testTypeRow.id.getOrElse(throw new IllegalStateException("TestTypeRow ID not found"))
+                val lib = SequenceLibrary(
+                  id = None,
+                  sampleGuid = biosample.sampleGuid,
+                  lab = record.platformName,
+                  testTypeId = testTypeId, // <--- Changed to testTypeId
+                  runDate = record.runDate.map(d => LocalDateTime.ofInstant(d, ZoneId.systemDefault())).getOrElse(LocalDateTime.now()),
+                  instrument = record.instrumentModel.getOrElse("Unknown"),
+                  reads = record.totalReads.getOrElse(0),
+                  readLength = record.readLength.getOrElse(0),
+                  pairedEnd = record.libraryLayout.exists(_.equalsIgnoreCase("PAIRED")),
+                  insertSize = record.meanInsertSize.map(_.toInt),
+                  atUri = Some(record.atUri),
+                  atCid = Some(UUID.randomUUID().toString),
+                  created_at = LocalDateTime.now(),
+                  updated_at = Some(LocalDateTime.now())
+                )
 
-            sequenceLibraryRepository.create(lib).map { _ =>
-              FirehoseResult.Success(event.atUri, lib.atCid.get, None, "Sequence Run Created")
+                sequenceLibraryRepository.create(lib).map { _ =>
+                  FirehoseResult.Success(event.atUri, lib.atCid.get, None, "Sequence Run Created")
+                }
+              case None =>
+                Future.successful(FirehoseResult.ValidationError(event.atUri, s"Invalid test type code: ${record.testType}"))
             }
-
           case None =>
             Future.successful(FirehoseResult.ValidationError(event.atUri, s"Parent biosample not found: ${record.biosampleRef}"))
         }
@@ -190,20 +197,26 @@ class AtmosphereEventHandler @Inject()(
       case Some(record) =>
         sequenceLibraryRepository.findByAtUri(record.atUri).flatMap {
           case Some(existing) =>
-            val updated = existing.copy(
-              lab = record.platformName,
-              testType = record.testType,
-              runDate = record.runDate.map(d => LocalDateTime.ofInstant(d, ZoneId.systemDefault())).getOrElse(existing.runDate),
-              instrument = record.instrumentModel.getOrElse(existing.instrument),
-              reads = record.totalReads.getOrElse(existing.reads),
-              readLength = record.readLength.getOrElse(existing.readLength),
-              pairedEnd = record.libraryLayout.exists(_.equalsIgnoreCase("PAIRED")),
-              insertSize = record.meanInsertSize.map(_.toInt).orElse(existing.insertSize),
-              atCid = Some(UUID.randomUUID().toString),
-              updated_at = Some(LocalDateTime.now())
-            )
-            sequenceLibraryRepository.update(updated).map { _ =>
-              FirehoseResult.Success(event.atUri, updated.atCid.get, None, "Sequence Run Updated")
+            testTypeService.getByCode(record.testType).flatMap {
+              case Some(testTypeRow) =>
+                val testTypeId = testTypeRow.id.getOrElse(throw new IllegalStateException("TestTypeRow ID not found"))
+                val updated = existing.copy(
+                  lab = record.platformName,
+                  testTypeId = testTypeId, // <--- Changed to testTypeId
+                  runDate = record.runDate.map(d => LocalDateTime.ofInstant(d, ZoneId.systemDefault())).getOrElse(existing.runDate),
+                  instrument = record.instrumentModel.getOrElse(existing.instrument),
+                  reads = record.totalReads.getOrElse(existing.reads),
+                  readLength = record.readLength.getOrElse(existing.readLength),
+                  pairedEnd = record.libraryLayout.exists(_.equalsIgnoreCase("PAIRED")),
+                  insertSize = record.meanInsertSize.map(_.toInt).orElse(existing.insertSize),
+                  atCid = Some(UUID.randomUUID().toString),
+                  updated_at = Some(LocalDateTime.now())
+                )
+                sequenceLibraryRepository.update(updated).map { _ =>
+                  FirehoseResult.Success(event.atUri, updated.atCid.get, None, "Sequence Run Updated")
+                }
+              case None =>
+                Future.successful(FirehoseResult.ValidationError(event.atUri, s"Invalid test type code: ${record.testType}"))
             }
           case None =>
             Future.successful(FirehoseResult.NotFound(event.atUri))

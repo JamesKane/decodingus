@@ -104,7 +104,7 @@ class SequenceLibraryRepositoryImpl @Inject()(
           .map(l => (
             l.sampleGuid,
             l.lab,
-            l.testType,
+            l.testTypeId,
             l.runDate,
             l.instrument,
             l.reads,
@@ -118,7 +118,7 @@ class SequenceLibraryRepositoryImpl @Inject()(
           .update((
             library.sampleGuid,
             library.lab,
-            library.testType,
+            library.testTypeId,
             library.runDate,
             library.instrument,
             library.reads,

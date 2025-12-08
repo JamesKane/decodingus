@@ -23,7 +23,7 @@ case class SequenceLibrary(
                             id: Option[Int],
                             sampleGuid: UUID,
                             lab: String,
-                            testType: String,
+                            testTypeId: Int,
                             runDate: LocalDateTime,
                             instrument: String,
                             reads: Int,

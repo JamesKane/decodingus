@@ -33,7 +33,8 @@ class BiosampleDataService @Inject()(
                                       sequenceFileRepository: SequenceFileRepository,
                                       publicationRepository: PublicationRepository,
                                       biosampleOriginalHaplogroupRepository: BiosampleOriginalHaplogroupRepository,
-                                      publicationBiosampleRepository: PublicationBiosampleRepository
+                                      publicationBiosampleRepository: PublicationBiosampleRepository,
+                                      testTypeService: TestTypeService
                                     )(implicit ec: ExecutionContext) {
 
   /**
@@ -172,71 +173,76 @@ class BiosampleDataService @Inject()(
   }
 
   private def createSequenceData(sampleGuid: UUID, data: SequenceDataInfo): Future[Unit] = {
-    val library = SequenceLibrary(
-      id = None,
-      sampleGuid = sampleGuid,
-      lab = data.platformName,
-      testType = data.testType,
-      runDate = LocalDateTime.now(),
-      instrument = data.platformName,
-      reads = data.reads.getOrElse(0),
-      readLength = data.readLength.getOrElse(0),
-      pairedEnd = false,
-      insertSize = None,
-      atUri = None,
-      atCid = None,
-      created_at = LocalDateTime.now(),
-      updated_at = None
-    )
-
-    def createFiles(libraryId: Int): Future[Unit] = {
-      val fileCreations = data.files.map { fileInfo =>
-
-        val checksumsJsonb = fileInfo.checksums.map { cs =>
-          SequenceFileChecksumJsonb(
-            checksum = cs.checksum,
-            algorithm = cs.algorithm,
-            verifiedAt = Some(LocalDateTime.now()), // Assuming verified upon creation for now
-            createdAt = LocalDateTime.now(),
-            updatedAt = LocalDateTime.now()
-          )
-        }.toList
-
-        val httpLocationsJsonb = List(
-          SequenceFileHttpLocationJsonb(
-            url = fileInfo.location.fileUrl,
-            urlHash = UUID.nameUUIDFromBytes(fileInfo.location.fileUrl.getBytes).toString, // Generate a hash for the URL
-            createdAt = LocalDateTime.now(),
-            updatedAt = LocalDateTime.now()
-          )
-        )
-
-        val atpLocationJsonb: Option[SequenceFileAtpLocationJsonb] = None
-
-        val file = SequenceFile(
+    // Look up testTypeId
+    for {
+      testTypeRowOpt <- testTypeService.getByCode(data.testType)
+      testTypeId <- testTypeRowOpt.map(tt => Future.successful(tt.id.getOrElse(throw new IllegalStateException("TestTypeRow ID not found"))))
+        .getOrElse(Future.failed(new IllegalArgumentException(s"Invalid test type code: ${data.testType}")))
+      createdLibrary <- {
+        val library = SequenceLibrary(
           id = None,
-          libraryId = libraryId,
-          fileName = fileInfo.fileName,
-          fileSizeBytes = fileInfo.fileSizeBytes,
-          fileFormat = fileInfo.fileFormat,
-          checksums = checksumsJsonb,
-          httpLocations = httpLocationsJsonb,
-          atpLocation = atpLocationJsonb,
-          aligner = fileInfo.aligner,
-          targetReference = fileInfo.targetReference,
-          createdAt = LocalDateTime.now(),
-          updatedAt = None
+          sampleGuid = sampleGuid,
+          lab = data.platformName,
+          testTypeId = testTypeId,
+          runDate = LocalDateTime.now(),
+          instrument = data.platformName,
+          reads = data.reads.getOrElse(0),
+          readLength = data.readLength.getOrElse(0),
+          pairedEnd = false,
+          insertSize = None,
+          atUri = None,
+          atCid = None,
+          created_at = LocalDateTime.now(),
+          updated_at = None
         )
-
-        sequenceFileRepository.create(file).map(_ => ())
+        sequenceLibraryRepository.create(library)
       }
+      _ <- createFiles(createdLibrary.id.get, data)
+    } yield ()
+  }
 
-      Future.sequence(fileCreations).map(_ => ())
+  private def createFiles(libraryId: Int, dataInfo: SequenceDataInfo): Future[Unit] = {
+    val fileCreations = dataInfo.files.map { fileInfo =>
+
+      val checksumsJsonb = fileInfo.checksums.map { cs =>
+        SequenceFileChecksumJsonb(
+          checksum = cs.checksum,
+          algorithm = cs.algorithm,
+          verifiedAt = Some(LocalDateTime.now()), // Assuming verified upon creation for now
+          createdAt = LocalDateTime.now(),
+          updatedAt = LocalDateTime.now()
+        )
+      }.toList
+
+      val httpLocationsJsonb = List(
+        SequenceFileHttpLocationJsonb(
+          url = fileInfo.location.fileUrl,
+          urlHash = UUID.nameUUIDFromBytes(fileInfo.location.fileUrl.getBytes).toString, // Generate a hash for the URL
+          createdAt = LocalDateTime.now(),
+          updatedAt = LocalDateTime.now()
+        )
+      )
+
+      val atpLocationJsonb: Option[SequenceFileAtpLocationJsonb] = None
+
+      val file = SequenceFile(
+        id = None,
+        libraryId = libraryId,
+        fileName = fileInfo.fileName,
+        fileSizeBytes = fileInfo.fileSizeBytes,
+        fileFormat = fileInfo.fileFormat,
+        checksums = checksumsJsonb,
+        httpLocations = httpLocationsJsonb,
+        atpLocation = atpLocationJsonb,
+        aligner = fileInfo.aligner,
+        targetReference = fileInfo.targetReference,
+        createdAt = LocalDateTime.now(),
+        updatedAt = None
+      )
+
+      sequenceFileRepository.create(file).map(_ => ())
     }
 
-    for {
-      createdLibrary <- sequenceLibraryRepository.create(library)
-      _ <- createFiles(createdLibrary.id.get)
-    } yield ()
+    Future.sequence(fileCreations).map(_ => ())
   }
 }

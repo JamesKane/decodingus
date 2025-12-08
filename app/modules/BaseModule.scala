@@ -1,7 +1,6 @@
 package modules
 
-import com.google.inject.{AbstractModule, TypeLiteral}
-
+import com.google.inject.AbstractModule
 import repositories.*
 import services.{AccessionNumberGenerator, BiosampleAccessionGenerator}
 
@@ -32,6 +31,10 @@ class BaseModule extends AbstractModule {
     bind(classOf[HaplogroupVariantMetadataRepository]).to(classOf[HaplogroupVariantMetadataRepositoryImpl])
     bind(classOf[HaplogroupVariantRepository]).to(classOf[HaplogroupVariantRepositoryImpl])
 
+    bind(classOf[services.TestTypeService])
+      .to(classOf[services.TestTypeServiceImpl])
+      .asEagerSingleton()
+
     bind(classOf[GenomicStudyRepository])
       .to(classOf[GenomicStudyRepositoryImpl])
       .asEagerSingleton()
@@ -43,9 +46,6 @@ class BaseModule extends AbstractModule {
     bind(classOf[BiosampleOriginalHaplogroupRepository])
       .to(classOf[BiosampleOriginalHaplogroupRepositoryImpl])
       .asEagerSingleton()
-
-
-
 
 
     bind(classOf[SequenceFileRepository])
@@ -88,6 +88,10 @@ class BaseModule extends AbstractModule {
 
     bind(classOf[AlignmentRepository])
       .to(classOf[AlignmentRepositoryImpl])
+      .asEagerSingleton()
+
+    bind(classOf[TestTypeRepository])
+      .to(classOf[TestTypeRepositoryImpl])
       .asEagerSingleton()
   }
 }
