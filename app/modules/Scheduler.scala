@@ -13,7 +13,8 @@ import play.api.Logging
 @Singleton
 class Scheduler @Inject()(
                            system: ActorSystem,
-                           @Named("publication-update-actor") publicationUpdateActor: ActorRef
+                           @Named("publication-update-actor") publicationUpdateActor: ActorRef,
+                           @Named("publication-discovery-actor") publicationDiscoveryActor: ActorRef
                          ) extends Logging {
 
   private val quartz = QuartzSchedulerExtension(system)
@@ -25,5 +26,14 @@ class Scheduler @Inject()(
   } catch {
     case e: Exception =>
       logger.error(s"Failed to schedule 'PublicationUpdater' job: ${e.getMessage}", e)
+  }
+
+  // Schedule the PublicationDiscovery job
+  try {
+    quartz.schedule("PublicationDiscovery", publicationDiscoveryActor, actors.PublicationDiscoveryActor.RunDiscovery)
+    logger.info("Successfully scheduled 'PublicationDiscovery' job.")
+  } catch {
+    case e: Exception =>
+      logger.error(s"Failed to schedule 'PublicationDiscovery' job: ${e.getMessage}", e)
   }
 }

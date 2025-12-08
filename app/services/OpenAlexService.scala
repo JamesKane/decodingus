@@ -56,4 +56,38 @@ class OpenAlexService @Inject()(
         None
     }
   }
+
+  /**
+   * Searches for works in OpenAlex matching the given query string and filters.
+   *
+   * @param searchQuery The search term (maps to the 'search' query parameter).
+   * @param filters     Optional filters (map of field -> value).
+   * @return A Future containing a sequence of PublicationCandidate objects.
+   */
+  def searchWorks(searchQuery: String, filters: Map[String, String] = Map.empty): Future[Seq[models.domain.publications.PublicationCandidate]] = {
+    val apiUrl = s"$openAlexBaseUrl/works"
+    
+    val queryParams = filters.toSeq :+ ("search" -> searchQuery) :+ ("mailto" -> mailToEmail)
+    
+    logger.info(s"Searching OpenAlex: $apiUrl with params $queryParams")
+
+    ws.url(apiUrl).withQueryStringParameters(queryParams*).get().map { response =>
+      if (response.status == 200) {
+        (response.json \ "results").asOpt[Seq[JsValue]] match {
+          case Some(results) =>
+            results.map(OpenAlexMapper.jsonToPublicationCandidate)
+          case None =>
+            logger.warn("OpenAlex search response did not contain 'results' array.")
+            Seq.empty
+        }
+      } else {
+        logger.warn(s"OpenAlex search failed: ${response.status}, Body: ${response.body}")
+        Seq.empty
+      }
+    }.recover {
+      case e: Exception =>
+        logger.error(s"Exception during OpenAlex search: ${e.getMessage}", e)
+        Seq.empty
+    }
+  }
 }

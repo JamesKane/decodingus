@@ -8,6 +8,7 @@ class ApplicationModule extends AbstractModule with PekkoGuiceSupport {
   override def configure(): Unit = {
     bindActor[PublicationUpdateActor]("publication-update-actor")
     bindActor[GenomicStudyUpdateActor]("genomic-study-update-actor")
+    bindActor[actors.PublicationDiscoveryActor]("publication-discovery-actor")
 
     bind(classOf[Scheduler]).asEagerSingleton()
   }

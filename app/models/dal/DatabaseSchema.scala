@@ -104,6 +104,9 @@ object DatabaseSchema {
     object publications {
       val genomicStudies = TableQuery[GenomicStudiesTable]
       val publications = TableQuery[PublicationsTable]
+      val publicationCandidates = TableQuery[PublicationCandidatesTable]
+      val publicationSearchConfigs = TableQuery[PublicationSearchConfigsTable]
+      val publicationSearchRuns = TableQuery[PublicationSearchRunsTable]
       val publicationBiosamples = TableQuery[PublicationBiosamplesTable]
       val publicationCitizenBiosamples = TableQuery[PublicationCitizenBiosamplesTable]
       val publicationGenomicStudies = TableQuery[PublicationEnaStudiesTable]

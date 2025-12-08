@@ -1,10 +1,11 @@
 package services.mappers
 
-import models.domain.publications.Publication
+import models.domain.publications.{Publication, PublicationCandidate}
 import play.api.Logging
 import play.api.libs.json.{JsArray, JsValue}
 
 import java.time.LocalDate
+import java.time.LocalDateTime
 import java.time.format.DateTimeParseException
 
 /**
@@ -149,6 +150,36 @@ object OpenAlexMapper extends Logging {
       primaryTopic = classification.primaryTopic,
       publicationType = classification.publicationType,
       publisher = publishingInfo.publisher
+    )
+  }
+
+  /**
+   * Converts a JSON representation of a work from OpenAlex into a `PublicationCandidate` object.
+   *
+   * @param json The JSON structure containing the work data.
+   * @return A `PublicationCandidate` object.
+   */
+  def jsonToPublicationCandidate(json: JsValue): PublicationCandidate = {
+    val basicInfo = extractBasicInfo(json)
+    val abstractSummary = extractAbstract(json)
+    val doi = (json \ "doi").asOpt[String].map(_.replace("https://doi.org/", ""))
+    val publishingInfo = extractPublishingInfo(json, doi.getOrElse(""))
+
+    PublicationCandidate(
+      id = None,
+      openAlexId = basicInfo.openAlexId.getOrElse("unknown"),
+      doi = doi,
+      title = basicInfo.title,
+      `abstract` = abstractSummary,
+      publicationDate = publishingInfo.publicationDate,
+      journalName = publishingInfo.journal,
+      relevanceScore = None, // To be calculated by the service
+      discoveryDate = LocalDateTime.now(),
+      status = "pending",
+      reviewedBy = None,
+      reviewedAt = None,
+      rejectionReason = None,
+      rawMetadata = Some(json)
     )
   }
 }
