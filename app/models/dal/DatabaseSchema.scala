@@ -50,22 +50,24 @@ object DatabaseSchema {
     import models.dal.domain.ibd.*
     import models.dal.domain.pangenome.*
     import models.dal.domain.publications.*
-import models.dal.domain.social.{ConversationsTable, ConversationParticipantsTable, FeedPostsTable, MessagesTable, ReputationEventTypesTable, ReputationEventsTable, UserBlocksTable, UserReputationScoresTable}
-import models.dal.domain.user.*
-import models.dal.domain.*
-import slick.jdbc.PostgresProfile.api.*
+    import models.dal.domain.publications.*
+    import models.dal.domain.user.* // This needs to be here for UsersTable
+    import models.dal.domain.social.* // This needs to be here for social tables
 
+    // User-related tables directly under domain
+    val users = TableQuery[UsersTable]
+    val userPdsInfos = TableQuery[UserPdsInfoTable]
+
+    // Social-related tables within a social object
     object social {
-      val users = TableQuery[UsersTable]
-      val userPdsInfos = TableQuery[UserPdsInfoTable]
-      val reputationEvents = TableQuery[ReputationEventsTable]
-      val reputationEventTypes = TableQuery[ReputationEventTypesTable]
-      val userReputationScores = TableQuery[UserReputationScoresTable]
       val userBlocks = TableQuery[UserBlocksTable]
       val conversations = TableQuery[ConversationsTable]
       val conversationParticipants = TableQuery[ConversationParticipantsTable]
       val messages = TableQuery[MessagesTable]
       val feedPosts = TableQuery[FeedPostsTable]
+      val reputationEvents = TableQuery[ReputationEventsTable]
+      val reputationEventTypes = TableQuery[ReputationEventTypesTable]
+      val userReputationScores = TableQuery[UserReputationScoresTable]
     }
 
     object genomics {
