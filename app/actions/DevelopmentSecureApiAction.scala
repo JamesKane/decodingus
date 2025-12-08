@@ -24,7 +24,7 @@ import scala.concurrent.{ExecutionContext, Future}
 class DevelopmentSecureApiAction @Inject()(
                                             val controllerComponents: ControllerComponents,
                                             val defaultParser: BodyParsers.Default
-                                          )(implicit val executionContext: ExecutionContext, materializer: Materializer) extends ApiSecurityAction {
+                                          )(implicit val executionContext: ExecutionContext, val materializer: Materializer) extends ApiSecurityAction with JsonValidation {
 
   override def parser: BodyParser[AnyContent] = defaultParser
 
@@ -40,9 +40,7 @@ class DevelopmentSecureApiAction @Inject()(
    */
   override def jsonAction[A](implicit reader: Reads[A]): ActionBuilder[Request, A] = {
     new ActionBuilder[Request, A] {
-      override def parser: BodyParser[A] = controllerComponents.parsers.json.validate(
-        _.validate[A].asEither.left.map(e => BadRequest(Json.obj("message" -> JsError.toJson(e))))
-      )
+      override def parser: BodyParser[A] = jsonBodyParser[A]
 
       override protected def executionContext: ExecutionContext = DevelopmentSecureApiAction.this.executionContext
 

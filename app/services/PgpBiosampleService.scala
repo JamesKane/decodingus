@@ -20,8 +20,8 @@ import scala.concurrent.{ExecutionContext, Future}
 class PgpBiosampleService @Inject()(
                                      biosampleRepository: BiosampleRepository,
                                      accessionGenerator: AccessionNumberGenerator,
-                                     specimenDonorRepository: SpecimenDonorRepository
-                                   )(implicit ec: ExecutionContext) extends CoordinateValidation {
+                                     biosampleService: BiosampleService
+                                   )(implicit ec: ExecutionContext) {
 
   def createPgpBiosample(
                           participantId: String,
@@ -33,48 +33,6 @@ class PgpBiosampleService @Inject()(
                         ): Future[UUID] = {
     val sampleGuid = UUID.randomUUID()
 
-    def createSpecimenDonor(geocoord: Option[Point]) = {
-      val donor = SpecimenDonor(
-        id = None,
-        donorIdentifier = participantId,
-        originBiobank = centerName,
-        donorType = BiosampleType.PGP,
-        sex = sex,
-        geocoord = geocoord,
-        pgpParticipantId = Some(participantId),
-        atUri = None,
-        dateRangeStart = None,
-        dateRangeEnd = None
-      )
-      specimenDonorRepository.create(donor)
-    }
-
-    def createBiosample(donorId: Option[Int]) = {
-      val metadata = AccessionMetadata(
-        pgpParticipantId = Some(participantId),
-        citizenBiosampleDid = None
-      )
-
-      for {
-        accession <- accessionGenerator.generateAccession(BiosampleType.PGP, metadata)
-        biosample <- biosampleRepository.create(Biosample(
-          id = None,
-          sampleGuid = sampleGuid,
-          sampleAccession = accession,
-          description = description,
-          alias = Some(participantId),
-          centerName = centerName,
-          specimenDonorId = donorId,
-          locked = false,
-          sourcePlatform = Some("PGP")
-        ))
-      } yield sampleGuid
-    }
-
-    def shouldCreateDonor: Boolean = {
-      sex.isDefined || latitude.isDefined || longitude.isDefined
-    }
-
     // First check for existing participant
     biosampleRepository.findByAliasOrAccession(participantId).flatMap {
       case Some((existing, _)) =>
@@ -84,14 +42,37 @@ class PgpBiosampleService @Inject()(
 
       case None =>
         for {
-          geocoord <- validateCoordinates(latitude, longitude)
-          donorId <- if (shouldCreateDonor) {
-            createSpecimenDonor(geocoord).map(donor => Some(donor.id.get))
-          } else {
-            Future.successful(None)
+          donorId <- {
+            val shouldCreatePgpDonor = sex.isDefined || latitude.isDefined || longitude.isDefined
+            if (shouldCreatePgpDonor) {
+              biosampleService.createOrUpdateSpecimenDonor(
+                donorIdentifier = participantId,
+                originBiobank = centerName,
+                donorType = BiosampleType.PGP,
+                sex = sex,
+                latitude = latitude,
+                longitude = longitude,
+                pgpParticipantId = Some(participantId)
+              )
+            } else {
+              Future.successful(None)
+            }
           }
-          guid <- createBiosample(donorId)
-        } yield guid
+          metadata = AccessionMetadata(
+            pgpParticipantId = Some(participantId),
+            citizenBiosampleDid = None
+          )
+          accession <- accessionGenerator.generateAccession(BiosampleType.PGP, metadata)
+          createdBiosample <- biosampleService.createBiosample(
+            sampleGuid = sampleGuid,
+            sampleAccession = accession,
+            description = description,
+            alias = Some(participantId),
+            centerName = centerName,
+            specimenDonorId = donorId,
+            sourcePlatform = Some(utils.GenomicsConstants.PGP_SOURCE_PLATFORM)
+          )
+        } yield createdBiosample.sampleGuid
     }.recoverWith {
       case e: Exception if e.getMessage.contains("duplicate key") =>
         Future.failed(DuplicateParticipantException(

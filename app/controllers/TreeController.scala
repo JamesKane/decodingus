@@ -245,7 +245,7 @@ class TreeController @Inject()(val controllerComponents: MessagesControllerCompo
         routeType match {
           case ApiRoute =>
             // TAPIR can't deal with the recursive tree, so we need to flatten it.
-            val apiBody: Seq[SubcladeDTO] = mapApiResponse(treeDto.subclade)
+            val apiBody: Seq[SubcladeDTO] = treeService.mapApiResponse(treeDto.subclade)
             Ok(Json.toJson(apiBody))
           case FragmentRoute =>
             val treeViewModel: Option[TreeViewModel] = treeDto.subclade.flatMap { rootNodeDTO =>

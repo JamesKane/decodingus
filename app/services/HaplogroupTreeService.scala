@@ -290,4 +290,21 @@ class HaplogroupTreeService @Inject()(
       case _ => query
     }
   }
+
+  /**
+   * Transforms a recursive tree structure of `TreeNodeDTO` into a flat sequence of `SubcladeDTO`
+   * suitable for API responses. This flattens the hierarchical data into a list where each subclade
+   * explicitly references its parent.
+   *
+   * @param root An `Option` containing the root `TreeNodeDTO` of the tree to be transformed.
+   * @return A `Seq` of `SubcladeDTO` representing the flattened tree structure.
+   */
+  def mapApiResponse(root: Option[TreeNodeDTO]): Seq[SubcladeDTO] = {
+    def map(node: TreeNodeDTO, parent: Option[TreeNodeDTO]): Seq[SubcladeDTO] = {
+      SubcladeDTO(node.name, parent.map(_.name), node.variants, node.updated, node.isBackbone) +: node.children.flatMap(c => map(c, Option(node)))
+    }
+
+    root.map(x => map(x, None))
+      .getOrElse(Seq())
+  }
 }

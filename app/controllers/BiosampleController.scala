@@ -63,8 +63,9 @@ class BiosampleController @Inject()(
    *         a list of biosamples with their associated studies
    */
   def getSamplesWithStudies: Action[AnyContent] = Action.async {
-    biosampleRepository.findAllWithStudies().map { samples =>
-      Ok(Json.toJson(samples))
+    biosampleRepository.findAllWithStudies().map {
+      samples =>
+        Ok(Json.toJson(samples))
     }
   }
 

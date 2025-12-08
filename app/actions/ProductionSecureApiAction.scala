@@ -28,7 +28,7 @@ class ProductionSecureApiAction @Inject()(
                                            apiKeyFilter: ApiKeyFilter,
                                            val defaultParser: BodyParsers.Default,
                                            val controllerComponents: ControllerComponents
-                                         )(implicit val executionContext: ExecutionContext, materializer: Materializer) extends ApiSecurityAction {
+                                         )(implicit val executionContext: ExecutionContext, val materializer: Materializer) extends ApiSecurityAction with JsonValidation {
 
   override def parser: BodyParser[AnyContent] = defaultParser
 
@@ -46,13 +46,11 @@ class ProductionSecureApiAction @Inject()(
   def jsonAction[A](implicit reader: play.api.libs.json.Reads[A]): ActionBuilder[Request, A] = {
     new ActionBuilder[Request, A] {
       override def parser: BodyParser[A] = BodyParser { requestHeader =>
-        val jsonParser = controllerComponents.parsers.json.validate(
-          _.validate[A].asEither.left.map(e => BadRequest(Json.obj("message" -> JsError.toJson(e))))
-        )
+        val jsonValidatedParser = jsonBodyParser[A]
 
         val accumulator = apiKeyFilter.filter(requestHeader).map {
           case Some(result) => Accumulator.done(Left(result))
-          case None => jsonParser(requestHeader)
+          case None => jsonValidatedParser(requestHeader)
         }
 
         Accumulator.flatten(accumulator)
