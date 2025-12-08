@@ -35,13 +35,7 @@ object DatabaseSchema {
 
   import models.dal.MyPostgresProfile.api.*
 
-  implicit val haplogroupTypeMapper: BaseColumnType[HaplogroupType] =
-    MappedColumnType.base[HaplogroupType, String](
-      ht => ht.toString,
-      str => HaplogroupType.fromString(str).getOrElse(
-        throw new IllegalArgumentException(s"Invalid haplogroup type: $str")
-      )
-    )
+
 
   object domain {
 

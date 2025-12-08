@@ -58,10 +58,12 @@ trait MyPostgresProfile extends ExPostgresProfile
     implicit val haplogroupResultJsonTypeMapper: JdbcType[HaplogroupResult] with BaseTypedType[HaplogroupResult] =
       MappedJdbcType.base[HaplogroupResult, JsValue](Json.toJson(_), _.as[HaplogroupResult])
 
-    implicit val haplogroupTypeMapper: JdbcType[models.HaplogroupType] =
-      MappedColumnType.base[models.HaplogroupType, String](
+    implicit val haplogroupTypeMapper: BaseColumnType[HaplogroupType] =
+      MappedColumnType.base[HaplogroupType, String](
         ht => ht.toString,
-        s => models.HaplogroupType.valueOf(s)
+        str => HaplogroupType.fromString(str).getOrElse(
+          throw new IllegalArgumentException(s"Invalid haplogroup type: $str")
+        )
       )
 
     implicit val studySourceTypeMapper: JdbcType[StudySource] =
@@ -121,6 +123,8 @@ trait MyPostgresProfile extends ExPostgresProfile
         }
       )
     }
+
+
 
     // Declare the name of an aggregate function:
     val ArrayAgg = new SqlAggregateFunction("array_agg")
