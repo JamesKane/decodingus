@@ -30,7 +30,7 @@ import java.time.LocalDateTime
  * This table is intended to provide traceability and context for changes made over time to
  * the haplogroup relationship data, supporting historical comparisons and auditing requirements.
  */
-class RelationshipRevisionMetadataTable(tag: Tag) extends Table[RelationshipRevisionMetadata](tag, "relationship_revision_metadata") {
+class RelationshipRevisionMetadataTable(tag: Tag) extends Table[RelationshipRevisionMetadata](tag, Some("tree"), "relationship_revision_metadata") {
   def haplogroup_relationship_id = column[Int]("haplogroup_relationship_id")
 
   def revisionId = column[Int]("revision_id")

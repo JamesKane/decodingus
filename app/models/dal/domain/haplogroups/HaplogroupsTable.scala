@@ -34,7 +34,7 @@ import java.time.LocalDateTime
  *            Slick mapping:
  *            The `*` projection maps table rows to the `Haplogroup` case class.
  */
-class HaplogroupsTable(tag: Tag) extends Table[Haplogroup](tag, "haplogroup") {
+class HaplogroupsTable(tag: Tag) extends Table[Haplogroup](tag, Some("tree"), "haplogroup") {
 
   def haplogroupId = column[Int]("haplogroup_id", O.PrimaryKey, O.AutoInc)
 

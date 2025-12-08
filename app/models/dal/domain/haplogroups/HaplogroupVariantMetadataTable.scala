@@ -34,7 +34,7 @@ import java.time.LocalDateTime
  * The table is used to track and manage revisions or updates made to haplogroup variants, enabling a history
  * of changes to be stored for audit and reference purposes.
  */
-class HaplogroupVariantMetadataTable(tag: Tag) extends Table[HaplogroupVariantMetadata](tag, "haplogroup_variant_metadata") {
+class HaplogroupVariantMetadataTable(tag: Tag) extends Table[HaplogroupVariantMetadata](tag, Some("tree"), "haplogroup_variant_metadata") {
   def haplogroup_variant_id = column[Int]("haplogroup_variant_id")
 
   def revision_id = column[Int]("revision_id")
