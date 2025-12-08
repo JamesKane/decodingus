@@ -92,19 +92,11 @@ POST          /api/private/sequencing-labs                                      
 PATCH         /api/private/sequencing-labs/:id                                                   controllers.SequencingLabAdminController.update(id: Int)
 DELETE        /api/private/sequencing-labs/:id                                                   controllers.SequencingLabAdminController.delete(id: Int)
 
-# Citizen Biosample API endpoints (Firehose)
-POST          /api/external-biosamples                                                           controllers.CitizenBiosampleController.create
-PUT           /api/external-biosamples/*atUri                                                    controllers.CitizenBiosampleController.update(atUri: String)
-DELETE        /api/external-biosamples/*atUri                                                    controllers.CitizenBiosampleController.delete(atUri: String)
-POST          /api/firehose/event                                                                controllers.CitizenBiosampleController.processEvent
-
-# Project API endpoints
-POST          /api/projects                                                                      controllers.ProjectController.create
-PUT           /api/projects/*atUri                                                               controllers.ProjectController.update(atUri: String)
-DELETE        /api/projects/*atUri                                                               controllers.ProjectController.delete(atUri: String)
+# Atmosphere Firehose
+POST          /api/firehose/event                                                                controllers.FirehoseController.processEvent
 
 # --- API Routes (Handled by Tapir, including Swagger UI) ---
-POST          /api/registerPDS                                       controllers.PDSRegistrationController.registerPDS()
+POST          /api/registerPDS                                                                   controllers.PDSRegistrationController.registerPDS()
 
 # Delegate all requests starting with /api to the Tapir-based ApiRouter
 ->            /api                                                                               controllers.ApiRouter

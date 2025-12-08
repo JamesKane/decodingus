@@ -28,7 +28,7 @@ class ApiRouter @Inject()(cc: ControllerComponents, configuration: play.api.Conf
     SwaggerInterpreter().fromEndpoints[Future](
       endpoints = _root_.api.ReferenceEndpoints.all ++ _root_.api.HaplogroupEndpoints.all
         ++ _root_.api.SampleEndpoints.all ++ _root_.api.CoverageEndpoints.all
-        ++ _root_.api.SequencerEndpoints.all ++ _root_.api.CitizenBiosampleEndpoints.all
+        ++ _root_.api.SequencerEndpoints.all ++ _root_.api.FirehoseEndpoints.all
         ++ _root_.api.ProjectEndpoints.all,
       info = apiInfo
     )

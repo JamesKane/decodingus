@@ -17,33 +17,4 @@ class ProjectController @Inject()(
                                    projectService: ProjectService
                                  )(implicit ec: ExecutionContext) extends BaseController {
 
-  @Deprecated("Use Firehose Event API instead. This endpoint will be removed in a future release.")
-  def create: Action[ProjectRequest] = secureApi.jsonAction[ProjectRequest].async { request =>
-    projectService.createProject(request.body).map { response =>
-      Created(Json.toJson(response))
-    }.recover {
-      case e: Exception => InternalServerError(Json.obj("error" -> e.getMessage))
-    }
-  }
-
-  @Deprecated("Use Firehose Event API instead. This endpoint will be removed in a future release.")
-  def update(atUri: String): Action[ProjectRequest] = secureApi.jsonAction[ProjectRequest].async { request =>
-    projectService.updateProject(atUri, request.body).map { response =>
-      Ok(Json.toJson(response))
-    }.recover {
-      case e: IllegalStateException => Conflict(Json.obj("error" -> e.getMessage))
-      case e: NoSuchElementException => NotFound(Json.obj("error" -> e.getMessage))
-      case e: Exception => InternalServerError(Json.obj("error" -> e.getMessage))
-    }
-  }
-
-  @Deprecated("Use Firehose Event API instead. This endpoint will be removed in a future release.")
-  def delete(atUri: String): Action[AnyContent] = secureApi.async { request =>
-    projectService.deleteProject(atUri).map {
-      case true => NoContent
-      case false => NotFound(Json.obj("error" -> "Project not found"))
-    }.recover {
-      case e: Exception => InternalServerError(Json.obj("error" -> e.getMessage))
-    }
-  }
 }
