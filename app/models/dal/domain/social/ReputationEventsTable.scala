@@ -3,7 +3,7 @@ package models.dal.domain.social
 import models.dal.domain.user.UsersTable
 import models.domain.social.{ReputationEvent, ReputationEventType}
 import models.domain.user.User
-import slick.jdbc.PostgresProfile.api.*
+import models.dal.MyPostgresProfile.api.*
 import slick.lifted.ProvenShape
 
 import java.time.LocalDateTime

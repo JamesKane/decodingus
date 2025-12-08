@@ -2,7 +2,7 @@ package models.dal.domain.genomics
 
 import models.dal.domain.genomics.GenbankContigsTable
 import models.domain.genomics.GenbankContig
-import slick.jdbc.PostgresProfile.api.*
+import models.dal.MyPostgresProfile.api.*
 
 /**
  * Represents the `variant` table in the database, which stores information about genetic variants.

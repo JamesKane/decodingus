@@ -82,10 +82,8 @@ object DatabaseSchema {
       val genbankContigs = TableQuery[GenbankContigsTable]
       val geneAnnotations = TableQuery[GeneAnnotationsTable]
       val populations = TableQuery[PopulationsTable]
-      val sequenceAtpLocations = TableQuery[SequenceAtpLocationTable]
-      val sequenceFiles = TableQuery[SequenceFilesTable]
-      val sequenceFileChecksums = TableQuery[SequenceFileChecksumTable]
-      val sequenceHttpLocations = TableQuery[SequenceHttpLocationTable]
+      val sequenceFiles = TableQuery[SequenceFilesTable] // Added back
+
       val sequenceLibraries = TableQuery[SequenceLibrariesTable]
       val sequencingLabs = TableQuery[SequencingLabsTable]
       val sequencerInstruments = TableQuery[SequencerInstrumentsTable]

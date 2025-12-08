@@ -92,6 +92,9 @@ class SequenceFileRepositoryImpl @Inject()(
             f.fileName,
             f.fileSizeBytes,
             f.fileFormat,
+            f.checksums,
+            f.httpLocations,
+            f.atpLocation,
             f.aligner,
             f.targetReference,
             f.updatedAt
@@ -101,6 +104,9 @@ class SequenceFileRepositoryImpl @Inject()(
             file.fileName,
             file.fileSizeBytes,
             file.fileFormat,
+            file.checksums,
+            file.httpLocations,
+            file.atpLocation,
             file.aligner,
             file.targetReference,
             Some(LocalDateTime.now())

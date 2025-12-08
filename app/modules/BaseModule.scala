@@ -1,7 +1,7 @@
 package modules
 
 import com.google.inject.{AbstractModule, TypeLiteral}
-import models.domain.genomics.SequenceHttpLocation
+
 import repositories.*
 import services.{AccessionNumberGenerator, BiosampleAccessionGenerator}
 
@@ -44,13 +44,9 @@ class BaseModule extends AbstractModule {
       .to(classOf[BiosampleOriginalHaplogroupRepositoryImpl])
       .asEagerSingleton()
 
-    bind(new TypeLiteral[SequenceLocationRepository[SequenceHttpLocation]]() {})
-      .to(classOf[SequenceHttpLocationRepositoryImpl])
-      .asEagerSingleton()
 
-    bind(classOf[SequenceFileChecksumRepository])
-      .to(classOf[SequenceFileChecksumRepositoryImpl])
-      .asEagerSingleton()
+
+
 
     bind(classOf[SequenceFileRepository])
       .to(classOf[SequenceFileRepositoryImpl])

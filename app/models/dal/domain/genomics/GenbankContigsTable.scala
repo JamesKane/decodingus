@@ -1,7 +1,7 @@
 package models.dal.domain.genomics
 
 import models.domain.genomics.GenbankContig
-import slick.jdbc.PostgresProfile.api.*
+import models.dal.MyPostgresProfile.api.*
 
 /**
  * Represents the database table for GenBank contigs, mapping to the `GenbankContig` case class.

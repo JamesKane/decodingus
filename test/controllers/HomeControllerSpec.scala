@@ -60,7 +60,7 @@ class HomeControllerSpec extends PlaySpec with GuiceOneAppPerSuite with Injectin
 
       status(page) mustBe OK
       contentType(page) mustBe Some("text/html")
-      contentAsString(page) must include ("Frequently Asked Questions")
+      contentAsString(page) must include ("FAQ")
     }
 
     "generate a sitemap" in {

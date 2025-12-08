@@ -1,7 +1,7 @@
 package models.dal.domain.publications
 
 import models.domain.publications.PublicationGenomicStudy
-import slick.jdbc.PostgresProfile.api.*
+import models.dal.MyPostgresProfile.api.*
 
 /**
  * Represents the database table definition for storing the relationship between publications

@@ -1,8 +1,8 @@
 package services
 
 import jakarta.inject.{Inject, Singleton}
-import models.api.{PublicationInfo, SequenceDataInfo}
-import models.domain.genomics.{SequenceFile, SequenceFileChecksum, SequenceHttpLocation, SequenceLibrary}
+import models.api.{FileInfo, LocationInfo, PublicationInfo, SequenceDataInfo}
+import models.domain.genomics.{SequenceFile, SequenceLibrary, SequenceFileAtpLocationJsonb, SequenceFileChecksumJsonb, SequenceFileHttpLocationJsonb}
 import models.domain.publications.{BiosampleOriginalHaplogroup, Publication, PublicationBiosample}
 import repositories.*
 
@@ -31,10 +31,8 @@ class BiosampleDataService @Inject()(
                                       biosampleRepository: BiosampleRepository,
                                       sequenceLibraryRepository: SequenceLibraryRepository,
                                       sequenceFileRepository: SequenceFileRepository,
-                                      sequenceHttpLocationRepository: SequenceLocationRepository[SequenceHttpLocation],
                                       publicationRepository: PublicationRepository,
                                       biosampleOriginalHaplogroupRepository: BiosampleOriginalHaplogroupRepository,
-                                      sequenceFileChecksumRepository: SequenceFileChecksumRepository,
                                       publicationBiosampleRepository: PublicationBiosampleRepository
                                     )(implicit ec: ExecutionContext) {
 
@@ -193,36 +191,44 @@ class BiosampleDataService @Inject()(
 
     def createFiles(libraryId: Int): Future[Unit] = {
       val fileCreations = data.files.map { fileInfo =>
+
+        val checksumsJsonb = fileInfo.checksums.map { cs =>
+          SequenceFileChecksumJsonb(
+            checksum = cs.checksum,
+            algorithm = cs.algorithm,
+            verifiedAt = Some(LocalDateTime.now()), // Assuming verified upon creation for now
+            createdAt = LocalDateTime.now(),
+            updatedAt = LocalDateTime.now()
+          )
+        }.toList
+
+        val httpLocationsJsonb = List(
+          SequenceFileHttpLocationJsonb(
+            url = fileInfo.location.fileUrl,
+            urlHash = UUID.nameUUIDFromBytes(fileInfo.location.fileUrl.getBytes).toString, // Generate a hash for the URL
+            createdAt = LocalDateTime.now(),
+            updatedAt = LocalDateTime.now()
+          )
+        )
+
+        val atpLocationJsonb: Option[SequenceFileAtpLocationJsonb] = None
+
         val file = SequenceFile(
           id = None,
           libraryId = libraryId,
           fileName = fileInfo.fileName,
           fileSizeBytes = fileInfo.fileSizeBytes,
           fileFormat = fileInfo.fileFormat,
+          checksums = checksumsJsonb,
+          httpLocations = httpLocationsJsonb,
+          atpLocation = atpLocationJsonb,
           aligner = fileInfo.aligner,
           targetReference = fileInfo.targetReference,
           createdAt = LocalDateTime.now(),
           updatedAt = None
         )
 
-        for {
-          createdFile <- sequenceFileRepository.create(file)
-          _ <- sequenceHttpLocationRepository.create(SequenceHttpLocation(
-            id = None,
-            sequenceFileId = createdFile.id.get,
-            fileUrl = fileInfo.location.fileUrl,
-            fileIndexUrl = fileInfo.location.fileIndexUrl
-          ))
-          _ <- Future.sequence(fileInfo.checksums.map { checksum =>
-            sequenceFileChecksumRepository.create(SequenceFileChecksum(
-              id = None,
-              sequenceFileId = createdFile.id.get,
-              checksum = checksum.checksum,
-              algorithm = checksum.algorithm,
-              verifiedAt = LocalDateTime.now()
-            ))
-          })
-        } yield ()
+        sequenceFileRepository.create(file).map(_ => ())
       }
 
       Future.sequence(fileCreations).map(_ => ())

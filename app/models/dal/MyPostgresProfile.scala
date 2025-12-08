@@ -1,38 +1,15 @@
 package models.dal
 
 import com.github.tminglei.slickpg.*
-import models.domain.genomics.{BiologicalSex, BiosampleType, MetricLevel}
+import models.domain.genomics.{BiologicalSex, BiosampleType, MetricLevel, SequenceFileAtpLocationJsonb, SequenceFileChecksumJsonb, SequenceFileHttpLocationJsonb}
 import models.domain.publications.StudySource
-import play.api.libs.json.{JsValue, Json, OFormat, OWrites}
+import play.api.libs.json.{Format, JsValue, Json, OFormat, OWrites}
 import slick.basic.Capability
 import slick.jdbc.{JdbcCapabilities, JdbcType}
 
+import java.time.LocalDateTime
 import scala.language.higherKinds
 
-/**
- * A custom PostgreSQL profile extending `ExPostgresProfile` with additional support for various PostgreSQL features.
- * This trait provides extended capabilities such as JSON, array, range, HStore, search, PostGIS, and other PostgreSQL-specific features.
- * It also integrates with Play JSON to enable mapping between case classes and JSON types for database operations.
- *
- * The profile includes:
- * - Array handling with custom mappings for JSON and case class arrays.
- * - PostgreSQL JSON/JSONB support.
- * - PostgreSQL range types support.
- * - HStore key-value storage integration.
- * - Full-text search capabilities.
- * - PostGIS (geospatial) extensions.
- * - Network address types handling.
- * - LTree (label tree) extension for hierarchical data structures.
- *
- * Provides a custom API (`MyAPI`) which extends `ExtPostgresAPI` and includes additional implicits for seamless integration
- * of PostgreSQL extensions with Slick queries.
- *
- * Native support for `upsert` operations is enabled for PostgreSQL 9.5+ by adding `JdbcCapabilities.insertOrUpdate`
- * to the set of supported capabilities.
- *
- * @note The default PostgreSQL JSON type is set to `jsonb` for improved performance with PostgreSQL 9.4.0 or higher.
- *       For compatibility with PostgreSQL 9.3.x, the type can be changed to `json`.
- */
 trait MyPostgresProfile extends ExPostgresProfile
   with PgArraySupport
   with PgDate2Support
@@ -42,44 +19,20 @@ trait MyPostgresProfile extends ExPostgresProfile
   with PgPostGISSupport
   with PgNetSupport
   with PgLTreeSupport
-  with PgPlayJsonSupport
-  with array.PgArrayJdbcTypes {
+  with PgPlayJsonSupport // For JSON/JSONB support with Play JSON
+  with array.PgArrayJdbcTypes
+{
   def pgjson = "jsonb" // jsonb support is in postgres 9.4.0 onward; for 9.3.x use "json"
 
   import slick.ast.*
   import slick.ast.Library.*
   import slick.lifted.FunctionSymbolExtensionMethods.*
 
-  // Add back `capabilities.insertOrUpdate` to enable native `upsert` support; for postgres 9.5+
   override protected def computeCapabilities: Set[Capability] =
     super.computeCapabilities + JdbcCapabilities.insertOrUpdate
 
-  override val api: MyAPI.type = MyAPI
+  override val api: MyAPI.type = MyAPI // MyAPI is an inner object
 
-  case class JBean(name: String, count: Int)
-
-  object JBean {
-    implicit val jbeanFmt: OFormat[JBean] = Json.format[JBean]
-    implicit val jbeanWrt: OWrites[JBean] = Json.writes[JBean]
-  }
-
-  /**
-   * Extends various Slick PostgreSQL profile traits and implicits to provide enhanced database functionality specific to PostgreSQL features.
-   *
-   * This object offers:
-   * - Custom data type column mappers (`JdbcType`) for handling arrays, JSON, and other specialized PostgreSQL types.
-   * - Implicit conversions and extensions for PostgreSQL-specific aggregate functions and SQL capabilities.
-   *
-   * Key Features:
-   * - `strListTypeMapper`: Implicit mapper for PostgreSQL text arrays, converting them into Scala `List[String]`.
-   * - `beanJsonTypeMapper`: Mapper for marshalling and unmarshalling objects of type `JBean` using Play JSON.
-   * - `playJsonArrayTypeMapper`: Handles JSON array columns in PostgreSQL, allowing conversion to Scala `List[JsValue]`.
-   * - `beanArrayTypeMapper`: Supports arrays of custom case class objects (`JBean`), leveraging Play JSON for serialization.
-   * - `ArrayAgg`: PostgreSQL `array_agg` SQL aggregate function, allowing aggregation of rows into arrays.
-   *
-   * Additionally, custom extensions such as `ArrayAggColumnQueryExtensionMethods` are provided for integrating
-   * PostgreSQL functionality with Slick's query abstraction, enabling more natural query construction with aggregate functions.
-   */
   object MyAPI extends ExtPostgresAPI with ArrayImplicits
     with Date2DateTimeImplicitsDuration
     with NetImplicits
@@ -87,7 +40,7 @@ trait MyPostgresProfile extends ExPostgresProfile
     with RangeImplicits
     with HStoreImplicits
     with PostGISPlainImplicits
-    with JsonImplicits
+    with JsonImplicits // Bring in JSON implicits, including jsonType and jsonbListType
     with PostGISImplicits
     with PostGISAssistants
     with SearchImplicits
@@ -95,57 +48,79 @@ trait MyPostgresProfile extends ExPostgresProfile
 
     import models.HaplogroupType
     import models.domain.genomics.HaplogroupResult
+    import play.api.libs.json.{Format, JsNull, JsObject, JsValue, Json, OFormat, OWrites, Reads, Writes}
+
+    // Implicit JSON formatters for the new JSONB case classes
+    implicit val sequenceFileChecksumJsonbFormat: OFormat[SequenceFileChecksumJsonb] = Json.format[SequenceFileChecksumJsonb]
+    implicit val sequenceFileHttpLocationJsonbFormat: OFormat[SequenceFileHttpLocationJsonb] = Json.format[SequenceFileHttpLocationJsonb]
+    implicit val sequenceFileAtpLocationJsonbFormat: OFormat[SequenceFileAtpLocationJsonb] = Json.format[SequenceFileAtpLocationJsonb]
 
     implicit val haplogroupResultJsonTypeMapper: JdbcType[HaplogroupResult] with BaseTypedType[HaplogroupResult] =
       MappedJdbcType.base[HaplogroupResult, JsValue](Json.toJson(_), _.as[HaplogroupResult])
 
-    implicit val haplogroupTypeMapper: JdbcType[HaplogroupType] =
-      MappedColumnType.base[HaplogroupType, String](
+    implicit val haplogroupTypeMapper: JdbcType[models.HaplogroupType] =
+      MappedColumnType.base[models.HaplogroupType, String](
         ht => ht.toString,
-        s => HaplogroupType.valueOf(s)
+        s => models.HaplogroupType.valueOf(s)
       )
 
     implicit val studySourceTypeMapper: JdbcType[StudySource] =
-      MappedJdbcType.base[StudySource, String](
+      MappedColumnType.base[StudySource, String](
         st => st.toString,
         s => StudySource.valueOf(s)
       )
 
     implicit val biosampleTypeMapper: JdbcType[BiosampleType] =
-      MappedJdbcType.base[BiosampleType, String](
+      MappedColumnType.base[BiosampleType, String]( // Fixed BiologicalSex[String] to BiosampleType
         bt => bt.toString, // converts BiosampleType to String for storage
         s => BiosampleType.valueOf(s) // converts String back to BiosampleType
       )
 
     implicit val biologicalSexTypeMapper: JdbcType[BiologicalSex] =
-      MappedJdbcType.base[BiologicalSex, String](
+      MappedColumnType.base[BiologicalSex, String]( // Fixed BiologicalSex[String] to BiologicalSex
         bs => bs.toString,
         s => BiologicalSex.valueOf(s)
       )
 
     implicit val metricLevelTypeMapper: JdbcType[MetricLevel] =
-      MappedJdbcType.base[MetricLevel, String](
+      MappedColumnType.base[MetricLevel, String](
         ml => ml.toString,
         s => MetricLevel.valueOf(s)
       )
 
+    // Array type mappers (from PgArraySupport)
     implicit val strListTypeMapper: DriverJdbcType[List[String]] = new SimpleArrayJdbcType[String]("text").to(_.toList)
     implicit val intListTypeMapper: DriverJdbcType[List[Int]] = new SimpleArrayJdbcType[Int]("int4").to(_.toList)
-    implicit val beanJsonTypeMapper: JdbcType[JBean] with BaseTypedType[JBean] = MappedJdbcType.base[JBean, JsValue](Json.toJson(_), _.as[JBean])
 
+    // Play JSON array type mapper
     implicit val playJsonArrayTypeMapper: DriverJdbcType[List[JsValue]] =
       new AdvancedArrayJdbcType[JsValue](
-        pgjson,
+        MyPostgresProfile.this.pgjson, // Use PgPlayJsonSupport.this.pgjson
         s => utils.SimpleArrayUtils.fromString[JsValue](Json.parse(_))(s).orNull,
         v => utils.SimpleArrayUtils.mkString[JsValue](_.toString())(v)
       ).to(_.toList)
 
-    implicit val beanArrayTypeMapper: DriverJdbcType[List[JBean]] =
-      new AdvancedArrayJdbcType[JBean](
-        pgjson,
-        (s) => utils.SimpleArrayUtils.fromString[JBean](Json.parse(_).as[JBean])(s).orNull,
-        (v) => utils.SimpleArrayUtils.mkString[JBean](b => Json.stringify(Json.toJson(b)))(v)
-      ).to(_.toList)
+    // JSONB Type Mappers for the new SequenceFile fields
+    implicit val sequenceFileChecksumsJsonbTypeMapper: JdbcType[List[SequenceFileChecksumJsonb]] with BaseTypedType[List[SequenceFileChecksumJsonb]] =
+      MappedJdbcType.base[List[SequenceFileChecksumJsonb], JsValue](Json.toJson(_), _.as[List[SequenceFileChecksumJsonb]])
+
+    implicit val sequenceFileHttpLocationsJsonbTypeMapper: JdbcType[List[SequenceFileHttpLocationJsonb]] with BaseTypedType[List[SequenceFileHttpLocationJsonb]] =
+      MappedJdbcType.base[List[SequenceFileHttpLocationJsonb], JsValue](Json.toJson(_), _.as[List[SequenceFileHttpLocationJsonb]])
+
+    implicit val sequenceFileAtpLocationJsonbTypeMapper: JdbcType[Option[SequenceFileAtpLocationJsonb]] with BaseTypedType[Option[SequenceFileAtpLocationJsonb]] = {
+      // Import JsNull, JsObject locally for clarity
+      import play.api.libs.json.{JsNull, JsObject}
+      MappedJdbcType.base[Option[SequenceFileAtpLocationJsonb], JsValue](
+        {
+          case Some(atp) => Json.toJson(atp)
+          case None => JsNull
+        },
+        { jsValue =>
+          if (jsValue == JsNull || (jsValue.isInstanceOf[JsObject] && jsValue.as[JsObject].value.isEmpty)) None
+          else Some(jsValue.as[SequenceFileAtpLocationJsonb])
+        }
+      )
+    }
 
     // Declare the name of an aggregate function:
     val ArrayAgg = new SqlAggregateFunction("array_agg")
@@ -157,24 +132,4 @@ trait MyPostgresProfile extends ExPostgresProfile
   }
 }
 
-/**
- * Represents a custom PostgreSQL profile used for database interactions.
- *
- * This object extends a tailored `MyPostgresProfile` that integrates various
- * additional PostgreSQL features and capabilities provided by the 
- * `slick-pg` library.
- *
- * Key features of this profile include:
- * - Support for JSON/JSONB columns.
- * - Extended support for PostgreSQL-specific data types such as arrays, ranges,
- * hstore, and geometric data.
- * - Support for full-text search and PostGIS integration for spatial data.
- * - Compatibility with custom mappers such as Play JSON.
- * - Ability to perform native `upsert` operations for PostgreSQL 9.5+ using the
- * `capabilities.insertOrUpdate`.
- *
- * This profile provides a custom API for use within the application and enables
- * the seamless integration of additional PostgreSQL features not natively supported
- * by standard Slick profiles.
- */
 object MyPostgresProfile extends MyPostgresProfile

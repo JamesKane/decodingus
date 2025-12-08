@@ -235,25 +235,40 @@ class AtmosphereEventHandler @Inject()(
       case Some(record) =>
         sequenceLibraryRepository.findByAtUri(record.sequenceRunRef).flatMap {
           case Some(library) =>
-            // Create Alignment Metadata
-            // Assuming library.id is present
             val libraryId = library.id.getOrElse(throw new IllegalStateException("Library ID missing"))
 
-            // Note: AlignmentMetadata typically links to a SequenceFile, not directly to SequenceLibrary in some schemas,
-            // but if we assume a 1:1 or 1:N mapping and we need to create a dummy file record or link to existing.
-            // For now, let's assume we create a placeholder sequence file for this alignment if files are listed
-            // Or if the AlignmentMetadata table links to SequenceFile. 
-            // Looking at AlignmentRepository, it uses sequenceFileId.
-            // We need to find or create a SequenceFile first.
-
             val fileName = record.files.flatMap(_.headOption).map(_.fileName).getOrElse(s"alignment-${UUID.randomUUID()}")
+
+            val checksumsJsonb = record.files.flatMap(_.headOption).flatMap(_.checksum.map {
+              cs =>
+                models.domain.genomics.SequenceFileChecksumJsonb(
+                  checksum = cs,
+                  algorithm = record.files.flatMap(_.headOption.flatMap(_.checksumAlgorithm)).getOrElse("UNKNOWN"),
+                  verifiedAt = Some(LocalDateTime.now()),
+                  createdAt = LocalDateTime.now(),
+                  updatedAt = LocalDateTime.now()
+                )
+            }).toList
+
+            val httpLocationsJsonb = record.files.flatMap(_.headOption).flatMap(_.location.map {
+              loc =>
+                models.domain.genomics.SequenceFileHttpLocationJsonb(
+                  url = loc,
+                  urlHash = UUID.nameUUIDFromBytes(loc.getBytes).toString, // Generate hash from URL
+                  createdAt = LocalDateTime.now(),
+                  updatedAt = LocalDateTime.now()
+                )
+            }).toList
 
             val seqFile = models.domain.genomics.SequenceFile(
               id = None,
               libraryId = libraryId,
               fileName = fileName,
-              fileSizeBytes = 0, // Placeholder
-              fileFormat = "BAM/CRAM",
+              fileSizeBytes = record.files.flatMap(_.headOption.flatMap(_.fileSizeBytes)).getOrElse(0L), // Use actual file size if available
+              fileFormat = "BAM/CRAM", // Or derive from record.files if available
+              checksums = checksumsJsonb,
+              httpLocations = httpLocationsJsonb,
+              atpLocation = None, // No direct mapping from FileInfo
               aligner = record.aligner,
               targetReference = record.referenceBuild,
               createdAt = LocalDateTime.now(),

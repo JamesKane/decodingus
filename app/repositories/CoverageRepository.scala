@@ -3,7 +3,7 @@ package repositories
 import models.dal.DatabaseSchema
 import models.domain.genomics.{CoverageBenchmark, SequencingLab}
 import play.api.db.slick.DatabaseConfigProvider
-import slick.jdbc.PostgresProfile.api.*
+import models.dal.MyPostgresProfile.api.*
 
 import javax.inject.{Inject, Singleton}
 import scala.concurrent.{ExecutionContext, Future}

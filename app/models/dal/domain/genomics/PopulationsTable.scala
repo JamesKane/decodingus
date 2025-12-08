@@ -1,7 +1,7 @@
 package models.dal.domain.genomics
 
 import models.domain.genomics.Population
-import slick.jdbc.PostgresProfile.api.*
+import models.dal.MyPostgresProfile.api.*
 
 /**
  * Represents the `PopulationsTable` database table definition.

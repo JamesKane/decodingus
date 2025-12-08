@@ -1,7 +1,7 @@
 package models.dal.domain
 
 import models.domain.Project
-import slick.jdbc.PostgresProfile.api.*
+import models.dal.MyPostgresProfile.api.*
 
 import java.time.LocalDateTime
 import java.util.UUID
