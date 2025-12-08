@@ -40,6 +40,10 @@ Protocol and Personal Data Servers (PDS) to maintain individual data sovereignty
 operates exclusively with de-identified call signatures and aggregated, privacy-preserving insights to facilitate 
 collaborative research and network building.
 
+## Related Projects
+[DecodingUs - Navigator](https://github.com/JamesKane/decodingus-navigator) - A companion Edge computing application for Decoding Us.
+[DecodingUs - Nexus](https://github.com/JamesKane/decodingus-nexus) - A horizontal scaling BGS (Big Graph Service) for the Decoding Us Federation. 
+
 ## [![License](https://img.shields.io/badge/License-BSD_3--Clause-blue.svg)](https://opensource.org/licenses/BSD-3-Clause)
 
 This project is licensed under the BSD 3-Clause License. See the [LICENSE](LICENSE) file for details.
