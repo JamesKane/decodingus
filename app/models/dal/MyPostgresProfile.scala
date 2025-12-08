@@ -89,6 +89,17 @@ trait MyPostgresProfile extends ExPostgresProfile
         s => MetricLevel.valueOf(s)
       )
 
+    // Import for TestType
+    import models.domain.genomics.TestType
+
+    implicit val testTypeMapper: JdbcType[TestType] =
+      MappedColumnType.base[TestType, String](
+        tt => tt.toString,
+        s => TestType.fromString(s).getOrElse(
+          throw new IllegalArgumentException(s"Invalid TestType value: $s")
+        )
+      )
+
     // Custom Slick mapper for Array[Long] <-> bytea
     implicit val longArrayTypeMapper: BaseColumnType[Array[Long]] =
       MappedColumnType.base[Array[Long], Array[Byte]](

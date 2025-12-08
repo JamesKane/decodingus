@@ -199,12 +199,12 @@ For a less technical overview of the Haplogroup Discovery System, see:
 |------|---------|--------------|
 | A.1 | JSONB | Phase 1: sequence_file consolidation |
 | A.2 | Haplogroup Discovery | Phase 0: Create `tree` schema, migrate tables | [X] | |
-| A.3 | Multi-Test-Type | Phase 1: Test type definitions and taxonomy |
+| A.3 | Multi-Test-Type | Phase 1: Test type definitions and taxonomy | [X] |
 
 **Exit Criteria:**
 - [X] `tree` schema exists with migrated haplogroup tables
 - [X] `sequence_file` JSONB columns working
-- [ ] `test_type_definition` table populated
+- [X] `test_type_definition` table populated
 
 ---
 
