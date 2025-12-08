@@ -12,7 +12,7 @@ This document serves as the central planning reference for features targeted aft
 | Sequencer Lab Inference | [`sequencer-lab-inference-system.md`](./sequencer-lab-inference-system.md) | Planned |
 | Multi-Test-Type Support | [`multi-test-type-roadmap.md`](./multi-test-type-roadmap.md) | Planned |
 | IBD Matching System | [`ibd-matching-system.md`](./ibd-matching-system.md) | Planned |
-| OpenAlex Publication Discovery | [`openalex-publication-discovery.md`](./openalex-publication-discovery.md) | Planned |
+| OpenAlex Publication Discovery | [`openalex-publication-discovery.md`](./openalex-publication-discovery.md) | In Progress |
 | JSONB Consolidation | [`jsonb-consolidation-analysis.md`](./jsonb-consolidation-analysis.md) | Technical Debt |
 
 ### Non-Technical Summary
@@ -216,14 +216,14 @@ For a less technical overview of the Haplogroup Discovery System, see:
 | B.2 | Haplogroup Discovery | Phase 2: Proposal engine |
 | B.3 | Multi-Test-Type | Phase 2: Chip metadata registration |
 | B.4 | Sequencer Lab | Phase 1-2: Schema + Firehose integration |
-| B.5 | OpenAlex Discovery | Phase 1: Core discovery + candidate queue |
+| B.5 | OpenAlex Discovery | Phase 1: Core discovery + candidate queue | [X] |
 
 **Exit Criteria:**
 - [ ] Private variants extracted from biosamples
 - [ ] Proposals created from shared variants
 - [ ] Chip test summaries recorded
 - [ ] Instrument observations flowing through Firehose
-- [ ] Publication candidates surfacing from OpenAlex queries
+- [X] Publication candidates surfacing from OpenAlex queries
 
 ---
 

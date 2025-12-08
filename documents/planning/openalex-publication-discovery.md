@@ -76,7 +76,7 @@ CREATE TABLE publication_candidates (
     relevance_score FLOAT,
     discovery_date TIMESTAMP DEFAULT NOW(),
     status VARCHAR(50) DEFAULT 'pending', -- pending, accepted, rejected, deferred
-    reviewed_by INT REFERENCES users(id),
+    reviewed_by UUID REFERENCES public.users(id),
     reviewed_at TIMESTAMP,
     rejection_reason TEXT,
     raw_metadata JSONB -- Full OpenAlex response
@@ -119,9 +119,9 @@ CREATE INDEX idx_pub_candidates_doi ON publication_candidates(doi);
 
 ### Phase 1: Core Discovery (MVP)
 
-- [ ] OpenAlex query service with configurable search terms
-- [ ] Candidate table and basic deduplication (DOI match)
-- [ ] Scheduled job (weekly) via Pekko Quartz
+- [X] OpenAlex query service with configurable search terms
+- [X] Candidate table and basic deduplication (DOI match)
+- [X] Scheduled job (weekly) via Pekko Quartz
 - [ ] Simple curator review UI (list view, accept/reject)
 
 ### Phase 2: Relevance Scoring
