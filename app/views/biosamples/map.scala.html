@@ -2,7 +2,7 @@
 
 @()(implicit webJarsUtil: WebJarsUtil, messages: Messages)
 
-@main("Biosamples Geographic Distribution") {
+@main(messages("map.title")) {
     <div id="mapid" style="height: 800px;
         position: relative;">
         <div id="sample-counter" style="
@@ -17,7 +17,7 @@
             font-size: 16px;
             font-weight: bold;
         ">
-            Loading samples...
+            @messages("map.loading")
         </div>
     </div>
 
@@ -43,7 +43,7 @@
                         ]);
 
                         const totalSamples = data.reduce((sum, point) => sum + point.count, 0);
-                        counterElement.textContent = `Total Samples: ${totalSamples}`;
+                        counterElement.textContent = `@messages("map.totalSamplesPrefix")` + totalSamples;
 
                         L.heatLayer(points, {
                             radius: 25,

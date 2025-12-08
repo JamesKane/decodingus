@@ -4,13 +4,13 @@
     <div class="container mt-4">
         <h1>@messages("nav.coverage")</h1>
         <p class="lead">
-            Aggregated coverage statistics grouped by laboratory, test type, and contig.
+            @messages("coverage.subtitle")
         </p>
 
         <div class="mb-4">
-            <label for="lab-select" class="form-label">Select Sequencing Laboratory:</label>
+            <label for="lab-select" class="form-label">@messages("coverage.selectLab")</label>
             <select id="lab-select" class="form-select">
-                <option value="">-- Select a lab --</option>
+                <option value="">@messages("coverage.selectLab.default")</option>
             </select>
         </div>
 
@@ -28,74 +28,19 @@
 
         <div id="benchmarks-container">
             <div class="alert alert-info" role="alert">
-                <i class="bi bi-info-circle"></i> Please select a laboratory to view benchmark data.
+                <i class="bi bi-info-circle"></i> @messages("coverage.selectLab.prompt")
             </div>
         </div>
 
         <div class="mt-5">
-            <h2>Explanation of Metrics</h2>
-            <p>
-                Coverage statistics are calculated from sequencing reads aligned to the
-                <a href="https://github.com/marbl/CHM13" target="_blank">chm13v2.0/hs1</a> reference genome
-                using <a href="https://bio-bwa.sourceforge.net/" target="_blank">BWA-MEM</a>.
-                A site is considered "callable" when it has at least four reads with high mapping confidence.
-            </p>
-
-            <div class="alert alert-info" role="alert">
-                <h5 class="alert-heading">Why This Matters</h5>
-                <p>
-                    This analysis provides independent verification of sequencing quality from direct-to-consumer
-                    WGS test providers. When a company advertises "30x coverage" or "90Gb of data," these metrics
-                    help you verify:
-                </p>
-                <ul class="mb-0">
-                    <li><strong>Data quantity:</strong>
-                        Does the delivered data match the advertised amount and read length?</li>
-                    <li><strong>Data quality:</strong> Are the reads accurately aligned to the reference genome?</li>
-                    <li><strong>Usable coverage:</strong>
-                        How much of the genome can reliably be analyzed for variants?</li>
-                </ul>
-            </div>
-
-            <details class="mb-3">
-                <summary class="text-muted" style="cursor: pointer;">Technical Details</summary>
-                <p class="mt-2 ms-3">
-                    Analysis performed by <a href="https://github.com/JamesKane/DecodingUsTools" target="_blank">
-                    DecodingUsTools Coverage Analysis</a> with default settings.
-                </p>
-            </details>
-
-            <dl class="row">
-                <dt class="col-sm-3">Callable Bases</dt>
-                <dd class="col-sm-9">
-                    Sites with 4+ reads where each read has high mapping confidence.
-                </dd>
-
-                <dt class="col-sm-3">Bases No Coverage</dt>
-                <dd class="col-sm-9">
-                    Sites with no aligned reads.
-                </dd>
-
-                <dt class="col-sm-3">Low Quality Mapping</dt>
-                <dd class="col-sm-9">
-                    Sites that don't meet minimum quality thresholds.
-                </dd>
-
-                <dt class="col-sm-3">Mean Depth</dt>
-                <dd class="col-sm-9">
-                    Average number of reads per base position. Note: For sex chromosomes (X and Y),
-                    male samples typically show approximately half the advertised sequencing depth
-                    (e.g., ~15x coverage on X/Y for a 30x WGS) due to having only one copy of these chromosomes.
-                    Female samples should show the full advertised depth on the X chromosome (~30x for a 30x WGS)
-                    since they have two X chromosomes.
-                </dd>
-
-                <dt class="col-sm-3">95% Confidence Interval</dt>
-                <dd class="col-sm-9">
-                    Range (shown in parentheses as lower-upper) where the true population mean likely falls,
-                    displayed when multiple samples are available.
-                </dd>
-            </dl>
+            <h2>@messages("coverage.metrics.title")</h2>
+            @{
+                messages.lang.code match {
+                    case "es" => views.html.content.en.coverageText() // Replace with actual spanish content if available
+                    case "fr" => views.html.content.en.coverageText() // Replace with actual french content if available
+                    case _    => views.html.content.en.coverageText()
+                }
+            }
         </div>
     </div>
 
@@ -106,7 +51,7 @@
                         .then(response => response.json())
                         .then(labs => {
                             const select = document.getElementById('lab-select');
-                            select.innerHTML = '<option value="">-- Select a lab --</option>';
+                            select.innerHTML = '<option value="">@messages("coverage.selectLab.default")</option>';
                             labs.forEach(lab => {
                                 const option = document.createElement('option');
                                 option.value = lab.id;
@@ -132,7 +77,7 @@
                 if (!labId) {
                     labInfoContainer.style.display = 'none';
                     document.getElementById('benchmarks-container').innerHTML =
-                            '<div class="alert alert-info" role="alert"><i class="bi bi-info-circle"></i> Please select a laboratory to view benchmark data.</div>';
+                            '<div class="alert alert-info" role="alert"><i class="bi bi-info-circle"></i> @messages("coverage.selectLab.prompt")</div>';
                     return;
                 }
 

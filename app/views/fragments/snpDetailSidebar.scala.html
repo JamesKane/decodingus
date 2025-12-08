@@ -1,11 +1,11 @@
 @import controllers.routes.TreeController
 @import models.api.VariantDTO
 
-@(haplogroupName: String, snps: Seq[VariantDTO])
+@(haplogroupName: String, snps: Seq[VariantDTO])(implicit messages: Messages)
 
 <div id="snpDetailSidebarPlaceholder" class="sidebar">
     <div class="sidebar-header">
-        <h5>Defining Variant(s) for @haplogroupName</h5>
+        <h5>@messages("sidebar.title", haplogroupName)</h5>
         @* Add a close button for the sidebar *@
         <button class="close-button" hx-get="@TreeController.emptySnpDetailSidebarPlaceholder" hx-target="#snpDetailSidebarPlaceholder" hx-swap="outerHTML">
                     &times;
@@ -13,17 +13,17 @@
     </div>
 
     @if(snps.isEmpty) {
-        <p>No defining Variants found for @haplogroupName.</p>
+        <p>@messages("sidebar.noVariants", haplogroupName)</p>
     } else {
         <ul class="snp-list">
         @for(snp <- snps) {
             <li>
                 <strong>@snp.name</strong>
                 <br>
-                Type: @snp.variantType
+                @messages("sidebar.type", snp.variantType)
                 @if(snp.coordinates.nonEmpty) {
                     <br>
-                    Reference Location(s):
+                    @messages("sidebar.refLocation")
                     <br>
                     @* Convert the Map to a Seq of (String, GenomicCoordinate) tuples, then sort by the String (the key) *@
                     @for((chr, coord) <- snp.coordinates.toSeq.sortBy(_._1)) {

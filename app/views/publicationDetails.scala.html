@@ -1,6 +1,6 @@
 @import models.domain.publications.StudySource
 
-@(publicationWithDetails: models.api.PublicationWithEnaStudiesAndSampleCount)
+@(publicationWithDetails: models.api.PublicationWithEnaStudiesAndSampleCount)(implicit messages: Messages)
 
 <article class="publication-details card shadow-sm mb-4">
     <div class="card-body">
@@ -9,27 +9,27 @@
 
             @publicationWithDetails.publication.authors.map { authors =>
             <p class="card-subtitle text-muted d-flex align-items-center gap-2">
-                <strong>Authors:</strong>
+                <strong>@messages("publication.authors")</strong>
                 <span class="text-body">@authors</span>
                 @if(authors.contains(" et al.")) {
                     <small class="text-secondary fst-italic">
-                        (See paper for full author list)
+                        @messages("publication.authors.etAl")
                     </small>
                 }
             </p>
             }.getOrElse(<p class="card-subtitle text-muted">
-            <strong>Authors:</strong>
-            <span class="text-secondary">Not available</span>
+            <strong>@messages("publication.authors")</strong>
+            <span class="text-secondary">@messages("generic.notAvailable")</span>
             </p>)
 
             @if(publicationWithDetails.publication.journal.isDefined || publicationWithDetails.publication.publicationDate.isDefined) {
                 <p class="card-subtitle text-muted d-flex flex-wrap gap-3 align-items-baseline">
                     @publicationWithDetails.publication.journal.map { journal =>
-                        <span><strong>Journal:</strong> <cite class="text-body">@journal</cite></span>
+                        <span><strong>@messages("publication.journal")</strong> <cite class="text-body">@journal</cite></span>
                     }
                     @publicationWithDetails.publication.publicationDate.map { date =>
                         <span><strong>
-                            Published:</strong> <time datetime="@date" class="text-body">@date.toString.substring(0, 7)</time></span>
+                            @messages("publication.published")</strong> <time datetime="@date" class="text-body">@date.toString.substring(0, 7)</time></span>
                     }
                 </p>
             }
@@ -37,7 +37,7 @@
 
         @publicationWithDetails.publication.abstractSummary.map { summary =>
             <section class="mb-3">
-                <h3 class="h6 mb-2">Abstract</h3>
+                <h3 class="h6 mb-2">@messages("publication.abstract")</h3>
                 <p class="card-text">@summary</p>
             </section>
         }
@@ -49,10 +49,10 @@
                 publicationWithDetails.publication.publicationType.isDefined ||
                 publicationWithDetails.publication.publisher.isDefined) {
             <section class="mb-3">
-                <h3 class="h6 mb-2">Additional Details</h3>
+                <h3 class="h6 mb-2">@messages("publication.additionalDetails")</h3>
                 <dl class="row mb-0 small">
                     @if(publicationWithDetails.publication.primaryTopic.isDefined || publicationWithDetails.publication.publicationType.isDefined) {
-                        <dt class="col-sm-4 text-dark-emphasis">Classification:</dt>
+                        <dt class="col-sm-4 text-dark-emphasis">@messages("publication.classification")</dt>
                         <dd class="col-sm-8">
                             @publicationWithDetails.publication.primaryTopic.map { topic =>
                                 <span class="me-2">@topic</span>
@@ -64,7 +64,7 @@
                     }
 
                     @if(publicationWithDetails.publication.publisher.isDefined || publicationWithDetails.publication.openAccessStatus.isDefined) {
-                        <dt class="col-sm-4 text-dark-emphasis">Publication Access:</dt>
+                        <dt class="col-sm-4 text-dark-emphasis">@messages("publication.access")</dt>
                         <dd class="col-sm-8">
                             @publicationWithDetails.publication.publisher.map { publisher =>
                                 <span class="me-3">@publisher</span>
@@ -128,18 +128,18 @@
                     }
 
                     @if(publicationWithDetails.publication.citedByCount.isDefined || publicationWithDetails.publication.citationNormalizedPercentile.isDefined) {
-                        <dt class="col-sm-4 text-dark-emphasis">Impact Metrics:</dt>
+                        <dt class="col-sm-4 text-dark-emphasis">@messages("publication.impact")</dt>
                         <dd class="col-sm-8 d-flex flex-wrap gap-3">
                             @publicationWithDetails.publication.citedByCount.map { count =>
                                 <span class="d-inline-flex align-items-center">
                                     <i class="bi bi-citation me-1"></i>
-                                    <span>Cited: <strong>@count</strong></span>
+                                    <span>@messages("publication.cited", count)</span>
                                 </span>
                             }
                             @publicationWithDetails.publication.citationNormalizedPercentile.map { percentile =>
                                 <span class="d-inline-flex align-items-center">
                                     <i class="bi bi-graph-up me-1"></i>
-                                    <span>Percentile: <strong>@("%,.1f".format(percentile * 100))%</strong></span>
+                                    <span>@messages("publication.percentile", "%,.1f".format(percentile * 100))</span>
                                 </span>
                             }
                         </dd>
@@ -150,13 +150,13 @@
 
         @if(publicationWithDetails.bioStudies.nonEmpty) {
             <section class="mb-3">
-                <h3 class="h6 mb-2">Genomic Studies</h3>
+                <h3 class="h6 mb-2">@messages("publication.genomicStudies")</h3>
                 @defining(publicationWithDetails.bioStudies.groupBy(_.source)) { studiesBySource =>
                     @for((source, studies) <- studiesBySource) {
                         <h4 class="h6 mt-3 mb-2">@{
                             source match {
-                                case StudySource.ENA => "European Nucleotide Archive"
-                                case StudySource.NCBI_BIOPROJECT => "NCBI BioProject"
+                                case StudySource.ENA => messages("publication.source.ena")
+                                case StudySource.NCBI_BIOPROJECT => messages("publication.source.ncbi")
                                 case _ => source.toString
                             }
                         }</h4>
@@ -198,7 +198,7 @@
         @if(publicationWithDetails.sampleCount > 0) {
             <aside class="alert alert-light mb-3" role="alert">
                 <strong>
-                    Sample Count:</strong> <span class="badge bg-secondary">@publicationWithDetails.sampleCount</span>
+                    @messages("publication.sampleCount", publicationWithDetails.sampleCount)</strong>
                 <div class="mt-2">
                     <button class="btn btn-outline-primary btn-sm load-biosamples"
                     hx-get="@routes.BiosampleReportController.getBiosampleReportHTML(publicationWithDetails.publication.id.get)"
@@ -213,7 +213,7 @@
                     }"
                     aria-expanded="false"
                     data-bs-toggle="collapse">
-                        Show Samples
+                        @messages("publication.showSamples")
                     </button>
                     <button class="btn btn-outline-secondary btn-sm mt-2 collapse-button d-none"
                     data-bs-toggle="collapse"
@@ -224,7 +224,7 @@
                     aria-controls="biosample-collapse-@{
                         publicationWithDetails.publication.id.get
                     }">
-                    Hide Samples
+                    @messages("publication.hideSamples")
                     </button>
                     <div class="collapse mt-2" id="biosample-collapse-@{
                         publicationWithDetails.publication.id.get
@@ -251,7 +251,7 @@
             }
             @publicationWithDetails.publication.url.map { url =>
                 <a href="@url" class="text-decoration-none link-secondary" target="_blank" rel="noopener noreferrer">
-                    <i class="bi bi-box-arrow-up-right"></i> Direct Link
+                    <i class="bi bi-box-arrow-up-right"></i> @messages("publication.directLink")
                 </a>
             }
             @publicationWithDetails.publication.openAlexId.map { oaId =>

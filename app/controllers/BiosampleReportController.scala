@@ -1,7 +1,8 @@
 package controllers
 
 import play.api.libs.json.Json
-import play.api.mvc.{Action, AnyContent, BaseController, ControllerComponents}
+import play.api.mvc.{Action, AnyContent, AbstractController, MessagesControllerComponents}
+import play.api.i18n._ // Add this import
 import services.BiosampleReportService
 
 import javax.inject.{Inject, Singleton}
@@ -15,8 +16,8 @@ import scala.concurrent.ExecutionContext
  * @param ec      ExecutionContext for handling asynchronous operations.
  */
 @Singleton
-class BiosampleReportController @Inject()(cc: ControllerComponents, service: BiosampleReportService)(implicit ec: ExecutionContext) extends BaseController {
-  override protected def controllerComponents: ControllerComponents = cc
+class BiosampleReportController @Inject()(cc: MessagesControllerComponents, service: BiosampleReportService)(implicit ec: ExecutionContext) extends AbstractController(cc) with I18nSupport { // Modified
+  // override protected def controllerComponents: ControllerComponents = cc // Not needed when extending AbstractController directly
 
   /**
    * Generates an HTML view of the biosample report for a specific publication. 

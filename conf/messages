@@ -33,3 +33,126 @@ legal.cookies.title = Cookie Usage
 legal.privacy.title = Privacy Policy
 legal.terms.title = Terms of Use
 legal.faq.title = FAQ
+
+# Generic
+generic.notAvailable = Not Available
+generic.submit = Submit
+generic.loading = Loading...
+generic.show = Show
+generic.hide = Hide
+
+# Pagination
+pagination.pageOf = Page {0} of {1}
+pagination.previous = Previous
+pagination.next = Next
+pagination.itemsPerPage = Items per page:
+
+# Biosample Report
+biosample.details = Biosample Details
+biosample.header.sampleId = Sample ID
+biosample.header.accession = Accession Number
+biosample.header.origin = Geographic Origin
+biosample.header.timePeriod = Time Period
+biosample.header.datingPeriod = Dating Period
+biosample.header.sex = Sex
+biosample.header.yHaplo = Y-DNA Haplogroup
+biosample.header.mtHaplo = mt-DNA Haplogroup
+biosample.header.population = Population Group
+biosample.analysisMethod = Analysis method: {0}
+
+# Map
+map.title = Biosamples Geographic Distribution
+map.loading = Loading samples...
+map.totalSamplesPrefix = Total Samples:
+map.totalSamples = Total Samples: {0} (this key is for informational purposes for now, should not be used in views)
+
+# Contact
+contact.title = Contact Us
+contact.name.label = Name
+contact.name.placeholder = Your name
+contact.name.help = Please enter your full name
+contact.email.label = Email
+contact.email.placeholder = your.email@example.com
+contact.email.help = We'll never share your email with anyone else
+contact.subject.label = Subject
+contact.subject.placeholder = Subject of your message
+contact.message.label = Message
+contact.message.placeholder = Your message
+contact.send = Send Message
+
+# Coverage
+coverage.subtitle = Aggregated coverage statistics grouped by laboratory, test type, and contig.
+coverage.selectLab = Select Sequencing Laboratory:
+coverage.selectLab.default = -- Select a lab --
+coverage.selectLab.prompt = Please select a laboratory to view benchmark data.
+coverage.metrics.title = Explanation of Metrics
+coverage.whyMatters = Why This Matters
+coverage.technicalDetails = Technical Details
+
+# Benchmarks
+benchmark.header.testType = Test Type
+benchmark.header.contig = Contig
+benchmark.header.meanReadLen = Mean Read Length
+benchmark.header.readLenRange = Read Length Range
+benchmark.header.meanInsertSize = Mean Insert Size
+benchmark.header.insertSizeRange = Insert Size Range
+benchmark.header.meanDepth = Mean Depth
+benchmark.header.noCoverage = Bases No Coverage
+benchmark.header.lowQuality = Low Quality Mapping
+benchmark.header.callable = Callable Bases
+benchmark.header.meanMappingQuality = Mean Mapping Quality
+benchmark.header.samples = Samples
+benchmark.noData = No benchmark data available for this laboratory.
+
+# Tree
+tree.legend.established = Established haplogroup
+tree.legend.updated = Updated in the last year
+tree.noData = No tree data available
+tree.loading = Loading haplogroup tree...
+tree.jumpTo = Jump to haplogroup:
+tree.go = Go
+tree.reRoot = Click to re-root
+tree.clickToSeeVariants = Click to see {0} defining Variants(s)
+
+# Sidebar
+sidebar.title = Defining Variant(s) for {0}
+sidebar.noVariants = No defining Variants found for {0}.
+sidebar.type = Type: {0}
+sidebar.refLocation = Reference Location(s):
+
+# Publication
+publication.authors = Authors:
+publication.authors.etAl = (See paper for full author list)
+publication.journal = Journal:
+publication.published = Published:
+publication.abstract = Abstract
+publication.additionalDetails = Additional Details
+publication.classification = Classification:
+publication.access = Publication Access:
+publication.impact = Impact Metrics:
+publication.cited = Cited: {0}
+publication.percentile = Percentile: {0}%
+publication.genomicStudies = Genomic Studies
+publication.sampleCount = Sample Count: {0}
+publication.showSamples = Show Samples
+publication.hideSamples = Hide Samples
+publication.directLink = Direct Link
+publication.source.ena = European Nucleotide Archive
+publication.source.ncbi = NCBI BioProject
+publication.list.notFound = No publications found matching "<strong>{0}</strong>". Try a different search term.
+publication.list.empty = No publications available.
+publication.list.total = {0} publications
+publication.submit.title = Submit Publication
+publication.submit.doi.label = DOI
+publication.submit.doi.placeholder = Enter DOI or DOI URL (e.g., 10.1234/example or https://doi.org/10.1234/example)
+publication.submit.doi.help = Enter either a DOI (10.1234/example) or the full DOI URL (https://doi.org/10.1234/example)
+publication.submit.ena.label = Sequence Archive Study Accession (Optional)
+publication.submit.ena.placeholder = Enter sequence archive study accession if available (e.g., PRJEB12345, PRJNA123456)
+publication.submit.ena.help = If the paper mentions a sequence archive study (e.g., from ENA or SRA), enter its accession here
+publication.submit.forceRefresh = Force refresh (Update even if publication already exists)
+
+# References Page
+references.title = References
+references.viewMap = View Geographic Distribution
+references.search.placeholder = Search by title, author, or abstract...
+references.search.help = Search filters publications by title, author names, or abstract content

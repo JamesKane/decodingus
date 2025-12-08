@@ -26,7 +26,7 @@ import scala.concurrent.{ExecutionContext, Future}
  * @param ec                   Execution context for handling asynchronous operations.
  */
 @Singleton
-class TreeController @Inject()(val controllerComponents: ControllerComponents,
+class TreeController @Inject()(val controllerComponents: MessagesControllerComponents,
                                treeService: HaplogroupTreeService,
                                cached: Cached,
                                cache: AsyncCacheApi)
@@ -269,13 +269,13 @@ class TreeController @Inject()(val controllerComponents: ControllerComponents,
       }
   }
 
-  def getSnpDetailSidebar(haplogroupName: String, haplogroupType: HaplogroupType): Action[AnyContent] = Action.async { (request: Request[AnyContent]) =>
+  def getSnpDetailSidebar(haplogroupName: String, haplogroupType: HaplogroupType): Action[AnyContent] = Action.async { implicit request =>
     treeService.findVariantsForHaplogroup(haplogroupName, haplogroupType).map { snps =>
       Ok(views.html.fragments.snpDetailSidebar(haplogroupName, snps))
     }
   }
 
-  def emptySnpDetailSidebarPlaceholder: Action[AnyContent] = Action {
+  def emptySnpDetailSidebarPlaceholder: Action[AnyContent] = Action { implicit request =>
     Ok(<div id="snpDetailSidebarPlaceholder"></div>)
   }
 

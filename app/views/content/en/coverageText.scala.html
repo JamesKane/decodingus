@@ -1,0 +1,62 @@
+<p>
+    Coverage statistics are calculated from sequencing reads aligned to the
+    <a href="https://github.com/marbl/CHM13" target="_blank">chm13v2.0/hs1</a> reference genome
+    using <a href="https://bio-bwa.sourceforge.net/" target="_blank">BWA-MEM</a>.
+    A site is considered "callable" when it has at least four reads with high mapping confidence.
+</p>
+
+<div class="alert alert-info" role="alert">
+    <h5 class="alert-heading">Why This Matters</h5>
+    <p>
+        This analysis provides independent verification of sequencing quality from direct-to-consumer
+        WGS test providers. When a company advertises "30x coverage" or "90Gb of data," these metrics
+        help you verify:
+    </p>
+    <ul class="mb-0">
+        <li><strong>Data quantity:</strong>
+            Does the delivered data match the advertised amount and read length?</li>
+        <li><strong>Data quality:</strong> Are the reads accurately aligned to the reference genome?</li>
+        <li><strong>Usable coverage:</strong>
+            How much of the genome can reliably be analyzed for variants?</li>
+    </ul>
+</div>
+
+<details class="mb-3">
+    <summary class="text-muted" style="cursor: pointer;">Technical Details</summary>
+    <p class="mt-2 ms-3">
+        Analysis performed by <a href="https://github.com/JamesKane/DecodingUsTools" target="_blank">
+        DecodingUsTools Coverage Analysis</a> with default settings.
+    </p>
+</details>
+
+<dl class="row">
+    <dt class="col-sm-3">Callable Bases</dt>
+    <dd class="col-sm-9">
+        Sites with 4+ reads where each read has high mapping confidence.
+    </dd>
+
+    <dt class="col-sm-3">Bases No Coverage</dt>
+    <dd class="col-sm-9">
+        Sites with no aligned reads.
+    </dd>
+
+    <dt class="col-sm-3">Low Quality Mapping</dt>
+    <dd class="col-sm-9">
+        Sites that don't meet minimum quality thresholds.
+    </dd>
+
+    <dt class="col-sm-3">Mean Depth</dt>
+    <dd class="col-sm-9">
+        Average number of reads per base position. Note: For sex chromosomes (X and Y),
+        male samples typically show approximately half the advertised sequencing depth
+        (e.g., ~15x coverage on X/Y for a 30x WGS) due to having only one copy of these chromosomes.
+        Female samples should show the full advertised depth on the X chromosome (~30x for a 30x WGS)
+        since they have two X chromosomes.
+    </dd>
+
+    <dt class="col-sm-3">95% Confidence Interval</dt>
+    <dd class="col-sm-9">
+        Range (shown in parentheses as lower-upper) where the true population mean likely falls,
+        displayed when multiple samples are available.
+    </dd>
+</dl>

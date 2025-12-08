@@ -1,6 +1,6 @@
 @import models.domain.genomics.{CoverageBenchmark, SequencingLab}
 
-@(benchmarks: Seq[CoverageBenchmark], lab: Option[SequencingLab])
+@(benchmarks: Seq[CoverageBenchmark], lab: Option[SequencingLab])(implicit messages: Messages)
 @* Helper function to calculate 95% confidence interval *@
 @calculateCI(mean: Option[Double], stddev: Option[Double], n: Int) = @{
     (mean, stddev) match {
@@ -20,18 +20,18 @@
     <table class="table table-striped table-hover">
         <thead class="table-dark">
             <tr>
-                <th>Test Type</th>
-                <th>Contig</th>
-                <th>Mean Read Length</th>
-                <th>Read Length Range</th>
-                <th>Mean Insert Size</th>
-                <th>Insert Size Range</th>
-                <th>Mean Depth</th>
-                <th>Bases No Coverage</th>
-                <th>Low Quality Mapping</th>
-                <th>Callable Bases</th>
-                <th>Mean Mapping Quality</th>
-                <th>Samples</th>
+                <th>@messages("benchmark.header.testType")</th>
+                <th>@messages("benchmark.header.contig")</th>
+                <th>@messages("benchmark.header.meanReadLen")</th>
+                <th>@messages("benchmark.header.readLenRange")</th>
+                <th>@messages("benchmark.header.meanInsertSize")</th>
+                <th>@messages("benchmark.header.insertSizeRange")</th>
+                <th>@messages("benchmark.header.meanDepth")</th>
+                <th>@messages("benchmark.header.noCoverage")</th>
+                <th>@messages("benchmark.header.lowQuality")</th>
+                <th>@messages("benchmark.header.callable")</th>
+                <th>@messages("benchmark.header.meanMappingQuality")</th>
+                <th>@messages("benchmark.header.samples")</th>
             </tr>
         </thead>
         <tbody>
@@ -65,6 +65,6 @@
 
 @if(benchmarks.isEmpty) {
     <div class="alert alert-info" role="alert">
-        <i class="bi bi-info-circle"></i> No benchmark data available for this laboratory.
+        <i class="bi bi-info-circle"></i> @messages("benchmark.noData")
     </div>
 }

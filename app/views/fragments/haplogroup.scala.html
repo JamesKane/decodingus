@@ -4,7 +4,7 @@
 @import models.api.TreeDTO
 @import models.view.TreeViewModel
 
-@(tree: TreeDTO, hapType: HaplogroupType, renderedTreeData: Option[TreeViewModel], currentUrl: String)
+@(tree: TreeDTO, hapType: HaplogroupType, renderedTreeData: Option[TreeViewModel], currentUrl: String)(implicit messages: Messages)
 
 @fullPageUrl(haplogroup: Option[String]) = @{
     hapType match {
@@ -45,12 +45,12 @@
             width: 24px;
             height: 24px;
             background-color: #90EE90;
-            vertical-align: middle;"></span> Established haplogroup</span>
+            vertical-align: middle;"></span> @messages("tree.legend.established")</span>
         <span class="me-3"><span style="display: inline-block;
             width: 24px;
             height: 24px;
             background-color: #fff0e0;
-            vertical-align: middle;"></span> Updated in the last year</span>
+            vertical-align: middle;"></span> @messages("tree.legend.updated")</span>
     </small>
 </div>
 
@@ -76,7 +76,7 @@
                 @node.fillColor ;
                     stroke: black;
                     cursor: pointer;">
-                    <title>@node.name (Click to re-root)</title>
+                    <title>@node.name (@messages("tree.reRoot"))</title>
                 </rect>
                 <text class="node-name"
                 x="@(node.y - 75 + 5)"
@@ -95,14 +95,14 @@
                     hx-trigger="click"
                     style="cursor: pointer;">
                         @node.variantsCount.get
-                        <title>Click to see @node.variantsCount.get defining Variants(s)</title>
+                        <title>@messages("tree.clickToSeeVariants", node.variantsCount.get)</title>
                     </text>
                 }
             </g>
         }
     </svg>
     }.getOrElse {
-        <div class="alert alert-warning">No tree data available</div>
+        <div class="alert alert-warning">@messages("tree.noData")</div>
     }
     </div>
 

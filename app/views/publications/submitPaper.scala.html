@@ -3,9 +3,9 @@
 
 @(paperForm: Form[models.forms.PaperSubmission])(implicit request: RequestHeader, messages: Messages, webJarsUtil: WebJarsUtil)
 
-@main("Submit Publication") {
+@main(messages("publication.submit.title")) {
     <div class="container mt-4">
-        <h1>Submit Publication</h1>
+        <h1>@messages("publication.submit.title")</h1>
 
         @request.flash.get("error").map { message =>
             <div class="alert alert-danger">
@@ -26,9 +26,9 @@
             @inputText(
                 paperForm("doi"),
                 Symbol("class") -> "form-control",
-                Symbol("placeholder") -> "Enter DOI or DOI URL (e.g., 10.1234/example or https://doi.org/10.1234/example)",
-                Symbol("_label") -> "DOI",
-                Symbol("_help") -> "Enter either a DOI (10.1234/example) or the full DOI URL (https://doi.org/10.1234/example)"
+                Symbol("placeholder") -> messages("publication.submit.doi.placeholder"),
+                Symbol("_label") -> messages("publication.submit.doi.label"),
+                Symbol("_help") -> messages("publication.submit.doi.help")
             )
             </div>
 
@@ -36,9 +36,9 @@
             @inputText(
                 paperForm("enaAccession"),
                 Symbol("class") -> "form-control",
-                Symbol("placeholder") -> "Enter sequence archive study accession if available (e.g., PRJEB12345, PRJNA123456)",
-                Symbol("_label") -> "Sequence Archive Study Accession (Optional)",
-                Symbol("_help") -> "If the paper mentions a sequence archive study (e.g., from ENA or SRA), enter its accession here"
+                Symbol("placeholder") -> messages("publication.submit.ena.placeholder"),
+                Symbol("_label") -> messages("publication.submit.ena.label"),
+                Symbol("_help") -> messages("publication.submit.ena.help")
             )
             </div>
 
@@ -46,11 +46,11 @@
                 <input type="checkbox" name="forceRefresh" id="forceRefresh" value="true" class="form-check-input">
                 <input type="hidden" name="forceRefresh" value="false">
                 <label class="form-check-label" for="forceRefresh">
-                    Force refresh (Update even if publication already exists)
+                    @messages("publication.submit.forceRefresh")
                 </label>
             </div>
 
-            <button type="submit" class="btn btn-primary">Submit</button>
+            <button type="submit" class="btn btn-primary">@messages("generic.submit")</button>
         }
     </div>
 }

@@ -33,13 +33,13 @@
     <main class="container">
         <nav class="navbar navbar-expand-lg navbar-light bg-light mb-4">
             <div class="container-fluid">
-                <span class="navbar-brand">References</span>
+                <span class="navbar-brand">@messages("references.title")</span>
                 <div class="navbar-nav ms-auto">
                     <a href="@controllers.routes.BiosampleMapController.mapView()"
                     class="btn btn-primary"
                     hx-boost="false"
                     data-hx-preserve="true">
-                        <i class="bi bi-geo-alt-fill"></i> View Geographic Distribution
+                        <i class="bi bi-geo-alt-fill"></i> @messages("references.viewMap")
                     </a>
                 </div>
             </div>
@@ -51,14 +51,14 @@
                     <span class="input-group-text">
                         <i class="bi bi-search search-icon"></i>
                         <span class="spinner-border spinner-border-sm search-indicator" role="status">
-                            <span class="visually-hidden">Searching...</span>
+                            <span class="visually-hidden">@messages("generic.loading")</span>
                         </span>
                     </span>
                     <input type="text"
                     class="form-control"
                     id="publication-search"
                     name="query"
-                    placeholder="Search by title, author, or abstract..."
+                    placeholder="@messages("references.search.placeholder")"
                     hx-get="@controllers.routes.PublicationController.getAllPublicationsWithDetailsHtml(Some(1), None, None)"
                     hx-trigger="input changed delay:300ms, search"
                     hx-target="#publications-container"
@@ -74,14 +74,14 @@
                     </button>
                 </div>
                 <small class="text-muted">
-                    Search filters publications by title, author names, or abstract content</small>
+                    @messages("references.search.help")</small>
             </div>
         </div>
 
         <div id="publications-container" hx-get="@controllers.routes.PublicationController.getAllPublicationsWithDetailsHtml(None, None, None)" hx-trigger="load">
             <div class="d-flex justify-content-center">
                 <div class="spinner-border" role="status">
-                    <span class="visually-hidden">Loading...</span>
+                    <span class="visually-hidden">@messages("generic.loading")</span>
                 </div>
             </div>
         </div>

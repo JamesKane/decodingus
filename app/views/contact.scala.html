@@ -4,13 +4,13 @@
 
 @this(recaptchaField: views.html.recaptcha.recaptchaField)
 @(contactForm: Form[Contact.ContactDTO], isProd: Boolean)(implicit request: Request[AnyContent], messages: Messages, webJarsUtil: WebJarsUtil, widgetHelper: WidgetHelper)
-@main("Contact Us") {
+@main(messages("contact.title")) {
     <div class="container py-5">
         <div class="row justify-content-center">
             <div class="col-12 col-md-8 col-lg-6">
                 <div class="card shadow-sm">
                     <div class="card-body">
-                        <h1 class="card-title text-center mb-4">Contact Us</h1>
+                        <h1 class="card-title text-center mb-4">@messages("contact.title")</h1>
 
                         @request.flash.get("success").map { message =>
                             <div class="alert alert-success alert-dismissible fade show" role="alert">
@@ -34,46 +34,46 @@
                             @helper.CSRF.formField
 
                             <div class="mb-3">
-                                <label for="name" class="form-label">Name</label>
+                                <label for="name" class="form-label">@messages("contact.name.label")</label>
                                 <input type="text"
                                 class="form-control @if(contactForm("name").hasErrors) {is-invalid}"
                                 id="name"
                                 name="name"
                                 value="@contactForm("name").value"
-                                placeholder="Your name"
+                                placeholder="@messages("contact.name.placeholder")"
                                 required
                                 maxlength="64"
                                 autocomplete="off">
                                 @contactForm("name").errors.map { error =>
                                     <div class="invalid-feedback">@messages(error.message)</div>
                                 }
-                                <div class="form-text">Please enter your full name</div>
+                                <div class="form-text">@messages("contact.name.help")</div>
                             </div>
 
                             <div class="mb-3">
-                                <label for="email" class="form-label">Email</label>
+                                <label for="email" class="form-label">@messages("contact.email.label")</label>
                                 <input type="email"
                                 class="form-control @if(contactForm("email").hasErrors) {is-invalid}"
                                 id="email"
                                 name="email"
                                 value="@contactForm("email").value"
-                                placeholder="your.email@@example.com"
+                                placeholder="@messages("contact.email.placeholder")"
                                 required
                                 autocomplete="off">
                                 @contactForm("email").errors.map { error =>
                                     <div class="invalid-feedback">@messages(error.message)</div>
                                 }
-                                <div class="form-text">We'll never share your email with anyone else</div>
+                                <div class="form-text">@messages("contact.email.help")</div>
                             </div>
 
                             <div class="mb-3">
-                                <label for="subject" class="form-label">Subject</label>
+                                <label for="subject" class="form-label">@messages("contact.subject.label")</label>
                                 <input type="text"
                                 class="form-control @if(contactForm("subject").hasErrors) {is-invalid}"
                                 id="subject"
                                 name="subject"
                                 value="@contactForm("subject").value"
-                                placeholder="Subject of your message"
+                                placeholder="@messages("contact.subject.placeholder")"
                                 required
                                 maxlength="64"
                                 autocomplete="off">
@@ -83,12 +83,12 @@
                             </div>
 
                             <div class="mb-4">
-                                <label for="message" class="form-label">Message</label>
+                                <label for="message" class="form-label">@messages("contact.message.label")</label>
                                 <textarea class="form-control @if(contactForm("message").hasErrors) {is-invalid}"
                                 id="message"
                                 name="message"
                                 rows="5"
-                                placeholder="Your message"
+                                placeholder="@messages("contact.message.placeholder")"
                                 required
                                 maxlength="2048"
                                 autocomplete="off">@contactForm("message").value</textarea>
@@ -114,7 +114,7 @@
 
                             <div class="container-fluid">
                                 <button type="submit" class="btn btn-primary btn-lg">
-                                    <i class="bi bi-send-fill me-2"></i>Send Message
+                                    <i class="bi bi-send-fill me-2"></i>@messages("contact.send")
                                 </button>
                             </div>
                         }

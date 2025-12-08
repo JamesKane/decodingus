@@ -1,21 +1,21 @@
 @import models.domain.genomics.BiosampleType
 
-@(paginatedResult: models.api.PaginatedResult[models.api.BiosampleWithOrigin], publicationId: Int)
+@(paginatedResult: models.api.PaginatedResult[models.api.BiosampleWithOrigin], publicationId: Int)(implicit messages: Messages)
 
 <section class="biosample-report">
-    <h3 class="h6">Biosample Details</h3>
+    <h3 class="h6">@messages("biosample.details")</h3>
     <table class="table table-sm table-striped">
         <thead class="thead-light">
             <tr>
-                <th>Sample ID</th>
-                <th>Accession Number</th>
-                <th>Geographic Origin</th>
-                <th>Time Period</th>
-                <th>Dating Period</th>
-                <th>Sex</th>
-                <th>Y-DNA Haplogroup</th>
-                <th>mt-DNA Haplogroup</th>
-                <th>Population Group</th>
+                <th>@messages("biosample.header.sampleId")</th>
+                <th>@messages("biosample.header.accession")</th>
+                <th>@messages("biosample.header.origin")</th>
+                <th>@messages("biosample.header.timePeriod")</th>
+                <th>@messages("biosample.header.datingPeriod")</th>
+                <th>@messages("biosample.header.sex")</th>
+                <th>@messages("biosample.header.yHaplo")</th>
+                <th>@messages("biosample.header.mtHaplo")</th>
+                <th>@messages("biosample.header.population")</th>
             </tr>
         </thead>
         <tbody>
@@ -82,12 +82,12 @@
                     <td>@sample.mtDnaHaplogroup</td>
                     <td>
                     @sample.bestFitPopulation.map { pop =>
-                    <span title="Analysis method: @pop.methodName">
+                    <span title="@messages("biosample.analysisMethod", pop.methodName)">
                         @pop.populationName (@{
                         f"${pop.probability * 100}%.1f"
                     }%)
                     </span>
-                    }.getOrElse("Not Available")
+                    }.getOrElse(messages("generic.notAvailable"))
                     </td>
                 </tr>
             }
@@ -102,10 +102,10 @@
                 publicationId
             }"
             hx-swap="innerHTML">
-                Previous
+                @messages("pagination.previous")
             </button>
         }
-        <span>Page @paginatedResult.currentPage of @paginatedResult.totalPages</span>
+        <span>@messages("pagination.pageOf", paginatedResult.currentPage, paginatedResult.totalPages)</span>
         @if(paginatedResult.hasNextPage) {
             <button class="btn btn-outline-secondary btn-sm"
             hx-get="@routes.BiosampleReportController.getBiosampleReportHTML(publicationId, Some(paginatedResult.currentPage + 1))"
@@ -113,7 +113,7 @@
                 publicationId
             }"
             hx-swap="innerHTML">
-                Next
+                @messages("pagination.next")
             </button>
         }
     </div>

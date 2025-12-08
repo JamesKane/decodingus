@@ -8,19 +8,19 @@
         <div id="tree-container"
         hx-get="@routes.TreeController.yTreeFragment(rootHaplogroup)"
         hx-trigger="load">
-            <div class="loading">Loading haplogroup tree...</div>
+            <div class="loading">@messages("tree.loading")</div>
         </div>
 
         <div class="tree-controls">
             <form class="search-form" hx-get="@routes.TreeController.yTreeFragment(None)" hx-target="#tree-container" hx-push-url="@routes.TreeController.ytree(None)">
-                <label for="haplogroup-search">Jump to haplogroup:</label>
+                <label for="haplogroup-search">@messages("tree.jumpTo")</label>
                 <input type="text"
                 id="haplogroup-search"
                 name="rootHaplogroup"
                 placeholder="e.g. R1b"
                 pattern="[A-Z0-9-]+"
                 title="Enter a valid Y-DNA haplogroup">
-                <button type="submit">Go</button>
+                <button type="submit">@messages("tree.go")</button>
             </form>
         </div>
     </main>
