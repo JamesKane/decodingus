@@ -9,10 +9,10 @@ CREATE TABLE publication_candidates (
     publication_date DATE,
     journal_name VARCHAR(500),
     relevance_score DOUBLE PRECISION,
-    discovery_date TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    discovery_date TIMESTAMP DEFAULT NOW(),
     status VARCHAR(50) DEFAULT 'pending', -- pending, accepted, rejected, deferred
     reviewed_by UUID,
-    reviewed_at TIMESTAMP WITH TIME ZONE,
+    reviewed_at TIMESTAMP,
     rejection_reason TEXT,
     raw_metadata JSONB, -- Full OpenAlex response
     FOREIGN KEY (reviewed_by) REFERENCES public.users(id) ON DELETE SET NULL
@@ -25,14 +25,14 @@ CREATE TABLE publication_search_configs (
     concepts JSONB, -- OpenAlex concept IDs to filter
     journals JSONB, -- Journal/source filters
     enabled BOOLEAN DEFAULT TRUE,
-    last_run TIMESTAMP WITH TIME ZONE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    last_run TIMESTAMP,
+    created_at TIMESTAMP DEFAULT NOW()
 );
 
 CREATE TABLE publication_search_runs (
     id SERIAL PRIMARY KEY,
     config_id INT REFERENCES publication_search_configs(id) ON DELETE CASCADE,
-    run_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    run_at TIMESTAMP DEFAULT NOW(),
     candidates_found INT,
     new_candidates INT, -- After deduplication
     query_used TEXT,
