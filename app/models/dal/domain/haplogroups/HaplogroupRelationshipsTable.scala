@@ -26,7 +26,7 @@ import java.time.LocalDateTime
  * - Relationships are associated with revision IDs, allowing tracking of updates or historical changes in the data.
  * - Validity is defined by "valid_from" and optionally "valid_until" columns, indicating the effective timespan of the relationship.
  */
-class HaplogroupRelationshipsTable(tag: Tag) extends Table[HaplogroupRelationship](tag, "haplogroup_relationship") {
+class HaplogroupRelationshipsTable(tag: Tag) extends Table[HaplogroupRelationship](tag, Some("tree"), "haplogroup_relationship") {
   def haplogroupRelationshipId = column[Int]("haplogroup_relationship_id", O.PrimaryKey, O.AutoInc)
 
   def childHaplogroupId = column[Int]("child_haplogroup_id")

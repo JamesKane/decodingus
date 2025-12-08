@@ -78,16 +78,16 @@ class HaplogroupCoreRepositoryImpl @Inject()(
       WITH RECURSIVE ancestor_tree AS (
         -- Base case: immediate parent
         SELECT h.*, 1 as level
-        FROM haplogroup_relationship hr
-        JOIN haplogroup h ON h.haplogroup_id = hr.parent_haplogroup_id
+        FROM tree.haplogroup_relationship hr
+        JOIN tree.haplogroup h ON h.haplogroup_id = hr.parent_haplogroup_id
         WHERE hr.child_haplogroup_id = $haplogroupId
 
         UNION
 
         -- Recursive case: parents of parents
         SELECT h.*, at.level + 1
-        FROM haplogroup_relationship hr
-        JOIN haplogroup h ON h.haplogroup_id = hr.parent_haplogroup_id
+        FROM tree.haplogroup_relationship hr
+        JOIN tree.haplogroup h ON h.haplogroup_id = hr.parent_haplogroup_id
         JOIN ancestor_tree at ON hr.child_haplogroup_id = at.haplogroup_id
       )
       SELECT

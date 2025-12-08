@@ -1,6 +1,5 @@
 package models.dal
 
-import models.HaplogroupType
 import models.dal.auth.*
 import models.dal.domain.*
 
@@ -14,7 +13,6 @@ import models.dal.domain.*
  *
  * Key functionalities:
  * - Defines the mapping of domain entities to database tables using Slick's `TableQuery`.
- * - Provides an implicit mapper (`haplogroupTypeMapper`) for converting `HaplogroupType` values to a
  * database-compatible string format and vice versa.
  *
  * Table queries defined in this schema include:
@@ -35,14 +33,6 @@ object DatabaseSchema {
 
   import models.dal.MyPostgresProfile.api.*
 
-  implicit val haplogroupTypeMapper: BaseColumnType[HaplogroupType] =
-    MappedColumnType.base[HaplogroupType, String](
-      ht => ht.toString,
-      str => HaplogroupType.fromString(str).getOrElse(
-        throw new IllegalArgumentException(s"Invalid haplogroup type: $str")
-      )
-    )
-
   object domain {
 
     import models.dal.domain.genomics.*
@@ -50,9 +40,8 @@ object DatabaseSchema {
     import models.dal.domain.ibd.*
     import models.dal.domain.pangenome.*
     import models.dal.domain.publications.*
-    import models.dal.domain.publications.*
-    import models.dal.domain.user.* // This needs to be here for UsersTable
-    import models.dal.domain.social.* // This needs to be here for social tables
+    import models.dal.domain.social.*
+    import models.dal.domain.user.* // This needs to be here for social tables
 
     // User-related tables directly under domain
     val users = TableQuery[UsersTable]

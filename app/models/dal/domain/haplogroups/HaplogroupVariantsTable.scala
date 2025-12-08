@@ -1,9 +1,8 @@
 package models.dal.domain.haplogroups
 
-import models.dal.domain.genomics.{Variant, VariantsTable}
-import models.dal.domain.haplogroups.HaplogroupsTable
-import models.domain.haplogroups.{Haplogroup, HaplogroupVariant}
 import models.dal.MyPostgresProfile.api.*
+import models.dal.domain.genomics.{Variant, VariantsTable}
+import models.domain.haplogroups.{Haplogroup, HaplogroupVariant}
 
 /**
  * Represents the mapping for the `haplogroup_variant` table in the database. This table defines
@@ -31,7 +30,7 @@ import models.dal.MyPostgresProfile.api.*
  *            Slick mapping:
  *            - The `*` projection maps table rows to the `HaplogroupVariant` case class.
  */
-class HaplogroupVariantsTable(tag: Tag) extends Table[HaplogroupVariant](tag, "haplogroup_variant") {
+class HaplogroupVariantsTable(tag: Tag) extends Table[HaplogroupVariant](tag, Some("tree"), "haplogroup_variant") {
   def haplogroupVariantId = column[Int]("haplogroup_variant_id", O.PrimaryKey, O.AutoInc)
 
   def haplogroupId = column[Int]("haplogroup_id")
@@ -42,6 +41,7 @@ class HaplogroupVariantsTable(tag: Tag) extends Table[HaplogroupVariant](tag, "h
 
   def haplogroupFK = foreignKey("haplogroup_fk", haplogroupId, TableQuery[HaplogroupsTable])(_.haplogroupId, onDelete = ForeignKeyAction.Cascade)
 
+  // Explicitly specify the schema for VariantsTable which is in the public schema
   def variantFK = foreignKey("variant_fk", variantId, TableQuery[VariantsTable])(_.variantId, onDelete = ForeignKeyAction.Cascade)
 
   def uniqueHaplogroupVariant = index("unique_haplogroup_variant", (haplogroupId, variantId), unique = true)

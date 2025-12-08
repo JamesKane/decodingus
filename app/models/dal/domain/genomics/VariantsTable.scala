@@ -37,7 +37,7 @@ import models.dal.MyPostgresProfile.api.*
  *            - Maps to the `Variant` case class, representing the domain model for a variant. The mapping includes all columns,
  *              with `variantId` being optional.
  */
-class VariantsTable(tag: Tag) extends Table[Variant](tag, "variant") {
+class VariantsTable(tag: Tag) extends Table[Variant](tag, Some("public"), "variant") {
   def variantId = column[Int]("variant_id", O.PrimaryKey, O.AutoInc)
 
   def genbankContigId = column[Int]("genbank_contig_id")

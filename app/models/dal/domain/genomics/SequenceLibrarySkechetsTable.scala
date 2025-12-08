@@ -86,10 +86,5 @@ object MinHashSketch {
     result
   }
 
-  // Custom Slick mapper for Array[Long] <-> bytea
-  implicit val longArrayTypeMapper: BaseColumnType[Array[Long]] =
-    MappedColumnType.base[Array[Long], Array[Byte]](
-      longArrayToBytes,
-      bytesToLongArray
-    )
+
 }
