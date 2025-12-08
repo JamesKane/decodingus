@@ -45,6 +45,8 @@ generic.hide = Hide
 pagination.pageOf = Page {0} of {1}
 pagination.previous = Previous
 pagination.next = Next
+pagination.first = First
+pagination.last = Last
 pagination.itemsPerPage = Items per page:
 
 # Biosample Report
@@ -95,7 +97,7 @@ benchmark.header.contig = Contig
 benchmark.header.meanReadLen = Mean Read Length
 benchmark.header.readLenRange = Read Length Range
 benchmark.header.meanInsertSize = Mean Insert Size
-benchmark.header.insertSizeRange = Insert Size Range
+benchmark.header.insertSizeRange = Mean Insert Size Range
 benchmark.header.meanDepth = Mean Depth
 benchmark.header.noCoverage = Bases No Coverage
 benchmark.header.lowQuality = Low Quality Mapping
@@ -151,8 +153,26 @@ publication.submit.ena.placeholder = Enter sequence archive study accession if a
 publication.submit.ena.help = If the paper mentions a sequence archive study (e.g., from ENA or SRA), enter its accession here
 publication.submit.forceRefresh = Force refresh (Update even if publication already exists)
 
-# References Page
-references.title = References
-references.viewMap = View Geographic Distribution
-references.search.placeholder = Search by title, author, or abstract...
-references.search.help = Search filters publications by title, author names, or abstract content
+# Publication Candidates (New)
+publicationCandidates.title = Publication Candidates Review
+publicationCandidates.heading = Publication Candidates for Review
+publicationCandidates.noCandidates = No pending publication candidates found.
+publicationCandidates.table.title = Title
+publicationCandidates.table.journal = Journal
+publicationCandidates.table.date = Publication Date
+publicationCandidates.table.relevance = Relevance Score
+publicationCandidates.table.status = Status
+publicationCandidates.table.actions = Actions
+publicationCandidates.action.accept = Accept
+publicationCandidates.action.reject = Reject
+publicationCandidates.action.reviewed = Reviewed
+publicationCandidates.confirmAccept = Are you sure you want to accept this candidate and import it as a new publication?
+publicationCandidates.confirmReject = Are you sure you want to reject this candidate?
+publicationCandidates.acceptSuccess = Candidate '{0}' accepted and imported successfully.
+publicationCandidates.acceptFailed = Failed to accept candidate or import publication.
+publicationCandidates.acceptError = Error accepting candidate: {0}
+publicationCandidates.rejectSuccess = Candidate rejected successfully.
+publicationCandidates.rejectFailed = Failed to reject candidate.
+publicationCandidates.rejectError = Error rejecting candidate: {0}
+publicationCandidates.promptRejectReason = Please enter a reason for rejecting this candidate.
+publicationCandidates.emptyRejectReasonAlert = Rejection reason cannot be empty.

@@ -1,0 +1,117 @@
+@import models.domain.publications.PublicationCandidate
+@import java.time.format.DateTimeFormatter
+@import play.api.mvc.Request
+@import play.twirl.api.Html
+@import org.webjars.play.WebJarsUtil
+
+@(candidates: Seq[PublicationCandidate], currentPage: Int, pageSize: Int, totalCandidates: Int)(implicit request: Request[AnyContent], messages: Messages, webJarsUtil: WebJarsUtil)
+
+@main(messages("publicationCandidates.title")) {
+    <div class="container py-4">
+        <h1 class="mb-4">@messages("publicationCandidates.heading")</h1>
+
+        @request.flash.get("success").map { message =>
+            <div class="alert alert-success alert-dismissible fade show" role="alert">
+                <i class="bi bi-check-circle-fill me-2"></i>
+                @message
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+        }
+
+        @request.flash.get("error").map { message =>
+            <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                @message
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+        }
+
+        @if(candidates.isEmpty) {
+            <div class="alert alert-info" role="alert">
+                @messages("publicationCandidates.noCandidates")
+            </div>
+        } else {
+            <div class="table-responsive">
+                <table class="table table-striped table-hover">
+                    <thead>
+                        <tr>
+                            <th>@messages("publicationCandidates.table.title")</th>
+                            <th>@messages("publicationCandidates.table.journal")</th>
+                            <th>@messages("publicationCandidates.table.date")</th>
+                            <th>@messages("publicationCandidates.table.relevance")</th>
+                            <th>@messages("publicationCandidates.table.status")</th>
+                            <th>@messages("publicationCandidates.table.actions")</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @for(candidate <- candidates) {
+                            <tr>
+                                <td><a href="https://openalex.org/@candidate.openAlexId" target="_blank" rel="noopener noreferrer">@candidate.title</a></td>
+                                <td>@candidate.journalName.getOrElse("-")</td>
+                                <td>@candidate.publicationDate.map(_.format(DateTimeFormatter.ISO_LOCAL_DATE)).getOrElse("-")</td>
+                                <td>@candidate.relevanceScore.map(s => f"${s}%.2f").getOrElse("-")</td>
+                                <td>@candidate.status</td>
+                                <td>
+                                    @if(candidate.status == "pending") {
+                                        <form action="@controllers.routes.PublicationCandidateController.accept(candidate.id.get)" method="post" style="display:inline;" onsubmit="return confirm('@messages("publicationCandidates.confirmAccept")');">
+                                            @helper.CSRF.formField
+                                            <button type="submit" class="btn btn-sm btn-success me-1">@messages("publicationCandidates.action.accept")</button>
+                                        </form>
+                                        <form action="@controllers.routes.PublicationCandidateController.reject(candidate.id.get)" method="post" style="display:inline;" onsubmit="
+                                            var reason = prompt('@messages("publicationCandidates.promptRejectReason")', '');
+                                            if (reason === null) {
+                                                return false; // User cancelled
+                                            }
+                                            if (reason.trim() === '') {
+                                                alert('@messages("publicationCandidates.emptyRejectReasonAlert")');
+                                                return false;
+                                            }
+                                            this.querySelector('input[name=\"reason\"]').value = reason;
+                                            return confirm('@messages("publicationCandidates.confirmReject")');
+                                        ">
+                                            @helper.CSRF.formField
+                                            <input type="hidden" name="reason" value="">
+                                            <button type="submit" class="btn btn-sm btn-danger">@messages("publicationCandidates.action.reject")</button>
+                                        </form>
+                                    } else {
+                                        <span class="text-muted">@messages("publicationCandidates.action.reviewed")</span>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            @* Pagination *@
+            @defining({
+                val totalPages = (totalCandidates + pageSize - 1) / pageSize
+                val startPage = Math.max(1, currentPage - 2)
+                val endPage = Math.min(totalPages, currentPage + 2)
+                (totalPages, startPage, endPage)
+            }) { case (totalPages, startPage, endPage) =>
+            <nav aria-label="Page navigation">
+                <ul class="pagination justify-content-center">
+                    <li class="page-item @if(currentPage == 1) {disabled}">
+                        <a class="page-link" href="@controllers.routes.PublicationCandidateController.listCandidates(1, pageSize)">@messages("pagination.first")</a>
+                    </li>
+                    <li class="page-item @if(currentPage == 1) {disabled}">
+                        <a class="page-link" href="@controllers.routes.PublicationCandidateController.listCandidates(currentPage - 1, pageSize)">@messages("pagination.previous")</a>
+                    </li>
+                    @for(p <- startPage to endPage) {
+                        <li class="page-item @if(p == currentPage) {active}">
+                            <a class="page-link" href="@controllers.routes.PublicationCandidateController.listCandidates(p, pageSize)">@p</a>
+                        </li>
+                    }
+                    <li class="page-item @if(currentPage == totalPages) {disabled}">
+                        <a class="page-link" href="@controllers.routes.PublicationCandidateController.listCandidates(currentPage + 1, pageSize)">@messages("pagination.next")</a>
+                    </li>
+                    <li class="page-item @if(currentPage == totalPages) {disabled}">
+                        <a class="page-link" href="@controllers.routes.PublicationCandidateController.listCandidates(totalPages, pageSize)">@messages("pagination.last")</a>
+                    </li>
+                </ul>
+            </nav>
+            }
+        }
+    </div>
+}

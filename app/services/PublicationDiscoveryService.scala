@@ -14,8 +14,36 @@ class PublicationDiscoveryService @Inject()(
                                              candidateRepository: PublicationCandidateRepository,
                                              runRepository: PublicationSearchRunRepository,
                                              publicationRepository: PublicationRepository,
+                                             publicationService: PublicationService, // Injected
                                              openAlexService: OpenAlexService
                                            )(implicit ec: ExecutionContext) extends Logging {
+
+  def acceptCandidate(candidateId: Int, reviewedBy: java.util.UUID): Future[Option[models.domain.publications.Publication]] = {
+    candidateRepository.findById(candidateId).flatMap {
+      case Some(candidate) =>
+        // 1. Mark candidate as accepted
+        candidateRepository.updateStatus(candidateId, "accepted", Some(reviewedBy), None).flatMap { success =>
+          if (success) {
+            // 2. Create Publication from Candidate
+            // We assume the DOI is present if we are accepting it. If not, we can't import it easily via existing flow.
+            candidate.doi match {
+              case Some(doi) =>
+                publicationService.processPublication(doi, forceRefresh = true)
+              case None =>
+                logger.warn(s"Candidate $candidateId has no DOI, cannot auto-import.")
+                Future.successful(None)
+            }
+          } else {
+            Future.successful(None)
+          }
+        }
+      case None => Future.successful(None)
+    }
+  }
+
+  def rejectCandidate(candidateId: Int, reviewedBy: java.util.UUID, reason: Option[String]): Future[Boolean] = {
+    candidateRepository.updateStatus(candidateId, "rejected", Some(reviewedBy), reason)
+  }
 
   def runDiscovery(): Future[Unit] = {
     logger.info("Starting publication discovery run...")
