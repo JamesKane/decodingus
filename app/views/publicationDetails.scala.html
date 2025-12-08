@@ -211,10 +211,11 @@
                     aria-controls="biosample-collapse-@{
                         publicationWithDetails.publication.id.get
                     }"
-                    aria-expanded="false">
+                    aria-expanded="false"
+                    data-bs-toggle="collapse">
                         Show Samples
                     </button>
-                    <button class="btn btn-outline-secondary btn-sm mt-2 collapse-button"
+                    <button class="btn btn-outline-secondary btn-sm mt-2 collapse-button d-none"
                     data-bs-toggle="collapse"
                     data-bs-target="#biosample-collapse-@{
                         publicationWithDetails.publication.id.get
@@ -222,16 +223,16 @@
                     aria-expanded="false"
                     aria-controls="biosample-collapse-@{
                         publicationWithDetails.publication.id.get
-                    }"
-                    style="display: none;">
+                    }">
                     Hide Samples
-                    < / button >
-                    < div class = "collapse mt-2" id = "biosample-collapse- @{
+                    </button>
+                    <div class="collapse mt-2" id="biosample-collapse-@{
                         publicationWithDetails.publication.id.get
-                    } ">
+                    }">
                         <div id="biosample-content-@{
                             publicationWithDetails.publication.id.get
                         }"></div>
+                    </div>
                 </div>
         </div>
     </aside>
@@ -264,60 +265,43 @@
 
     <script>
             document.addEventListener('htmx:after-swap', function (event) {
-                // Check if the target ID starts with 'biosample-content-'
                 if (event.target.id.startsWith('biosample-content-') && event.detail.successful) {
-                    const container = event.target.closest('.mt-2');
-                    const hideButton = container.querySelector('.collapse-button');
-                    const loadButton = container.querySelector('.load-biosamples');
-                    const collapseId = event.target.id.replace('content-', 'collapse-');
+                    const collapseId = event.target.id.replace('biosample-content-', 'biosample-collapse-');
                     const collapseElement = document.getElementById(collapseId);
+                    const container = event.target.closest('aside');
+                    const loadButton = container.querySelector('.load-biosamples');
+                    const hideButton = container.querySelector('.collapse-button');
 
-                    if (loadButton) {
-                        loadButton.style.display = 'none';
+                    if (collapseElement) {
+                        const bsCollapse = new bootstrap.Collapse(collapseElement, { toggle: false });
+                        bsCollapse.show();
+                        if (loadButton) loadButton.classList.add('d-none');
+                        if (hideButton) hideButton.classList.remove('d-none');
                     }
-                    if (hideButton) {
-                        hideButton.style.display = 'inline-block';
-                    }
-
-                    let bsCollapse = bootstrap.Collapse.getInstance(collapseElement);
-                    if (!bsCollapse) {
-                        bsCollapse = new bootstrap.Collapse(collapseElement, {
-                            toggle: false
-                        });
-                    }
-                    bsCollapse.show();
                 }
             });
 
-            document.addEventListener('click', function (event) {
-                if (event.target.classList.contains('collapse-button') || event.target.classList.contains('load-biosamples')) {
-                    const container = event.target.closest('.mt-2');
+            document.addEventListener('hide.bs.collapse', function (event) {
+                if (event.target.id.startsWith('biosample-collapse-')) {
+                    const container = event.target.closest('aside');
                     const loadButton = container.querySelector('.load-biosamples');
                     const hideButton = container.querySelector('.collapse-button');
-                    const collapseId = loadButton.getAttribute('data-bs-target').substring(1);
-                    const collapseElement = document.getElementById(collapseId);
+                    const biosampleContent = container.querySelector(`#biosample-content-${event.target.id.split('-').pop()}`);
 
-                    if (event.target.classList.contains('collapse-button') && !collapseElement.classList.contains('show')) {
-                        if (loadButton) {
-                            loadButton.style.display = 'inline-block';
-                        }
-                        if (hideButton) {
-                            hideButton.style.display = 'none';
-                            hideButton.textContent = 'Hide Samples';
-                        }
-                    } else if (event.target.classList.contains('load-biosamples') && collapseElement.classList.contains('show')) {
-                        if (loadButton) {
-                            loadButton.style.display = 'inline-block';
-                            loadButton.textContent = 'Show Samples';
-                        }
-                        if (hideButton) {
-                            hideButton.style.display = 'none';
-                        }
-                        const bsCollapse = bootstrap.Collapse.getInstance(collapseElement);
-                        if (bsCollapse) {
-                            bsCollapse.hide();
-                        }
-                    }
+                    if (loadButton) loadButton.classList.remove('d-none');
+                    if (hideButton) hideButton.classList.add('d-none');
+                    if (biosampleContent) biosampleContent.innerHTML = ''; // Clear content on hide
+                }
+            });
+
+            document.addEventListener('show.bs.collapse', function (event) {
+                if (event.target.id.startsWith('biosample-collapse-')) {
+                    const container = event.target.closest('aside');
+                    const loadButton = container.querySelector('.load-biosamples');
+                    const hideButton = container.querySelector('.collapse-button');
+
+                    if (loadButton) loadButton.classList.add('d-none');
+                    if (hideButton) hideButton.classList.remove('d-none');
                 }
             });
     </script>
