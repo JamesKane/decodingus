@@ -203,7 +203,7 @@ For a less technical overview of the Haplogroup Discovery System, see:
 
 **Exit Criteria:**
 - [ ] `tree` schema exists with migrated haplogroup tables
-- [ ] `sequence_file` JSONB columns working
+- [X] `sequence_file` JSONB columns working
 - [ ] `test_type_definition` table populated
 
 ---
