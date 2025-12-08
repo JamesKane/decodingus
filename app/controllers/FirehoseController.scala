@@ -4,7 +4,7 @@ import actions.ApiSecurityAction
 import jakarta.inject.{Inject, Singleton}
 import play.api.libs.json.Json
 import play.api.mvc.{Action, BaseController, ControllerComponents}
-import services.firehose.{AtmosphereEventHandler, BiosampleEvent, SequenceRunEvent, AlignmentEvent, AtmosphereProjectEvent, FirehoseEvent, FirehoseResult}
+import services.firehose.{AtmosphereEventHandler, FirehoseEvent, FirehoseResult} // Removed individual event imports
 
 import scala.concurrent.{ExecutionContext, Future}
 import play.api.libs.json.JsValue
@@ -19,15 +19,8 @@ class FirehoseController @Inject()(
   def processEvent: Action[JsValue] = secureApi.jsonAction[JsValue].async { request =>
     val json = request.body
     
-    // Attempt to parse the JSON into one of the known FirehoseEvent types
-    // This is a simple heuristic based on which parse succeeds first.
-    // Ideally, we would use a discriminator field (like '$type') in the JSON.
-    val event: Option[FirehoseEvent] = 
-      json.validate[BiosampleEvent].asOpt
-        .orElse(json.validate[SequenceRunEvent].asOpt)
-        .orElse(json.validate[AlignmentEvent].asOpt)
-        .orElse(json.validate[AtmosphereProjectEvent].asOpt)
-        // Add other event types here as needed (GenotypeEvent, etc.)
+    // Use the discriminator-based JSON Reads for FirehoseEvent
+    val event: Option[FirehoseEvent] = json.validate[FirehoseEvent].asOpt
 
     event match {
       case Some(e) =>

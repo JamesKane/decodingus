@@ -3,6 +3,7 @@ package services.firehose
 import models.api.{ExternalBiosampleRequest, ProjectRequest}
 import models.atmosphere.*
 import play.api.libs.json.*
+import play.api.libs.functional.syntax._
 
 /**
  * Represents events from the AT Protocol Firehose (or simulated via REST API).
@@ -10,8 +11,7 @@ import play.api.libs.json.*
  * This abstraction allows the same event processing logic to be used whether
  * events arrive via:
  * - Phase 1: Direct REST API calls (wrapped as events)
- * - Phase 2: Kafka consumer
- * - Phase 3: AT Protocol Firehose subscription
+ * - Phase 2: AT Protocol Firehose subscription
  *
  * Each event includes:
  * - `atUri`: The canonical AT Protocol identifier for the record
@@ -39,87 +39,6 @@ object FirehoseAction {
   implicit val format: Format[FirehoseAction] = Format(reads, writes)
 }
 
-// --- Legacy / Phase 1 Events (to be deprecated/migrated) ---
-
-/**
- * Event for Citizen Biosample operations (Legacy/Phase 1).
- * Uses the monolithic ExternalBiosampleRequest payload.
- */
-case class CitizenBiosampleEvent(
-                                  atUri: String,
-                                  atCid: Option[String],
-                                  action: FirehoseAction,
-                                  payload: Option[ExternalBiosampleRequest]
-                                ) extends FirehoseEvent
-
-object CitizenBiosampleEvent {
-  implicit val format: OFormat[CitizenBiosampleEvent] = Json.format
-
-  def forCreate(request: ExternalBiosampleRequest): CitizenBiosampleEvent =
-    CitizenBiosampleEvent(
-      atUri = request.atUri.getOrElse(throw new IllegalArgumentException("atUri required for create")),
-      atCid = request.atCid,
-      action = FirehoseAction.Create,
-      payload = Some(request)
-    )
-
-  def forUpdate(atUri: String, request: ExternalBiosampleRequest): CitizenBiosampleEvent =
-    CitizenBiosampleEvent(
-      atUri = atUri,
-      atCid = request.atCid,
-      action = FirehoseAction.Update,
-      payload = Some(request)
-    )
-
-  def forDelete(atUri: String): CitizenBiosampleEvent =
-    CitizenBiosampleEvent(
-      atUri = atUri,
-      atCid = None,
-      action = FirehoseAction.Delete,
-      payload = None
-    )
-}
-
-/**
- * Event for Project operations (Legacy/Phase 1).
- */
-case class ProjectEvent(
-                         atUri: String,
-                         atCid: Option[String],
-                         action: FirehoseAction,
-                         payload: Option[ProjectRequest]
-                       ) extends FirehoseEvent
-
-object ProjectEvent {
-  implicit val format: OFormat[ProjectEvent] = Json.format
-}
-
-object ProjectEventFactory {
-  def forCreate(atUri: String, request: ProjectRequest): ProjectEvent =
-    ProjectEvent(
-      atUri = atUri,
-      atCid = request.atCid,
-      action = FirehoseAction.Create,
-      payload = Some(request)
-    )
-
-  def forUpdate(atUri: String, request: ProjectRequest): ProjectEvent =
-    ProjectEvent(
-      atUri = atUri,
-      atCid = request.atCid,
-      action = FirehoseAction.Update,
-      payload = Some(request)
-    )
-
-  def forDelete(atUri: String): ProjectEvent =
-    ProjectEvent(
-      atUri = atUri,
-      atCid = None,
-      action = FirehoseAction.Delete,
-      payload = None
-    )
-}
-
 // --- Atmosphere Lexicon Events (Phase 3) ---
 
 case class BiosampleEvent(
@@ -131,6 +50,12 @@ case class BiosampleEvent(
 
 object BiosampleEvent {
   implicit val format: OFormat[BiosampleEvent] = Json.format
+  implicit val formatWithDiscriminator: OFormat[BiosampleEvent] = (
+    (JsPath \ "atUri").format[String] and
+      (JsPath \ "atCid").formatNullable[String] and
+      (JsPath \ "action").format[FirehoseAction] and
+      (JsPath \ "payload").formatNullable[BiosampleRecord]
+    )(BiosampleEvent.apply, (e: BiosampleEvent) => (e.atUri, e.atCid, e.action, e.payload))
 }
 
 case class SequenceRunEvent(
@@ -142,6 +67,12 @@ case class SequenceRunEvent(
 
 object SequenceRunEvent {
   implicit val format: OFormat[SequenceRunEvent] = Json.format
+  implicit val formatWithDiscriminator: OFormat[SequenceRunEvent] = (
+    (JsPath \ "atUri").format[String] and
+      (JsPath \ "atCid").formatNullable[String] and
+      (JsPath \ "action").format[FirehoseAction] and
+      (JsPath \ "payload").formatNullable[SequenceRunRecord]
+    )(SequenceRunEvent.apply, (e: SequenceRunEvent) => (e.atUri, e.atCid, e.action, e.payload))
 }
 
 case class AlignmentEvent(
@@ -153,6 +84,12 @@ case class AlignmentEvent(
 
 object AlignmentEvent {
   implicit val format: OFormat[AlignmentEvent] = Json.format
+  implicit val formatWithDiscriminator: OFormat[AlignmentEvent] = (
+    (JsPath \ "atUri").format[String] and
+      (JsPath \ "atCid").formatNullable[String] and
+      (JsPath \ "action").format[FirehoseAction] and
+      (JsPath \ "payload").formatNullable[AlignmentRecord]
+    )(AlignmentEvent.apply, (e: AlignmentEvent) => (e.atUri, e.atCid, e.action, e.payload))
 }
 
 case class GenotypeEvent(
@@ -164,6 +101,12 @@ case class GenotypeEvent(
 
 object GenotypeEvent {
   implicit val format: OFormat[GenotypeEvent] = Json.format
+  implicit val formatWithDiscriminator: OFormat[GenotypeEvent] = (
+    (JsPath \ "atUri").format[String] and
+      (JsPath \ "atCid").formatNullable[String] and
+      (JsPath \ "action").format[FirehoseAction] and
+      (JsPath \ "payload").formatNullable[GenotypeRecord]
+    )(GenotypeEvent.apply, (e: GenotypeEvent) => (e.atUri, e.atCid, e.action, e.payload))
 }
 
 case class ImputationEvent(
@@ -175,6 +118,12 @@ case class ImputationEvent(
 
 object ImputationEvent {
   implicit val format: OFormat[ImputationEvent] = Json.format
+  implicit val formatWithDiscriminator: OFormat[ImputationEvent] = (
+    (JsPath \ "atUri").format[String] and
+      (JsPath \ "atCid").formatNullable[String] and
+      (JsPath \ "action").format[FirehoseAction] and
+      (JsPath \ "payload").formatNullable[ImputationRecord]
+    )(ImputationEvent.apply, (e: ImputationEvent) => (e.atUri, e.atCid, e.action, e.payload))
 }
 
 case class AtmosphereProjectEvent(
@@ -186,6 +135,12 @@ case class AtmosphereProjectEvent(
 
 object AtmosphereProjectEvent {
   implicit val format: OFormat[AtmosphereProjectEvent] = Json.format
+  implicit val formatWithDiscriminator: OFormat[AtmosphereProjectEvent] = (
+    (JsPath \ "atUri").format[String] and
+      (JsPath \ "atCid").formatNullable[String] and
+      (JsPath \ "action").format[FirehoseAction] and
+      (JsPath \ "payload").formatNullable[ProjectRecord]
+    )(AtmosphereProjectEvent.apply, (e: AtmosphereProjectEvent) => (e.atUri, e.atCid, e.action, e.payload))
 }
 
 case class PopulationBreakdownEvent(
@@ -197,6 +152,12 @@ case class PopulationBreakdownEvent(
 
 object PopulationBreakdownEvent {
   implicit val format: OFormat[PopulationBreakdownEvent] = Json.format
+  implicit val formatWithDiscriminator: OFormat[PopulationBreakdownEvent] = (
+    (JsPath \ "atUri").format[String] and
+      (JsPath \ "atCid").formatNullable[String] and
+      (JsPath \ "action").format[FirehoseAction] and
+      (JsPath \ "payload").formatNullable[PopulationBreakdownRecord]
+    )(PopulationBreakdownEvent.apply, (e: PopulationBreakdownEvent) => (e.atUri, e.atCid, e.action, e.payload))
 }
 
 case class InstrumentObservationEvent(
@@ -208,6 +169,12 @@ case class InstrumentObservationEvent(
 
 object InstrumentObservationEvent {
   implicit val format: OFormat[InstrumentObservationEvent] = Json.format
+  implicit val formatWithDiscriminator: OFormat[InstrumentObservationEvent] = (
+    (JsPath \ "atUri").format[String] and
+      (JsPath \ "atCid").formatNullable[String] and
+      (JsPath \ "action").format[FirehoseAction] and
+      (JsPath \ "payload").formatNullable[InstrumentObservationRecord]
+    )(InstrumentObservationEvent.apply, (e: InstrumentObservationEvent) => (e.atUri, e.atCid, e.action, e.payload))
 }
 
 case class MatchConsentEvent(
@@ -219,6 +186,12 @@ case class MatchConsentEvent(
 
 object MatchConsentEvent {
   implicit val format: OFormat[MatchConsentEvent] = Json.format
+  implicit val formatWithDiscriminator: OFormat[MatchConsentEvent] = (
+    (JsPath \ "atUri").format[String] and
+      (JsPath \ "atCid").formatNullable[String] and
+      (JsPath \ "action").format[FirehoseAction] and
+      (JsPath \ "payload").formatNullable[MatchConsentRecord]
+    )(MatchConsentEvent.apply, (e: MatchConsentEvent) => (e.atUri, e.atCid, e.action, e.payload))
 }
 
 case class MatchListEvent(
@@ -230,6 +203,12 @@ case class MatchListEvent(
 
 object MatchListEvent {
   implicit val format: OFormat[MatchListEvent] = Json.format
+  implicit val formatWithDiscriminator: OFormat[MatchListEvent] = (
+    (JsPath \ "atUri").format[String] and
+      (JsPath \ "atCid").formatNullable[String] and
+      (JsPath \ "action").format[FirehoseAction] and
+      (JsPath \ "payload").formatNullable[MatchListRecord]
+    )(MatchListEvent.apply, (e: MatchListEvent) => (e.atUri, e.atCid, e.action, e.payload))
 }
 
 case class MatchRequestEvent(
@@ -241,6 +220,12 @@ case class MatchRequestEvent(
 
 object MatchRequestEvent {
   implicit val format: OFormat[MatchRequestEvent] = Json.format
+  implicit val formatWithDiscriminator: OFormat[MatchRequestEvent] = (
+    (JsPath \ "atUri").format[String] and
+      (JsPath \ "atCid").formatNullable[String] and
+      (JsPath \ "action").format[FirehoseAction] and
+      (JsPath \ "payload").formatNullable[MatchRequestRecord]
+    )(MatchRequestEvent.apply, (e: MatchRequestEvent) => (e.atUri, e.atCid, e.action, e.payload))
 }
 
 case class StrProfileEvent(
@@ -252,6 +237,12 @@ case class StrProfileEvent(
 
 object StrProfileEvent {
   implicit val format: OFormat[StrProfileEvent] = Json.format
+  implicit val formatWithDiscriminator: OFormat[StrProfileEvent] = (
+    (JsPath \ "atUri").format[String] and
+      (JsPath \ "atCid").formatNullable[String] and
+      (JsPath \ "action").format[FirehoseAction] and
+      (JsPath \ "payload").formatNullable[StrProfileRecord]
+    )(StrProfileEvent.apply, (e: StrProfileEvent) => (e.atUri, e.atCid, e.action, e.payload))
 }
 
 case class HaplogroupAncestralStrEvent(
@@ -263,6 +254,12 @@ case class HaplogroupAncestralStrEvent(
 
 object HaplogroupAncestralStrEvent {
   implicit val format: OFormat[HaplogroupAncestralStrEvent] = Json.format
+  implicit val formatWithDiscriminator: OFormat[HaplogroupAncestralStrEvent] = (
+    (JsPath \ "atUri").format[String] and
+      (JsPath \ "atCid").formatNullable[String] and
+      (JsPath \ "action").format[FirehoseAction] and
+      (JsPath \ "payload").formatNullable[HaplogroupAncestralStrRecord]
+    )(HaplogroupAncestralStrEvent.apply, (e: HaplogroupAncestralStrEvent) => (e.atUri, e.atCid, e.action, e.payload))
 }
 
 case class WorkspaceEvent(
@@ -274,33 +271,54 @@ case class WorkspaceEvent(
 
 object WorkspaceEvent {
   implicit val format: OFormat[WorkspaceEvent] = Json.format
+  implicit val formatWithDiscriminator: OFormat[WorkspaceEvent] = (
+    (JsPath \ "atUri").format[String] and
+      (JsPath \ "atCid").formatNullable[String] and
+      (JsPath \ "action").format[FirehoseAction] and
+      (JsPath \ "payload").formatNullable[WorkspaceRecord]
+    )(WorkspaceEvent.apply, (e: WorkspaceEvent) => (e.atUri, e.atCid, e.action, e.payload))
 }
 
+object FirehoseEvent {
+  implicit val firehoseEventReads: Reads[FirehoseEvent] = new Reads[FirehoseEvent] {
+    override def reads(json: JsValue): JsResult[FirehoseEvent] = {
+      (json \ "_type").asOpt[String] match {
+        case Some("BiosampleEvent") => json.validate[BiosampleEvent](BiosampleEvent.formatWithDiscriminator)
+        case Some("SequenceRunEvent") => json.validate[SequenceRunEvent](SequenceRunEvent.formatWithDiscriminator)
+        case Some("AlignmentEvent") => json.validate[AlignmentEvent](AlignmentEvent.formatWithDiscriminator)
+        case Some("GenotypeEvent") => json.validate[GenotypeEvent](GenotypeEvent.formatWithDiscriminator)
+        case Some("ImputationEvent") => json.validate[ImputationEvent](ImputationEvent.formatWithDiscriminator)
+        case Some("AtmosphereProjectEvent") => json.validate[AtmosphereProjectEvent](AtmosphereProjectEvent.formatWithDiscriminator)
+        case Some("PopulationBreakdownEvent") => json.validate[PopulationBreakdownEvent](PopulationBreakdownEvent.formatWithDiscriminator)
+        case Some("InstrumentObservationEvent") => json.validate[InstrumentObservationEvent](InstrumentObservationEvent.formatWithDiscriminator)
+        case Some("MatchConsentEvent") => json.validate[MatchConsentEvent](MatchConsentEvent.formatWithDiscriminator)
+        case Some("MatchListEvent") => json.validate[MatchListEvent](MatchListEvent.formatWithDiscriminator)
+        case Some("MatchRequestEvent") => json.validate[MatchRequestEvent](MatchRequestEvent.formatWithDiscriminator)
+        case Some("StrProfileEvent") => json.validate[StrProfileEvent](StrProfileEvent.formatWithDiscriminator)
+        case Some("HaplogroupAncestralStrEvent") => json.validate[HaplogroupAncestralStrEvent](HaplogroupAncestralStrEvent.formatWithDiscriminator)
+        case Some("WorkspaceEvent") => json.validate[WorkspaceEvent](WorkspaceEvent.formatWithDiscriminator)
+        case Some(unknown) => JsError(s"Unknown FirehoseEvent type: $unknown")
+        case None => JsError("Missing '_type' discriminator field for FirehoseEvent")
+      }
+    }
+  }
 
-/**
- * Result of processing a FirehoseEvent.
- * Provides a consistent result type regardless of the event source.
- */
-sealed trait FirehoseResult {
-  def atUri: String
-}
+  implicit val firehoseEventWrites: Writes[FirehoseEvent] = Writes {
+    case e: BiosampleEvent => Json.toJsObject(e)(BiosampleEvent.formatWithDiscriminator) + ("_type" -> JsString("BiosampleEvent"))
+    case e: SequenceRunEvent => Json.toJsObject(e)(SequenceRunEvent.formatWithDiscriminator) + ("_type" -> JsString("SequenceRunEvent"))
+    case e: AlignmentEvent => Json.toJsObject(e)(AlignmentEvent.formatWithDiscriminator) + ("_type" -> JsString("AlignmentEvent"))
+    case e: GenotypeEvent => Json.toJsObject(e)(GenotypeEvent.formatWithDiscriminator) + ("_type" -> JsString("GenotypeEvent"))
+    case e: ImputationEvent => Json.toJsObject(e)(ImputationEvent.formatWithDiscriminator) + ("_type" -> JsString("ImputationEvent"))
+    case e: AtmosphereProjectEvent => Json.toJsObject(e)(AtmosphereProjectEvent.formatWithDiscriminator) + ("_type" -> JsString("AtmosphereProjectEvent"))
+    case e: PopulationBreakdownEvent => Json.toJsObject(e)(PopulationBreakdownEvent.formatWithDiscriminator) + ("_type" -> JsString("PopulationBreakdownEvent"))
+    case e: InstrumentObservationEvent => Json.toJsObject(e)(InstrumentObservationEvent.formatWithDiscriminator) + ("_type" -> JsString("InstrumentObservationEvent"))
+    case e: MatchConsentEvent => Json.toJsObject(e)(MatchConsentEvent.formatWithDiscriminator) + ("_type" -> JsString("MatchConsentEvent"))
+    case e: MatchListEvent => Json.toJsObject(e)(MatchListEvent.formatWithDiscriminator) + ("_type" -> JsString("MatchListEvent"))
+    case e: MatchRequestEvent => Json.toJsObject(e)(MatchRequestEvent.formatWithDiscriminator) + ("_type" -> JsString("MatchRequestEvent"))
+    case e: StrProfileEvent => Json.toJsObject(e)(StrProfileEvent.formatWithDiscriminator) + ("_type" -> JsString("StrProfileEvent"))
+    case e: HaplogroupAncestralStrEvent => Json.toJsObject(e)(HaplogroupAncestralStrEvent.formatWithDiscriminator) + ("_type" -> JsString("HaplogroupAncestralStrEvent"))
+    case e: WorkspaceEvent => Json.toJsObject(e)(WorkspaceEvent.formatWithDiscriminator) + ("_type" -> JsString("WorkspaceEvent"))
+  }
 
-object FirehoseResult {
-
-  import java.util.UUID
-
-  case class Success(
-                      atUri: String,
-                      newAtCid: String,
-                      sampleGuid: Option[UUID] = None,
-                      message: String = "OK"
-                    ) extends FirehoseResult
-
-  case class NotFound(atUri: String) extends FirehoseResult
-
-  case class Conflict(atUri: String, message: String) extends FirehoseResult
-
-  case class ValidationError(atUri: String, message: String) extends FirehoseResult
-
-  case class Error(atUri: String, message: String, cause: Option[Throwable] = None) extends FirehoseResult
+  implicit val firehoseEventFormat: Format[FirehoseEvent] = Format(firehoseEventReads, firehoseEventWrites)
 }
