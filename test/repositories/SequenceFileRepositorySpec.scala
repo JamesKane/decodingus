@@ -3,6 +3,7 @@ package repositories
 import models.dal.MyPostgresProfile.api.*
 import models.dal.MyPostgresProfile // Added this import
 import models.domain.genomics.{SequenceFile, SequenceFileAtpLocationJsonb, SequenceFileChecksumJsonb, SequenceFileHttpLocationJsonb}
+import models.domain.genomics.{TestTypeRow, DataGenerationMethod, TargetType} // Added imports
 import org.scalatestplus.play.PlaySpec
 import org.scalatestplus.play.guice.GuiceOneAppPerSuite
 import play.api.db.slick.DatabaseConfigProvider
@@ -18,7 +19,7 @@ import scala.concurrent.{Await, Future}
 import org.scalatest.{BeforeAndAfterEach, BeforeAndAfterAll}
 import play.api.db.DBApi
 import models.domain.genomics.SequenceLibrary // Added import
-import repositories.SequenceLibraryRepository // Added import
+import repositories.{SequenceLibraryRepository, TestTypeRepository} // Added TestTypeRepository
 
 class SequenceFileRepositorySpec extends PlaySpec with GuiceOneAppPerSuite with Injecting with BeforeAndAfterEach with BeforeAndAfterAll {
 
@@ -35,13 +36,29 @@ class SequenceFileRepositorySpec extends PlaySpec with GuiceOneAppPerSuite with 
     // Clear the tables to ensure a clean state for each test
     await(db.run(sqlu"TRUNCATE TABLE sequence_file RESTART IDENTITY CASCADE;"))
     await(db.run(sqlu"TRUNCATE TABLE sequence_library RESTART IDENTITY CASCADE;"))
+    await(db.run(sqlu"TRUNCATE TABLE test_type_definition RESTART IDENTITY CASCADE;"))
+
+    // Insert a dummy TestType to satisfy foreign key constraints
+    val dummyTestType = TestTypeRow(
+      code = "WGS",
+      displayName = "Whole Genome Sequencing",
+      category = DataGenerationMethod.Sequencing,
+      targetType = TargetType.WholeGenome,
+      supportsHaplogroupY = true,
+      supportsHaplogroupMt = true,
+      supportsAutosomalIbd = true,
+      supportsAncestry = true,
+      typicalFileFormats = List("BAM", "CRAM")
+    )
+    val testTypeRepository = injector.instanceOf[TestTypeRepository]
+    val createdTestType = await(testTypeRepository.create(dummyTestType))
 
     // Insert a dummy SequenceLibrary to satisfy foreign key constraints
     val dummyLibrary = SequenceLibrary(
       id = Some(1), // Match testLibraryId
       sampleGuid = UUID.randomUUID(),
       lab = "TestLab",
-      testType = "TestType",
+      testTypeId = createdTestType.id.get,
       runDate = LocalDateTime.now(),
       instrument = "TestInstrument",
       reads = 1000,

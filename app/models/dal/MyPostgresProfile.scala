@@ -20,6 +20,7 @@ trait MyPostgresProfile extends ExPostgresProfile
   with PgNetSupport
   with PgLTreeSupport
   with PgPlayJsonSupport // For JSON/JSONB support with Play JSON
+  with PgEnumSupport // Added PgEnumSupport
   with array.PgArrayJdbcTypes {
   def pgjson = "jsonb" // jsonb support is in postgres 9.4.0 onward; for 9.3.x use "json"
 
@@ -101,20 +102,14 @@ trait MyPostgresProfile extends ExPostgresProfile
       )
 
     implicit val dataGenerationMethodTypeMapper: JdbcType[DataGenerationMethod] =
-      MappedColumnType.base[DataGenerationMethod, String](
-        dgm => dgm.toString,
-        s => DataGenerationMethod.fromString(s).getOrElse(
-          throw new IllegalArgumentException(s"Invalid DataGenerationMethod value: $s")
-        )
-      )
+      createEnumJdbcType("data_generation_method", _.toString, s => DataGenerationMethod.fromString(s).getOrElse(
+        throw new IllegalArgumentException(s"Invalid DataGenerationMethod value: $s")
+      ), quoteName = false)
 
     implicit val targetTypeTypeMapper: JdbcType[TargetType] =
-      MappedColumnType.base[TargetType, String](
-        tt => tt.toString,
-        s => TargetType.fromString(s).getOrElse(
-          throw new IllegalArgumentException(s"Invalid TargetType value: $s")
-        )
-      )
+      createEnumJdbcType("target_type", _.toString, s => TargetType.fromString(s).getOrElse(
+        throw new IllegalArgumentException(s"Invalid TargetType value: $s")
+      ), quoteName = false)
 
     // Custom Slick mapper for Array[Long] <-> bytea
     implicit val longArrayTypeMapper: BaseColumnType[Array[Long]] =

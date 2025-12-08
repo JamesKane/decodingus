@@ -22,7 +22,7 @@ class TestTypeTable(tag: Tag) extends Table[TestTypeRow](tag, Some("public"), "t
   def expectedTargetDepth = column[Option[Double]]("expected_target_depth")
   def expectedMarkerCount = column[Option[Int]]("expected_marker_count")
   def supportsHaplogroupY = column[Boolean]("supports_haplogroup_y")
-  def supportsHaplogroupMt = column[Boolean]("supportsHaplogroupMt")
+  def supportsHaplogroupMt = column[Boolean]("supports_haplogroup_mt")
   def supportsAutosomalIbd = column[Boolean]("supports_autosomal_ibd")
   def supportsAncestry = column[Boolean]("supports_ancestry")
   def typicalFileFormats = column[List[String]]("typical_file_formats") // Use List[String] for TEXT[], Slick-Pg handles List
