@@ -63,7 +63,7 @@ CREATE INDEX idx_reconciliation_consensus ON haplogroup_reconciliation((status->
 
 COMMENT ON TABLE haplogroup_reconciliation IS 'Multi-run haplogroup reconciliation at specimen donor level';
 COMMENT ON COLUMN haplogroup_reconciliation.run_calls IS 'Array of RunHaplogroupCall objects from each source (runs, alignments, STR profiles)';
-COMMENT ON COLUMN haplogroup_reconciliation.branch_compatibility_score IS 'LCA_depth / max(depth_A, depth_B) - 1.0 = fully compatible';
+COMMENT ON COLUMN haplogroup_reconciliation.status IS 'JSONB containing: compatibilityLevel, consensusHaplogroup, statusConfidence, branchCompatibilityScore (LCA_depth / max(depth_A, depth_B) - 1.0 = fully compatible), snpConcordance, runCount, warnings';
 
 -- !Downs
 
