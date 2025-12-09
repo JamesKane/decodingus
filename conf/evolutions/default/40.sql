@@ -5,7 +5,6 @@
 -- from different testing companies or labs that need reconciliation
 
 CREATE TYPE dna_type AS ENUM ('Y_DNA', 'MT_DNA');
-CREATE TYPE compatibility_level AS ENUM ('COMPATIBLE', 'MINOR_DIVERGENCE', 'MAJOR_DIVERGENCE', 'INCOMPATIBLE');
 
 CREATE TABLE haplogroup_reconciliation (
     id SERIAL PRIMARY KEY,
@@ -14,15 +13,10 @@ CREATE TABLE haplogroup_reconciliation (
     specimen_donor_id INT NOT NULL REFERENCES specimen_donor(id),
     dna_type dna_type NOT NULL,
 
-    -- Reconciliation status fields
-    compatibility_level compatibility_level,
-    consensus_haplogroup VARCHAR,
-    status_confidence DOUBLE PRECISION,        -- 0.0-1.0
-    divergence_point VARCHAR,                  -- Where branches split in tree
-    branch_compatibility_score DOUBLE PRECISION, -- LCA_depth / max(depth_A, depth_B)
-    snp_concordance DOUBLE PRECISION,          -- % SNP agreement across runs
-    run_count INT,                             -- Number of runs reconciled
-    warnings JSONB,                            -- Array of warning strings
+    -- Reconciliation status metrics consolidated into JSONB
+    -- Contains: compatibilityLevel, consensusHaplogroup, statusConfidence,
+    --           branchCompatibilityScore, snpConcordance, runCount, warnings
+    status JSONB NOT NULL DEFAULT '{}',
 
     -- Run calls stored as JSONB array of RunHaplogroupCall objects
     -- Each call: { sourceRef, haplogroup, confidence, callMethod, score,
@@ -64,7 +58,8 @@ CREATE UNIQUE INDEX idx_reconciliation_donor_dna_type
 
 CREATE INDEX idx_reconciliation_specimen_donor ON haplogroup_reconciliation(specimen_donor_id);
 CREATE INDEX idx_reconciliation_at_uri ON haplogroup_reconciliation(at_uri) WHERE at_uri IS NOT NULL;
-CREATE INDEX idx_reconciliation_consensus ON haplogroup_reconciliation(consensus_haplogroup);
+-- Index on JSONB field for consensus haplogroup queries
+CREATE INDEX idx_reconciliation_consensus ON haplogroup_reconciliation((status->>'consensusHaplogroup'));
 
 COMMENT ON TABLE haplogroup_reconciliation IS 'Multi-run haplogroup reconciliation at specimen donor level';
 COMMENT ON COLUMN haplogroup_reconciliation.run_calls IS 'Array of RunHaplogroupCall objects from each source (runs, alignments, STR profiles)';
@@ -73,5 +68,4 @@ COMMENT ON COLUMN haplogroup_reconciliation.branch_compatibility_score IS 'LCA_d
 -- !Downs
 
 DROP TABLE IF EXISTS haplogroup_reconciliation;
-DROP TYPE IF EXISTS compatibility_level;
 DROP TYPE IF EXISTS dna_type;

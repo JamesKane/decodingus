@@ -100,5 +100,17 @@ class BaseModule extends AbstractModule {
     bind(classOf[TestTypeRepository])
       .to(classOf[TestTypeRepositoryImpl])
       .asEagerSingleton()
+
+    bind(classOf[PopulationBreakdownRepository])
+      .to(classOf[PopulationBreakdownRepositoryImpl])
+      .asEagerSingleton()
+
+    bind(classOf[GenotypeDataRepository])
+      .to(classOf[GenotypeDataRepositoryImpl])
+      .asEagerSingleton()
+
+    bind(classOf[HaplogroupReconciliationRepository])
+      .to(classOf[HaplogroupReconciliationRepositoryImpl])
+      .asEagerSingleton()
   }
 }

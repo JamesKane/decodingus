@@ -79,7 +79,14 @@ object DatabaseSchema {
       val specimenDonors = TableQuery[SpecimenDonorsTable]
       val validationServices = TableQuery[ValidationServicesTable]
       val variants = TableQuery[VariantsTable]
-      val testTypeDefinition = TableQuery[TestTypeTable] // Added this line
+      val testTypeDefinition = TableQuery[TestTypeTable]
+
+      // New tables for Atmosphere Lexicon sync
+      val populationBreakdowns = TableQuery[PopulationBreakdownTable]
+      val populationComponents = TableQuery[PopulationComponentTable]
+      val superPopulationSummaries = TableQuery[SuperPopulationSummaryTable]
+      val genotypeData = TableQuery[GenotypeDataTable]
+      val haplogroupReconciliations = TableQuery[HaplogroupReconciliationTable]
     }
 
     object haplogroups {

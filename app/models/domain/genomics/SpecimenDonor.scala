@@ -27,6 +27,8 @@ case class SpecimenDonor(
                           pgpParticipantId: Option[String] = None,
                           atUri: Option[String] = None,
                           dateRangeStart: Option[Int] = None,
-                          dateRangeEnd: Option[Int] = None
+                          dateRangeEnd: Option[Int] = None,
+                          yDnaReconciliationRef: Option[String] = None,
+                          mtDnaReconciliationRef: Option[String] = None
                         )
 

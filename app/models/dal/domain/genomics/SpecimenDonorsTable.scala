@@ -45,6 +45,10 @@ class SpecimenDonorsTable(tag: Tag) extends Table[SpecimenDonor](tag, "specimen_
 
   def dateRangeEnd = column[Option[Int]]("date_range_end")
 
+  def yDnaReconciliationRef = column[Option[String]]("y_dna_reconciliation_ref")
+
+  def mtDnaReconciliationRef = column[Option[String]]("mt_dna_reconciliation_ref")
+
   def * = (
     id.?,
     donorIdentifier,
@@ -55,6 +59,8 @@ class SpecimenDonorsTable(tag: Tag) extends Table[SpecimenDonor](tag, "specimen_
     pgpParticipantId,
     atUri,
     dateRangeStart,
-    dateRangeEnd
+    dateRangeEnd,
+    yDnaReconciliationRef,
+    mtDnaReconciliationRef
   ).mapTo[SpecimenDonor]
 }
