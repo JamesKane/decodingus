@@ -11,6 +11,8 @@ import scala.concurrent.{ExecutionContext, Future}
 trait SpecimenDonorRepository {
   def findById(id: Int): Future[Option[SpecimenDonor]]
 
+  def findByAtUri(atUri: String): Future[Option[SpecimenDonor]]
+
   def create(donor: SpecimenDonor): Future[SpecimenDonor]
 
   def update(donor: SpecimenDonor): Future[Boolean]
@@ -51,6 +53,10 @@ class SpecimenDonorRepositoryImpl @Inject()(
 
   override def findById(id: Int): Future[Option[SpecimenDonor]] = {
     db.run(donorsTable.filter(_.id === id).result.headOption)
+  }
+
+  override def findByAtUri(atUri: String): Future[Option[SpecimenDonor]] = {
+    db.run(donorsTable.filter(_.atUri === atUri).result.headOption)
   }
 
   override def findByDidAndIdentifier(did: String, identifier: String): Future[Option[SpecimenDonor]] = {
