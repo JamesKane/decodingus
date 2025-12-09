@@ -104,6 +104,10 @@ POST          /login                                                            
 POST          /logout                                                                            controllers.AuthController.logout
 GET           /app-password-help                                                                 controllers.AuthController.showAppPasswordHelp()
 
+# Cookie Consent (GDPR)
+GET           /cookies/check                                                                     controllers.CookieConsentController.checkConsent
+POST          /cookies/accept                                                                    controllers.CookieConsentController.acceptConsent
+
 # User Profile
 GET           /profile                                                                           controllers.ProfileController.view
 POST          /profile                                                                           controllers.ProfileController.update

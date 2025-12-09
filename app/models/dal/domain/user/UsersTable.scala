@@ -9,7 +9,7 @@ import java.util.UUID
 class UsersTable(tag: Tag) extends Table[User](tag, "users") {
   def id = column[UUID]("id", O.PrimaryKey) // O.AutoInc is not used for UUID defaults
 
-  def emailEncrypted = column[Option[String]]("email_encrypted", O.Unique) // Renamed from email_hash
+  def email = column[Option[String]]("email", O.Unique)
 
   def did = column[String]("did", O.Unique)
 
@@ -25,7 +25,7 @@ class UsersTable(tag: Tag) extends Table[User](tag, "users") {
 
   def * = (
     id.?,
-    emailEncrypted,
+    email,
     did,
     handle,
     displayName,

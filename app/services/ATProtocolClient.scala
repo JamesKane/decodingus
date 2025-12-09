@@ -1,13 +1,16 @@
 package services
 
 import com.google.inject.Inject
-import play.api.libs.json.{JsError, JsSuccess, Json}
+import play.api.libs.json.{JsError, JsSuccess, Json, JsValue}
 import play.api.libs.ws.WSClient
 import play.api.{Configuration, Logging}
-import play.api.libs.ws.JsonBodyWritables._ // Added import
+import play.api.libs.ws.JsonBodyWritables._
 
+import javax.naming.directory.{InitialDirContext, Attributes}
+import java.util.Hashtable
 import scala.concurrent.duration.*
 import scala.concurrent.{ExecutionContext, Future}
+import scala.util.{Try, Success, Failure}
 
 /**
  * Service to interact with the AT Protocol for PDS (Personal Data Server) operations.
@@ -25,20 +28,204 @@ class ATProtocolClient @Inject()(
 
   private val timeout: FiniteDuration = configuration.getOptional[Int]("atproto.client.timeout").getOrElse(5000).millis
 
+  // PLC Directory for did:plc resolution
+  private val plcDirectoryUrl = configuration.getOptional[String]("atproto.plc.directory")
+    .getOrElse("https://plc.directory")
+
+  /**
+   * Resolves a handle to its DID using the AT Protocol handle resolution mechanism.
+   *
+   * Resolution order (per AT Protocol spec):
+   * 1. DNS TXT record at _atproto.{handle}
+   * 2. HTTPS well-known at https://{handle}/.well-known/atproto-did
+   *
+   * @param handle The handle to resolve (e.g., "alice.bsky.social" or "alice.example.com")
+   * @return A Future containing the DID if resolved, otherwise None.
+   */
+  def resolveHandle(handle: String): Future[Option[String]] = {
+    // Normalize handle (remove @ prefix if present)
+    val normalizedHandle = handle.stripPrefix("@").toLowerCase
+
+    // Try DNS first, then fall back to well-known
+    resolveHandleViaDns(normalizedHandle).flatMap {
+      case Some(did) =>
+        logger.debug(s"Resolved handle $normalizedHandle via DNS to $did")
+        Future.successful(Some(did))
+      case None =>
+        resolveHandleViaWellKnown(normalizedHandle).map { didOpt =>
+          didOpt.foreach(did => logger.debug(s"Resolved handle $normalizedHandle via well-known to $did"))
+          didOpt
+        }
+    }
+  }
+
+  /**
+   * Resolves a handle via DNS TXT record lookup.
+   * Looks for TXT record at _atproto.{handle} containing "did=did:plc:xxx" or "did=did:web:xxx"
+   */
+  private def resolveHandleViaDns(handle: String): Future[Option[String]] = Future {
+    Try {
+      val env = new Hashtable[String, String]()
+      env.put("java.naming.factory.initial", "com.sun.jndi.dns.DnsContextFactory")
+
+      val ctx = new InitialDirContext(env)
+      try {
+        val attrs: Attributes = ctx.getAttributes(s"_atproto.$handle", Array("TXT"))
+        val txtRecord = attrs.get("TXT")
+
+        if (txtRecord != null && txtRecord.size() > 0) {
+          val value = txtRecord.get(0).toString.replaceAll("\"", "")
+          // TXT record format: "did=did:plc:xxxx" or "did=did:web:xxxx"
+          if (value.startsWith("did=")) {
+            Some(value.substring(4))
+          } else {
+            None
+          }
+        } else {
+          None
+        }
+      } finally {
+        ctx.close()
+      }
+    } match {
+      case Success(result) => result
+      case Failure(e) =>
+        logger.debug(s"DNS resolution failed for _atproto.$handle: ${e.getMessage}")
+        None
+    }
+  }
+
+  /**
+   * Resolves a handle via HTTPS well-known endpoint.
+   * Fetches https://{handle}/.well-known/atproto-did
+   */
+  private def resolveHandleViaWellKnown(handle: String): Future[Option[String]] = {
+    val url = s"https://$handle/.well-known/atproto-did"
+
+    ws.url(url)
+      .withRequestTimeout(timeout)
+      .get()
+      .map { response =>
+        if (response.status == 200) {
+          val did = response.body.trim
+          if (did.startsWith("did:")) Some(did) else None
+        } else {
+          logger.debug(s"Well-known resolution failed for $handle: ${response.status}")
+          None
+        }
+      }
+      .recover {
+        case e: Exception =>
+          logger.debug(s"Well-known resolution error for $handle: ${e.getMessage}")
+          None
+      }
+  }
+
   /**
    * Resolves a DID to its associated PDS endpoint URL.
-   * This typically involves querying a DID resolver or a well-known endpoint on the PDS itself.
+   *
+   * For did:plc - queries plc.directory
+   * For did:web - fetches /.well-known/did.json from the domain
    *
    * @param did The Decentralized Identifier (DID) to resolve.
    * @return A Future containing the PDS URL if resolved, otherwise None.
    */
-  def resolveHandle(handle: String): Future[Option[String]] = {
-    // This is a simplified resolution. In a real scenario, this would involve a DID resolver service.
-    // For now, we assume the handle can directly be used to construct a potential PDS URL for verification.
-    // Or, more accurately, the PDS_URL is provided by the client, and this step is more about DID Document verification.
-    // Based on the mermaid diagram, R_Edge verifies identity via resolveHandle.
-    // The ScalaApp receives DID, R_Token, PDS_URL. So, we verify the PDS_URL against the DID.
-    Future.successful(None) // Placeholder for actual implementation
+  def resolveDid(did: String): Future[Option[DidDocument]] = {
+    if (did.startsWith("did:plc:")) {
+      resolveDidPlc(did)
+    } else if (did.startsWith("did:web:")) {
+      resolveDidWeb(did)
+    } else {
+      logger.warn(s"Unsupported DID method: $did")
+      Future.successful(None)
+    }
+  }
+
+  /**
+   * Resolves a did:plc identifier via the PLC directory.
+   */
+  private def resolveDidPlc(did: String): Future[Option[DidDocument]] = {
+    val url = s"$plcDirectoryUrl/$did"
+
+    ws.url(url)
+      .withRequestTimeout(timeout)
+      .get()
+      .map { response =>
+        if (response.status == 200) {
+          Json.fromJson[DidDocument](response.json) match {
+            case JsSuccess(doc, _) => Some(doc)
+            case JsError(errors) =>
+              logger.error(s"Failed to parse DID document for $did: $errors")
+              None
+          }
+        } else {
+          logger.warn(s"Failed to resolve $did from PLC directory: ${response.status}")
+          None
+        }
+      }
+      .recover {
+        case e: Exception =>
+          logger.error(s"Error resolving $did from PLC directory: ${e.getMessage}", e)
+          None
+      }
+  }
+
+  /**
+   * Resolves a did:web identifier by fetching the DID document from the domain.
+   * did:web:example.com → https://example.com/.well-known/did.json
+   * did:web:example.com:path:to:doc → https://example.com/path/to/doc/did.json
+   */
+  private def resolveDidWeb(did: String): Future[Option[DidDocument]] = {
+    val parts = did.stripPrefix("did:web:").split(":")
+    val domain = java.net.URLDecoder.decode(parts.head, "UTF-8")
+    val path = if (parts.length > 1) {
+      "/" + parts.tail.map(p => java.net.URLDecoder.decode(p, "UTF-8")).mkString("/") + "/did.json"
+    } else {
+      "/.well-known/did.json"
+    }
+
+    val url = s"https://$domain$path"
+
+    ws.url(url)
+      .withRequestTimeout(timeout)
+      .get()
+      .map { response =>
+        if (response.status == 200) {
+          Json.fromJson[DidDocument](response.json) match {
+            case JsSuccess(doc, _) => Some(doc)
+            case JsError(errors) =>
+              logger.error(s"Failed to parse DID document for $did: $errors")
+              None
+          }
+        } else {
+          logger.warn(s"Failed to resolve $did via did:web: ${response.status}")
+          None
+        }
+      }
+      .recover {
+        case e: Exception =>
+          logger.error(s"Error resolving $did via did:web: ${e.getMessage}", e)
+          None
+      }
+  }
+
+  /**
+   * Convenience method: Resolves a handle all the way to its PDS URL.
+   *
+   * @param handle The handle to resolve
+   * @return A Future containing (DID, PDS URL) if fully resolved
+   */
+  def resolveHandleToPds(handle: String): Future[Option[(String, String)]] = {
+    resolveHandle(handle).flatMap {
+      case Some(did) =>
+        resolveDid(did).map {
+          case Some(doc) =>
+            doc.getPdsEndpoint.map(pds => (did, pds))
+          case None => None
+        }
+      case None =>
+        Future.successful(None)
+    }
   }
 
   /**
@@ -140,4 +327,50 @@ case class SessionResponse(
 
 object SessionResponse {
   implicit val format: play.api.libs.json.Format[SessionResponse] = Json.format[SessionResponse]
+}
+
+/**
+ * Represents a service endpoint in a DID document.
+ */
+case class DidService(
+                       id: String,
+                       `type`: String,
+                       serviceEndpoint: String
+                     )
+
+object DidService {
+  implicit val format: play.api.libs.json.Format[DidService] = Json.format[DidService]
+}
+
+/**
+ * Represents a DID Document returned from PLC directory or did:web resolution.
+ * Simplified to extract only what we need for PDS resolution.
+ */
+case class DidDocument(
+                        id: String,
+                        alsoKnownAs: Option[Seq[String]] = None,
+                        service: Option[Seq[DidService]] = None
+                      ) {
+  /**
+   * Extracts the PDS endpoint URL from the DID document.
+   * Looks for a service with type "AtprotoPersonalDataServer".
+   */
+  def getPdsEndpoint: Option[String] = {
+    service.flatMap { services =>
+      services.find(_.`type` == "AtprotoPersonalDataServer").map(_.serviceEndpoint)
+    }
+  }
+
+  /**
+   * Extracts the handle from alsoKnownAs (format: "at://handle")
+   */
+  def getHandle: Option[String] = {
+    alsoKnownAs.flatMap { aliases =>
+      aliases.find(_.startsWith("at://")).map(_.stripPrefix("at://"))
+    }
+  }
+}
+
+object DidDocument {
+  implicit val format: play.api.libs.json.Format[DidDocument] = Json.format[DidDocument]
 }

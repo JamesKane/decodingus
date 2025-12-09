@@ -27,8 +27,6 @@ class ServicesModule(environment: Environment, configuration: Configuration) ext
       .to(classOf[repositories.SlickCitizenSequenceRepository])
 
     bind(classOf[services.PublicationDiscoveryService]).asEagerSingleton()
-    
-    bind(classOf[services.EncryptionService]).asEagerSingleton()
     bind(classOf[services.UserPermissionHelper]).asEagerSingleton()
   }
 }

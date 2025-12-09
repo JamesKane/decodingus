@@ -1,9 +1,10 @@
 package repositories
 
 import models.dal.DatabaseSchema
+import models.dal.MyPostgresProfile.api.*
 import models.domain.user.User
 import play.api.db.slick.{DatabaseConfigProvider, HasDatabaseConfigProvider}
-import slick.jdbc.PostgresProfile
+import slick.jdbc.JdbcProfile
 
 import java.util.UUID
 import javax.inject.{Inject, Singleton}
@@ -12,9 +13,7 @@ import scala.concurrent.{ExecutionContext, Future}
 @Singleton
 class UserRepository @Inject()(
                                 protected val dbConfigProvider: DatabaseConfigProvider
-                              )(implicit ec: ExecutionContext) extends HasDatabaseConfigProvider[PostgresProfile] {
-
-  import profile.api.*
+                              )(implicit ec: ExecutionContext) extends HasDatabaseConfigProvider[JdbcProfile] {
 
   private val users = DatabaseSchema.domain.users
 
@@ -31,8 +30,7 @@ class UserRepository @Inject()(
   }
 
   def findByEmail(email: String): Future[Option[User]] = {
-    // WARNING: This method will likely fail if searching by plain text email because stored values are encrypted.
-    db.run(users.filter(_.emailEncrypted === email).result.headOption)
+    db.run(users.filter(_.email === email).result.headOption)
   }
 
   def update(user: User): Future[Int] = {

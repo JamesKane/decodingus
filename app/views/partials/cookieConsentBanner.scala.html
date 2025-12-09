@@ -1,0 +1,141 @@
+@()(implicit messages: Messages)
+
+<div id="cookie-consent-banner" class="cookie-consent-banner" style="display: none;">
+    <div class="cookie-consent-content">
+        <p>
+            @messages("cookies.banner.message")
+            <a href="@controllers.routes.HomeController.cookieUsage()">@messages("cookies.banner.learnMore")</a>
+        </p>
+        <div class="cookie-consent-actions">
+            <button type="button" class="btn btn-primary btn-sm" id="accept-cookies">
+                @messages("cookies.banner.accept")
+            </button>
+        </div>
+    </div>
+</div>
+
+<style>
+    .cookie-consent-banner {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        background-color: #2c3e50;
+        color: #ffffff;
+        padding: 1rem;
+        z-index: 9999;
+        box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.2);
+    }
+
+    .cookie-consent-content {
+        max-width: 1200px;
+        margin: 0 auto;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+    }
+
+    .cookie-consent-content p {
+        margin: 0;
+        flex: 1;
+        min-width: 200px;
+    }
+
+    .cookie-consent-content a {
+        color: #3498db;
+    }
+
+    .cookie-consent-content a:hover {
+        color: #5dade2;
+    }
+
+    .cookie-consent-actions {
+        display: flex;
+        gap: 0.5rem;
+    }
+
+    @@media (max-width: 576px) {
+        .cookie-consent-content {
+            flex-direction: column;
+            text-align: center;
+        }
+
+        .cookie-consent-actions {
+            width: 100%;
+            justify-content: center;
+        }
+    }
+</style>
+
+<script>
+    (function() {
+        const banner = document.getElementById('cookie-consent-banner');
+        const acceptBtn = document.getElementById('accept-cookies');
+        const consentCookie = 'cookie_consent';
+        const policyVersion = '1.0';
+
+        // Check if consent already given via cookie (quick check before API call)
+        function hasConsentCookie() {
+            const cookies = document.cookie.split(';');
+            for (let cookie of cookies) {
+                const [name, value] = cookie.trim().split('=');
+                if (name === consentCookie && value === policyVersion) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // Show banner if no consent cookie
+        function checkAndShowBanner() {
+            if (!hasConsentCookie()) {
+                // Double-check with server for logged-in users
+                fetch('@controllers.routes.CookieConsentController.checkConsent', {
+                    method: 'GET',
+                    headers: { 'Accept': 'application/json' }
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (!data.hasConsent) {
+                        banner.style.display = 'block';
+                    }
+                })
+                .catch(() => {
+                    // On error, show banner to be safe
+                    banner.style.display = 'block';
+                });
+            }
+        }
+
+        // Handle accept click
+        acceptBtn.addEventListener('click', function() {
+            fetch('@controllers.routes.CookieConsentController.acceptConsent', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Csrf-Token': document.querySelector('input[name="csrfToken"]')?.value || ''
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    banner.style.display = 'none';
+                }
+            })
+            .catch(error => {
+                console.error('Failed to record consent:', error);
+                // Hide banner anyway - cookie will be set by response
+                banner.style.display = 'none';
+            });
+        });
+
+        // Check on page load
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', checkAndShowBanner);
+        } else {
+            checkAndShowBanner();
+        }
+    })();
+</script>

@@ -45,7 +45,6 @@ object DatabaseSchema {
 
     // User-related tables directly under domain
     val users = TableQuery[UsersTable]
-    val userPdsInfos = TableQuery[UserPdsInfoTable]
 
     // Social-related tables within a social object
     object social {
@@ -134,11 +133,13 @@ object DatabaseSchema {
   object auth {
     val atProtocolClientMetadata = TableQuery[ATProtocolClientMetadataTable]
     val atProtocolAuthorizationServers = TableQuery[ATProtocolAuthorizationServersTable]
+    val cookieConsents = TableQuery[CookieConsentsTable]
     val permissions = TableQuery[PermissionsTable]
     val rolePermissionsTable = TableQuery[RolePermissionsTable]
     val roles = TableQuery[RolesTable]
     val userLoginInfos = TableQuery[UserLoginInfoTable]
     val userOauth2Infos = TableQuery[UserOauth2InfoTable]
+    val userPdsInfos = TableQuery[UserPdsInfoTable]
     val userRoles = TableQuery[UserRolesTable]
   }
 }

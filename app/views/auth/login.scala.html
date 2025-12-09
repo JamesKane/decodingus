@@ -4,7 +4,7 @@
 @main(messages("auth.login.title")) {
     <div class="container py-5">
         <div class="row justify-content-center">
-            <div class="col-md-6 col-lg-4">
+            <div class="col-md-6 col-lg-5">
                 <div class="card shadow">
                     <div class="card-body p-4">
                         <h2 class="text-center mb-4">@messages("auth.login.heading")</h2>
@@ -16,12 +16,23 @@
                             <div class="alert alert-success" role="alert">@msg</div>
                         }
 
+                        <div class="alert alert-info mb-4" role="alert">
+                            <small>
+                                <strong>@messages("auth.login.federation.title")</strong><br>
+                                @Html(messages("auth.login.federation.description"))
+                            </small>
+                        </div>
+
                         @helper.form(action = routes.AuthController.authenticate) {
                             @helper.CSRF.formField
 
                             <div class="mb-3">
                                 <label for="handle" class="form-label">@messages("auth.login.handle")</label>
-                                <input type="text" class="form-control" id="handle" name="handle" value="@loginForm("handle").value" required autofocus>
+                                <input type="text" class="form-control" id="handle" name="handle"
+                                       value="@loginForm("handle").value"
+                                       placeholder="@messages("auth.login.handle.placeholder")"
+                                       required autofocus>
+                                <div class="form-text">@messages("auth.login.handle.help")</div>
                             </div>
 
                             <div class="mb-3">

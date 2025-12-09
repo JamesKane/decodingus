@@ -5,7 +5,7 @@ import java.util.UUID
 
 case class User(
                  id: Option[UUID],
-                 emailEncrypted: Option[String], // Renamed from emailHash to emailEncrypted
+                 email: Option[String],
                  did: String,
                  handle: Option[String],
                  displayName: Option[String],
