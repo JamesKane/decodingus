@@ -1,0 +1,59 @@
+@import org.webjars.play.WebJarsUtil
+@import models.domain.user.User
+@(profileForm: Form[controllers.ProfileFormData], user: User)(implicit request: Request[AnyContent], messages: Messages, webJarsUtil: WebJarsUtil)
+
+@main(messages("profile.title")) {
+    <div class="container py-5">
+        <div class="row justify-content-center">
+            <div class="col-md-8 col-lg-6">
+                <div class="card shadow-sm">
+                    <div class="card-header bg-primary text-white">
+                        <h4 class="mb-0">@messages("profile.heading")</h4>
+                    </div>
+                    <div class="card-body p-4">
+                        @request.flash.get("success").map { msg =>
+                            <div class="alert alert-success alert-dismissible fade show" role="alert">
+                                @msg
+                                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                            </div>
+                        }
+
+                        <div class="mb-4">
+                            <h6 class="text-muted">@messages("profile.accountDetails")</h6>
+                            <dl class="row">
+                                <dt class="col-sm-4">@messages("profile.handle")</dt>
+                                <dd class="col-sm-8">@@@user.handle.getOrElse("-")</dd>
+
+                                <dt class="col-sm-4">@messages("profile.did")</dt>
+                                <dd class="col-sm-8 text-truncate" title="@user.did">@user.did</dd>
+                            </dl>
+                        </div>
+
+                        <hr>
+
+                        <h6 class="text-muted mb-3">@messages("profile.editProfile")</h6>
+                        @helper.form(action = routes.ProfileController.update) {
+                            @helper.CSRF.formField
+
+                            <div class="mb-3">
+                                <label for="displayName" class="form-label">@messages("profile.displayName")</label>
+                                <input type="text" class="form-control @if(profileForm("displayName").hasErrors) {is-invalid}"
+                                       id="displayName" name="displayName" value="@profileForm("displayName").value"
+                                       maxlength="50">
+                                <div class="form-text">@messages("profile.displayNameHelp")</div>
+                                @profileForm("displayName").errors.map { error =>
+                                    <div class="invalid-feedback">@messages(error.message)</div>
+                                }
+                            </div>
+
+                            <div class="d-grid gap-2">
+                                <button type="submit" class="btn btn-primary">@messages("profile.save")</button>
+                                <a href="@routes.HomeController.index()" class="btn btn-outline-secondary">@messages("generic.cancel")</a>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+}

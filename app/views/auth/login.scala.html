@@ -27,7 +27,7 @@
                             <div class="mb-3">
                                 <label for="appPassword" class="form-label">@messages("auth.login.password")</label>
                                 <input type="password" class="form-control" id="appPassword" name="appPassword" required>
-                                <div class="form-text">@messages("auth.login.passwordHelp")</div>
+                                <div class="form-text">@Html(messages("auth.login.passwordHelp", routes.AuthController.showAppPasswordHelp().url))</div>
                             </div>
 
                             <div class="d-grid">

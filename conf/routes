@@ -102,6 +102,11 @@ POST          /api/private/publication-discovery/run                            
 GET           /login                                                                             controllers.AuthController.login
 POST          /login                                                                             controllers.AuthController.authenticate
 POST          /logout                                                                            controllers.AuthController.logout
+GET           /app-password-help                                                                 controllers.AuthController.showAppPasswordHelp()
+
+# User Profile
+GET           /profile                                                                           controllers.ProfileController.view
+POST          /profile                                                                           controllers.ProfileController.update
 
 # Curator Workflow
 GET           /admin/publication-candidates                                                      controllers.PublicationCandidateController.listCandidates(page: Int ?= 1, pageSize: Int ?= 20)

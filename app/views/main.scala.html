@@ -1,5 +1,5 @@
 @import org.webjars.play.WebJarsUtil
-@(title: String)(content: Html)(implicit webJarsUtil: WebJarsUtil, messages: Messages)
+@(title: String)(content: Html)(implicit webJarsUtil: WebJarsUtil, messages: Messages, request: RequestHeader)
 
 <!DOCTYPE html>
 <html lang="@messages.lang.code">

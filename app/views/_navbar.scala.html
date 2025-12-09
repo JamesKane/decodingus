@@ -1,4 +1,4 @@
-@()(implicit messages: Messages)
+@()(implicit messages: Messages, request: RequestHeader)
 <nav class="navbar fixed-top navbar-expand-lg bg-body-tertiary" data-bs-theme="dark">
     <div class="container-fluid">
         <a class="navbar-brand" href="/">@messages("app.name")</a>
@@ -25,6 +25,28 @@
                             @messages("nav.coverage")</a></li>
                     </ul>
                 </li>
+            </ul>
+            <ul class="navbar-nav ms-auto">
+                @if(request.session.get("userId").isDefined) {
+                    <li class="nav-item">
+                        <a class="nav-link" href="@controllers.routes.ProfileController.view">@messages("nav.profile")</a>
+                    </li>
+                    @if(request.session.get("userRoles").exists(r => r.contains("Curator") || r.contains("Admin"))) {
+                        <li class="nav-item">
+                            <a class="nav-link" href="@controllers.routes.PublicationCandidateController.listCandidates()">@messages("nav.candidates")</a>
+                        </li>
+                    }
+                    <li class="nav-item">
+                        <form action="@controllers.routes.AuthController.logout" method="post" style="display:inline;">
+                            @helper.CSRF.formField
+                            <button type="submit" class="nav-link btn btn-link" style="display:inline; cursor:pointer;">@messages("nav.logout")</button>
+                        </form>
+                    </li>
+                } else {
+                    <li class="nav-item">
+                        <a class="nav-link" href="@controllers.routes.AuthController.login">@messages("nav.login")</a>
+                    </li>
+                }
             </ul>
         </div>
     </div>

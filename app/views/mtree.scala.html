@@ -1,6 +1,5 @@
 @import org.webjars.play.WebJarsUtil
-
-@(rootHaplogroup: Option[String])(implicit webJarsUtil: WebJarsUtil, messages: Messages)
+@(rootHaplogroup: Option[String])(implicit webJarsUtil: WebJarsUtil, messages: Messages, request: RequestHeader)
 
 @main(messages("nav.mtree")) {
     <main class="container-fluid">

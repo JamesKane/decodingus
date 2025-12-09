@@ -85,4 +85,11 @@ class AuthService @Inject()(
       roleNames.exists(requiredRole => userRoles.contains(requiredRole))
     }
   }
+
+  /**
+   * Checks if a user has a specific permission.
+   */
+  def hasPermission(userId: UUID, permissionName: String): Future[Boolean] = {
+    userRoleRepository.hasPermission(userId, permissionName)
+  }
 }

@@ -1,6 +1,5 @@
 @import org.webjars.play.WebJarsUtil
-
-@()(implicit webJarsUtil: WebJarsUtil, messages: Messages)
+@()(implicit webJarsUtil: WebJarsUtil, messages: Messages, request: RequestHeader)
 
 @main(messages("home.title")) {
     <img src="@routes.Assets.versioned("images/decoding_us_logo_placeholder.png")"

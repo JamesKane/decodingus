@@ -40,4 +40,18 @@ class UserRoleRepository @Inject()(
     
     db.run(query.exists.result)
   }
+
+  def hasPermission(userId: UUID, permissionName: String): Future[Boolean] = {
+    // Check if user has any role that has the given permission
+    val rolePermissions = DatabaseSchema.auth.rolePermissionsTable
+    val permissions = DatabaseSchema.auth.permissions
+
+    val query = for {
+      ur <- userRoles if ur.userId === userId
+      rp <- rolePermissions if rp.roleId === ur.roleId
+      p <- permissions if p.id === rp.permissionId && p.name === permissionName
+    } yield p
+
+    db.run(query.exists.result)
+  }
 }

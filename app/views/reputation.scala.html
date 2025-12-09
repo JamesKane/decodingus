@@ -1,5 +1,5 @@
 @import org.webjars.play.WebJarsUtil
-@()(implicit messages: Messages, webJarsUtil: WebJarsUtil)
+@()(implicit webJarsUtil: WebJarsUtil, messages: Messages, request: RequestHeader)
 
 @main(messages("reputation.title")) {
     <div class="container py-5">

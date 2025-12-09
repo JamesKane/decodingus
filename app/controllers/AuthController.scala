@@ -16,7 +16,8 @@ case class LoginData(handle: String, appPassword: String)
 @Singleton
 class AuthController @Inject()(
                                 val controllerComponents: ControllerComponents,
-                                authService: AuthService
+                                authService: AuthService,
+                                userRoleRepository: repositories.UserRoleRepository // Injected
                               )(implicit ec: ExecutionContext, webJarsUtil: WebJarsUtil) extends BaseController with I18nSupport with Logging {
 
   val loginForm = Form(
@@ -34,14 +35,23 @@ class AuthController @Inject()(
     loginForm.bindFromRequest().fold(
       formWithErrors => Future.successful(BadRequest(views.html.auth.login(formWithErrors))),
       data => {
-        authService.login(data.handle, data.appPassword).map {
+        authService.login(data.handle, data.appPassword).flatMap { // Changed map to flatMap
           case Some(user) =>
-            Redirect(routes.HomeController.index())
-              .withSession("userId" -> user.id.get.toString)
-              .flashing("success" -> s"Welcome back, ${user.handle.getOrElse("User")}!")
+            // Fetch roles to store in session for UI logic
+            userRoleRepository.getUserRoles(user.id.get).map { roles =>
+              val roleString = roles.mkString(",")
+              Redirect(routes.HomeController.index())
+                .withSession(
+                  "userId" -> user.id.get.toString,
+                  "userRoles" -> roleString
+                )
+                .flashing("success" -> s"Welcome back, ${user.handle.getOrElse("User")}!")
+            }
           case None =>
-            Redirect(routes.AuthController.login)
-              .flashing("error" -> "Invalid handle or password.")
+            Future.successful(
+              Redirect(routes.AuthController.login)
+                .flashing("error" -> "Invalid handle or password.")
+            )
         }
       }
     )
@@ -51,5 +61,9 @@ class AuthController @Inject()(
     Redirect(routes.AuthController.login)
       .withNewSession
       .flashing("success" -> "You have been logged out.")
+  }
+
+  def showAppPasswordHelp(): Action[AnyContent] = Action { implicit request =>
+    Ok(views.html.auth.appPasswordHelp())
   }
 }
