@@ -272,16 +272,21 @@ Shared type definitions used across multiple Atmosphere Lexicon record types.
     },
     "populationComponent": {
       "type": "object",
-      "description": "A single ancestry component in a population breakdown.",
+      "description": "A single ancestry component in a population breakdown. Sub-continental granularity (~33 populations from 1000 Genomes + HGDP/SGDP).",
       "required": ["populationCode", "percentage"],
       "properties": {
         "populationCode": {
           "type": "string",
-          "description": "Standardized population code (e.g., 'EUR', 'EAS', 'AFR')."
+          "description": "Standardized population code from reference panel (e.g., 'CEU', 'YRI', 'CHB', 'GIH')."
         },
         "populationName": {
           "type": "string",
-          "description": "Human-readable population name."
+          "description": "Human-readable population name (e.g., 'Northwestern European', 'Yoruba', 'Han Chinese')."
+        },
+        "superPopulation": {
+          "type": "string",
+          "description": "Continental-level grouping for this population.",
+          "knownValues": ["European", "African", "East Asian", "South Asian", "Americas", "West Asian", "Oceanian", "Central Asian", "Native American"]
         },
         "percentage": {
           "type": "float",
@@ -289,10 +294,60 @@ Shared type definitions used across multiple Atmosphere Lexicon record types.
         },
         "confidenceInterval": {
           "type": "object",
+          "description": "95% confidence interval for the percentage estimate.",
           "properties": {
             "lower": { "type": "float" },
             "upper": { "type": "float" }
           }
+        },
+        "rank": {
+          "type": "integer",
+          "description": "Rank by percentage (1 = highest). Useful for sorting display."
+        }
+      }
+    },
+    "superPopulationSummary": {
+      "type": "object",
+      "description": "Aggregated ancestry percentage at the continental/super-population level.",
+      "required": ["superPopulation", "percentage"],
+      "properties": {
+        "superPopulation": {
+          "type": "string",
+          "description": "Continental-level population grouping.",
+          "knownValues": ["European", "African", "East Asian", "South Asian", "Americas", "West Asian", "Oceanian", "Central Asian", "Native American"]
+        },
+        "percentage": {
+          "type": "float",
+          "description": "Combined percentage from all sub-populations in this group (0.0-100.0)."
+        },
+        "populations": {
+          "type": "array",
+          "description": "List of population codes contributing to this super-population.",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "ancestryPanel": {
+      "type": "object",
+      "description": "Description of the SNP panel used for ancestry analysis.",
+      "required": ["panelType", "snpCount"],
+      "properties": {
+        "panelType": {
+          "type": "string",
+          "description": "Type of ancestry panel used.",
+          "knownValues": ["aims", "genome-wide"]
+        },
+        "snpCount": {
+          "type": "integer",
+          "description": "Number of SNPs in the panel (aims: ~5,000; genome-wide: ~500,000)."
+        },
+        "description": {
+          "type": "string",
+          "description": "Human-readable description of the panel."
+        },
+        "referenceVersion": {
+          "type": "string",
+          "description": "Version of the reference panel data (e.g., 'v1')."
         }
       }
     },
@@ -496,6 +551,286 @@ Shared type definitions used across multiple Atmosphere Lexicon record types.
           "type": "string",
           "description": "Reconstruction method used.",
           "knownValues": ["MODE", "MEDIAN", "PARSIMONY", "ML_PHYLOGENETIC"]
+        }
+      }
+    },
+    "reconciliationStatus": {
+      "type": "object",
+      "description": "Summary of multi-run reconciliation for a biosample's haplogroup assignments.",
+      "required": ["compatibilityLevel", "consensusHaplogroup"],
+      "properties": {
+        "compatibilityLevel": {
+          "type": "string",
+          "description": "Overall compatibility across all runs.",
+          "knownValues": ["COMPATIBLE", "MINOR_DIVERGENCE", "MAJOR_DIVERGENCE", "INCOMPATIBLE"]
+        },
+        "consensusHaplogroup": {
+          "type": "string",
+          "description": "The reconciled consensus haplogroup across all runs."
+        },
+        "confidence": {
+          "type": "float",
+          "description": "Confidence in the consensus (0.0-1.0)."
+        },
+        "divergencePoint": {
+          "type": "string",
+          "description": "The last common ancestor haplogroup if runs diverge (e.g., 'R-DF13')."
+        },
+        "branchCompatibilityScore": {
+          "type": "float",
+          "description": "LCA_depth / max(depth_A, depth_B). 1.0 = fully compatible, <0.5 = likely different individuals."
+        },
+        "snpConcordance": {
+          "type": "float",
+          "description": "matching_calls / (matching + conflicting). 0.99+ = same individual."
+        },
+        "runCount": {
+          "type": "integer",
+          "description": "Number of runs included in reconciliation."
+        },
+        "warnings": {
+          "type": "array",
+          "description": "Any warnings generated during reconciliation.",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "runHaplogroupCall": {
+      "type": "object",
+      "description": "A haplogroup call from a single sequencing run or STR profile with quality metrics.",
+      "required": ["sourceRef", "haplogroup", "confidence", "callMethod"],
+      "properties": {
+        "sourceRef": {
+          "type": "string",
+          "description": "AT URI of the data source: sequence run, alignment, or STR profile."
+        },
+        "haplogroup": {
+          "type": "string",
+          "description": "The called haplogroup."
+        },
+        "confidence": {
+          "type": "float",
+          "description": "Confidence score for this call (0.0-1.0)."
+        },
+        "callMethod": {
+          "type": "string",
+          "description": "Method used to determine haplogroup.",
+          "knownValues": ["SNP_PHYLOGENETIC", "STR_PREDICTION", "VENDOR_REPORTED"]
+        },
+        "score": {
+          "type": "float",
+          "description": "Raw scoring result from haplogroup assignment."
+        },
+        "supportingSnps": {
+          "type": "integer",
+          "description": "Number of derived SNPs supporting this call (SNP-based only)."
+        },
+        "conflictingSnps": {
+          "type": "integer",
+          "description": "Number of SNPs contradicting this call (SNP-based only)."
+        },
+        "noCalls": {
+          "type": "integer",
+          "description": "Number of defining SNPs with no call (SNP-based only)."
+        },
+        "technology": {
+          "type": "string",
+          "description": "Sequencing/testing technology used.",
+          "knownValues": ["WGS", "WES", "BIG_Y", "SNP_ARRAY", "AMPLICON", "STR_PANEL"]
+        },
+        "meanCoverage": {
+          "type": "float",
+          "description": "Mean coverage in the haplogroup-relevant region (sequencing only)."
+        },
+        "treeVersion": {
+          "type": "string",
+          "description": "Haplogroup tree version used for this call."
+        },
+        "strPrediction": {
+          "type": "ref",
+          "ref": "#strHaplogroupPrediction",
+          "description": "Details of STR-based prediction (when callMethod is STR_PREDICTION)."
+        }
+      }
+    },
+    "strHaplogroupPrediction": {
+      "type": "object",
+      "description": "Haplogroup prediction based on Y-STR profile analysis.",
+      "required": ["predictedHaplogroup", "probability"],
+      "properties": {
+        "predictedHaplogroup": {
+          "type": "string",
+          "description": "The predicted haplogroup from STR analysis."
+        },
+        "probability": {
+          "type": "float",
+          "description": "Probability of this prediction being correct (0.0-1.0)."
+        },
+        "predictionMethod": {
+          "type": "string",
+          "description": "Algorithm used for prediction.",
+          "knownValues": ["NEVGEN", "HAPEST", "YHAPLO", "SAPP", "BAYESIAN", "CUSTOM"]
+        },
+        "alternativePredictions": {
+          "type": "array",
+          "description": "Other possible haplogroups with their probabilities.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "haplogroup": { "type": "string" },
+              "probability": { "type": "float" }
+            }
+          }
+        },
+        "markersUsed": {
+          "type": "integer",
+          "description": "Number of STR markers used in prediction."
+        },
+        "panelName": {
+          "type": "string",
+          "description": "STR panel used (e.g., Y-37, Y-111)."
+        },
+        "predictionDepth": {
+          "type": "string",
+          "description": "Expected depth/resolution of STR-based prediction.",
+          "knownValues": ["MAJOR_CLADE", "SUBCLADE", "TERMINAL"]
+        },
+        "modalMatch": {
+          "type": "object",
+          "description": "Best matching modal haplotype if applicable.",
+          "properties": {
+            "haplogroup": { "type": "string", "description": "Haplogroup of the modal." },
+            "geneticDistance": { "type": "integer", "description": "Genetic distance (step mutations) from modal." },
+            "sampleCount": { "type": "integer", "description": "Number of samples in the modal reference set." }
+          }
+        },
+        "limitations": {
+          "type": "array",
+          "description": "Known limitations of this prediction.",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "snpConflict": {
+      "type": "object",
+      "description": "A conflict at a specific SNP position between runs.",
+      "required": ["position", "calls"],
+      "properties": {
+        "position": {
+          "type": "integer",
+          "description": "Genomic position of the conflict."
+        },
+        "snpName": {
+          "type": "string",
+          "description": "SNP name if known (e.g., 'M269', 'L21')."
+        },
+        "contigAccession": {
+          "type": "string",
+          "description": "GenBank accession for the contig."
+        },
+        "calls": {
+          "type": "array",
+          "description": "The different calls from each run.",
+          "items": { "type": "ref", "ref": "#snpCallFromRun" }
+        },
+        "resolution": {
+          "type": "string",
+          "description": "How the conflict was resolved.",
+          "knownValues": ["ACCEPT_MAJORITY", "ACCEPT_HIGHER_QUALITY", "ACCEPT_HIGHER_COVERAGE", "UNRESOLVED", "HETEROPLASMY"]
+        },
+        "resolvedValue": {
+          "type": "string",
+          "description": "The resolved allele value if resolution was applied."
+        }
+      }
+    },
+    "snpCallFromRun": {
+      "type": "object",
+      "description": "A single SNP call from one run.",
+      "required": ["runRef", "allele"],
+      "properties": {
+        "runRef": {
+          "type": "string",
+          "description": "AT URI of the run that made this call."
+        },
+        "allele": {
+          "type": "string",
+          "description": "Called allele (e.g., 'A', 'T', 'NO_CALL')."
+        },
+        "quality": {
+          "type": "float",
+          "description": "Call quality score."
+        },
+        "depth": {
+          "type": "integer",
+          "description": "Read depth at this position."
+        },
+        "variantAlleleFrequency": {
+          "type": "float",
+          "description": "VAF for heteroplasmy detection (mtDNA)."
+        }
+      }
+    },
+    "heteroplasmyObservation": {
+      "type": "object",
+      "description": "An observation of mtDNA heteroplasmy at a specific position.",
+      "required": ["position", "majorAllele", "minorAllele", "majorAlleleFrequency"],
+      "properties": {
+        "position": {
+          "type": "integer",
+          "description": "Mitochondrial genome position."
+        },
+        "majorAllele": {
+          "type": "string",
+          "description": "The predominant allele."
+        },
+        "minorAllele": {
+          "type": "string",
+          "description": "The minor allele."
+        },
+        "majorAlleleFrequency": {
+          "type": "float",
+          "description": "Frequency of the major allele (0.5-1.0)."
+        },
+        "depth": {
+          "type": "integer",
+          "description": "Total read depth at this position."
+        },
+        "isDefiningSnp": {
+          "type": "boolean",
+          "description": "Whether this position is a haplogroup-defining SNP."
+        },
+        "affectedHaplogroup": {
+          "type": "string",
+          "description": "Haplogroup affected by this heteroplasmy if defining."
+        }
+      }
+    },
+    "identityVerification": {
+      "type": "object",
+      "description": "Metrics for verifying that multiple runs come from the same individual.",
+      "properties": {
+        "kinshipCoefficient": {
+          "type": "float",
+          "description": "Self-vs-self should be ~0.5, different individuals <0.05."
+        },
+        "fingerprintSnpConcordance": {
+          "type": "float",
+          "description": "Concordance on curated fingerprint SNP set (should be 1.0 for same individual)."
+        },
+        "yStrDistance": {
+          "type": "integer",
+          "description": "Genetic distance on Y-STR markers (should be 0 for same individual)."
+        },
+        "verificationStatus": {
+          "type": "string",
+          "description": "Overall verification result.",
+          "knownValues": ["VERIFIED_SAME", "LIKELY_SAME", "UNCERTAIN", "LIKELY_DIFFERENT", "VERIFIED_DIFFERENT"]
+        },
+        "verificationMethod": {
+          "type": "string",
+          "description": "Method used for verification.",
+          "knownValues": ["AUTOSOMAL_KINSHIP", "Y_STR", "FINGERPRINT_SNPS", "COMBINED"]
         }
       }
     }

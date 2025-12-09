@@ -2,15 +2,26 @@
 
 Record types for genotyping array/chip data and imputation results.
 
-**Status:** Future Scope (Multi-Test Type Support)
-
 ---
 
 ## 1. Genotype Record
 
-This record represents genotyping array/chip data (e.g., 23andMe, AncestryDNA, FTDNA). It is a first-class record separate from sequencing data.
+This record represents genotyping array/chip data (e.g., 23andMe, AncestryDNA, FTDNA). It is a first-class record separate from sequencing data. Raw genotype calls remain local on the Edge App; only metadata and derived results (haplogroups, ancestry percentages) flow to DecodingUs.
 
 **NSID:** `com.decodingus.atmosphere.genotype`
+
+**Status:** 🚧 In Development (Navigator Desktop Implementation)
+
+**Supported Vendors**: 23andMe, AncestryDNA, FamilyTreeDNA, MyHeritage, LivingDNA
+
+**Test Type Codes** (per multi-test-type-roadmap.md):
+
+- `ARRAY_23ANDME_V5` - 23andMe v5 chip (~640K markers)
+- `ARRAY_23ANDME_V4` - 23andMe v4 chip (~570K markers)
+- `ARRAY_ANCESTRY_V2` - AncestryDNA v2 (~700K markers)
+- `ARRAY_FTDNA_FF` - FTDNA Family Finder (~700K markers)
+- `ARRAY_MYHERITAGE` - MyHeritage DNA (~700K markers)
+- `ARRAY_LIVINGDNA` - LivingDNA (~630K markers)
 
 ```json
 {
@@ -19,11 +30,11 @@ This record represents genotyping array/chip data (e.g., 23andMe, AncestryDNA, F
   "defs": {
     "main": {
       "type": "record",
-      "description": "Genotyping array/chip data from DTC providers or research arrays.",
+      "description": "Genotyping array/chip data from DTC providers. Raw genotypes stay local; only metadata flows to DecodingUs.",
       "key": "tid",
       "record": {
         "type": "object",
-        "required": ["meta", "atUri", "biosampleRef", "chipType", "provider"],
+        "required": ["meta", "atUri", "biosampleRef", "testTypeCode", "provider"],
         "properties": {
           "atUri": {
             "type": "string",
@@ -37,37 +48,74 @@ This record represents genotyping array/chip data (e.g., 23andMe, AncestryDNA, F
             "type": "string",
             "description": "AT URI of the parent biosample record."
           },
+          "testTypeCode": {
+            "type": "string",
+            "description": "Test type code from the taxonomy.",
+            "knownValues": ["ARRAY_23ANDME_V5", "ARRAY_23ANDME_V4", "ARRAY_ANCESTRY_V2", "ARRAY_FTDNA_FF", "ARRAY_MYHERITAGE", "ARRAY_LIVINGDNA", "ARRAY_CUSTOM"]
+          },
           "provider": {
             "type": "string",
             "description": "The genotyping provider or company.",
-            "knownValues": ["23ANDME", "ANCESTRY", "FTDNA", "MYHERITAGE", "LIVINGDNA", "NEBULA", "CUSTOM"]
-          },
-          "chipType": {
-            "type": "string",
-            "description": "The array/chip version used.",
-            "knownValues": ["GSA_V3", "GSA_V2", "OMNI_EXPRESS", "ILLUMINA_CORE", "CUSTOM"]
+            "knownValues": ["23andMe", "AncestryDNA", "FamilyTreeDNA", "MyHeritage", "LivingDNA", "Nebula", "Custom"]
           },
           "chipVersion": {
             "type": "string",
-            "description": "Specific version identifier (e.g., 'v5.2', '2024Q1')."
+            "description": "Specific chip version identifier (e.g., 'v5', 'v2')."
           },
-          "snpCount": {
+          "totalMarkersCalled": {
             "type": "integer",
-            "description": "Total number of SNPs genotyped."
+            "description": "Number of markers with valid genotype calls."
           },
-          "callRate": {
+          "totalMarkersPossible": {
+            "type": "integer",
+            "description": "Total markers on the chip/array."
+          },
+          "noCallRate": {
             "type": "float",
-            "description": "Percentage of SNPs successfully called (0.0-1.0)."
+            "description": "Percentage of markers with no call (0.0-1.0)."
+          },
+          "yMarkersCalled": {
+            "type": "integer",
+            "description": "Number of Y-DNA markers with calls (for haplogroup confidence)."
+          },
+          "yMarkersTotal": {
+            "type": "integer",
+            "description": "Total Y-DNA markers on chip."
+          },
+          "mtMarkersCalled": {
+            "type": "integer",
+            "description": "Number of mtDNA markers with calls."
+          },
+          "mtMarkersTotal": {
+            "type": "integer",
+            "description": "Total mtDNA markers on chip."
+          },
+          "autosomalMarkersCalled": {
+            "type": "integer",
+            "description": "Number of autosomal markers with calls (for ancestry/IBD)."
+          },
+          "hetRate": {
+            "type": "float",
+            "description": "Heterozygosity rate across autosomal markers (quality check)."
           },
           "testDate": {
             "type": "string",
             "format": "datetime",
             "description": "Date the genotyping was performed."
           },
+          "processedAt": {
+            "type": "string",
+            "format": "datetime",
+            "description": "When the file was processed by Navigator."
+          },
           "buildVersion": {
             "type": "string",
             "description": "Reference genome build for coordinates.",
-            "knownValues": ["GRCh37", "GRCh38", "hg19", "hg38"]
+            "knownValues": ["GRCh37", "GRCh38"]
+          },
+          "sourceFileHash": {
+            "type": "string",
+            "description": "SHA-256 hash of source file for deduplication."
           },
           "files": {
             "type": "array",
@@ -76,6 +124,15 @@ This record represents genotyping array/chip data (e.g., 23andMe, AncestryDNA, F
               "type": "ref",
               "ref": "com.decodingus.atmosphere.defs#fileInfo"
             }
+          },
+          "derivedHaplogroups": {
+            "type": "ref",
+            "ref": "com.decodingus.atmosphere.defs#haplogroupAssignments",
+            "description": "Haplogroups derived from chip Y/mtDNA markers."
+          },
+          "populationBreakdownRef": {
+            "type": "string",
+            "description": "AT URI of the population breakdown derived from this genotype data."
           },
           "imputationRef": {
             "type": "string",
@@ -88,6 +145,15 @@ This record represents genotyping array/chip data (e.g., 23andMe, AncestryDNA, F
 }
 ```
 
+**Edge App Processing**: Navigator Desktop processes chip files locally:
+
+1. Auto-detects vendor format from file header
+2. Parses genotype calls (stays local, never uploaded)
+3. Computes summary statistics (marker counts, call rates)
+4. Extracts Y/mtDNA markers for haplogroup analysis
+5. Runs ancestry analysis using autosomal markers
+6. Syncs metadata and derived results to PDS
+
 ---
 
 ## 2. Imputation Record
@@ -95,6 +161,8 @@ This record represents genotyping array/chip data (e.g., 23andMe, AncestryDNA, F
 This record represents imputed genotype data derived from array data.
 
 **NSID:** `com.decodingus.atmosphere.imputation`
+
+**Status:** 🔮 Future Scope (Multi-Test Type Support)
 
 ```json
 {

@@ -130,6 +130,14 @@ This record represents a single biological sample. It contains donor metadata an
           "strProfileRef": {
             "type": "string",
             "description": "AT URI of the Y-STR profile for this biosample."
+          },
+          "yDnaReconciliationRef": {
+            "type": "string",
+            "description": "AT URI of the Y-DNA haplogroup reconciliation record for this biosample."
+          },
+          "mtDnaReconciliationRef": {
+            "type": "string",
+            "description": "AT URI of the MT-DNA haplogroup reconciliation record for this biosample."
           }
         }
       }

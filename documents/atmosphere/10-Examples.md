@@ -104,7 +104,7 @@ Mock data examples and CRUD event flow scenarios.
 }
 ```
 
-### Genotype Record (Future)
+### Genotype Record (In Development)
 
 ```json
 {
@@ -112,26 +112,54 @@ Mock data examples and CRUD event flow scenarios.
   "atUri": "at://did:plc:alice123/com.decodingus.atmosphere.genotype/3jui7q3aa",
   "meta": {
     "version": 1,
-    "createdAt": "2025-12-01T10:00:00Z"
+    "createdAt": "2025-12-08T10:00:00Z"
   },
   "biosampleRef": "at://did:plc:alice123/com.decodingus.atmosphere.biosample/3jui7q2lx",
-  "provider": "23ANDME",
-  "chipType": "GSA_V3",
-  "chipVersion": "v5.2",
-  "snpCount": 654321,
-  "callRate": 0.98,
+  "testTypeCode": "ARRAY_23ANDME_V5",
+  "provider": "23andMe",
+  "chipVersion": "v5",
+  "totalMarkersCalled": 638234,
+  "totalMarkersPossible": 640000,
+  "noCallRate": 0.0028,
+  "yMarkersCalled": 2847,
+  "yMarkersTotal": 3000,
+  "mtMarkersCalled": 4123,
+  "mtMarkersTotal": 4200,
+  "autosomalMarkersCalled": 631264,
+  "hetRate": 0.32,
   "testDate": "2023-06-15T00:00:00Z",
+  "processedAt": "2025-12-08T10:00:00Z",
   "buildVersion": "GRCh37",
+  "sourceFileHash": "sha256-e3b0c44298fc1c149afbf4c8996fb924...",
   "files": [
     {
-      "fileName": "23andme_raw_data.txt",
+      "fileName": "genome_Alice_v5_Full_20230615.txt",
       "fileSizeBytes": 25000000,
-      "fileFormat": "23ANDME",
-      "checksum": "sha256-abcd1234...",
+      "fileFormat": "23ANDME_RAW",
+      "checksum": "sha256-e3b0c44298fc1c149afbf4c8996fb924...",
       "checksumAlgorithm": "SHA-256",
-      "location": "ipfs://Qm..."
+      "location": "/local/genotypes/23andme/genome_Alice_v5_Full_20230615.txt"
     }
-  ]
+  ],
+  "derivedHaplogroups": {
+    "yDna": {
+      "haplogroupName": "R-M269",
+      "score": 0.92,
+      "matchingSnps": 45,
+      "mismatchingSnps": 2,
+      "treeDepth": 8,
+      "lineagePath": ["R", "R1", "R1b", "R-M269"]
+    },
+    "mtDna": {
+      "haplogroupName": "H1a",
+      "score": 0.95,
+      "matchingSnps": 38,
+      "mismatchingSnps": 0,
+      "treeDepth": 12,
+      "lineagePath": ["L3", "N", "R", "HV", "H", "H1", "H1a"]
+    }
+  },
+  "populationBreakdownRef": "at://did:plc:alice123/com.decodingus.atmosphere.populationBreakdown/3jui7q2m1"
 }
 ```
 
@@ -214,7 +242,7 @@ Mock data examples and CRUD event flow scenarios.
 }
 ```
 
-### Population Breakdown Record (Future)
+### Population Breakdown Record (In Development)
 
 ```json
 {
@@ -222,34 +250,74 @@ Mock data examples and CRUD event flow scenarios.
   "atUri": "at://did:plc:alice123/com.decodingus.atmosphere.populationBreakdown/3jui7q2m1",
   "meta": {
     "version": 1,
-    "createdAt": "2025-12-05T16:00:00Z"
+    "createdAt": "2025-12-08T16:00:00Z"
   },
   "biosampleRef": "at://did:plc:alice123/com.decodingus.atmosphere.biosample/3jui7q2lx",
-  "analysisMethod": "ADMIXTURE",
-  "referencePopulations": "1000G_PHASE3",
-  "kValue": 8,
+  "analysisMethod": "PCA_PROJECTION_GMM",
+  "panelType": "aims",
+  "referencePopulations": "1000G_HGDP_v1",
+  "snpsAnalyzed": 5000,
+  "snpsWithGenotype": 4823,
+  "snpsMissing": 177,
+  "confidenceLevel": 0.92,
   "components": [
     {
-      "populationCode": "EUR_NW",
+      "populationCode": "CEU",
       "populationName": "Northwestern European",
-      "percentage": 65.2,
-      "confidenceInterval": { "lower": 62.1, "upper": 68.3 }
+      "superPopulation": "European",
+      "percentage": 48.2,
+      "confidenceInterval": { "lower": 45.1, "upper": 51.3 },
+      "rank": 1
     },
     {
-      "populationCode": "EUR_S",
-      "populationName": "Southern European",
+      "populationCode": "GBR",
+      "populationName": "British",
+      "superPopulation": "European",
       "percentage": 22.5,
-      "confidenceInterval": { "lower": 19.8, "upper": 25.2 }
+      "confidenceInterval": { "lower": 19.8, "upper": 25.2 },
+      "rank": 2
     },
     {
-      "populationCode": "EUR_E",
-      "populationName": "Eastern European",
-      "percentage": 12.3,
-      "confidenceInterval": { "lower": 10.1, "upper": 14.5 }
+      "populationCode": "IBS",
+      "populationName": "Iberian",
+      "superPopulation": "European",
+      "percentage": 15.3,
+      "confidenceInterval": { "lower": 12.1, "upper": 18.5 },
+      "rank": 3
+    },
+    {
+      "populationCode": "FIN",
+      "populationName": "Finnish",
+      "superPopulation": "European",
+      "percentage": 8.7,
+      "confidenceInterval": { "lower": 6.2, "upper": 11.2 },
+      "rank": 4
+    },
+    {
+      "populationCode": "YRI",
+      "populationName": "Yoruba",
+      "superPopulation": "African",
+      "percentage": 3.2,
+      "confidenceInterval": { "lower": 1.5, "upper": 4.9 },
+      "rank": 5
     }
   ],
-  "analysisDate": "2025-12-05T16:00:00Z",
-  "pipelineVersion": "decodingus-ancestry-2.1.0"
+  "superPopulationSummary": [
+    {
+      "superPopulation": "European",
+      "percentage": 94.7,
+      "populations": ["CEU", "GBR", "IBS", "FIN", "TSI"]
+    },
+    {
+      "superPopulation": "African",
+      "percentage": 3.2,
+      "populations": ["YRI", "LWK", "ESN", "MSL", "GWD"]
+    }
+  ],
+  "pcaCoordinates": [0.0234, -0.0156, 0.0089],
+  "analysisDate": "2025-12-08T16:00:00Z",
+  "pipelineVersion": "1.0.0",
+  "referenceVersion": "v1"
 }
 ```
 
