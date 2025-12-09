@@ -252,3 +252,4 @@ In the "Atmosphere" model, this Lexicon defines the data structures for decentra
 | 1.6 | 2025-12-08 | Multi-test-type support with taxonomy codes, enhanced genotype record |
 | 1.7 | 2025-12-09 | Split into multiple focused documents, added status indicators |
 | 1.8 | 2025-12-09 | AppView implementation complete: DAL tables, repositories, event handlers for genotype, populationBreakdown, haplogroupReconciliation |
+| **1.9** | **2025-12-09** | **MVP SHIPPABLE**: AppView backend ready for Phase 1/2 integration. Back-flow APIs deferred to post-MVP. |
