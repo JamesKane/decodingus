@@ -28,19 +28,52 @@
             </ul>
             <ul class="navbar-nav ms-auto">
                 @if(request.session.get("userId").isDefined) {
+                    @* Messages link with badge *@
                     <li class="nav-item">
-                        <a class="nav-link" href="@controllers.routes.ProfileController.view">@messages("nav.profile")</a>
+                        <a class="nav-link d-flex align-items-center" href="@controllers.routes.ContactController.myMessages()">
+                            @messages("nav.messages")
+                            <span hx-get="@controllers.routes.ContactController.userMessageBadge()"
+                                  hx-trigger="load, every 60s"
+                                  hx-swap="innerHTML"></span>
+                        </a>
                     </li>
+                    @* Admin-only items *@
                     @if(request.session.get("userRoles").exists(r => r.contains("Curator") || r.contains("Admin"))) {
                         <li class="nav-item">
                             <a class="nav-link" href="@controllers.routes.PublicationCandidateController.listCandidates()">@messages("nav.candidates")</a>
                         </li>
                     }
-                    <li class="nav-item">
-                        <form action="@controllers.routes.AuthController.logout" method="post" style="display:inline;">
-                            @helper.CSRF.formField
-                            <button type="submit" class="nav-link btn btn-link" style="display:inline; cursor:pointer;">@messages("nav.logout")</button>
-                        </form>
+                    @if(request.session.get("userRoles").exists(_.contains("Admin"))) {
+                        <li class="nav-item">
+                            <a class="nav-link d-flex align-items-center" href="@controllers.routes.SupportAdminController.listMessages()">
+                                @messages("nav.supportAdmin")
+                                <span hx-get="@controllers.routes.SupportAdminController.adminMessageBadge()"
+                                      hx-trigger="load, every 60s"
+                                      hx-swap="innerHTML"></span>
+                            </a>
+                        </li>
+                    }
+                    @* User dropdown menu *@
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="bi bi-person-circle me-1"></i>@request.session.get("userDisplayName").getOrElse("User")
+                        </a>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                            <li>
+                                <a class="dropdown-item" href="@controllers.routes.ProfileController.view">
+                                    <i class="bi bi-person me-2"></i>@messages("nav.profile")
+                                </a>
+                            </li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li>
+                                <form action="@controllers.routes.AuthController.logout" method="post" class="px-0 m-0">
+                                    @helper.CSRF.formField
+                                    <button type="submit" class="dropdown-item">
+                                        <i class="bi bi-box-arrow-right me-2"></i>@messages("nav.logout")
+                                    </button>
+                                </form>
+                            </li>
+                        </ul>
                     </li>
                 } else {
                     <li class="nav-item">

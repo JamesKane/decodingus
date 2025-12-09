@@ -40,12 +40,14 @@ class AuthController @Inject()(
             // Fetch roles to store in session for UI logic
             userRoleRepository.getUserRoles(user.id.get).map { roles =>
               val roleString = roles.mkString(",")
+              val displayName = user.displayName.orElse(user.handle).getOrElse("User")
               Redirect(routes.HomeController.index())
                 .withSession(
                   "userId" -> user.id.get.toString,
-                  "userRoles" -> roleString
+                  "userRoles" -> roleString,
+                  "userDisplayName" -> displayName
                 )
-                .flashing("success" -> s"Welcome back, ${user.handle.getOrElse("User")}!")
+                .flashing("success" -> s"Welcome back, $displayName!")
             }
           case None =>
             Future.successful(

@@ -10,6 +10,7 @@
         @* Here's where we render the page title `String`. *@
         <title>@title</title>
         @webJarsUtil.locate("bootstrap", "css/bootstrap.min.css").css()
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@@1.11.3/font/bootstrap-icons.min.css">
         @webJarsUtil.locate("popper.js", "umd/popper.min.js").script()
         @webJarsUtil.locate("bootstrap", "js/bootstrap.min.js").script()
         @webJarsUtil.locate("htmx.org", "dist/htmx.min.js").script()

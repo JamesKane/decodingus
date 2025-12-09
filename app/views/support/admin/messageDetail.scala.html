@@ -1,0 +1,168 @@
+@import org.webjars.play.WebJarsUtil
+@import models.domain.support.{ContactMessage, MessageReply, MessageStatus}
+@import models.domain.user.User
+@import controllers.ReplyFormData
+@(message: ContactMessage, replies: Seq[MessageReply], sender: Option[User], replyForm: Form[ReplyFormData])(implicit request: RequestHeader, messagesProvider: Messages, webJarsUtil: WebJarsUtil)
+
+@main(messagesProvider("support.admin.messageDetail.title")) {
+    <div class="container py-5">
+        <div class="mb-4">
+            <a href="@controllers.routes.SupportAdminController.listMessages()" class="btn btn-outline-secondary">
+                &larr; @messagesProvider("support.admin.backToList")
+            </a>
+        </div>
+
+        @request.flash.get("success").map { msg =>
+            <div class="alert alert-success alert-dismissible fade show" role="alert">
+                @msg
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+        }
+
+        <div class="row">
+            <div class="col-lg-8">
+                <div class="card mb-4">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">@message.subject</h5>
+                        <span class="badge @statusBadgeClass(message.status)">
+                            @messagesProvider(s"support.status.${message.status.value}")
+                        </span>
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <small class="text-muted">
+                                @messagesProvider("support.admin.receivedAt"): @message.createdAt
+                            </small>
+                        </div>
+                        <div class="message-content p-3 bg-light rounded">
+                            <pre class="mb-0" style="white-space: pre-wrap; font-family: inherit;">@message.message</pre>
+                        </div>
+                    </div>
+                </div>
+
+                @if(replies.nonEmpty) {
+                    <h5>@messagesProvider("support.admin.replies")</h5>
+                    @for(reply <- replies) {
+                        <div class="card mb-3 border-start border-primary border-3">
+                            <div class="card-body">
+                                <div class="d-flex justify-content-between mb-2">
+                                    <small class="text-muted">
+                                        @messagesProvider("support.admin.repliedBy"): Admin
+                                    </small>
+                                    <small class="text-muted">@reply.createdAt</small>
+                                </div>
+                                <pre class="mb-0" style="white-space: pre-wrap; font-family: inherit;">@reply.replyText</pre>
+                                @if(reply.emailSent) {
+                                    <div class="mt-2">
+                                        <span class="badge bg-success">
+                                            @messagesProvider("support.admin.emailSent") @reply.emailSentAt.map(_.toLocalDate).getOrElse("")
+                                        </span>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    }
+                }
+
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">@messagesProvider("support.admin.sendReply")</h5>
+                    </div>
+                    <div class="card-body">
+                        @helper.form(action = controllers.routes.SupportAdminController.submitReply(message.id.get)) {
+                            @helper.CSRF.formField
+
+                            <div class="mb-3">
+                                <textarea name="replyText" class="form-control @if(replyForm("replyText").hasErrors) {is-invalid}"
+                                    rows="5" required maxlength="4096"
+                                    placeholder="@messagesProvider("support.admin.replyPlaceholder")">@replyForm("replyText").value</textarea>
+                                @replyForm("replyText").errors.map { error =>
+                                    <div class="invalid-feedback">@messagesProvider(error.message)</div>
+                                }
+                            </div>
+
+                            @if(message.senderEmail.isDefined) {
+                                <div class="mb-3 form-check">
+                                    <input type="checkbox" class="form-check-input" id="sendEmail" name="sendEmail" value="true" checked>
+                                    <label class="form-check-label" for="sendEmail">
+                                        @messagesProvider("support.admin.sendEmailCopy") (@message.senderEmail.get)
+                                    </label>
+                                </div>
+                            } else {
+                                <input type="hidden" name="sendEmail" value="false">
+                                <div class="alert alert-info mb-3">
+                                    <small>@messagesProvider("support.admin.noEmailForAuth")</small>
+                                </div>
+                            }
+
+                            <button type="submit" class="btn btn-primary">
+                                @messagesProvider("support.admin.submitReply")
+                            </button>
+                        }
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-lg-4">
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h6 class="mb-0">@messagesProvider("support.admin.senderInfo")</h6>
+                    </div>
+                    <div class="card-body">
+                        <dl class="mb-0">
+                            @sender match {
+                                case Some(user) => {
+                                    <dt>@messagesProvider("support.admin.type")</dt>
+                                    <dd><span class="badge bg-info">@messagesProvider("support.admin.authenticated")</span></dd>
+                                    <dt>@messagesProvider("support.admin.handle")</dt>
+                                    <dd>@user.handle.getOrElse("N/A")</dd>
+                                    <dt>@messagesProvider("support.admin.userId")</dt>
+                                    <dd><code>@user.id.get</code></dd>
+                                }
+                                case None => {
+                                    <dt>@messagesProvider("support.admin.type")</dt>
+                                    <dd><span class="badge bg-secondary">@messagesProvider("support.admin.anonymous")</span></dd>
+                                    <dt>@messagesProvider("support.admin.name")</dt>
+                                    <dd>@message.senderName.getOrElse("N/A")</dd>
+                                    <dt>@messagesProvider("support.admin.email")</dt>
+                                    <dd>@message.senderEmail.getOrElse("N/A")</dd>
+                                }
+                            }
+                        </dl>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h6 class="mb-0">@messagesProvider("support.admin.actions")</h6>
+                    </div>
+                    <div class="card-body">
+                        <div class="d-grid gap-2">
+                            @if(message.status != MessageStatus.Closed) {
+                                <a href="@controllers.routes.SupportAdminController.updateStatus(message.id.get, "closed")"
+                                   class="btn btn-outline-secondary">
+                                    @messagesProvider("support.admin.markClosed")
+                                </a>
+                            }
+                            @if(message.status == MessageStatus.Closed) {
+                                <a href="@controllers.routes.SupportAdminController.updateStatus(message.id.get, "new")"
+                                   class="btn btn-outline-primary">
+                                    @messagesProvider("support.admin.reopen")
+                                </a>
+                            }
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@statusBadgeClass(status: MessageStatus) = @{
+    status match {
+        case MessageStatus.New => "bg-primary"
+        case MessageStatus.Read => "bg-info"
+        case MessageStatus.Replied => "bg-success"
+        case MessageStatus.Closed => "bg-secondary"
+    }
+}

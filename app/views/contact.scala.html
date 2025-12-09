@@ -3,7 +3,7 @@
 @import org.webjars.play.WebJarsUtil
 
 @this(recaptchaField: views.html.recaptcha.recaptchaField)
-@(contactForm: Form[Contact.ContactDTO], isProd: Boolean)(implicit request: Request[AnyContent], messages: Messages, webJarsUtil: WebJarsUtil, widgetHelper: WidgetHelper)
+@(contactForm: Form[Contact.ContactDTO], isProd: Boolean, isAuthenticated: Boolean)(implicit request: Request[AnyContent], messages: Messages, webJarsUtil: WebJarsUtil, widgetHelper: WidgetHelper)
 @main(messages("contact.title")) {
     <div class="container py-5">
         <div class="row justify-content-center">
@@ -11,6 +11,12 @@
                 <div class="card shadow-sm">
                     <div class="card-body">
                         <h1 class="card-title text-center mb-4">@messages("contact.title")</h1>
+
+                        @if(isAuthenticated) {
+                            <div class="alert alert-info mb-4" role="alert">
+                                <small>@messages("contact.authenticated.info")</small>
+                            </div>
+                        }
 
                         @request.flash.get("success").map { message =>
                             <div class="alert alert-success alert-dismissible fade show" role="alert">
@@ -33,38 +39,45 @@
                         @helper.form(action = routes.ContactController.submit(), Symbol("class") -> "needs-validation", Symbol("autocomplete") -> "off") {
                             @helper.CSRF.formField
 
-                            <div class="mb-3">
-                                <label for="name" class="form-label">@messages("contact.name.label")</label>
-                                <input type="text"
-                                class="form-control @if(contactForm("name").hasErrors) {is-invalid}"
-                                id="name"
-                                name="name"
-                                value="@contactForm("name").value"
-                                placeholder="@messages("contact.name.placeholder")"
-                                required
-                                maxlength="64"
-                                autocomplete="off">
-                                @contactForm("name").errors.map { error =>
-                                    <div class="invalid-feedback">@messages(error.message)</div>
-                                }
-                                <div class="form-text">@messages("contact.name.help")</div>
-                            </div>
+                            @* Name and email fields - only shown for anonymous users *@
+                            @if(!isAuthenticated) {
+                                <div class="mb-3">
+                                    <label for="name" class="form-label">@messages("contact.name.label")</label>
+                                    <input type="text"
+                                    class="form-control @if(contactForm("name").hasErrors) {is-invalid}"
+                                    id="name"
+                                    name="name"
+                                    value="@contactForm("name").value"
+                                    placeholder="@messages("contact.name.placeholder")"
+                                    required
+                                    maxlength="64"
+                                    autocomplete="off">
+                                    @contactForm("name").errors.map { error =>
+                                        <div class="invalid-feedback">@messages(error.message)</div>
+                                    }
+                                    <div class="form-text">@messages("contact.name.help")</div>
+                                </div>
 
-                            <div class="mb-3">
-                                <label for="email" class="form-label">@messages("contact.email.label")</label>
-                                <input type="email"
-                                class="form-control @if(contactForm("email").hasErrors) {is-invalid}"
-                                id="email"
-                                name="email"
-                                value="@contactForm("email").value"
-                                placeholder="@messages("contact.email.placeholder")"
-                                required
-                                autocomplete="off">
-                                @contactForm("email").errors.map { error =>
-                                    <div class="invalid-feedback">@messages(error.message)</div>
-                                }
-                                <div class="form-text">@messages("contact.email.help")</div>
-                            </div>
+                                <div class="mb-3">
+                                    <label for="email" class="form-label">@messages("contact.email.label")</label>
+                                    <input type="email"
+                                    class="form-control @if(contactForm("email").hasErrors) {is-invalid}"
+                                    id="email"
+                                    name="email"
+                                    value="@contactForm("email").value"
+                                    placeholder="@messages("contact.email.placeholder")"
+                                    required
+                                    autocomplete="off">
+                                    @contactForm("email").errors.map { error =>
+                                        <div class="invalid-feedback">@messages(error.message)</div>
+                                    }
+                                    <div class="form-text">@messages("contact.email.help")</div>
+                                </div>
+                            } else {
+                                @* Hidden fields with placeholder values for authenticated users *@
+                                <input type="hidden" name="name" value="Authenticated User">
+                                <input type="hidden" name="email" value="authenticated@@placeholder.local">
+                            }
 
                             <div class="mb-3">
                                 <label for="subject" class="form-label">@messages("contact.subject.label")</label>
@@ -96,6 +109,7 @@
                                     <div class="invalid-feedback">@messages(error.message)</div>
                                 }
                             </div>
+
                             @* Honeypot field - hidden from real users *@
                             <div class="d-none" aria-hidden="true">
                                 <input type="text"
@@ -107,7 +121,8 @@
                                 tabindex="-1">
                             </div>
 
-                            @if(isProd) {
+                            @* reCAPTCHA only for anonymous users in production *@
+                            @if(isProd && !isAuthenticated) {
                                 @recaptchaField(form = contactForm, fieldName = "captcha", includeNoScript = false,
                                     isRequired = true, tabindex = 5, args = Symbol("class") -> "extraClass")
                             }
@@ -116,6 +131,12 @@
                                 <button type="submit" class="btn btn-primary btn-lg">
                                     <i class="bi bi-send-fill me-2"></i>@messages("contact.send")
                                 </button>
+
+                                @if(isAuthenticated) {
+                                    <a href="@routes.ContactController.myMessages()" class="btn btn-outline-secondary btn-lg ms-2">
+                                        @messages("contact.viewHistory")
+                                    </a>
+                                }
                             </div>
                         }
                     </div>

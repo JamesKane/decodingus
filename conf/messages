@@ -18,6 +18,8 @@ nav.faq = FAQ
 nav.api = API Documentation
 nav.profile = Profile
 nav.candidates = Review Candidates
+nav.messages = Messages
+nav.supportAdmin = Support
 nav.logout = Logout
 nav.login = Login
 
@@ -91,6 +93,59 @@ contact.subject.placeholder = Subject of your message
 contact.message.label = Message
 contact.message.placeholder = Your message
 contact.send = Send Message
+contact.authenticated.info = You're logged in. Your message will be linked to your account and you can track responses in your message history.
+contact.viewHistory = View Message History
+
+# Support - User Messages
+support.myMessages.title = My Messages
+support.myMessages.heading = My Message History
+support.myMessages.empty = You haven't sent any messages yet.
+support.newMessage = New Message
+support.status.new = New
+support.status.read = Read
+support.status.replied = Replied
+support.status.closed = Closed
+
+# Support - Admin
+support.admin.title = Support Messages
+support.admin.heading = Contact Message Management
+support.admin.filterStatus = Filter by status:
+support.admin.allStatuses = All Statuses
+support.admin.noMessages = No messages found.
+support.admin.table.status = Status
+support.admin.table.from = From
+support.admin.table.subject = Subject
+support.admin.table.date = Date
+support.admin.view = View
+support.admin.authenticated = User
+support.admin.registeredUser = Registered User
+support.admin.anonymous = Anonymous
+support.admin.messageDetail.title = Message Details
+support.admin.backToList = Back to Messages
+support.admin.receivedAt = Received
+support.admin.replies = Replies
+support.admin.repliedBy = Replied by
+support.admin.emailSent = Email sent
+support.admin.sendReply = Send Reply
+support.admin.replyPlaceholder = Type your reply here...
+support.admin.sendEmailCopy = Send email copy to
+support.admin.noEmailForAuth = This user is logged in. Replies will appear in their message history.
+support.admin.submitReply = Send Reply
+support.admin.senderInfo = Sender Information
+support.admin.type = Type
+support.admin.handle = Handle
+support.admin.userId = User ID
+support.admin.name = Name
+support.admin.email = Email
+support.admin.actions = Actions
+support.admin.markClosed = Mark as Closed
+support.admin.reopen = Reopen
+
+# Errors
+error.forbidden.title = Access Denied
+error.forbidden.heading = Access Denied
+error.notFound.title = Not Found
+error.notFound.heading = Page Not Found
 
 # Coverage
 coverage.subtitle = Aggregated coverage statistics grouped by laboratory, test type, and contig.
@@ -131,6 +186,12 @@ sidebar.title = Defining Variant(s) for {0}
 sidebar.noVariants = No defining Variants found for {0}.
 sidebar.type = Type: {0}
 sidebar.refLocation = Reference Location(s):
+
+# References Page
+references.title = Publications
+references.viewMap = View Map
+references.search.placeholder = Search by title, author, DOI...
+references.search.help = Search publications by title, author name, journal, or DOI
 
 # Publication
 publication.authors = Authors:

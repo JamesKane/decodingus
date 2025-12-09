@@ -1,0 +1,52 @@
+@import org.webjars.play.WebJarsUtil
+@import models.domain.support.{ContactMessage, MessageStatus}
+@(messages: Seq[ContactMessage])(implicit request: RequestHeader, messagesProvider: Messages, webJarsUtil: WebJarsUtil)
+
+@main(messagesProvider("support.myMessages.title")) {
+    <div class="container py-5">
+        <div class="row justify-content-center">
+            <div class="col-12 col-lg-10">
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <h1>@messagesProvider("support.myMessages.heading")</h1>
+                    <a href="@controllers.routes.ContactController.show()" class="btn btn-primary">
+                        @messagesProvider("support.newMessage")
+                    </a>
+                </div>
+
+                @if(messages.isEmpty) {
+                    <div class="alert alert-info">
+                        @messagesProvider("support.myMessages.empty")
+                    </div>
+                } else {
+                    <div class="list-group">
+                        @for(msg <- messages) {
+                            <div class="list-group-item list-group-item-action">
+                                <div class="d-flex w-100 justify-content-between">
+                                    <h5 class="mb-1">@msg.subject</h5>
+                                    <small class="text-muted">@msg.createdAt.toLocalDate</small>
+                                </div>
+                                <p class="mb-1 text-truncate" style="max-width: 600px;">@msg.message</p>
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <small>
+                                        <span class="badge @statusBadgeClass(msg.status)">
+                                            @messagesProvider(s"support.status.${msg.status.value}")
+                                        </span>
+                                    </small>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@statusBadgeClass(status: MessageStatus) = @{
+    status match {
+        case MessageStatus.New => "bg-primary"
+        case MessageStatus.Read => "bg-info"
+        case MessageStatus.Replied => "bg-success"
+        case MessageStatus.Closed => "bg-secondary"
+    }
+}

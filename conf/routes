@@ -37,6 +37,15 @@ GET           /coverage-benchmarks                                              
 # Contact form routes
 GET           /contact                                                                           controllers.ContactController.show()
 POST          /contact                                                                           controllers.ContactController.submit()
+GET           /my-messages                                                                       controllers.ContactController.myMessages()
+GET           /my-messages/badge                                                                 controllers.ContactController.userMessageBadge()
+
+# Support Admin (requires Admin role)
+GET           /admin/messages                                                                    controllers.SupportAdminController.listMessages(status: Option[String] ?= None, page: Int ?= 1, pageSize: Int ?= 20)
+GET           /admin/messages/badge                                                              controllers.SupportAdminController.adminMessageBadge()
+GET           /admin/messages/:id                                                                controllers.SupportAdminController.viewMessage(id: java.util.UUID)
+POST          /admin/messages/:id/reply                                                          controllers.SupportAdminController.submitReply(id: java.util.UUID)
+GET           /admin/messages/:id/status/:status                                                 controllers.SupportAdminController.updateStatus(id: java.util.UUID, status: String)
 
 GET           /api/v1/y-tree                                                                     controllers.TreeController.apiYTree(rootHaplogroup: Option[String])
 GET           /api/v1/mt-tree                                                                    controllers.TreeController.apiMTree(rootHaplogroup: Option[String])

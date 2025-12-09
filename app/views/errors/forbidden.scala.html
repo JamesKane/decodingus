@@ -1,0 +1,17 @@
+@import org.webjars.play.WebJarsUtil
+@(message: String)(implicit request: RequestHeader, messagesProvider: Messages, webJarsUtil: WebJarsUtil)
+
+@main(messagesProvider("error.forbidden.title")) {
+    <div class="container py-5">
+        <div class="row justify-content-center">
+            <div class="col-md-6 text-center">
+                <h1 class="display-1 text-danger">403</h1>
+                <h2>@messagesProvider("error.forbidden.heading")</h2>
+                <p class="lead">@message</p>
+                <a href="@controllers.routes.HomeController.index()" class="btn btn-primary">
+                    @messagesProvider("nav.home")
+                </a>
+            </div>
+        </div>
+    </div>
+}

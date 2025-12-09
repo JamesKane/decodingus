@@ -142,4 +142,10 @@ object DatabaseSchema {
     val userPdsInfos = TableQuery[UserPdsInfoTable]
     val userRoles = TableQuery[UserRolesTable]
   }
+
+  object support {
+    import models.dal.support.*
+    val contactMessages = TableQuery[ContactMessagesTable]
+    val messageReplies = TableQuery[MessageRepliesTable]
+  }
 }
