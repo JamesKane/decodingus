@@ -10,7 +10,13 @@ This record represents genotyping array/chip data (e.g., 23andMe, AncestryDNA, F
 
 **NSID:** `com.decodingus.atmosphere.genotype`
 
-**Status:** 🚧 In Development (Navigator Desktop Implementation)
+**Status:** ✅ AppView Complete | 🚧 Navigator In Development
+
+**AppView Implementation (2025-12-09):**
+- Database: `genotype_data` table (Migration 39)
+- Domain Model: `GenotypeData` with `GenotypeMetrics` JSONB wrapper
+- Repository: `GenotypeDataRepository` with full CRUD
+- Event Handler: `handleGenotype` in `AtmosphereEventHandler`
 
 **Supported Vendors**: 23andMe, AncestryDNA, FamilyTreeDNA, MyHeritage, LivingDNA
 

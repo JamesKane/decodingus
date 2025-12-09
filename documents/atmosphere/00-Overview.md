@@ -77,15 +77,15 @@ Reconciliation references are stored at the specimen donor level, not the biosam
 
 | Document                                                     | Contents | Status |
 |:-------------------------------------------------------------|:---|:---|
-| [01-Common-Definitions.md](./01-Common-Definitions.md)       | Shared type definitions (`recordMeta`, `fileInfo`, `haplogroupResult`, `variantCall`, `reconciliationStatus`, etc.) | Core |
-| [02-Core-Records.md](./02-Core-Records.md)                   | `workspace`, `biosample`, `sequencerun`, `alignment`, `project` | Core |
-| [03-Genotype-Records.md](./03-Genotype-Records.md)           | `genotype`, `imputation` | 🚧 In Development |
-| [04-Ancestry-Records.md](./04-Ancestry-Records.md)           | `populationBreakdown` | 🚧 In Development |
+| [01-Common-Definitions.md](./01-Common-Definitions.md)       | Shared type definitions (`recordMeta`, `fileInfo`, `haplogroupResult`, `variantCall`, `reconciliationStatus`, etc.) | ✅ Core |
+| [02-Core-Records.md](./02-Core-Records.md)                   | `workspace`, `biosample`, `sequencerun`, `alignment`, `project` | ✅ Core |
+| [03-Genotype-Records.md](./03-Genotype-Records.md)           | `genotype`, `imputation` | ✅ AppView Complete |
+| [04-Ancestry-Records.md](./04-Ancestry-Records.md)           | `populationBreakdown` | ✅ AppView Complete |
 | [05-STR-Records.md](./05-STR-Records.md)                     | `strProfile`, `haplogroupAncestralStr` | 🔮 Future |
 | [06-IBD-Matching-Records.md](./06-IBD-Matching-Records.md)   | `matchConsent`, `matchList`, `matchRequest` | 🔮 Future |
 | [07-Discovery-Records.md](./07-Discovery-Records.md)         | `instrumentObservation` | 🔮 Future |
 | [08-AppView-Lifecycle.md](./08-AppView-Lifecycle.md)         | Firehose event handling, schema requirements, conflict resolution | Reference |
-| [09-Reconciliation-Records.md](09-Reconciliation-Records.md) | `haplogroupReconciliation` for multi-run consensus | Core |
+| [09-Reconciliation-Records.md](09-Reconciliation-Records.md) | `haplogroupReconciliation` for multi-run consensus | ✅ AppView Complete |
 | [10-Examples.md](10-Examples.md)                             | Mock data and CRUD flow examples | Reference |
 
 ## Record Relationship Diagram
@@ -221,23 +221,23 @@ In the "Atmosphere" model, this Lexicon defines the data structures for decentra
 
 ## Record Status Summary
 
-| Record Type | Status | Planning Document | Purpose |
-|:---|:---|:---|:---|
-| `biosample` | Core | - | Sample and donor metadata |
-| `sequencerun` | Core | - | Sequencing run metadata |
-| `alignment` | Core | - | Alignment metrics |
-| `project` | Core | - | Research project grouping |
-| `workspace` | Core | - | User workspace container |
-| `haplogroupReconciliation` | Core | MultiRunReconciliation.md | Multi-run haplogroup reconciliation |
-| `genotype` | 🚧 In Development | multi-test-type-roadmap.md | Chip/array data support |
-| `populationBreakdown` | 🚧 In Development | AncestryAnalysis.md | Ancestry composition |
-| `imputation` | 🔮 Future | multi-test-type-roadmap.md | Imputed genotype results |
-| `matchConsent` | 🔮 Future | ibd-matching-system.md | IBD matching opt-in |
-| `matchList` | 🔮 Future | ibd-matching-system.md | IBD match results |
-| `matchRequest` | 🔮 Future | ibd-matching-system.md | Match contact requests |
-| `instrumentObservation` | 🔮 Future | sequencer-lab-inference-system.md | Crowdsourced lab discovery |
-| `strProfile` | 🔮 Future | Y-DNA STR Support | Individual Y-STR marker data |
-| `haplogroupAncestralStr` | 🔮 Future | Y-DNA Tree Enhancement | Reconstructed ancestral STR states |
+| Record Type | Status | AppView | Planning Document | Purpose |
+|:---|:---|:---|:---|:---|
+| `biosample` | ✅ Core | ✅ Complete | - | Sample and donor metadata |
+| `sequencerun` | ✅ Core | ✅ Complete | - | Sequencing run metadata |
+| `alignment` | ✅ Core | ✅ Complete | - | Alignment metrics |
+| `project` | ✅ Core | ✅ Complete | - | Research project grouping |
+| `workspace` | ✅ Core | ✅ Complete | - | User workspace container |
+| `haplogroupReconciliation` | ✅ Core | ✅ Complete | MultiRunReconciliation.md | Multi-run haplogroup reconciliation |
+| `genotype` | ✅ Core | ✅ Complete | multi-test-type-roadmap.md | Chip/array data support |
+| `populationBreakdown` | ✅ Core | ✅ Complete | AncestryAnalysis.md | Ancestry composition |
+| `imputation` | 🔮 Future | 📋 Planned | multi-test-type-roadmap.md | Imputed genotype results |
+| `matchConsent` | 🔮 Future | 📋 Planned | ibd-matching-system.md | IBD matching opt-in |
+| `matchList` | 🔮 Future | 📋 Planned | ibd-matching-system.md | IBD match results |
+| `matchRequest` | 🔮 Future | 📋 Planned | ibd-matching-system.md | Match contact requests |
+| `instrumentObservation` | 🔮 Future | 📋 Planned | sequencer-lab-inference-system.md | Crowdsourced lab discovery |
+| `strProfile` | 🔮 Future | 📋 Planned | Y-DNA STR Support | Individual Y-STR marker data |
+| `haplogroupAncestralStr` | 🔮 Future | 📋 Planned | Y-DNA Tree Enhancement | Reconstructed ancestral STR states |
 
 ## Changelog
 
@@ -251,3 +251,4 @@ In the "Atmosphere" model, this Lexicon defines the data structures for decentra
 | 1.5 | 2025-12-08 | Added multi-run reconciliation support, enhanced ancestry analysis with 33 populations |
 | 1.6 | 2025-12-08 | Multi-test-type support with taxonomy codes, enhanced genotype record |
 | 1.7 | 2025-12-09 | Split into multiple focused documents, added status indicators |
+| 1.8 | 2025-12-09 | AppView implementation complete: DAL tables, repositories, event handlers for genotype, populationBreakdown, haplogroupReconciliation |

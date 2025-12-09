@@ -10,6 +10,14 @@ This record contains the reconciliation results when a specimen donor has multip
 
 **NSID:** `com.decodingus.atmosphere.haplogroupReconciliation`
 
+**Status:** ✅ AppView Complete
+
+**AppView Implementation (2025-12-09):**
+- Database: `haplogroup_reconciliation` table with `dna_type` enum (Migration 40)
+- Domain Models: `HaplogroupReconciliation`, `ReconciliationStatus`, `DnaType` enum
+- Repository: `HaplogroupReconciliationRepository` with donor/DNA type uniqueness
+- Event Handler: `handleHaplogroupReconciliation` in `AtmosphereEventHandler`
+
 ```json
 {
   "lexicon": 1,
