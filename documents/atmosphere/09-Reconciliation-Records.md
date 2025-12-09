@@ -6,7 +6,7 @@ Record types for multi-run haplogroup reconciliation and conflict resolution.
 
 ## Haplogroup Reconciliation Record
 
-This record contains the reconciliation results when a biosample has multiple sequencing runs with potentially different haplogroup calls. It tracks per-run calls, conflicts, and the consensus result.
+This record contains the reconciliation results when a specimen donor has multiple biosamples or sequencing runs with potentially different haplogroup calls. It tracks per-run calls, conflicts, and the consensus result. Reconciliation is at the donor level since a donor may have multiple biosamples from different testing companies or labs.
 
 **NSID:** `com.decodingus.atmosphere.haplogroupReconciliation`
 
@@ -17,11 +17,11 @@ This record contains the reconciliation results when a biosample has multiple se
   "defs": {
     "main": {
       "type": "record",
-      "description": "Reconciliation of haplogroup calls across multiple sequencing runs for a single biosample.",
+      "description": "Reconciliation of haplogroup calls across multiple biosamples/runs for a single specimen donor.",
       "key": "tid",
       "record": {
         "type": "object",
-        "required": ["meta", "atUri", "biosampleRef", "dnaType", "status", "runCalls"],
+        "required": ["meta", "atUri", "specimenDonorRef", "dnaType", "status", "runCalls"],
         "properties": {
           "atUri": {
             "type": "string",
@@ -31,9 +31,9 @@ This record contains the reconciliation results when a biosample has multiple se
             "type": "ref",
             "ref": "com.decodingus.atmosphere.defs#recordMeta"
           },
-          "biosampleRef": {
+          "specimenDonorRef": {
             "type": "string",
-            "description": "AT URI of the parent biosample record."
+            "description": "AT URI or identifier of the specimen donor this reconciliation belongs to."
           },
           "dnaType": {
             "type": "string",
