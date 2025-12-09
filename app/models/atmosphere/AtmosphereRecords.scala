@@ -114,12 +114,24 @@ object AlignmentMetrics {
 case class PopulationComponent(
                                 populationCode: String,
                                 populationName: Option[String],
+                                superPopulation: Option[String],  // Continental grouping (European, African, etc.)
                                 percentage: Double,
-                                confidenceInterval: Option[Map[String, Double]] // "lower", "upper"
+                                confidenceInterval: Option[Map[String, Double]], // "lower", "upper"
+                                rank: Option[Int]  // Display rank by percentage (1 = highest)
                               )
 
 object PopulationComponent {
   implicit val format: OFormat[PopulationComponent] = Json.format[PopulationComponent]
+}
+
+case class SuperPopulationSummary(
+                                   superPopulation: String,  // European, African, East Asian, etc.
+                                   percentage: Double,       // Combined percentage 0.0-100.0
+                                   populations: Seq[String]  // Contributing population codes
+                                 )
+
+object SuperPopulationSummary {
+  implicit val format: OFormat[SuperPopulationSummary] = Json.format[SuperPopulationSummary]
 }
 
 case class IbdSegment(
@@ -297,13 +309,26 @@ case class GenotypeRecord(
                            atUri: String,
                            meta: RecordMeta,
                            biosampleRef: String,
-                           provider: String,
-                           chipType: String,
+                           testTypeCode: String,  // ARRAY_23ANDME_V5, ARRAY_ANCESTRYDNA_V2, etc.
+                           provider: String,  // 23andMe, AncestryDNA, FTDNA, etc.
+                           chipType: Option[String],  // Deprecated, use testTypeCode
                            chipVersion: Option[String],
-                           snpCount: Option[Int],
-                           callRate: Option[Double],
+                           totalMarkersCalled: Option[Int],  // Markers with valid calls
+                           totalMarkersPossible: Option[Int],  // Total markers on chip
+                           callRate: Option[Double],  // % markers with valid call
+                           noCallRate: Option[Double],  // % markers with no call
+                           yMarkersCalled: Option[Int],  // Y-DNA markers with calls
+                           yMarkersTotal: Option[Int],  // Total Y-DNA markers
+                           mtMarkersCalled: Option[Int],  // mtDNA markers with calls
+                           mtMarkersTotal: Option[Int],  // Total mtDNA markers
+                           autosomalMarkersCalled: Option[Int],  // Autosomal markers called
+                           hetRate: Option[Double],  // Heterozygosity rate (QC metric)
                            testDate: Option[Instant],
-                           buildVersion: Option[String],
+                           processedAt: Option[Instant],  // When processed by Navigator
+                           buildVersion: Option[String],  // GRCh37, GRCh38
+                           sourceFileHash: Option[String],  // SHA-256 for deduplication
+                           derivedHaplogroups: Option[HaplogroupAssignments],  // Chip-derived haplogroups
+                           populationBreakdownRef: Option[String],  // AT URI to ancestry breakdown
                            files: Option[Seq[FileInfo]],
                            imputationRef: Option[String]
                          )
@@ -345,10 +370,18 @@ case class PopulationBreakdownRecord(
                                       atUri: String,
                                       meta: RecordMeta,
                                       biosampleRef: String,
-                                      analysisMethod: String,
-                                      referencePopulations: Option[String],
+                                      analysisMethod: String,  // PCA_PROJECTION_GMM, ADMIXTURE, etc.
+                                      panelType: Option[String],  // "aims" (~5k SNPs) or "genome-wide" (~500k SNPs)
+                                      referencePopulations: Option[String],  // '1000G_HGDP_v1', etc.
+                                      referenceVersion: Option[String],  // Reference panel version
                                       kValue: Option[Int],
+                                      snpsAnalyzed: Option[Int],  // Total SNPs in analysis panel
+                                      snpsWithGenotype: Option[Int],  // SNPs with valid calls
+                                      snpsMissing: Option[Int],  // SNPs with no call
+                                      confidenceLevel: Option[Double],  // Overall confidence 0.0-1.0
+                                      pcaCoordinates: Option[Seq[Double]],  // First 3 PCA coordinates [x, y, z]
                                       components: Seq[PopulationComponent],
+                                      superPopulationSummary: Option[Seq[SuperPopulationSummary]],  // 9 continental groups
                                       analysisDate: Option[Instant],
                                       pipelineVersion: Option[String]
                                     )
@@ -473,4 +506,169 @@ case class HaplogroupAncestralStrRecord(
 
 object HaplogroupAncestralStrRecord {
   implicit val format: OFormat[HaplogroupAncestralStrRecord] = Json.format[HaplogroupAncestralStrRecord]
+}
+
+// --- Reconciliation Types ---
+
+case class ReconciliationStatus(
+                                 compatibilityLevel: String,  // COMPATIBLE, MINOR_DIVERGENCE, MAJOR_DIVERGENCE, INCOMPATIBLE
+                                 consensusHaplogroup: String,
+                                 confidence: Option[Double],
+                                 divergencePoint: Option[String],  // Where branches split in tree
+                                 branchCompatibilityScore: Option[Double],  // LCA_depth / max(depth_A, depth_B)
+                                 snpConcordance: Option[Double],  // % SNP agreement across runs
+                                 runCount: Option[Int],
+                                 warnings: Option[Seq[String]]
+                               )
+
+object ReconciliationStatus {
+  implicit val format: OFormat[ReconciliationStatus] = Json.format[ReconciliationStatus]
+}
+
+case class AlternativePrediction(
+                                  haplogroup: String,
+                                  probability: Double
+                                )
+
+object AlternativePrediction {
+  implicit val format: OFormat[AlternativePrediction] = Json.format[AlternativePrediction]
+}
+
+case class ModalMatch(
+                       haplogroup: String,
+                       geneticDistance: Int,
+                       sampleCount: Option[Int]
+                     )
+
+object ModalMatch {
+  implicit val format: OFormat[ModalMatch] = Json.format[ModalMatch]
+}
+
+case class StrHaplogroupPrediction(
+                                    predictedHaplogroup: String,
+                                    probability: Double,
+                                    predictionMethod: Option[String],  // NEVGEN, HAPEST, YHAPLO, SAPP, BAYESIAN
+                                    alternativePredictions: Option[Seq[AlternativePrediction]],
+                                    markersUsed: Option[Int],
+                                    panelName: Option[String],
+                                    predictionDepth: Option[String],  // MAJOR_CLADE, SUBCLADE, TERMINAL
+                                    modalMatch: Option[ModalMatch],
+                                    limitations: Option[Seq[String]]
+                                  )
+
+object StrHaplogroupPrediction {
+  implicit val format: OFormat[StrHaplogroupPrediction] = Json.format[StrHaplogroupPrediction]
+}
+
+case class RunHaplogroupCall(
+                              sourceRef: String,  // AT URI of run/alignment/STR profile
+                              haplogroup: String,
+                              confidence: Double,
+                              callMethod: String,  // SNP_PHYLOGENETIC, STR_PREDICTION, VENDOR_REPORTED
+                              score: Option[Double],
+                              supportingSnps: Option[Int],
+                              conflictingSnps: Option[Int],
+                              noCalls: Option[Int],
+                              technology: Option[String],  // WGS, WES, BIG_Y, SNP_ARRAY, STR_PANEL
+                              meanCoverage: Option[Double],
+                              treeVersion: Option[String],
+                              strPrediction: Option[StrHaplogroupPrediction]
+                            )
+
+object RunHaplogroupCall {
+  implicit val format: OFormat[RunHaplogroupCall] = Json.format[RunHaplogroupCall]
+}
+
+case class SnpCallFromRun(
+                           runRef: String,
+                           allele: String,
+                           quality: Option[Double],
+                           depth: Option[Int],
+                           variantAlleleFrequency: Option[Double]
+                         )
+
+object SnpCallFromRun {
+  implicit val format: OFormat[SnpCallFromRun] = Json.format[SnpCallFromRun]
+}
+
+case class SnpConflict(
+                        position: Int,
+                        snpName: Option[String],
+                        contigAccession: Option[String],
+                        calls: Seq[SnpCallFromRun],
+                        resolution: Option[String],  // ACCEPT_MAJORITY, ACCEPT_HIGHER_QUALITY, etc.
+                        resolvedValue: Option[String]
+                      )
+
+object SnpConflict {
+  implicit val format: OFormat[SnpConflict] = Json.format[SnpConflict]
+}
+
+case class HeteroplasmyObservation(
+                                    position: Int,
+                                    majorAllele: String,
+                                    minorAllele: String,
+                                    majorAlleleFrequency: Double,
+                                    depth: Option[Int],
+                                    isDefiningSnp: Option[Boolean],
+                                    affectedHaplogroup: Option[String]
+                                  )
+
+object HeteroplasmyObservation {
+  implicit val format: OFormat[HeteroplasmyObservation] = Json.format[HeteroplasmyObservation]
+}
+
+case class IdentityVerification(
+                                 kinshipCoefficient: Option[Double],
+                                 fingerprintSnpConcordance: Option[Double],
+                                 yStrDistance: Option[Int],
+                                 verificationStatus: Option[String],  // VERIFIED_SAME, LIKELY_SAME, etc.
+                                 verificationMethod: Option[String]  // AUTOSOMAL_KINSHIP, Y_STR, etc.
+                               )
+
+object IdentityVerification {
+  implicit val format: OFormat[IdentityVerification] = Json.format[IdentityVerification]
+}
+
+case class ManualOverride(
+                           overriddenHaplogroup: String,
+                           reason: String,
+                           overriddenAt: Instant,
+                           overriddenBy: String  // DID of user
+                         )
+
+object ManualOverride {
+  implicit val format: OFormat[ManualOverride] = Json.format[ManualOverride]
+}
+
+case class AuditEntry(
+                       timestamp: Instant,
+                       action: String,  // INITIAL_RECONCILIATION, RUN_ADDED, RUN_REMOVED, MANUAL_OVERRIDE, etc.
+                       previousConsensus: Option[String],
+                       newConsensus: Option[String],
+                       runRef: Option[String],
+                       notes: Option[String]
+                     )
+
+object AuditEntry {
+  implicit val format: OFormat[AuditEntry] = Json.format[AuditEntry]
+}
+
+case class HaplogroupReconciliationRecord(
+                                           atUri: String,
+                                           meta: RecordMeta,
+                                           specimenDonorRef: String,  // AT URI or identifier of specimen donor
+                                           dnaType: String,  // Y_DNA or MT_DNA
+                                           status: ReconciliationStatus,
+                                           runCalls: Seq[RunHaplogroupCall],
+                                           snpConflicts: Option[Seq[SnpConflict]],
+                                           heteroplasmyObservations: Option[Seq[HeteroplasmyObservation]],
+                                           identityVerification: Option[IdentityVerification],
+                                           lastReconciliationAt: Option[Instant],
+                                           manualOverride: Option[ManualOverride],
+                                           auditLog: Option[Seq[AuditEntry]]
+                                         )
+
+object HaplogroupReconciliationRecord {
+  implicit val format: OFormat[HaplogroupReconciliationRecord] = Json.format[HaplogroupReconciliationRecord]
 }
