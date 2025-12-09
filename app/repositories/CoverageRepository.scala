@@ -29,7 +29,7 @@ class CoverageRepository @Inject()(
   def getBenchmarkStatistics: Future[Seq[CoverageBenchmark]] = {
     val query = sql"""
       SELECT lab,
-             test_type,
+             ttd.code                          as test_type,
              gc.common_name                    as contig,
              avg(read_length)                  as mean_read_len,
              min(read_length)                  as min_read_len,
@@ -52,8 +52,9 @@ class CoverageRepository @Inject()(
       JOIN public.genbank_contig gc ON am.genbank_contig_id = gc.genbank_contig_id
       JOIN public.sequence_file sf ON am.sequence_file_id = sf.id
       JOIN public.sequence_library sl ON sl.id = sf.library_id
-      GROUP BY lab, test_type, gc.common_name
-      ORDER BY lab, test_type, gc.common_name
+      JOIN public.test_type_definition ttd ON sl.test_type_id = ttd.id
+      GROUP BY lab, ttd.code, gc.common_name
+      ORDER BY lab, ttd.code, gc.common_name
     """.as[(String, String, String, Option[Double], Option[Int], Option[Int], Option[Double],
       Option[Int], Option[Int], Option[Double], Option[Double], Option[Double],
       Option[Double], Option[Double], Option[Double], Option[Double], Option[Double],
@@ -99,7 +100,7 @@ class CoverageRepository @Inject()(
   def getBenchmarksByLab(labId: Int): Future[Seq[CoverageBenchmark]] = {
     val query = sql"""
       SELECT sl.name                                  as lab,
-             sl2.test_type,
+             ttd.code                                 as test_type,
              gc.common_name                           as contig,
              AVG(sl2.read_length)                     as mean_read_len,
              MIN(sl2.read_length)                     as min_read_len,
@@ -121,11 +122,12 @@ class CoverageRepository @Inject()(
                JOIN alignment_metadata am ON ac.alignment_metadata_id = am.id
                JOIN sequence_file sf ON sf.id = am.sequence_file_id
                JOIN sequence_library sl2 ON sl2.id = sf.library_id
+               JOIN test_type_definition ttd ON sl2.test_type_id = ttd.id
                JOIN sequencing_lab sl ON sl2.lab = sl.name
                JOIN genbank_contig gc ON am.genbank_contig_id = gc.genbank_contig_id
       WHERE sl.id = $labId
-      GROUP BY sl.name, sl2.test_type, gc.common_name, gc.genbank_contig_id
-      ORDER BY sl.name, sl2.test_type, gc.genbank_contig_id
+      GROUP BY sl.name, ttd.code, gc.common_name, gc.genbank_contig_id
+      ORDER BY sl.name, ttd.code, gc.genbank_contig_id
     """.as[(String, String, String, Option[Double], Option[Int], Option[Int], Option[Double],
       Option[Int], Option[Int], Option[Double], Option[Double], Option[Double],
       Option[Double], Option[Double], Option[Double], Option[Double], Option[Double],
