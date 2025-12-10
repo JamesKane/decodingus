@@ -12,7 +12,7 @@ import play.api.data.Form
 import play.api.data.Forms.*
 import play.api.i18n.I18nSupport
 import play.api.mvc.*
-import repositories.{HaplogroupCoreRepository, VariantRepository}
+import repositories.{HaplogroupCoreRepository, HaplogroupVariantRepository, VariantRepository}
 import services.CuratorAuditService
 
 import java.time.LocalDateTime
@@ -44,6 +44,7 @@ class CuratorController @Inject()(
     permissionAction: PermissionAction,
     haplogroupRepository: HaplogroupCoreRepository,
     variantRepository: VariantRepository,
+    haplogroupVariantRepository: HaplogroupVariantRepository,
     auditService: CuratorAuditService
 )(implicit ec: ExecutionContext, webJarsUtil: WebJarsUtil)
     extends BaseController with I18nSupport with Logging {
@@ -130,11 +131,13 @@ class CuratorController @Inject()(
         haplogroupOpt <- haplogroupRepository.findById(id)
         parentOpt <- haplogroupRepository.getParent(id)
         children <- haplogroupRepository.getDirectChildren(id)
+        variants <- haplogroupVariantRepository.getHaplogroupVariants(id)
         history <- auditService.getHaplogroupHistory(id)
       } yield {
+        val variantsWithContig = variants.map { case (v, c) => VariantWithContig(v, c) }
         haplogroupOpt match {
           case Some(haplogroup) =>
-            Ok(views.html.curator.haplogroups.detailPanel(haplogroup, parentOpt, children, history))
+            Ok(views.html.curator.haplogroups.detailPanel(haplogroup, parentOpt, children, variantsWithContig, history))
           case None =>
             NotFound("Haplogroup not found")
         }
@@ -296,11 +299,12 @@ class CuratorController @Inject()(
     withPermission("variant.view").async { implicit request =>
       for {
         variantOpt <- variantRepository.findByIdWithContig(id)
+        haplogroups <- haplogroupVariantRepository.getHaplogroupsByVariant(id)
         history <- auditService.getVariantHistory(id)
       } yield {
         variantOpt match {
           case Some(variantWithContig) =>
-            Ok(views.html.curator.variants.detailPanel(variantWithContig, history))
+            Ok(views.html.curator.variants.detailPanel(variantWithContig, haplogroups, history))
           case None =>
             NotFound("Variant not found")
         }
@@ -433,6 +437,70 @@ class CuratorController @Inject()(
 
       historyFuture.map { history =>
         Ok(views.html.curator.audit.historyPanel(entityType, entityId, history))
+      }
+    }
+
+  // === Haplogroup-Variant Associations ===
+
+  def searchVariantsForHaplogroup(haplogroupId: Int, query: Option[String]): Action[AnyContent] =
+    withPermission("haplogroup.view").async { implicit request =>
+      for {
+        haplogroupOpt <- haplogroupRepository.findById(haplogroupId)
+        variants <- query match {
+          case Some(q) if q.nonEmpty => haplogroupVariantRepository.findVariants(q)
+          case _ => Future.successful(Seq.empty)
+        }
+        existingVariantIds <- haplogroupVariantRepository.getVariantsByHaplogroup(haplogroupId).map(_.flatMap(_.variantId).toSet)
+        variantsWithContig <- Future.traverse(variants.filterNot(v => existingVariantIds.contains(v.variantId.getOrElse(-1)))) { variant =>
+          variantRepository.findByIdWithContig(variant.variantId.get).map(_.get)
+        }
+      } yield {
+        haplogroupOpt match {
+          case Some(haplogroup) =>
+            Ok(views.html.curator.haplogroups.variantSearchResults(haplogroupId, haplogroup.name, query, variantsWithContig))
+          case None =>
+            NotFound("Haplogroup not found")
+        }
+      }
+    }
+
+  def addVariantToHaplogroup(haplogroupId: Int, variantId: Int): Action[AnyContent] =
+    withPermission("haplogroup.update").async { implicit request =>
+      for {
+        hvId <- haplogroupVariantRepository.addVariantToHaplogroup(haplogroupId, variantId)
+        _ <- auditService.logVariantAddedToHaplogroup(
+          request.user.email.getOrElse(request.user.id.map(_.toString).getOrElse("unknown")),
+          hvId,
+          Some(s"Added variant $variantId to haplogroup $haplogroupId")
+        )
+        variants <- haplogroupVariantRepository.getHaplogroupVariants(haplogroupId)
+        variantsWithContig = variants.map { case (v, c) => VariantWithContig(v, c) }
+      } yield {
+        Ok(views.html.curator.haplogroups.variantsPanel(haplogroupId, variantsWithContig))
+          .withHeaders("HX-Trigger" -> "variantAdded")
+      }
+    }
+
+  def removeVariantFromHaplogroup(haplogroupId: Int, variantId: Int): Action[AnyContent] =
+    withPermission("haplogroup.update").async { implicit request =>
+      for {
+        removed <- haplogroupVariantRepository.removeVariantFromHaplogroup(haplogroupId, variantId)
+        variants <- haplogroupVariantRepository.getHaplogroupVariants(haplogroupId)
+        variantsWithContig = variants.map { case (v, c) => VariantWithContig(v, c) }
+      } yield {
+        if (removed > 0) {
+          Ok(views.html.curator.haplogroups.variantsPanel(haplogroupId, variantsWithContig))
+            .withHeaders("HX-Trigger" -> "variantRemoved")
+        } else {
+          BadRequest("Failed to remove variant")
+        }
+      }
+    }
+
+  def haplogroupVariantHistory(haplogroupVariantId: Int): Action[AnyContent] =
+    withPermission("audit.view").async { implicit request =>
+      auditService.getHaplogroupVariantHistory(haplogroupVariantId).map { history =>
+        Ok(views.html.curator.haplogroups.variantHistoryPanel(haplogroupVariantId, history))
       }
     }
 }

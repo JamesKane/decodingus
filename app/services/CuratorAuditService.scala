@@ -4,10 +4,10 @@ import jakarta.inject.{Inject, Singleton}
 import models.HaplogroupType
 import models.dal.domain.genomics.Variant
 import models.domain.curator.AuditLogEntry
-import models.domain.haplogroups.Haplogroup
+import models.domain.haplogroups.{Haplogroup, HaplogroupVariantMetadata}
 import play.api.Logging
 import play.api.libs.json.*
-import repositories.CuratorAuditRepository
+import repositories.{CuratorAuditRepository, HaplogroupVariantMetadataRepository}
 
 import java.time.LocalDateTime
 import java.util.UUID
@@ -20,7 +20,8 @@ import scala.concurrent.{ExecutionContext, Future}
  */
 @Singleton
 class CuratorAuditService @Inject()(
-    auditRepository: CuratorAuditRepository
+    auditRepository: CuratorAuditRepository,
+    haplogroupVariantMetadataRepository: HaplogroupVariantMetadataRepository
 )(implicit ec: ExecutionContext) extends Logging {
 
   // JSON formats for domain objects
@@ -193,5 +194,60 @@ class CuratorAuditService @Inject()(
    */
   def getActionsByUser(userId: UUID, limit: Int = 50, offset: Int = 0): Future[Seq[AuditLogEntry]] = {
     auditRepository.getActionsByUser(userId, limit, offset)
+  }
+
+  // === Haplogroup-Variant Association Audit Methods ===
+
+  /**
+   * Log when a variant is added to a haplogroup.
+   */
+  def logVariantAddedToHaplogroup(
+      author: String,
+      haplogroupVariantId: Int,
+      comment: Option[String] = None
+  ): Future[Int] = {
+    val metadata = HaplogroupVariantMetadata(
+      haplogroup_variant_id = haplogroupVariantId,
+      revision_id = 1,
+      author = author,
+      timestamp = LocalDateTime.now(),
+      comment = comment.getOrElse("Added via curator interface"),
+      change_type = "add",
+      previous_revision_id = None
+    )
+    haplogroupVariantMetadataRepository.addVariantRevisionMetadata(metadata)
+  }
+
+  /**
+   * Log when a variant is removed from a haplogroup.
+   */
+  def logVariantRemovedFromHaplogroup(
+      author: String,
+      haplogroupVariantId: Int,
+      comment: Option[String] = None
+  ): Future[Int] = {
+    // Get the latest revision to link to
+    haplogroupVariantMetadataRepository.getVariantRevisionHistory(haplogroupVariantId).flatMap { history =>
+      val latestRevisionId = history.headOption.map(_._2.revision_id)
+      val nextRevisionId = latestRevisionId.map(_ + 1).getOrElse(1)
+
+      val metadata = HaplogroupVariantMetadata(
+        haplogroup_variant_id = haplogroupVariantId,
+        revision_id = nextRevisionId,
+        author = author,
+        timestamp = LocalDateTime.now(),
+        comment = comment.getOrElse("Removed via curator interface"),
+        change_type = "remove",
+        previous_revision_id = latestRevisionId
+      )
+      haplogroupVariantMetadataRepository.addVariantRevisionMetadata(metadata)
+    }
+  }
+
+  /**
+   * Get revision history for a haplogroup-variant association.
+   */
+  def getHaplogroupVariantHistory(haplogroupVariantId: Int): Future[Seq[HaplogroupVariantMetadata]] = {
+    haplogroupVariantMetadataRepository.getVariantRevisionHistory(haplogroupVariantId).map(_.map(_._2))
   }
 }

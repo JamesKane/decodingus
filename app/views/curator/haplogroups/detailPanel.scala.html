@@ -1,6 +1,7 @@
 @import models.domain.haplogroups.Haplogroup
+@import models.domain.genomics.VariantWithContig
 @import models.domain.curator.AuditLogEntry
-@(haplogroup: Haplogroup, parentOpt: Option[Haplogroup], children: Seq[Haplogroup], history: Seq[AuditLogEntry])(implicit request: RequestHeader)
+@(haplogroup: Haplogroup, parentOpt: Option[Haplogroup], children: Seq[Haplogroup], variants: Seq[VariantWithContig], history: Seq[AuditLogEntry])(implicit request: RequestHeader)
 
 <div class="card">
     <div class="card-header d-flex justify-content-between align-items-center">
@@ -66,6 +67,12 @@
                 }
             </dd>
         </dl>
+
+        <hr>
+
+        <div id="variants-panel">
+            @variantsPanel(haplogroup.id.get, variants)
+        </div>
 
         <hr>
 

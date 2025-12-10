@@ -1,0 +1,42 @@
+@import models.domain.haplogroups.HaplogroupVariantMetadata
+@(haplogroupVariantId: Int, history: Seq[HaplogroupVariantMetadata])(implicit request: RequestHeader)
+
+<div class="card">
+    <div class="card-header">
+        <h5 class="mb-0"><i class="bi bi-clock-history"></i> Haplogroup-Variant History</h5>
+    </div>
+    <div class="card-body">
+        @if(history.isEmpty) {
+            <p class="text-muted">No revision history available.</p>
+        } else {
+            <ul class="list-group list-group-flush">
+                @for(entry <- history) {
+                    <li class="list-group-item">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div>
+                                <span class="badge @changeTypeBadgeClass(entry.change_type) me-1">@entry.change_type</span>
+                                <strong>Revision @entry.revision_id</strong>
+                            </div>
+                            <small class="text-muted">@entry.timestamp.toLocalDate</small>
+                        </div>
+                        <div class="small mt-1">
+                            <span class="text-muted">By:</span> @entry.author
+                        </div>
+                        <div class="small text-muted mt-1">
+                            @entry.comment
+                        </div>
+                    </li>
+                }
+            </ul>
+        }
+    </div>
+</div>
+
+@changeTypeBadgeClass(changeType: String) = @{
+    changeType match {
+        case "add" => "bg-success"
+        case "remove" => "bg-danger"
+        case "update" => "bg-warning text-dark"
+        case _ => "bg-secondary"
+    }
+}
