@@ -1,8 +1,11 @@
 @import models.domain.genomics.VariantGroup
 @(haplogroupId: Int, variantGroups: Seq[VariantGroup])(implicit request: RequestHeader)
 
-<h6 class="d-flex justify-content-between align-items-center">
-    <span><i class="bi bi-code-square"></i> Defining Variants</span>
+<div class="d-flex justify-content-between align-items-center mb-2">
+    <h6 class="mb-0">
+        <i class="bi bi-code-square"></i> Defining Variants
+        <span class="badge bg-secondary ms-1">@variantGroups.size</span>
+    </h6>
     <button type="button"
             class="btn btn-outline-primary btn-sm"
             data-bs-toggle="modal"
@@ -12,42 +15,89 @@
             hx-trigger="click">
         <i class="bi bi-plus"></i> Add
     </button>
-</h6>
+</div>
 
 @if(variantGroups.isEmpty) {
     <p class="text-muted small">No variants associated with this haplogroup.</p>
 } else {
-    <ul class="list-group list-group-flush small">
-        @for(group <- variantGroups) {
-            <li class="list-group-item px-0">
-                <div class="d-flex justify-content-between align-items-start">
-                    <div class="flex-grow-1">
-                        <strong>@group.displayName</strong>
-                        @group.rsId.filter(_ != group.displayName).map { rs =>
-                            <span class="text-muted ms-1">(@rs)</span>
-                        }
-                        <span class="badge bg-secondary ms-1">@group.buildCount build@if(group.buildCount != 1){s}</span>
-                    </div>
-                    <button type="button"
-                            class="btn btn-outline-danger btn-sm"
-                            hx-delete="@controllers.routes.CuratorController.removeVariantGroupFromHaplogroup(haplogroupId, group.groupKey)"
-                            hx-target="#variants-panel"
-                            hx-confirm="Remove all @group.buildCount build(s) of @group.displayName from this haplogroup?">
-                        <i class="bi bi-x"></i>
-                    </button>
-                </div>
-                <div class="mt-1 ps-2">
-                    @for(vwc <- group.variantsSorted) {
-                        <div class="text-muted small">
-                            <span class="badge bg-info me-1" style="min-width: 55px;">@vwc.shortReferenceGenome</span>
-                            <code>@vwc.formattedPosition</code>
-                            <span class="ms-1">@vwc.variant.referenceAllele&rarr;@vwc.variant.alternateAllele</span>
+    @defining(s"variants-$haplogroupId") { containerId =>
+    <div class="mb-2">
+        <input type="text"
+               class="form-control form-control-sm variant-filter-input"
+               data-container="@containerId"
+               placeholder="Filter variants...">
+    </div>
+
+    <div id="@containerId" class="variants-container" style="max-height: 300px; overflow-y: auto;" data-total="@variantGroups.size">
+        <ul class="list-group list-group-flush small">
+            @for(group <- variantGroups) {
+                <li class="list-group-item px-0 variant-item" data-variant-name="@group.displayName.toLowerCase @group.rsId.getOrElse("").toLowerCase @group.groupKey.toLowerCase">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div class="flex-grow-1">
+                            <strong>@group.displayName</strong>
+                            @group.rsId.filter(_ != group.displayName).map { rs =>
+                                <span class="text-muted ms-1">(@rs)</span>
+                            }
+                            <span class="badge bg-secondary ms-1">@group.buildCount build@if(group.buildCount != 1){s}</span>
                         </div>
+                        <button type="button"
+                                class="btn btn-outline-danger btn-sm py-0 px-1"
+                                hx-delete="@controllers.routes.CuratorController.removeVariantGroupFromHaplogroup(haplogroupId, group.groupKey)"
+                                hx-target="#variants-panel"
+                                hx-confirm="Remove all @group.buildCount build(s) of @group.displayName from this haplogroup?">
+                            <i class="bi bi-x"></i>
+                        </button>
+                    </div>
+                    <div class="mt-1 ps-2">
+                        @for(vwc <- group.variantsSorted) {
+                            <div class="text-muted small">
+                                <span class="badge bg-info me-1" style="min-width: 55px;">@vwc.shortReferenceGenome</span>
+                                <code>@vwc.formattedPosition</code>
+                                <span class="ms-1">@vwc.variant.referenceAllele&rarr;@vwc.variant.alternateAllele</span>
+                            </div>
+                        }
+                    </div>
+                </li>
+            }
+        </ul>
+    </div>
+
+    <div class="variant-filter-status text-muted small mt-1" data-container="@containerId" style="display: none;">
+        Showing <span class="visible-count">0</span> of @variantGroups.size variants
+    </div>
+    }
+
+    <script>
+        (function() {
+            document.querySelectorAll('.variant-filter-input').forEach(input => {
+                input.addEventListener('keyup', function() {
+                    const containerId = this.getAttribute('data-container');
+                    const container = document.getElementById(containerId);
+                    const statusDiv = document.querySelector('.variant-filter-status[data-container="' + containerId + '"]');
+                    const items = container.querySelectorAll('.variant-item');
+                    const query = this.value.toLowerCase().trim();
+                    let visible = 0;
+
+                    items.forEach(item => {
+                        const name = item.getAttribute('data-variant-name');
+                        if (query === '' || name.includes(query)) {
+                            item.style.display = '';
+                            visible++;
+                        } else {
+                            item.style.display = 'none';
+                        }
+                    });
+
+                    if (query === '') {
+                        statusDiv.style.display = 'none';
+                    } else {
+                        statusDiv.style.display = '';
+                        statusDiv.querySelector('.visible-count').textContent = visible;
                     }
-                </div>
-            </li>
-        }
-    </ul>
+                });
+            });
+        })();
+    </script>
 }
 
 <!-- Modal for variant search -->
