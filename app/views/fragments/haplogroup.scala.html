@@ -4,7 +4,7 @@
 @import models.api.TreeDTO
 @import models.view.TreeViewModel
 
-@(tree: TreeDTO, hapType: HaplogroupType, renderedTreeData: Option[TreeViewModel], currentUrl: String)(implicit messages: Messages)
+@(tree: TreeDTO, hapType: HaplogroupType, renderedTreeData: Option[TreeViewModel], currentUrl: String, showBranchAgeEstimates: Boolean = false)(implicit messages: Messages)
 
 @fullPageUrl(haplogroup: Option[String]) = @{
     hapType match {
@@ -41,16 +41,20 @@
 
 <div class="mb-3">
     <small class="text-muted">
-        <span class="me-3"><span style="display: inline-block;
+        <span class="me-4"><span style="display: inline-block;
             width: 24px;
             height: 24px;
-            background-color: #90EE90;
-            vertical-align: middle;"></span> @messages("tree.legend.established")</span>
-        <span class="me-3"><span style="display: inline-block;
+            background-color: #d4edda;
+            border: 2px solid #2e7d32;
+            border-radius: 3px;
+            vertical-align: middle;"></span> <strong>✓</strong> @messages("tree.legend.established")</span>
+        <span class="me-4"><span style="display: inline-block;
             width: 24px;
             height: 24px;
-            background-color: #fff0e0;
-            vertical-align: middle;"></span> @messages("tree.legend.updated")</span>
+            background-color: #ffeeba;
+            border: 2px dashed #e65100;
+            border-radius: 3px;
+            vertical-align: middle;"></span> <strong>★</strong> @messages("tree.legend.updated")</span>
     </small>
 </div>
 
@@ -65,37 +69,56 @@
 
         @for(node <- rtd.allNodes) {
             <g class="node">
-                <rect class="node-rect"
+                <rect class="node-rect @if(node.isBackbone){node-established}else if(node.isRecentlyUpdated){node-recent}"
                 x="@(node.y - 75)"
-                y="@(node.x - 12)"
-                width="150" height="24" rx="3" ry="3"
+                y="@(node.x - 40)"
+                width="150" height="80" rx="4" ry="4"
                 hx-get="@fragmentUrl(Option(node.name))"
                 hx-target="#tree-container"
                 hx-push-url="@fullPageUrl(Option(node.name))"
-                style="fill:
-                @node.fillColor ;
-                    stroke: black;
-                    cursor: pointer;">
+                style="fill: @node.fillColor; cursor: pointer;">
                     <title>@node.name (@messages("tree.reRoot"))</title>
                 </rect>
+                @* Header bar *@
+                <rect class="node-header"
+                x="@(node.y - 75)"
+                y="@(node.x - 40)"
+                width="150" height="22" rx="4" ry="4"
+                style="fill: @if(node.isBackbone){#2e7d32}else if(node.isRecentlyUpdated){#e65100}else{#555}; pointer-events: none;"/>
+                <rect x="@(node.y - 75)" y="@(node.x - 22)" width="150" height="4" style="fill: @if(node.isBackbone){#2e7d32}else if(node.isRecentlyUpdated){#e65100}else{#555}; pointer-events: none;"/>
+                @* Name row with icon *@
                 <text class="node-name"
-                x="@(node.y - 75 + 5)"
-                y="@(node.x)"
-                text-anchor="start">
-                @node.name
+                x="@(node.y)"
+                y="@(node.x - 25)"
+                text-anchor="middle">
+                @if(node.isBackbone){✓ }@if(node.isRecentlyUpdated){★ }@node.name
                 </text>
-                @if(node.variantsCount.nonEmpty) {
-                    <text class="node-variant-count"
-                    x="@(node.y - 75 + 145)"
-                    y="@(node.x)"
-                    text-anchor="end"
-                    hx-get="@TreeController.getSnpDetailSidebar(node.name, hapType)"
-                    hx-target="#snpDetailSidebarPlaceholder"
-                    hx-swap="outerHTML"
-                    hx-trigger="click"
-                    style="cursor: pointer;">
-                        @node.variantsCount.get
-                        <title>@messages("tree.clickToSeeVariants", node.variantsCount.get)</title>
+                @* Variants row *@
+                <text class="node-variant-link"
+                x="@(node.y + 70)"
+                y="@(node.x - 5)"
+                text-anchor="end"
+                hx-get="@TreeController.getSnpDetailSidebar(node.name, hapType)"
+                hx-target="#snpDetailSidebarPlaceholder"
+                hx-swap="outerHTML"
+                hx-trigger="click">
+                    @node.variantsCount.map(c => s"$c variants ▸").getOrElse("—")
+                    <title>@messages("tree.clickToSeeVariants", node.variantsCount.getOrElse(0))</title>
+                </text>
+                @if(showBranchAgeEstimates) {
+                    @* Formed row *@
+                    <text class="node-detail node-date"
+                    x="@(node.y - 70)"
+                    y="@(node.x + 12)"
+                    text-anchor="start">
+                        Formed: @node.formedFormatted.getOrElse("—")
+                    </text>
+                    @* TMRCA row *@
+                    <text class="node-detail node-date"
+                    x="@(node.y - 70)"
+                    y="@(node.x + 29)"
+                    text-anchor="start">
+                        TMRCA: @node.tmrcaFormatted.getOrElse("—")
                     </text>
                 }
             </g>
@@ -131,25 +154,59 @@
 
 
         .node {
-            cursor: default; /* Indicate no clickability for now */
+            cursor: default;
         }
 
         .node-rect {
-            fill: #f8f8f8; /* Default light grey background for boxes */
-            stroke: #333; /* Darker border */
+            fill: #f8f8f8;
+            stroke: #999;
             stroke-width: 1px;
+        }
+
+        .node-rect.node-established {
+            stroke: #2e7d32;
+            stroke-width: 2px;
+        }
+
+        .node-rect.node-recent {
+            stroke: #e65100;
+            stroke-width: 2px;
+            stroke-dasharray: 4 2;
+        }
+
+        .node-header {
+            pointer-events: none;
         }
 
         .node-name {
             font-family: sans-serif;
             font-size: 12px;
-            fill: black;
+            font-weight: bold;
+            fill: white;
+            pointer-events: none;
         }
 
-        .node-variant-count {
+        .node-detail {
             font-family: sans-serif;
+            font-size: 11px;
+            fill: #333;
+        }
+
+        .node-variant-link {
+            font-family: sans-serif;
+            font-size: 11px;
+            fill: #0077b6;
+            text-decoration: underline;
+            cursor: pointer;
+        }
+
+        .node-variant-link:hover {
+            fill: #023e8a;
+        }
+
+        .node-date {
             font-size: 10px;
-            fill: #6c757d;
+            fill: #666;
         }
 
         .link {

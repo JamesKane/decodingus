@@ -14,9 +14,9 @@ object TreeLayoutService {
 
   // Configuration for layout
   private val NODE_WIDTH = 150.0
-  private val NODE_HEIGHT = 24.0
+  private val NODE_HEIGHT = 80.0
   private val HORIZONTAL_SPACING = 200.0 // Distance between levels (depths)
-  private val VERTICAL_NODE_SPACING = 30.0 // Minimum vertical space between sibling nodes
+  private val VERTICAL_NODE_SPACING = 90.0 // Minimum vertical space between sibling nodes (node height + gap)
   private val MARGIN_TOP = 50.0
   private val MARGIN_LEFT = 120.0 // Left margin for the root node
 
@@ -44,12 +44,14 @@ object TreeLayoutService {
       def calculateNodePositions(nodeDTO: TreeNodeDTO, depth: Int, isCurrentDisplayRoot: Boolean): TreeNodeViewModel = {
         val y = depth * HORIZONTAL_SPACING + MARGIN_LEFT
 
+        val isRecentlyUpdated = nodeDTO.updated.isAfter(oneYearAgo)
+
         val fillColor = if (nodeDTO.isBackbone) {
-          "#90EE90"
-        } else if (nodeDTO.updated.isAfter(oneYearAgo)) {
-          "#fff0e0"
+          "#d4edda"  // Soft sage green (established)
+        } else if (isRecentlyUpdated) {
+          "#ffeeba"  // Warm amber/tan (recently edited)
         } else {
-          "#f8f8f8"
+          "#f8f9fa"  // Light gray (default)
         }
 
         val childrenToProcess = if (isCurrentDisplayRoot) {
@@ -81,6 +83,9 @@ object TreeLayoutService {
           children = childViewModels,
           fillColor = fillColor,
           isBackbone = nodeDTO.isBackbone,
+          isRecentlyUpdated = isRecentlyUpdated,
+          formedYbp = nodeDTO.formedYbp,
+          tmrcaYbp = nodeDTO.tmrcaYbp,
           x = x,
           y = y
         )

@@ -133,7 +133,9 @@ class HaplogroupTreeService @Inject()(
       variants = variantDTOs,
       children = childNodes.toList,
       updated = haplogroup.validFrom.atZone(ZoneId.systemDefault()),
-      isBackbone = haplogroup.source == "backbone" // Assuming we have this field or similar logic
+      isBackbone = haplogroup.source == "backbone",
+      formedYbp = haplogroup.formedYbp,
+      tmrcaYbp = haplogroup.tmrcaYbp
     )
   }
 
@@ -145,10 +147,12 @@ class HaplogroupTreeService @Inject()(
     } yield TreeNodeDTO(
       name = haplogroup.name,
       variants = Seq.empty,
-      variantCount = Some(variantCount), // Add this field to TreeNodeDTO
+      variantCount = Some(variantCount),
       children = childNodes.toList,
       updated = haplogroup.validFrom.atZone(ZoneId.systemDefault()),
-      isBackbone = haplogroup.source == "backbone"
+      isBackbone = haplogroup.source == "backbone",
+      formedYbp = haplogroup.formedYbp,
+      tmrcaYbp = haplogroup.tmrcaYbp
     )
   }
 

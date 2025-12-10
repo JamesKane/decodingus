@@ -12,9 +12,23 @@ case class TreeNodeViewModel(
                               children: List[TreeNodeViewModel],
                               fillColor: String,
                               isBackbone: Boolean,
+                              isRecentlyUpdated: Boolean,
+                              formedYbp: Option[Int],
+                              tmrcaYbp: Option[Int],
                               x: Double, // Calculated vertical position for SVG
                               y: Double // Calculated horizontal position (depth) for SVG
-                            )
+                            ) {
+  /** Format formed date as calendar year (AD/BC) */
+  def formedFormatted: Option[String] = formedYbp.map(ybp => formatYbp(ybp))
+
+  /** Format TMRCA as calendar year (AD/BC) */
+  def tmrcaFormatted: Option[String] = tmrcaYbp.map(ybp => formatYbp(ybp))
+
+  private def formatYbp(ybp: Int): String = {
+    val year = 1950 - ybp
+    if (year < 0) s"${-year} BC" else s"$year AD"
+  }
+}
 
 /**
  * Represents a link between two tree nodes, with pre-calculated SVG path data, ready for the view.

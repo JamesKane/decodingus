@@ -24,6 +24,21 @@
             <dt class="col-sm-4">Confidence</dt>
             <dd class="col-sm-8">@haplogroup.confidenceLevel</dd>
 
+            @if(haplogroup.formedYbp.isDefined || haplogroup.tmrcaYbp.isDefined) {
+                <dt class="col-sm-4">Branch Ages</dt>
+                <dd class="col-sm-8">
+                    @haplogroup.formedEstimate.map { est =>
+                        <div><small class="text-muted">Formed:</small> @est.formattedWithRange</div>
+                    }
+                    @haplogroup.tmrcaEstimate.map { est =>
+                        <div><small class="text-muted">TMRCA:</small> @est.formattedWithRange</div>
+                    }
+                    @haplogroup.ageEstimateSource.map { src =>
+                        <div class="mt-1"><small class="text-muted">Source: @src</small></div>
+                    }
+                </dd>
+            }
+
             <dt class="col-sm-4">Valid From</dt>
             <dd class="col-sm-8">@haplogroup.validFrom.toLocalDate</dd>
 

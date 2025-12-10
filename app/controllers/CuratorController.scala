@@ -25,7 +25,14 @@ case class HaplogroupFormData(
     description: Option[String],
     haplogroupType: String,
     source: String,
-    confidenceLevel: String
+    confidenceLevel: String,
+    formedYbp: Option[Int],
+    formedYbpLower: Option[Int],
+    formedYbpUpper: Option[Int],
+    tmrcaYbp: Option[Int],
+    tmrcaYbpLower: Option[Int],
+    tmrcaYbpUpper: Option[Int],
+    ageEstimateSource: Option[String]
 )
 
 case class CreateHaplogroupFormData(
@@ -87,8 +94,15 @@ class CuratorController @Inject()(
       "description" -> optional(text(maxLength = 2000)),
       "haplogroupType" -> nonEmptyText.verifying("Invalid type", t => HaplogroupType.fromString(t).isDefined),
       "source" -> nonEmptyText(1, 100),
-      "confidenceLevel" -> nonEmptyText(1, 50)
-    )(HaplogroupFormData.apply)(h => Some((h.name, h.lineage, h.description, h.haplogroupType, h.source, h.confidenceLevel)))
+      "confidenceLevel" -> nonEmptyText(1, 50),
+      "formedYbp" -> optional(number),
+      "formedYbpLower" -> optional(number),
+      "formedYbpUpper" -> optional(number),
+      "tmrcaYbp" -> optional(number),
+      "tmrcaYbpLower" -> optional(number),
+      "tmrcaYbpUpper" -> optional(number),
+      "ageEstimateSource" -> optional(text(maxLength = 100))
+    )(HaplogroupFormData.apply)(h => Some((h.name, h.lineage, h.description, h.haplogroupType, h.source, h.confidenceLevel, h.formedYbp, h.formedYbpLower, h.formedYbpUpper, h.tmrcaYbp, h.tmrcaYbpLower, h.tmrcaYbpUpper, h.ageEstimateSource)))
   )
 
   private val variantForm: Form[VariantFormData] = Form(
@@ -332,7 +346,14 @@ class CuratorController @Inject()(
             description = haplogroup.description,
             haplogroupType = haplogroup.haplogroupType.toString,
             source = haplogroup.source,
-            confidenceLevel = haplogroup.confidenceLevel
+            confidenceLevel = haplogroup.confidenceLevel,
+            formedYbp = haplogroup.formedYbp,
+            formedYbpLower = haplogroup.formedYbpLower,
+            formedYbpUpper = haplogroup.formedYbpUpper,
+            tmrcaYbp = haplogroup.tmrcaYbp,
+            tmrcaYbpLower = haplogroup.tmrcaYbpLower,
+            tmrcaYbpUpper = haplogroup.tmrcaYbpUpper,
+            ageEstimateSource = haplogroup.ageEstimateSource
           )
           Ok(views.html.curator.haplogroups.editForm(id, haplogroupForm.fill(formData)))
         case None =>
@@ -354,7 +375,14 @@ class CuratorController @Inject()(
                 lineage = data.lineage,
                 description = data.description,
                 source = data.source,
-                confidenceLevel = data.confidenceLevel
+                confidenceLevel = data.confidenceLevel,
+                formedYbp = data.formedYbp,
+                formedYbpLower = data.formedYbpLower,
+                formedYbpUpper = data.formedYbpUpper,
+                tmrcaYbp = data.tmrcaYbp,
+                tmrcaYbpLower = data.tmrcaYbpLower,
+                tmrcaYbpUpper = data.tmrcaYbpUpper,
+                ageEstimateSource = data.ageEstimateSource
               )
 
               for {

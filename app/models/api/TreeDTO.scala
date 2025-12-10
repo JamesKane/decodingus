@@ -35,7 +35,16 @@ case class CrumbDTO(label: String, url: String)
  * @param updated    The timestamp at which the node or its content was last updated.
  * @param isBackbone A boolean flag indicating whether this node is part of the backbone structure of the tree. Defaults to `false`.
  */
-case class TreeNodeDTO(name: String, variants: Seq[VariantDTO], children: List[TreeNodeDTO], updated: ZonedDateTime, isBackbone: Boolean = false, variantCount: Option[Int] = None) {
+case class TreeNodeDTO(
+                        name: String,
+                        variants: Seq[VariantDTO],
+                        children: List[TreeNodeDTO],
+                        updated: ZonedDateTime,
+                        isBackbone: Boolean = false,
+                        variantCount: Option[Int] = None,
+                        formedYbp: Option[Int] = None,
+                        tmrcaYbp: Option[Int] = None
+                      ) {
   /**
    * Calculates the weight of the current tree node.
    *
