@@ -147,8 +147,8 @@ DELETE        /curator/haplogroups/:id                                          
 
 # Curator - Haplogroup-Variant Associations
 GET           /curator/haplogroups/:id/variants/search                                           controllers.CuratorController.searchVariantsForHaplogroup(id: Int, q: Option[String])
-POST          /curator/haplogroups/:hgId/variants/:variantId                                     controllers.CuratorController.addVariantToHaplogroup(hgId: Int, variantId: Int)
-DELETE        /curator/haplogroups/:hgId/variants/:variantId                                     controllers.CuratorController.removeVariantFromHaplogroup(hgId: Int, variantId: Int)
+POST          /curator/haplogroups/:hgId/variant-groups/:groupKey                                controllers.CuratorController.addVariantGroupToHaplogroup(hgId: Int, groupKey: String)
+DELETE        /curator/haplogroups/:hgId/variant-groups/:groupKey                                controllers.CuratorController.removeVariantGroupFromHaplogroup(hgId: Int, groupKey: String)
 GET           /curator/haplogroup-variants/:hvId/history                                         controllers.CuratorController.haplogroupVariantHistory(hvId: Int)
 
 # Curator - Variants

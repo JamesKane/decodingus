@@ -4,7 +4,7 @@ import jakarta.inject.Inject
 import models.dal.MyPostgresProfile
 import models.dal.MyPostgresProfile.api.*
 import models.dal.domain.genomics.Variant
-import models.domain.genomics.{GenbankContig, VariantWithContig}
+import models.domain.genomics.{GenbankContig, VariantGroup, VariantWithContig}
 import org.postgresql.util.PSQLException
 import play.api.db.slick.DatabaseConfigProvider
 
@@ -120,6 +120,24 @@ trait VariantRepository {
    * Delete a variant.
    */
   def delete(id: Int): Future[Boolean]
+
+  // === Variant Grouping Methods ===
+
+  /**
+   * Search variants and return them grouped by commonName (primary) or rsId (fallback).
+   * Variants with the same group key across different reference builds are grouped together.
+   */
+  def searchGrouped(query: String, limit: Int): Future[Seq[VariantGroup]]
+
+  /**
+   * Get all variants matching a group key (commonName or rsId) with their contig information.
+   */
+  def getVariantsByGroupKey(groupKey: String): Future[Seq[VariantWithContig]]
+
+  /**
+   * Group a sequence of variants (with contig info) by their logical identity.
+   */
+  def groupVariants(variants: Seq[VariantWithContig]): Seq[VariantGroup]
 }
 
 class VariantRepositoryImpl @Inject()(
@@ -298,5 +316,37 @@ class VariantRepositoryImpl @Inject()(
 
   override def delete(id: Int): Future[Boolean] = {
     db.run(variants.filter(_.variantId === id).delete).map(_ > 0)
+  }
+
+  // === Variant Grouping Methods Implementation ===
+
+  override def searchGrouped(query: String, limit: Int): Future[Seq[VariantGroup]] = {
+    val upperQuery = query.toUpperCase
+
+    // First, find all distinct group keys (commonName or rsId) that match
+    val searchQuery = (for {
+      v <- variants if v.rsId.toUpperCase.like(s"%$upperQuery%") || v.commonName.toUpperCase.like(s"%$upperQuery%")
+      c <- genbankContigs if c.genbankContigId === v.genbankContigId
+    } yield (v, c))
+      .result
+
+    db.run(searchQuery).map { results =>
+      val variantsWithContig = results.map { case (v, c) => VariantWithContig(v, c) }
+      VariantGroup.fromVariants(variantsWithContig).take(limit)
+    }
+  }
+
+  override def getVariantsByGroupKey(groupKey: String): Future[Seq[VariantWithContig]] = {
+    val searchQuery = (for {
+      v <- variants if v.commonName === groupKey || v.rsId === groupKey
+      c <- genbankContigs if c.genbankContigId === v.genbankContigId
+    } yield (v, c))
+      .result
+
+    db.run(searchQuery).map(_.map { case (v, c) => VariantWithContig(v, c) })
+  }
+
+  override def groupVariants(variants: Seq[VariantWithContig]): Seq[VariantGroup] = {
+    VariantGroup.fromVariants(variants)
   }
 }

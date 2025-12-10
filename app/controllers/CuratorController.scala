@@ -4,7 +4,7 @@ import actions.{AuthenticatedAction, AuthenticatedRequest, PermissionAction}
 import jakarta.inject.{Inject, Singleton}
 import models.HaplogroupType
 import models.dal.domain.genomics.Variant
-import models.domain.genomics.VariantWithContig
+import models.domain.genomics.{VariantGroup, VariantWithContig}
 import models.domain.haplogroups.Haplogroup
 import org.webjars.play.WebJarsUtil
 import play.api.Logging
@@ -135,9 +135,10 @@ class CuratorController @Inject()(
         history <- auditService.getHaplogroupHistory(id)
       } yield {
         val variantsWithContig = variants.map { case (v, c) => VariantWithContig(v, c) }
+        val variantGroups = variantRepository.groupVariants(variantsWithContig)
         haplogroupOpt match {
           case Some(haplogroup) =>
-            Ok(views.html.curator.haplogroups.detailPanel(haplogroup, parentOpt, children, variantsWithContig, history))
+            Ok(views.html.curator.haplogroups.detailPanel(haplogroup, parentOpt, children, variantGroups, history))
           case None =>
             NotFound("Haplogroup not found")
         }
@@ -446,53 +447,76 @@ class CuratorController @Inject()(
     withPermission("haplogroup.view").async { implicit request =>
       for {
         haplogroupOpt <- haplogroupRepository.findById(haplogroupId)
-        variants <- query match {
-          case Some(q) if q.nonEmpty => haplogroupVariantRepository.findVariants(q)
+        variantGroups <- query match {
+          case Some(q) if q.nonEmpty => variantRepository.searchGrouped(q, 20)
           case _ => Future.successful(Seq.empty)
         }
         existingVariantIds <- haplogroupVariantRepository.getVariantsByHaplogroup(haplogroupId).map(_.flatMap(_.variantId).toSet)
-        variantsWithContig <- Future.traverse(variants.filterNot(v => existingVariantIds.contains(v.variantId.getOrElse(-1)))) { variant =>
-          variantRepository.findByIdWithContig(variant.variantId.get).map(_.get)
-        }
       } yield {
+        // Filter out groups where ALL variants are already associated
+        val availableGroups = variantGroups.filterNot { group =>
+          group.variantIds.forall(existingVariantIds.contains)
+        }
+
         haplogroupOpt match {
           case Some(haplogroup) =>
-            Ok(views.html.curator.haplogroups.variantSearchResults(haplogroupId, haplogroup.name, query, variantsWithContig))
+            Ok(views.html.curator.haplogroups.variantSearchResults(haplogroupId, haplogroup.name, query, availableGroups))
           case None =>
             NotFound("Haplogroup not found")
         }
       }
     }
 
-  def addVariantToHaplogroup(haplogroupId: Int, variantId: Int): Action[AnyContent] =
+  def addVariantGroupToHaplogroup(haplogroupId: Int, groupKey: String): Action[AnyContent] =
     withPermission("haplogroup.update").async { implicit request =>
       for {
-        hvId <- haplogroupVariantRepository.addVariantToHaplogroup(haplogroupId, variantId)
-        _ <- auditService.logVariantAddedToHaplogroup(
-          request.user.email.getOrElse(request.user.id.map(_.toString).getOrElse("unknown")),
-          hvId,
-          Some(s"Added variant $variantId to haplogroup $haplogroupId")
-        )
+        // Get all variants in the group
+        variantsInGroup <- variantRepository.getVariantsByGroupKey(groupKey)
+        existingVariantIds <- haplogroupVariantRepository.getVariantsByHaplogroup(haplogroupId).map(_.flatMap(_.variantId).toSet)
+
+        // Add each variant that isn't already associated
+        addedIds <- Future.traverse(variantsInGroup.filterNot(v => existingVariantIds.contains(v.variant.variantId.getOrElse(-1)))) { vwc =>
+          for {
+            hvId <- haplogroupVariantRepository.addVariantToHaplogroup(haplogroupId, vwc.variant.variantId.get)
+            _ <- auditService.logVariantAddedToHaplogroup(
+              request.user.email.getOrElse(request.user.id.map(_.toString).getOrElse("unknown")),
+              hvId,
+              Some(s"Added variant ${vwc.variant.variantId.get} (${groupKey}) to haplogroup $haplogroupId")
+            )
+          } yield hvId
+        }
+
+        // Fetch updated variants for display
         variants <- haplogroupVariantRepository.getHaplogroupVariants(haplogroupId)
         variantsWithContig = variants.map { case (v, c) => VariantWithContig(v, c) }
+        variantGroups = variantRepository.groupVariants(variantsWithContig)
       } yield {
-        Ok(views.html.curator.haplogroups.variantsPanel(haplogroupId, variantsWithContig))
+        Ok(views.html.curator.haplogroups.variantsPanel(haplogroupId, variantGroups))
           .withHeaders("HX-Trigger" -> "variantAdded")
       }
     }
 
-  def removeVariantFromHaplogroup(haplogroupId: Int, variantId: Int): Action[AnyContent] =
+  def removeVariantGroupFromHaplogroup(haplogroupId: Int, groupKey: String): Action[AnyContent] =
     withPermission("haplogroup.update").async { implicit request =>
       for {
-        removed <- haplogroupVariantRepository.removeVariantFromHaplogroup(haplogroupId, variantId)
+        // Get all variants in the group
+        variantsInGroup <- variantRepository.getVariantsByGroupKey(groupKey)
+
+        // Remove each variant
+        removed <- Future.traverse(variantsInGroup.flatMap(_.variant.variantId)) { variantId =>
+          haplogroupVariantRepository.removeVariantFromHaplogroup(haplogroupId, variantId)
+        }
+
+        // Fetch updated variants for display
         variants <- haplogroupVariantRepository.getHaplogroupVariants(haplogroupId)
         variantsWithContig = variants.map { case (v, c) => VariantWithContig(v, c) }
+        variantGroups = variantRepository.groupVariants(variantsWithContig)
       } yield {
-        if (removed > 0) {
-          Ok(views.html.curator.haplogroups.variantsPanel(haplogroupId, variantsWithContig))
+        if (removed.sum > 0) {
+          Ok(views.html.curator.haplogroups.variantsPanel(haplogroupId, variantGroups))
             .withHeaders("HX-Trigger" -> "variantRemoved")
         } else {
-          BadRequest("Failed to remove variant")
+          BadRequest("Failed to remove variant group")
         }
       }
     }
