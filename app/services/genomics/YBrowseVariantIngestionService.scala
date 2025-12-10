@@ -1,6 +1,8 @@
 package services.genomics
 
+import config.GenomicsConfig
 import htsjdk.samtools.liftover.LiftOver
+import htsjdk.samtools.reference.{ReferenceSequenceFile, ReferenceSequenceFileFactory}
 import htsjdk.samtools.util.Interval
 import htsjdk.variant.variantcontext.VariantContext
 import htsjdk.variant.vcf.VCFFileReader
@@ -16,58 +18,74 @@ import scala.jdk.CollectionConverters.*
 @Singleton
 class YBrowseVariantIngestionService @Inject()(
                                                 variantRepository: VariantRepository,
-                                                genbankContigRepository: GenbankContigRepository
+                                                genbankContigRepository: GenbankContigRepository,
+                                                genomicsConfig: GenomicsConfig
                                               )(implicit ec: ExecutionContext) {
 
   private val logger = Logger(this.getClass)
+
+  // Lazy-load ReferenceSequenceFile for each configured reference genome
+  private val referenceFastaFiles: Map[String, ReferenceSequenceFile] = genomicsConfig.fastaPaths.flatMap {
+    case (genome, fastaFile) =>
+      if (fastaFile.exists()) {
+        logger.info(s"Loading reference FASTA for $genome from ${fastaFile.getPath}")
+        Some(genome -> ReferenceSequenceFileFactory.getReferenceSequenceFile(fastaFile))
+      } else {
+        logger.warn(s"Reference FASTA file for $genome not found at ${fastaFile.getPath}. Normalization might be incomplete.")
+        None
+      }
+  }
 
   /**
    * Ingests variants from a YBrowse VCF file.
    *
    * @param vcfFile The VCF file to ingest.
-   * @param liftoverChains Map of reference genome name to chain file for liftover (e.g., "GRCh37" -> chainFile).
+   * @param sourceGenome The reference genome of the input VCF (default: "GRCh38").
    * @return A Future containing the number of variants ingested.
    */
-  def ingestVcf(vcfFile: File, liftoverChains: Map[String, File] = Map.empty): Future[Int] = {
+  def ingestVcf(vcfFile: File, sourceGenome: String = "GRCh38"): Future[Int] = {
     val reader = new VCFFileReader(vcfFile, false)
     val iterator = reader.iterator().asScala
 
-    // Initialize LiftOver instances
-    val liftovers = liftoverChains.map { case (genome, file) =>
-      genome -> new LiftOver(file)
-    }
+    // Resolve canonical source genome name
+    val canonicalSource = genomicsConfig.resolveReferenceName(sourceGenome)
 
-    // Pre-fetch contigs for relevant genomes (hg38 + targets)
-    // We assume input is hg38. We also need target genomes.
-    // For simplicity, we'll fetch common names and filter by genome in memory or separate queries.
-    // But since we don't know the exact "reference_genome" strings in DB, we'll fetch by common name "chrY" etc.
-    // and let the caching logic handle it.
+    // Identify target genomes (all supported except source)
+    val targetGenomes = genomicsConfig.supportedReferences.filter(_ != canonicalSource)
+
+    // Load available liftover chains
+    val liftovers: Map[String, LiftOver] = targetGenomes.flatMap { target =>
+      genomicsConfig.getLiftoverChainFile(canonicalSource, target) match {
+        case Some(file) if file.exists() =>
+          logger.info(s"Loaded liftover chain for $canonicalSource -> $target: ${file.getPath}")
+          Some(target -> new LiftOver(file))
+        case Some(file) =>
+          logger.warn(s"Liftover chain file defined for $canonicalSource -> $target but not found at: ${file.getPath}")
+          None
+        case None =>
+          logger.debug(s"No liftover chain defined for $canonicalSource -> $target")
+          None
+      }
+    }.toMap
     
-    // We'll process in batches to avoid OOM and DB overload
     val batchSize = 1000
     
-    // We need a way to map (CommonName, ReferenceGenome) -> ContigID
-    // We'll build this cache lazily or pre-fetch if we know the contigs.
-    // YBrowse is mostly Y-DNA, so "chrY".
-    
-    processBatches(iterator, batchSize, liftovers)
+    processBatches(iterator, batchSize, liftovers, canonicalSource)
   }
 
   private def processBatches(
                               iterator: Iterator[VariantContext],
                               batchSize: Int,
-                              liftovers: Map[String, LiftOver]
+                              liftovers: Map[String, LiftOver],
+                              sourceGenome: String
                             ): Future[Int] = {
-    
-    // Recursive or fold based batch processing
-    // Since it's Future-based, we'll use recursion or a foldLeft with Future.
     
     def processNextBatch(accumulatedCount: Int): Future[Int] = {
       if (!iterator.hasNext) {
         Future.successful(accumulatedCount)
       } else {
         val batch = iterator.take(batchSize).toSeq
-        processBatch(batch, liftovers).flatMap { count =>
+        processBatch(batch, liftovers, sourceGenome).flatMap { count =>
           processNextBatch(accumulatedCount + count)
         }
       }
@@ -76,14 +94,10 @@ class YBrowseVariantIngestionService @Inject()(
     processNextBatch(0)
   }
 
-  private def processBatch(batch: Seq[VariantContext], liftovers: Map[String, LiftOver]): Future[Int] = {
+  private def processBatch(batch: Seq[VariantContext], liftovers: Map[String, LiftOver], sourceGenome: String): Future[Int] = {
     // 1. Collect all contig names from batch
     val contigNames = batch.map(_.getContig).distinct
     // 2. Resolve Contig IDs for hg38 (source) and targets
-    // We assume "hg38" is the source genome name in DB.
-    // And liftovers keys are target genome names.
-    
-    val allGenomes = Set("hg38", "GRCh38") ++ liftovers.keys
     
     genbankContigRepository.findByCommonNames(contigNames).flatMap { contigs =>
       // Map: (CommonName, Genome) -> ContigID
@@ -91,15 +105,12 @@ class YBrowseVariantIngestionService @Inject()(
         for {
           cn <- c.commonName
           rg <- c.referenceGenome
-        } yield (cn, rg) -> c.genbankContigId.get
+        } yield (cn, rg) -> c.id.get
       }.toMap
 
       val variantsToSave = batch.flatMap { vc =>
-        // Normalize
-        val normalizedVc = normalizeVariant(vc)
-        
-        // Create hg38 variant
-        val hg38Variants = createVariantsForContext(normalizedVc, "hg38", contigMap)
+        // Create source variants (normalization happens in createVariantsForContext)
+        val sourceVariants = createVariantsForContext(vc, sourceGenome, contigMap)
         
         // Create lifted variants
         val liftedVariants = liftovers.flatMap { case (targetGenome, liftOver) =>
@@ -107,25 +118,19 @@ class YBrowseVariantIngestionService @Inject()(
           val lifted = liftOver.liftOver(interval)
           if (lifted != null) {
              // Create variant context with new position
-             // Note: Liftover only gives coordinates. Alleles might change (strand flip).
-             // HTSJDK LiftOver doesn't automatically handle allele flipping for VCF records generically without reference.
-             // We'll assume positive strand or handle it if we had reference.
-             // For now, we keep alleles as is, assuming forward strand mapping (common for Y).
-             
-             // We need to map the contig name. liftOver returns interval with new contig name.
-             val liftedVc = new htsjdk.variant.variantcontext.VariantContextBuilder(normalizedVc)
+             val liftedVc = new htsjdk.variant.variantcontext.VariantContextBuilder(vc)
                .chr(lifted.getContig)
                .start(lifted.getStart)
                .stop(lifted.getEnd)
                .make()
-               
+
              createVariantsForContext(liftedVc, targetGenome, contigMap)
           } else {
             Seq.empty
           }
         }
         
-        hg38Variants ++ liftedVariants
+        sourceVariants ++ liftedVariants
       }
       
       variantRepository.findOrCreateVariantsBatch(variantsToSave).map(_.size)
@@ -150,11 +155,21 @@ class YBrowseVariantIngestionService @Inject()(
           // For Y-DNA, the ID column often contains the SNP name (e.g. M269), which is the common name.
           val commonName = rawId
 
+          // Normalize the variant (left-align INDELs)
+          val refSeq = referenceFastaFiles.get(genome)
+          val (normPos, normRef, normAlt) = normalizeVariant(
+            vc.getContig,
+            vc.getStart,
+            vc.getReference.getDisplayString,
+            alt.getDisplayString,
+            refSeq
+          )
+
           Variant(
             genbankContigId = contigId,
-            position = vc.getStart,
-            referenceAllele = vc.getReference.getDisplayString,
-            alternateAllele = alt.getDisplayString,
+            position = normPos,
+            referenceAllele = normRef,
+            alternateAllele = normAlt,
             variantType = vc.getType.toString,
             rsId = rsId,
             commonName = commonName
@@ -166,10 +181,87 @@ class YBrowseVariantIngestionService @Inject()(
     }
   }
 
-  private def normalizeVariant(vc: VariantContext): VariantContext = {
-    // Basic trimming of common flanking bases
-    // This is a simplified normalization. 
-    // Ideally we'd use a reference sequence.
-    vc
+  /**
+   * Normalizes a variant by performing VCF-style left-alignment.
+   *
+   * The algorithm:
+   * 1. Right-trim: Remove common suffix bases from ref and alt alleles
+   * 2. Pad: If either allele becomes empty, prepend the preceding reference base
+   * 3. Left-trim: Remove common prefix bases (keeping at least 1 base on each)
+   *
+   * @param contig The contig name for reference lookup
+   * @param pos The 1-based position
+   * @param ref The reference allele
+   * @param alt The alternate allele
+   * @param refSeq Optional reference sequence file for padding lookup
+   * @return A tuple of (normalizedPos, normalizedRef, normalizedAlt)
+   */
+  private def normalizeVariant(
+    contig: String,
+    pos: Int,
+    ref: String,
+    alt: String,
+    refSeq: Option[ReferenceSequenceFile]
+  ): (Int, String, String) = {
+    // Expand compressed repeat notation (e.g., "3T" -> "TTT")
+    val expandedRef = expandRepeatNotation(ref)
+    val expandedAlt = expandRepeatNotation(alt)
+
+    // Skip normalization for SNPs (single base, same length)
+    if (expandedRef.length == 1 && expandedAlt.length == 1) {
+      return (pos, expandedRef, expandedAlt)
+    }
+
+    var currRef = expandedRef
+    var currAlt = expandedAlt
+    var currPos = pos
+
+    // Step 1: Right-trim common suffix bases
+    while (currRef.nonEmpty && currAlt.nonEmpty && currRef.last == currAlt.last) {
+      currRef = currRef.dropRight(1)
+      currAlt = currAlt.dropRight(1)
+    }
+
+    // Step 2: Pad with preceding base if either allele is empty
+    if (currRef.isEmpty || currAlt.isEmpty) {
+      currPos -= 1
+      val paddingBase = refSeq match {
+        case Some(rs) =>
+          try {
+            new String(rs.getSubsequenceAt(contig, currPos, currPos).getBases, "UTF-8")
+          } catch {
+            case _: Exception => "N"
+          }
+        case None => "N"
+      }
+      currRef = paddingBase + currRef
+      currAlt = paddingBase + currAlt
+    }
+
+    // Step 3: Left-trim common prefix bases (keeping at least 1 base)
+    while (currRef.length > 1 && currAlt.length > 1 && currRef.head == currAlt.head) {
+      currRef = currRef.tail
+      currAlt = currAlt.tail
+      currPos += 1
+    }
+
+    (currPos, currRef, currAlt)
+  }
+
+  /**
+   * Expands compressed repeat notation (e.g., "3T" -> "TTT", "2AG" -> "AGAG").
+   * Returns the input unchanged if it's already a valid nucleotide sequence.
+   */
+  private def expandRepeatNotation(allele: String): String = {
+    if (allele.forall(c => "ACGTN".contains(c.toUpper))) {
+      allele
+    } else {
+      val (digits, bases) = allele.partition(_.isDigit)
+      if (digits.nonEmpty && bases.nonEmpty) {
+        bases * digits.toInt
+      } else {
+        bases
+      }
+    }
   }
 }
