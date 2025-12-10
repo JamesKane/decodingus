@@ -132,6 +132,32 @@ GET           /admin/publication-candidates                                     
 POST          /admin/publication-candidates/:id/accept                                           controllers.PublicationCandidateController.accept(id: Int)
 POST          /admin/publication-candidates/:id/reject                                           controllers.PublicationCandidateController.reject(id: Int)
 
+# Curator Tools (requires TreeCurator or Admin role)
+GET           /curator                                                                           controllers.CuratorController.dashboard
+
+# Curator - Haplogroups
+GET           /curator/haplogroups                                                               controllers.CuratorController.listHaplogroups(query: Option[String], hgType: Option[String], page: Int ?= 1, pageSize: Int ?= 20)
+GET           /curator/haplogroups/fragment                                                      controllers.CuratorController.haplogroupsFragment(query: Option[String], hgType: Option[String], page: Int ?= 1, pageSize: Int ?= 20)
+GET           /curator/haplogroups/new                                                           controllers.CuratorController.createHaplogroupForm
+POST          /curator/haplogroups                                                               controllers.CuratorController.createHaplogroup
+GET           /curator/haplogroups/:id/panel                                                     controllers.CuratorController.haplogroupDetailPanel(id: Int)
+GET           /curator/haplogroups/:id/edit                                                      controllers.CuratorController.editHaplogroupForm(id: Int)
+POST          /curator/haplogroups/:id                                                           controllers.CuratorController.updateHaplogroup(id: Int)
+DELETE        /curator/haplogroups/:id                                                           controllers.CuratorController.deleteHaplogroup(id: Int)
+
+# Curator - Variants
+GET           /curator/variants                                                                  controllers.CuratorController.listVariants(query: Option[String], page: Int ?= 1, pageSize: Int ?= 20)
+GET           /curator/variants/fragment                                                         controllers.CuratorController.variantsFragment(query: Option[String], page: Int ?= 1, pageSize: Int ?= 20)
+GET           /curator/variants/new                                                              controllers.CuratorController.createVariantForm
+POST          /curator/variants                                                                  controllers.CuratorController.createVariant
+GET           /curator/variants/:id/panel                                                        controllers.CuratorController.variantDetailPanel(id: Int)
+GET           /curator/variants/:id/edit                                                         controllers.CuratorController.editVariantForm(id: Int)
+POST          /curator/variants/:id                                                              controllers.CuratorController.updateVariant(id: Int)
+DELETE        /curator/variants/:id                                                              controllers.CuratorController.deleteVariant(id: Int)
+
+# Curator - Audit
+GET           /curator/audit/:entityType/:entityId                                               controllers.CuratorController.auditHistory(entityType: String, entityId: Int)
+
 # --- API Routes (Handled by Tapir, including Swagger UI) ---
 POST          /api/registerPDS                                                                   controllers.PDSRegistrationController.registerPDS()
 

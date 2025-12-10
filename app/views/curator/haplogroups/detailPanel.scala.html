@@ -1,0 +1,116 @@
+@import models.domain.haplogroups.Haplogroup
+@import models.domain.curator.AuditLogEntry
+@(haplogroup: Haplogroup, parentOpt: Option[Haplogroup], children: Seq[Haplogroup], history: Seq[AuditLogEntry])(implicit request: RequestHeader)
+
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0">@haplogroup.name</h5>
+        <span class="badge @if(haplogroup.haplogroupType.toString == "Y"){bg-primary}else{bg-success}">
+            @haplogroup.haplogroupType
+        </span>
+    </div>
+    <div class="card-body">
+        <dl class="row mb-0">
+            <dt class="col-sm-4">Lineage</dt>
+            <dd class="col-sm-8">@haplogroup.lineage.getOrElse("-")</dd>
+
+            <dt class="col-sm-4">Description</dt>
+            <dd class="col-sm-8">@haplogroup.description.getOrElse("-")</dd>
+
+            <dt class="col-sm-4">Source</dt>
+            <dd class="col-sm-8">@haplogroup.source</dd>
+
+            <dt class="col-sm-4">Confidence</dt>
+            <dd class="col-sm-8">@haplogroup.confidenceLevel</dd>
+
+            <dt class="col-sm-4">Valid From</dt>
+            <dd class="col-sm-8">@haplogroup.validFrom.toLocalDate</dd>
+
+            @haplogroup.validUntil.map { until =>
+                <dt class="col-sm-4">Valid Until</dt>
+                <dd class="col-sm-8">@until.toLocalDate</dd>
+            }
+        </dl>
+
+        <hr>
+
+        <h6><i class="bi bi-diagram-3"></i> Tree Position</h6>
+        <dl class="row mb-0">
+            <dt class="col-sm-4">Parent</dt>
+            <dd class="col-sm-8">
+                @parentOpt.map { parent =>
+                    <a href="#"
+                       hx-get="@controllers.routes.CuratorController.haplogroupDetailPanel(parent.id.get)"
+                       hx-target="#detail-panel">
+                        @parent.name
+                    </a>
+                }.getOrElse { <span class="text-muted">Root</span> }
+            </dd>
+
+            <dt class="col-sm-4">Children</dt>
+            <dd class="col-sm-8">
+                @if(children.isEmpty) {
+                    <span class="text-muted">None</span>
+                } else {
+                    @for(child <- children.take(10)) {
+                        <a href="#"
+                           class="badge bg-secondary text-decoration-none me-1"
+                           hx-get="@controllers.routes.CuratorController.haplogroupDetailPanel(child.id.get)"
+                           hx-target="#detail-panel">
+                            @child.name
+                        </a>
+                    }
+                    @if(children.size > 10) {
+                        <span class="text-muted">+@(children.size - 10) more</span>
+                    }
+                }
+            </dd>
+        </dl>
+
+        <hr>
+
+        <div class="d-flex gap-2">
+            <a href="@controllers.routes.CuratorController.editHaplogroupForm(haplogroup.id.get)"
+               class="btn btn-primary btn-sm">
+                <i class="bi bi-pencil"></i> Edit
+            </a>
+            <button type="button"
+                    class="btn btn-danger btn-sm"
+                    hx-delete="@controllers.routes.CuratorController.deleteHaplogroup(haplogroup.id.get)"
+                    hx-confirm="Are you sure you want to delete '@haplogroup.name'? Children will be moved to the parent haplogroup.">
+                <i class="bi bi-trash"></i> Delete
+            </button>
+        </div>
+
+        @if(history.nonEmpty) {
+            <hr>
+            <h6><i class="bi bi-clock-history"></i> Recent History</h6>
+            <ul class="list-group list-group-flush small">
+                @for(entry <- history.take(5)) {
+                    <li class="list-group-item px-0">
+                        <span class="badge @actionBadgeClass(entry.action) me-1">@entry.action</span>
+                        @entry.createdAt.toLocalDate
+                        @entry.comment.map { c => <br><small class="text-muted">@c</small> }
+                    </li>
+                }
+            </ul>
+            @if(history.size > 5) {
+                <a href="@controllers.routes.CuratorController.auditHistory("haplogroup", haplogroup.id.get)"
+                   class="small"
+                   hx-get="@controllers.routes.CuratorController.auditHistory("haplogroup", haplogroup.id.get)"
+                   hx-target="#detail-panel">
+                    View all history...
+                </a>
+            }
+        }
+    </div>
+</div>
+
+@actionBadgeClass(action: String) = @{
+    action match {
+        case "create" => "bg-success"
+        case "update" => "bg-warning text-dark"
+        case "delete" => "bg-danger"
+        case _ => "bg-secondary"
+    }
+}

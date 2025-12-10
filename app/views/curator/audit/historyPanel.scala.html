@@ -1,0 +1,87 @@
+@import models.domain.curator.AuditLogEntry
+@import play.api.libs.json.Json
+@(entityType: String, entityId: Int, history: Seq[AuditLogEntry])(implicit request: RequestHeader)
+
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0"><i class="bi bi-clock-history"></i> Audit History</h5>
+        <span class="badge bg-secondary">@entityType #@entityId</span>
+    </div>
+    <div class="card-body">
+        @if(history.isEmpty) {
+            <p class="text-muted">No audit history available.</p>
+        } else {
+            <div class="timeline">
+                @for(entry <- history) {
+                    <div class="timeline-item mb-4 pb-4 border-bottom">
+                        <div class="d-flex justify-content-between align-items-start mb-2">
+                            <span class="badge @actionBadgeClass(entry.action)">@entry.action</span>
+                            <small class="text-muted">@entry.createdAt.toLocalDate @entry.createdAt.toLocalTime.toString.take(5)</small>
+                        </div>
+
+                        @entry.comment.map { c =>
+                            <p class="mb-2"><em>@c</em></p>
+                        }
+
+                        @if(entry.action == "update" && entry.oldValue.isDefined && entry.newValue.isDefined) {
+                            <details class="mb-2">
+                                <summary class="text-primary" style="cursor: pointer;">View changes</summary>
+                                <div class="row mt-2">
+                                    <div class="col-md-6">
+                                        <strong>Before:</strong>
+                                        <pre class="bg-light p-2 small rounded" style="max-height: 200px; overflow: auto;">@Json.prettyPrint(entry.oldValue.get)</pre>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <strong>After:</strong>
+                                        <pre class="bg-light p-2 small rounded" style="max-height: 200px; overflow: auto;">@Json.prettyPrint(entry.newValue.get)</pre>
+                                    </div>
+                                </div>
+                            </details>
+                        }
+
+                        @if(entry.action == "create" && entry.newValue.isDefined) {
+                            <details class="mb-2">
+                                <summary class="text-primary" style="cursor: pointer;">View created data</summary>
+                                <pre class="bg-light p-2 small rounded mt-2" style="max-height: 200px; overflow: auto;">@Json.prettyPrint(entry.newValue.get)</pre>
+                            </details>
+                        }
+
+                        @if(entry.action == "delete" && entry.oldValue.isDefined) {
+                            <details class="mb-2">
+                                <summary class="text-primary" style="cursor: pointer;">View deleted data</summary>
+                                <pre class="bg-light p-2 small rounded mt-2" style="max-height: 200px; overflow: auto;">@Json.prettyPrint(entry.oldValue.get)</pre>
+                            </details>
+                        }
+                    </div>
+                }
+            </div>
+        }
+
+        <div class="mt-3">
+            @if(entityType == "haplogroup") {
+                <a href="#"
+                   class="btn btn-sm btn-outline-secondary"
+                   hx-get="@controllers.routes.CuratorController.haplogroupDetailPanel(entityId)"
+                   hx-target="#detail-panel">
+                    <i class="bi bi-arrow-left"></i> Back to Details
+                </a>
+            } else {
+                <a href="#"
+                   class="btn btn-sm btn-outline-secondary"
+                   hx-get="@controllers.routes.CuratorController.variantDetailPanel(entityId)"
+                   hx-target="#detail-panel">
+                    <i class="bi bi-arrow-left"></i> Back to Details
+                </a>
+            }
+        </div>
+    </div>
+</div>
+
+@actionBadgeClass(action: String) = @{
+    action match {
+        case "create" => "bg-success"
+        case "update" => "bg-warning text-dark"
+        case "delete" => "bg-danger"
+        case _ => "bg-secondary"
+    }
+}

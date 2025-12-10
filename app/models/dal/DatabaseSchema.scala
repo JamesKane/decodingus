@@ -148,4 +148,9 @@ object DatabaseSchema {
     val contactMessages = TableQuery[ContactMessagesTable]
     val messageReplies = TableQuery[MessageRepliesTable]
   }
+
+  object curator {
+    import models.dal.curator.*
+    val auditLog = TableQuery[AuditLogTable]
+  }
 }

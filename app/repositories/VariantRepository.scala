@@ -82,6 +82,33 @@ trait VariantRepository {
    * @return A Future containing a sequence of matching Variants.
    */
   def searchByName(name: String): Future[Seq[Variant]]
+
+  // === Curator CRUD Methods ===
+
+  /**
+   * Find a variant by ID.
+   */
+  def findById(id: Int): Future[Option[Variant]]
+
+  /**
+   * Search variants by name with pagination.
+   */
+  def search(query: String, limit: Int, offset: Int): Future[Seq[Variant]]
+
+  /**
+   * Count variants matching search criteria.
+   */
+  def count(query: Option[String]): Future[Int]
+
+  /**
+   * Update an existing variant.
+   */
+  def update(variant: Variant): Future[Boolean]
+
+  /**
+   * Delete a variant.
+   */
+  def delete(id: Int): Future[Boolean]
 }
 
 class VariantRepositoryImpl @Inject()(
@@ -187,5 +214,55 @@ class VariantRepositoryImpl @Inject()(
 
     // Use runTransactionally from BaseRepository
     runTransactionally(combinedAction)
+  }
+
+  // === Curator CRUD Methods Implementation ===
+
+  override def findById(id: Int): Future[Option[Variant]] = {
+    db.run(variants.filter(_.variantId === id).result.headOption)
+  }
+
+  override def search(query: String, limit: Int, offset: Int): Future[Seq[Variant]] = {
+    val upperQuery = query.toUpperCase
+    val searchQuery = variants.filter(v =>
+      v.rsId.toUpperCase.like(s"%$upperQuery%") ||
+        v.commonName.toUpperCase.like(s"%$upperQuery%")
+    )
+      .sortBy(v => (v.commonName, v.rsId))
+      .drop(offset)
+      .take(limit)
+      .result
+
+    db.run(searchQuery)
+  }
+
+  override def count(query: Option[String]): Future[Int] = {
+    val baseQuery = query match {
+      case Some(q) =>
+        val upperQuery = q.toUpperCase
+        variants.filter(v =>
+          v.rsId.toUpperCase.like(s"%$upperQuery%") ||
+            v.commonName.toUpperCase.like(s"%$upperQuery%")
+        )
+      case None => variants
+    }
+    db.run(baseQuery.length.result)
+  }
+
+  override def update(variant: Variant): Future[Boolean] = {
+    variant.variantId match {
+      case Some(id) =>
+        db.run(
+          variants
+            .filter(_.variantId === id)
+            .map(v => (v.variantType, v.rsId, v.commonName))
+            .update((variant.variantType, variant.rsId, variant.commonName))
+        ).map(_ > 0)
+      case None => Future.successful(false)
+    }
+  }
+
+  override def delete(id: Int): Future[Boolean] = {
+    db.run(variants.filter(_.variantId === id).delete).map(_ > 0)
   }
 }

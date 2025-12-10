@@ -37,19 +37,82 @@ trait HaplogroupCoreRepository {
    * @return a Future containing a sequence of Haplogroup objects representing the direct children
    */
   def getDirectChildren(haplogroupId: Int): Future[Seq[Haplogroup]]
+
+  /**
+   * Gets the parent haplogroup of the specified haplogroup.
+   *
+   * @param haplogroupId the unique identifier of the haplogroup
+   * @return a Future containing an Option of the parent Haplogroup if one exists
+   */
+  def getParent(haplogroupId: Int): Future[Option[Haplogroup]]
+
+  // === Curator CRUD Methods ===
+
+  /**
+   * Find a haplogroup by ID (active only - not soft-deleted).
+   */
+  def findById(id: Int): Future[Option[Haplogroup]]
+
+  /**
+   * Search haplogroups by name with optional type filter (active only).
+   */
+  def search(query: String, haplogroupType: Option[HaplogroupType], limit: Int, offset: Int): Future[Seq[Haplogroup]]
+
+  /**
+   * Count haplogroups matching search criteria (active only).
+   */
+  def count(query: Option[String], haplogroupType: Option[HaplogroupType]): Future[Int]
+
+  /**
+   * Count haplogroups by type (active only).
+   */
+  def countByType(haplogroupType: HaplogroupType): Future[Int]
+
+  /**
+   * Create a new haplogroup.
+   */
+  def create(haplogroup: Haplogroup): Future[Int]
+
+  /**
+   * Update an existing haplogroup.
+   */
+  def update(haplogroup: Haplogroup): Future[Boolean]
+
+  /**
+   * Soft-delete a haplogroup by setting valid_until to now.
+   * Also reassigns all children to the deleted haplogroup's parent.
+   *
+   * @param id the haplogroup ID to soft-delete
+   * @param source the source attribution for the relationship changes
+   * @return true if successful, false if haplogroup not found
+   */
+  def softDelete(id: Int, source: String): Future[Boolean]
 }
 
 class HaplogroupCoreRepositoryImpl @Inject()(
                                               dbConfigProvider: DatabaseConfigProvider
                                             )(implicit ec: ExecutionContext)
   extends BaseRepository(dbConfigProvider)
-    with HaplogroupCoreRepository {
+    with HaplogroupCoreRepository
+    with Logging {
 
   import models.dal.DatabaseSchema.domain.haplogroups.{haplogroupRelationships, haplogroups}
   import models.dal.MyPostgresProfile.api.*
 
+  import java.time.LocalDateTime
+
+  /** Filter for active (non-soft-deleted) haplogroups */
+  private def activeHaplogroups = haplogroups.filter(h =>
+    h.validUntil.isEmpty || h.validUntil > LocalDateTime.now()
+  )
+
+  /** Filter for active relationships */
+  private def activeRelationships = haplogroupRelationships.filter(r =>
+    r.validUntil.isEmpty || r.validUntil > LocalDateTime.now()
+  )
+
   override def getHaplogroupByName(name: String, haplogroupType: HaplogroupType): Future[Option[Haplogroup]] = {
-    val query = haplogroups
+    val query = activeHaplogroups
       .filter(h => h.name === name && h.haplogroupType === haplogroupType)
       .result
       .headOption
@@ -103,10 +166,152 @@ class HaplogroupCoreRepositoryImpl @Inject()(
 
   override def getDirectChildren(haplogroupId: Int): Future[Seq[Haplogroup]] = {
     val query = for {
-      rel <- haplogroupRelationships if rel.parentHaplogroupId === haplogroupId
-      child <- haplogroups if child.haplogroupId === rel.childHaplogroupId
+      rel <- activeRelationships if rel.parentHaplogroupId === haplogroupId
+      child <- activeHaplogroups if child.haplogroupId === rel.childHaplogroupId
     } yield child
 
     runQuery(query.result)
+  }
+
+  override def getParent(haplogroupId: Int): Future[Option[Haplogroup]] = {
+    val query = for {
+      rel <- activeRelationships if rel.childHaplogroupId === haplogroupId
+      parent <- activeHaplogroups if parent.haplogroupId === rel.parentHaplogroupId
+    } yield parent
+
+    runQuery(query.result.headOption)
+  }
+
+  // === Curator CRUD Methods Implementation ===
+
+  override def findById(id: Int): Future[Option[Haplogroup]] = {
+    runQuery(activeHaplogroups.filter(_.haplogroupId === id).result.headOption)
+  }
+
+  override def search(query: String, haplogroupType: Option[HaplogroupType], limit: Int, offset: Int): Future[Seq[Haplogroup]] = {
+    val baseQuery = activeHaplogroups
+      .filter(h => h.name.toUpperCase.like(s"%${query.toUpperCase}%"))
+
+    val filteredQuery = haplogroupType match {
+      case Some(hgType) => baseQuery.filter(_.haplogroupType === hgType)
+      case None => baseQuery
+    }
+
+    runQuery(
+      filteredQuery
+        .sortBy(_.name)
+        .drop(offset)
+        .take(limit)
+        .result
+    )
+  }
+
+  override def count(query: Option[String], haplogroupType: Option[HaplogroupType]): Future[Int] = {
+    val baseQuery = query match {
+      case Some(q) => activeHaplogroups.filter(h => h.name.toUpperCase.like(s"%${q.toUpperCase}%"))
+      case None => activeHaplogroups
+    }
+
+    val filteredQuery = haplogroupType match {
+      case Some(hgType) => baseQuery.filter(_.haplogroupType === hgType)
+      case None => baseQuery
+    }
+
+    runQuery(filteredQuery.length.result)
+  }
+
+  override def countByType(haplogroupType: HaplogroupType): Future[Int] = {
+    runQuery(activeHaplogroups.filter(_.haplogroupType === haplogroupType).length.result)
+  }
+
+  override def create(haplogroup: Haplogroup): Future[Int] = {
+    runQuery(
+      (haplogroups returning haplogroups.map(_.haplogroupId)) += haplogroup
+    )
+  }
+
+  override def update(haplogroup: Haplogroup): Future[Boolean] = {
+    haplogroup.id match {
+      case Some(id) =>
+        runQuery(
+          haplogroups
+            .filter(_.haplogroupId === id)
+            .map(h => (h.name, h.lineage, h.description, h.source, h.confidenceLevel))
+            .update((haplogroup.name, haplogroup.lineage, haplogroup.description, haplogroup.source, haplogroup.confidenceLevel))
+        ).map(_ > 0)
+      case None => Future.successful(false)
+    }
+  }
+
+  override def softDelete(id: Int, source: String): Future[Boolean] = {
+    val now = LocalDateTime.now()
+
+    // Step 1: Find the haplogroup's current parent relationship
+    val findParentAction = activeRelationships
+      .filter(_.childHaplogroupId === id)
+      .map(_.parentHaplogroupId)
+      .result
+      .headOption
+
+    // Step 2: Find all children of this haplogroup
+    val findChildrenAction = activeRelationships
+      .filter(_.parentHaplogroupId === id)
+      .result
+
+    val softDeleteAction = for {
+      maybeParentId <- findParentAction
+      childRelationships <- findChildrenAction
+
+      // Step 3: Soft-delete the haplogroup by setting valid_until
+      updated <- haplogroups
+        .filter(_.haplogroupId === id)
+        .filter(h => h.validUntil.isEmpty || h.validUntil > now)
+        .map(_.validUntil)
+        .update(Some(now))
+
+      // Step 4: Soft-delete the haplogroup's parent relationship
+      _ <- haplogroupRelationships
+        .filter(_.childHaplogroupId === id)
+        .filter(r => r.validUntil.isEmpty || r.validUntil > now)
+        .map(_.validUntil)
+        .update(Some(now))
+
+      // Step 5: If there's a parent, reassign children to it
+      _ <- maybeParentId match {
+        case Some(parentId) =>
+          // End current relationships for children
+          val endCurrentRelationships = haplogroupRelationships
+            .filter(r => r.parentHaplogroupId === id && (r.validUntil.isEmpty || r.validUntil > now))
+            .map(_.validUntil)
+            .update(Some(now))
+
+          // Create new relationships pointing to the grandparent
+          import models.domain.haplogroups.HaplogroupRelationship
+          val newRelationships = childRelationships.map { childRel =>
+            HaplogroupRelationship(
+              id = None,
+              childHaplogroupId = childRel.childHaplogroupId,
+              parentHaplogroupId = parentId,
+              revisionId = childRel.revisionId,
+              validFrom = now,
+              validUntil = None,
+              source = source
+            )
+          }
+          endCurrentRelationships.andThen(
+            (haplogroupRelationships ++= newRelationships).map(_ => ())
+          )
+
+        case None =>
+          // No parent - just end the children's current relationships (they become roots)
+          haplogroupRelationships
+            .filter(r => r.parentHaplogroupId === id && (r.validUntil.isEmpty || r.validUntil > now))
+            .map(_.validUntil)
+            .update(Some(now))
+            .map(_ => ())
+      }
+    } yield updated > 0
+
+    runTransactionally(softDeleteAction)
   }
 }

@@ -47,7 +47,7 @@ class AuthenticatedAction @Inject()(
  * Allows requiring specific roles on top of authentication.
  */
 class RoleAction @Inject()(authService: AuthService)(implicit ec: ExecutionContext) {
-  
+
   def apply(requiredRoles: String*): ActionFilter[AuthenticatedRequest] = new ActionFilter[AuthenticatedRequest] {
     override protected def executionContext: ExecutionContext = ec
 
@@ -55,6 +55,24 @@ class RoleAction @Inject()(authService: AuthService)(implicit ec: ExecutionConte
       authService.hasAnyRole(request.user.id.get, requiredRoles).map { hasRole =>
         if (hasRole) None
         else Some(Results.Forbidden("You do not have the required permissions to access this resource."))
+      }
+    }
+  }
+}
+
+/**
+ * PermissionAction builder factory.
+ * Allows requiring specific permissions on top of authentication.
+ */
+class PermissionAction @Inject()(authService: AuthService)(implicit ec: ExecutionContext) {
+
+  def apply(permission: String): ActionFilter[AuthenticatedRequest] = new ActionFilter[AuthenticatedRequest] {
+    override protected def executionContext: ExecutionContext = ec
+
+    override protected def filter[A](request: AuthenticatedRequest[A]): Future[Option[Result]] = {
+      authService.hasPermission(request.user.id.get, permission).map { hasPermission =>
+        if (hasPermission) None
+        else Some(Results.Forbidden(s"Missing required permission: $permission"))
       }
     }
   }

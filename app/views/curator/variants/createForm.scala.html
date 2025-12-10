@@ -1,0 +1,132 @@
+@import org.webjars.play.WebJarsUtil
+@import controllers.VariantFormData
+@(form: Form[VariantFormData])(implicit request: RequestHeader, messages: Messages, webJarsUtil: WebJarsUtil)
+
+@main("Create Variant") {
+    <div class="container py-5">
+        <div class="row justify-content-center">
+            <div class="col-md-8">
+                <nav aria-label="breadcrumb">
+                    <ol class="breadcrumb">
+                        <li class="breadcrumb-item"><a href="@controllers.routes.CuratorController.dashboard">Curator</a></li>
+                        <li class="breadcrumb-item"><a href="@controllers.routes.CuratorController.listVariants(None, 1, 20)">Variants</a></li>
+                        <li class="breadcrumb-item active">Create</li>
+                    </ol>
+                </nav>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="bi bi-plus-circle"></i> Create Variant</h5>
+                    </div>
+                    <div class="card-body">
+                        @helper.form(controllers.routes.CuratorController.createVariant) {
+                            @helper.CSRF.formField
+
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label for="genbankContigId" class="form-label">Genbank Contig ID *</label>
+                                    <input type="number"
+                                           class="form-control @if(form.error("genbankContigId").isDefined){is-invalid}"
+                                           id="genbankContigId"
+                                           name="genbankContigId"
+                                           value="@form("genbankContigId").value.getOrElse("")"
+                                           required>
+                                    @form.error("genbankContigId").map { error =>
+                                        <div class="invalid-feedback">@error.message</div>
+                                    }
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label for="position" class="form-label">Position *</label>
+                                    <input type="number"
+                                           class="form-control @if(form.error("position").isDefined){is-invalid}"
+                                           id="position"
+                                           name="position"
+                                           value="@form("position").value.getOrElse("")"
+                                           required>
+                                    @form.error("position").map { error =>
+                                        <div class="invalid-feedback">@error.message</div>
+                                    }
+                                </div>
+                            </div>
+
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label for="referenceAllele" class="form-label">Reference Allele *</label>
+                                    <input type="text"
+                                           class="form-control font-monospace @if(form.error("referenceAllele").isDefined){is-invalid}"
+                                           id="referenceAllele"
+                                           name="referenceAllele"
+                                           value="@form("referenceAllele").value.getOrElse("")"
+                                           style="text-transform: uppercase;"
+                                           required>
+                                    @form.error("referenceAllele").map { error =>
+                                        <div class="invalid-feedback">@error.message</div>
+                                    }
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label for="alternateAllele" class="form-label">Alternate Allele *</label>
+                                    <input type="text"
+                                           class="form-control font-monospace @if(form.error("alternateAllele").isDefined){is-invalid}"
+                                           id="alternateAllele"
+                                           name="alternateAllele"
+                                           value="@form("alternateAllele").value.getOrElse("")"
+                                           style="text-transform: uppercase;"
+                                           required>
+                                    @form.error("alternateAllele").map { error =>
+                                        <div class="invalid-feedback">@error.message</div>
+                                    }
+                                </div>
+                            </div>
+
+                            <div class="mb-3">
+                                <label for="variantType" class="form-label">Variant Type *</label>
+                                <select class="form-select @if(form.error("variantType").isDefined){is-invalid}"
+                                        id="variantType"
+                                        name="variantType"
+                                        required>
+                                    <option value="">Select...</option>
+                                    <option value="SNP" @if(form("variantType").value.contains("SNP")){selected}>SNP</option>
+                                    <option value="INDEL" @if(form("variantType").value.contains("INDEL")){selected}>INDEL</option>
+                                    <option value="MNP" @if(form("variantType").value.contains("MNP")){selected}>MNP</option>
+                                </select>
+                                @form.error("variantType").map { error =>
+                                    <div class="invalid-feedback">@error.message</div>
+                                }
+                            </div>
+
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label for="rsId" class="form-label">rsId</label>
+                                    <input type="text"
+                                           class="form-control"
+                                           id="rsId"
+                                           name="rsId"
+                                           value="@form("rsId").value.getOrElse("")"
+                                           placeholder="e.g., rs12345">
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label for="commonName" class="form-label">Common Name</label>
+                                    <input type="text"
+                                           class="form-control"
+                                           id="commonName"
+                                           name="commonName"
+                                           value="@form("commonName").value.getOrElse("")"
+                                           placeholder="e.g., M269">
+                                </div>
+                            </div>
+
+                            <div class="d-flex gap-2">
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="bi bi-check-lg"></i> Create Variant
+                                </button>
+                                <a href="@controllers.routes.CuratorController.listVariants(None, 1, 20)" class="btn btn-outline-secondary">
+                                    Cancel
+                                </a>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+}
