@@ -264,4 +264,69 @@ class YBrowseVariantIngestionService @Inject()(
       }
     }
   }
+
+  /**
+   * Lifts a variant to all other supported reference genomes.
+   *
+   * @param sourceVariant The variant to lift (must have genbankContigId resolved)
+   * @param sourceContig The source contig information
+   * @return Future containing lifted variants for each target genome (may be empty if liftover fails)
+   */
+  def liftoverVariant(sourceVariant: Variant, sourceContig: models.domain.genomics.GenbankContig): Future[Seq[Variant]] = {
+    val sourceGenome = sourceContig.referenceGenome.getOrElse("GRCh38")
+    val canonicalSource = genomicsConfig.resolveReferenceName(sourceGenome)
+    val sourceContigName = sourceContig.commonName.getOrElse(sourceContig.accession)
+
+    // Get target genomes (all supported except source)
+    val targetGenomes = genomicsConfig.supportedReferences.filter(_ != canonicalSource)
+
+    // Load liftover chains for each target
+    val liftoverResults = targetGenomes.flatMap { targetGenome =>
+      genomicsConfig.getLiftoverChainFile(canonicalSource, targetGenome) match {
+        case Some(chainFile) if chainFile.exists() =>
+          val liftOver = new LiftOver(chainFile)
+          val interval = new Interval(sourceContigName, sourceVariant.position, sourceVariant.position)
+          val lifted = liftOver.liftOver(interval)
+
+          if (lifted != null) {
+            logger.info(s"Lifted ${sourceVariant.commonName.getOrElse("variant")} from $canonicalSource:$sourceContigName:${sourceVariant.position} to $targetGenome:${lifted.getContig}:${lifted.getStart}")
+            Some((targetGenome, lifted.getContig, lifted.getStart))
+          } else {
+            logger.warn(s"Failed to liftover ${sourceVariant.commonName.getOrElse("variant")} from $canonicalSource to $targetGenome")
+            None
+          }
+        case _ =>
+          logger.debug(s"No liftover chain available for $canonicalSource -> $targetGenome")
+          None
+      }
+    }
+
+    // Resolve contig IDs for lifted positions
+    val targetContigNames = liftoverResults.map(_._2).distinct
+
+    genbankContigRepository.findByCommonNames(targetContigNames).map { contigs =>
+      // Map: (CommonName, Genome) -> ContigID
+      val contigMap = contigs.flatMap { c =>
+        for {
+          cn <- c.commonName
+          rg <- c.referenceGenome
+        } yield (cn, rg) -> c.id.get
+      }.toMap
+
+      liftoverResults.flatMap { case (targetGenome, liftedContig, liftedPos) =>
+        // Try to find contig ID, handling chr prefix differences
+        val contigId = contigMap.get((liftedContig, targetGenome))
+          .orElse(contigMap.get((liftedContig.stripPrefix("chr"), targetGenome)))
+          .orElse(contigMap.get(("chr" + liftedContig, targetGenome)))
+
+        contigId.map { cid =>
+          sourceVariant.copy(
+            variantId = None,
+            genbankContigId = cid,
+            position = liftedPos
+          )
+        }
+      }
+    }
+  }
 }

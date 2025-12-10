@@ -1,6 +1,13 @@
 @import org.webjars.play.WebJarsUtil
 @import controllers.VariantFormData
-@(form: Form[VariantFormData])(implicit request: RequestHeader, messages: Messages, webJarsUtil: WebJarsUtil)
+@import models.domain.genomics.GenbankContig
+@(form: Form[VariantFormData], contigs: Seq[GenbankContig])(implicit request: RequestHeader, messages: Messages, webJarsUtil: WebJarsUtil)
+
+@contigLabel(c: GenbankContig) = @{
+    val refGenome = c.referenceGenome.getOrElse("Unknown")
+    val name = c.commonName.getOrElse(c.accession)
+    s"$refGenome:$name"
+}
 
 @main("Create Variant") {
     <div class="container py-5">
@@ -24,13 +31,19 @@
 
                             <div class="row">
                                 <div class="col-md-6 mb-3">
-                                    <label for="genbankContigId" class="form-label">Genbank Contig ID *</label>
-                                    <input type="number"
-                                           class="form-control @if(form.error("genbankContigId").isDefined){is-invalid}"
-                                           id="genbankContigId"
-                                           name="genbankContigId"
-                                           value="@form("genbankContigId").value.getOrElse("")"
-                                           required>
+                                    <label for="genbankContigId" class="form-label">Reference Genome / Contig *</label>
+                                    <select class="form-select @if(form.error("genbankContigId").isDefined){is-invalid}"
+                                            id="genbankContigId"
+                                            name="genbankContigId"
+                                            required>
+                                        <option value="">Select contig...</option>
+                                        @for(contig <- contigs) {
+                                            <option value="@contig.id.get"
+                                                    @if(form("genbankContigId").value.contains(contig.id.get.toString)){selected}>
+                                                @contigLabel(contig) (@contig.accession)
+                                            </option>
+                                        }
+                                    </select>
                                     @form.error("genbankContigId").map { error =>
                                         <div class="invalid-feedback">@error.message</div>
                                     }
@@ -51,27 +64,31 @@
 
                             <div class="row">
                                 <div class="col-md-6 mb-3">
-                                    <label for="referenceAllele" class="form-label">Reference Allele *</label>
+                                    <label for="referenceAllele" class="form-label">Ancestral Allele *</label>
                                     <input type="text"
                                            class="form-control font-monospace @if(form.error("referenceAllele").isDefined){is-invalid}"
                                            id="referenceAllele"
                                            name="referenceAllele"
                                            value="@form("referenceAllele").value.getOrElse("")"
                                            style="text-transform: uppercase;"
+                                           placeholder="e.g., A"
                                            required>
+                                    <div class="form-text">The allele present in the reference genome (ancestral state)</div>
                                     @form.error("referenceAllele").map { error =>
                                         <div class="invalid-feedback">@error.message</div>
                                     }
                                 </div>
                                 <div class="col-md-6 mb-3">
-                                    <label for="alternateAllele" class="form-label">Alternate Allele *</label>
+                                    <label for="alternateAllele" class="form-label">Derived Allele *</label>
                                     <input type="text"
                                            class="form-control font-monospace @if(form.error("alternateAllele").isDefined){is-invalid}"
                                            id="alternateAllele"
                                            name="alternateAllele"
                                            value="@form("alternateAllele").value.getOrElse("")"
                                            style="text-transform: uppercase;"
+                                           placeholder="e.g., G"
                                            required>
+                                    <div class="form-text">The mutated allele that defines this variant (derived state)</div>
                                     @form.error("alternateAllele").map { error =>
                                         <div class="invalid-feedback">@error.message</div>
                                     }

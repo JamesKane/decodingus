@@ -12,8 +12,9 @@ import play.api.data.Form
 import play.api.data.Forms.*
 import play.api.i18n.I18nSupport
 import play.api.mvc.*
-import repositories.{HaplogroupCoreRepository, HaplogroupVariantRepository, VariantRepository}
+import repositories.{GenbankContigRepository, HaplogroupCoreRepository, HaplogroupVariantRepository, VariantRepository}
 import services.{CuratorAuditService, TreeRestructuringService}
+import services.genomics.YBrowseVariantIngestionService
 
 import java.time.LocalDateTime
 import scala.concurrent.{ExecutionContext, Future}
@@ -66,8 +67,10 @@ class CuratorController @Inject()(
     haplogroupRepository: HaplogroupCoreRepository,
     variantRepository: VariantRepository,
     haplogroupVariantRepository: HaplogroupVariantRepository,
+    genbankContigRepository: GenbankContigRepository,
     auditService: CuratorAuditService,
-    treeRestructuringService: TreeRestructuringService
+    treeRestructuringService: TreeRestructuringService,
+    variantIngestionService: YBrowseVariantIngestionService
 )(implicit ec: ExecutionContext, webJarsUtil: WebJarsUtil)
     extends BaseController with I18nSupport with Logging {
 
@@ -450,14 +453,18 @@ class CuratorController @Inject()(
 
   def createVariantForm: Action[AnyContent] =
     withPermission("variant.create").async { implicit request =>
-      Future.successful(Ok(views.html.curator.variants.createForm(variantForm)))
+      genbankContigRepository.getYAndMtContigs.map { contigs =>
+        Ok(views.html.curator.variants.createForm(variantForm, contigs))
+      }
     }
 
   def createVariant: Action[AnyContent] =
     withPermission("variant.create").async { implicit request =>
       variantForm.bindFromRequest().fold(
         formWithErrors => {
-          Future.successful(BadRequest(views.html.curator.variants.createForm(formWithErrors)))
+          genbankContigRepository.getYAndMtContigs.map { contigs =>
+            BadRequest(views.html.curator.variants.createForm(formWithErrors, contigs))
+          }
         },
         data => {
           val variant = Variant(
@@ -472,12 +479,38 @@ class CuratorController @Inject()(
           )
 
           for {
+            // Create the source variant
             newId <- variantRepository.createVariant(variant)
             createdVariant = variant.copy(variantId = Some(newId))
             _ <- auditService.logVariantCreate(request.user.id.get, createdVariant, Some("Created via curator interface"))
+
+            // Get the source contig for liftover
+            sourceContigOpt <- genbankContigRepository.findById(data.genbankContigId)
+
+            // Attempt liftover to other reference genomes
+            liftedCount <- sourceContigOpt match {
+              case Some(sourceContig) =>
+                variantIngestionService.liftoverVariant(createdVariant, sourceContig).flatMap { liftedVariants =>
+                  if (liftedVariants.nonEmpty) {
+                    logger.info(s"Lifting variant ${data.commonName.getOrElse("unnamed")} to ${liftedVariants.size} other reference(s)")
+                    // Create or find each lifted variant
+                    variantRepository.findOrCreateVariantsBatch(liftedVariants).map(_.size)
+                  } else {
+                    Future.successful(0)
+                  }
+                }
+              case None =>
+                logger.warn(s"Source contig ${data.genbankContigId} not found for liftover")
+                Future.successful(0)
+            }
           } yield {
+            val message = if (liftedCount > 0) {
+              s"Variant created successfully. Also lifted to $liftedCount other reference genome(s)."
+            } else {
+              s"Variant created successfully. (Liftover to other references not available or failed)"
+            }
             Redirect(routes.CuratorController.listVariants(None, 1, 20))
-              .flashing("success" -> s"Variant created successfully")
+              .flashing("success" -> message)
           }
         }
       )
