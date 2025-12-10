@@ -1338,7 +1338,7 @@ decodingus.discovery {
 - [X] Updated `DatabaseSchema.scala` with tree schema table references
 - [X] Updated all haplogroup repositories for cross-schema queries
 - [X] Regression tests to verify existing functionality
-- [ ] Documentation update for new schema structure
+- [X] Documentation update for new schema structure
 
 **Risk Mitigation:**
 - Run migration on staging environment first
