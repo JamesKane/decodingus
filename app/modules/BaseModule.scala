@@ -31,6 +31,7 @@ class BaseModule extends AbstractModule {
 
     bind(classOf[GenbankContigRepository]).to(classOf[GenbankContigRepositoryImpl])
     bind(classOf[VariantRepository]).to(classOf[VariantRepositoryImpl])
+    bind(classOf[VariantAliasRepository]).to(classOf[VariantAliasRepositoryImpl])
     bind(classOf[HaplogroupCoreRepository]).to(classOf[HaplogroupCoreRepositoryImpl])
     bind(classOf[HaplogroupRelationshipRepository]).to(classOf[HaplogroupRelationshipRepositoryImpl])
     bind(classOf[HaplogroupRevisionMetadataRepository]).to(classOf[HaplogroupRevisionMetadataRepositoryImpl])

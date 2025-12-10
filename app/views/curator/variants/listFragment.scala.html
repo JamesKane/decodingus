@@ -32,14 +32,17 @@
                                     }
                                 </td>
                                 <td>
-                                    <code>@first.variant.referenceAllele/@first.variant.alternateAllele</code>
+                                    <code>@first.variant.referenceAllele</code><i class="bi bi-arrow-right text-muted mx-1" style="font-size: 0.6rem;"></i><code>@first.variant.alternateAllele</code>
+                                    @if(group.variants.size > 1 && group.variantsSorted.exists(v => v.variant.referenceAllele != first.variant.referenceAllele)) {
+                                        <i class="bi bi-arrow-left-right text-warning ms-1" title="Strand differs between builds"></i>
+                                    }
                                 </td>
                                 <td>
                                     <span class="badge bg-secondary">@first.variant.variantType</span>
                                 </td>
                                 <td>
                                     @for(vwc <- group.variantsSorted) {
-                                        <span class="badge @buildBadgeClass(vwc.shortReferenceGenome)" title="@vwc.formattedPosition">
+                                        <span class="badge @buildBadgeClass(vwc.shortReferenceGenome)" title="@vwc.formattedPosition: @vwc.variant.referenceAllele→@vwc.variant.alternateAllele">
                                             @vwc.shortReferenceGenome
                                         </span>
                                     }

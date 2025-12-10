@@ -1,7 +1,8 @@
 @import models.domain.genomics.{VariantWithContig, VariantGroup}
+@import models.dal.domain.genomics.VariantAlias
 @import models.domain.haplogroups.Haplogroup
 @import models.domain.curator.AuditLogEntry
-@(vwc: VariantWithContig, variantGroup: Option[VariantGroup], haplogroups: Seq[Haplogroup], history: Seq[AuditLogEntry])(implicit request: RequestHeader)
+@(vwc: VariantWithContig, variantGroup: Option[VariantGroup], aliases: Seq[VariantAlias], haplogroups: Seq[Haplogroup], history: Seq[AuditLogEntry])(implicit request: RequestHeader)
 
 <div class="card">
     <div class="card-header d-flex justify-content-between align-items-center">
@@ -26,18 +27,46 @@
             <dd class="col-sm-8">@vwc.variant.variantType</dd>
         </dl>
 
+        @if(aliases.nonEmpty) {
+            <hr>
+            <h6><i class="bi bi-tags"></i> Alternative Names</h6>
+            @defining(aliases.groupBy(_.aliasType)) { aliasesByType =>
+                <div class="mb-3">
+                    @for((aliasType, typeAliases) <- aliasesByType) {
+                        <div class="mb-2">
+                            <small class="text-muted">@formatAliasType(aliasType):</small>
+                            @for(alias <- typeAliases) {
+                                <span class="badge @if(alias.isPrimary){bg-primary}else{bg-outline-secondary border} me-1"
+                                      title="Source: @alias.source.getOrElse("unknown")">
+                                    @alias.aliasValue
+                                    @if(alias.isPrimary){<i class="bi bi-star-fill ms-1" style="font-size: 0.6rem;"></i>}
+                                </span>
+                            }
+                        </div>
+                    }
+                </div>
+            }
+        }
+
         <hr>
 
         <h6><i class="bi bi-collection"></i> Reference Builds</h6>
         @variantGroup match {
             case Some(group) if group.variants.size > 1 => {
+                @defining(group.variantsSorted.head) { first =>
+                    @if(group.variantsSorted.tail.exists(v => v.variant.referenceAllele != first.variant.referenceAllele || v.variant.alternateAllele != first.variant.alternateAllele)) {
+                        <div class="alert alert-warning py-1 px-2 small mb-2">
+                            <i class="bi bi-arrow-left-right"></i> Strand difference (reverse complement)
+                        </div>
+                    }
+                }
                 <div class="table-responsive">
                     <table class="table table-sm">
                         <thead>
                             <tr>
                                 <th>Build</th>
                                 <th>Position</th>
-                                <th>Accession</th>
+                                <th>Alleles</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -49,7 +78,11 @@
                                         </span>
                                     </td>
                                     <td><code>@v.formattedPosition</code></td>
-                                    <td><code class="small">@v.contig.accession</code></td>
+                                    <td>
+                                        <code>@v.variant.referenceAllele</code>
+                                        <i class="bi bi-arrow-right text-muted" style="font-size: 0.7rem;"></i>
+                                        <code>@v.variant.alternateAllele</code>
+                                    </td>
                                 </tr>
                             }
                         </tbody>
@@ -60,7 +93,11 @@
                 <div class="mb-3">
                     <span class="badge @buildBadgeClass(vwc.shortReferenceGenome)">@vwc.shortReferenceGenome</span>
                     <code class="ms-2">@vwc.formattedPosition</code>
-                    <br><small class="text-muted">Accession: @vwc.contig.accession</small>
+                    <span class="ms-2">
+                        <code>@vwc.variant.referenceAllele</code>
+                        <i class="bi bi-arrow-right text-muted" style="font-size: 0.7rem;"></i>
+                        <code>@vwc.variant.alternateAllele</code>
+                    </span>
                 </div>
             }
         }
@@ -134,6 +171,17 @@
         }
     </div>
 </div>
+
+@formatAliasType(aliasType: String) = @{
+    aliasType match {
+        case "common_name" => "SNP Names"
+        case "rs_id" => "dbSNP IDs"
+        case "isogg" => "ISOGG"
+        case "yfull" => "YFull"
+        case "ftdna" => "FTDNA"
+        case other => other.replace("_", " ").capitalize
+    }
+}
 
 @buildBadgeClass(refGenome: String) = @{
     refGenome match {

@@ -78,6 +78,7 @@ object DatabaseSchema {
       val specimenDonors = TableQuery[SpecimenDonorsTable]
       val validationServices = TableQuery[ValidationServicesTable]
       val variants = TableQuery[VariantsTable]
+      val variantAliases = TableQuery[VariantAliasTable]
       val testTypeDefinition = TableQuery[TestTypeTable]
 
       // New tables for Atmosphere Lexicon sync

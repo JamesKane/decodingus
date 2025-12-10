@@ -12,7 +12,7 @@ import play.api.data.Form
 import play.api.data.Forms.*
 import play.api.i18n.I18nSupport
 import play.api.mvc.*
-import repositories.{GenbankContigRepository, HaplogroupCoreRepository, HaplogroupVariantRepository, VariantRepository}
+import repositories.{GenbankContigRepository, HaplogroupCoreRepository, HaplogroupVariantRepository, VariantAliasRepository, VariantRepository}
 import services.{CuratorAuditService, TreeRestructuringService}
 import services.genomics.YBrowseVariantIngestionService
 
@@ -66,6 +66,7 @@ class CuratorController @Inject()(
     permissionAction: PermissionAction,
     haplogroupRepository: HaplogroupCoreRepository,
     variantRepository: VariantRepository,
+    variantAliasRepository: VariantAliasRepository,
     haplogroupVariantRepository: HaplogroupVariantRepository,
     genbankContigRepository: GenbankContigRepository,
     auditService: CuratorAuditService,
@@ -437,13 +438,15 @@ class CuratorController @Inject()(
             variantRepository.getVariantsByGroupKey(groupKey)
           case None => Future.successful(Seq.empty)
         }
+        // Fetch aliases for this variant
+        aliases <- variantAliasRepository.findByVariantId(id)
         haplogroups <- haplogroupVariantRepository.getHaplogroupsByVariant(id)
         history <- auditService.getVariantHistory(id)
       } yield {
         variantOpt match {
           case Some(variantWithContig) =>
             val variantGroup = variantRepository.groupVariants(allVariantsInGroup).headOption
-            Ok(views.html.curator.variants.detailPanel(variantWithContig, variantGroup, haplogroups, history))
+            Ok(views.html.curator.variants.detailPanel(variantWithContig, variantGroup, aliases, haplogroups, history))
           case None =>
             NotFound("Variant not found")
         }
