@@ -405,33 +405,24 @@ class CuratorController @Inject()(
 
   def listVariants(query: Option[String], page: Int, pageSize: Int): Action[AnyContent] =
     withPermission("variant.view").async { implicit request =>
-      val offset = (page - 1) * pageSize
-
       for {
-        variants <- query match {
-          case Some(q) if q.nonEmpty => variantRepository.searchWithContig(q, pageSize, offset)
-          case _ => variantRepository.searchWithContig("", pageSize, offset)
-        }
-        totalCount <- variantRepository.count(query.filter(_.nonEmpty))
+        // Fetch grouped variants - note: pagination is approximate since we group after fetching
+        variantGroups <- variantRepository.searchGrouped(query.getOrElse(""), pageSize * 3) // Fetch extra to ensure we have enough groups
       } yield {
-        val totalPages = Math.max(1, (totalCount + pageSize - 1) / pageSize)
-        Ok(views.html.curator.variants.list(variants, query, page, totalPages, pageSize))
+        val pagedGroups = variantGroups.drop((page - 1) * pageSize).take(pageSize)
+        val totalPages = Math.max(1, (variantGroups.size + pageSize - 1) / pageSize)
+        Ok(views.html.curator.variants.list(pagedGroups, query, page, totalPages, pageSize))
       }
     }
 
   def variantsFragment(query: Option[String], page: Int, pageSize: Int): Action[AnyContent] =
     withPermission("variant.view").async { implicit request =>
-      val offset = (page - 1) * pageSize
-
       for {
-        variants <- query match {
-          case Some(q) if q.nonEmpty => variantRepository.searchWithContig(q, pageSize, offset)
-          case _ => variantRepository.searchWithContig("", pageSize, offset)
-        }
-        totalCount <- variantRepository.count(query.filter(_.nonEmpty))
+        variantGroups <- variantRepository.searchGrouped(query.getOrElse(""), pageSize * 3)
       } yield {
-        val totalPages = Math.max(1, (totalCount + pageSize - 1) / pageSize)
-        Ok(views.html.curator.variants.listFragment(variants, query, page, totalPages, pageSize))
+        val pagedGroups = variantGroups.drop((page - 1) * pageSize).take(pageSize)
+        val totalPages = Math.max(1, (variantGroups.size + pageSize - 1) / pageSize)
+        Ok(views.html.curator.variants.listFragment(pagedGroups, query, page, totalPages, pageSize))
       }
     }
 
@@ -439,12 +430,20 @@ class CuratorController @Inject()(
     withPermission("variant.view").async { implicit request =>
       for {
         variantOpt <- variantRepository.findByIdWithContig(id)
+        // Get all variants in the same group
+        allVariantsInGroup <- variantOpt match {
+          case Some(vwc) =>
+            val groupKey = vwc.variant.commonName.orElse(vwc.variant.rsId).getOrElse(s"variant_${id}")
+            variantRepository.getVariantsByGroupKey(groupKey)
+          case None => Future.successful(Seq.empty)
+        }
         haplogroups <- haplogroupVariantRepository.getHaplogroupsByVariant(id)
         history <- auditService.getVariantHistory(id)
       } yield {
         variantOpt match {
           case Some(variantWithContig) =>
-            Ok(views.html.curator.variants.detailPanel(variantWithContig, haplogroups, history))
+            val variantGroup = variantRepository.groupVariants(allVariantsInGroup).headOption
+            Ok(views.html.curator.variants.detailPanel(variantWithContig, variantGroup, haplogroups, history))
           case None =>
             NotFound("Variant not found")
         }
@@ -569,6 +568,72 @@ class CuratorController @Inject()(
           )
         case None =>
           Future.successful(NotFound("Variant not found"))
+      }
+    }
+
+  def editVariantGroupForm(groupKey: String): Action[AnyContent] =
+    withPermission("variant.update").async { implicit request =>
+      variantRepository.getVariantsByGroupKey(groupKey).map { variants =>
+        if (variants.isEmpty) {
+          NotFound("Variant group not found")
+        } else {
+          val variantGroup = variantRepository.groupVariants(variants).head
+          // Use shared values from group for form
+          val formData = VariantFormData(
+            genbankContigId = variants.head.variant.genbankContigId,
+            position = variants.head.variant.position,
+            referenceAllele = variants.head.variant.referenceAllele,
+            alternateAllele = variants.head.variant.alternateAllele,
+            variantType = variants.head.variant.variantType,
+            rsId = variantGroup.rsId,
+            commonName = variantGroup.commonName
+          )
+          Ok(views.html.curator.variants.editGroupForm(groupKey, variantGroup, variantForm.fill(formData)))
+        }
+      }
+    }
+
+  def updateVariantGroup(groupKey: String): Action[AnyContent] =
+    withPermission("variant.update").async { implicit request =>
+      variantRepository.getVariantsByGroupKey(groupKey).flatMap { variants =>
+        if (variants.isEmpty) {
+          Future.successful(NotFound("Variant group not found"))
+        } else {
+          val variantGroup = variantRepository.groupVariants(variants).head
+          variantForm.bindFromRequest().fold(
+            formWithErrors => {
+              Future.successful(BadRequest(views.html.curator.variants.editGroupForm(groupKey, variantGroup, formWithErrors)))
+            },
+            data => {
+              // Update all variants in the group with the shared fields
+              val updateFutures = variants.map { vwc =>
+                val oldVariant = vwc.variant
+                val updatedVariant = oldVariant.copy(
+                  variantType = data.variantType,
+                  rsId = data.rsId,
+                  commonName = data.commonName
+                )
+                for {
+                  updated <- variantRepository.update(updatedVariant)
+                  _ <- if (updated) {
+                    auditService.logVariantUpdate(request.user.id.get, oldVariant, updatedVariant, Some(s"Updated via group edit ($groupKey)"))
+                  } else {
+                    Future.successful(())
+                  }
+                } yield updated
+              }
+
+              Future.sequence(updateFutures).map { results =>
+                if (results.forall(identity)) {
+                  Redirect(routes.CuratorController.listVariants(None, 1, 20))
+                    .flashing("success" -> s"Updated ${results.size} variants in group $groupKey")
+                } else {
+                  BadRequest(s"Failed to update some variants in group")
+                }
+              }
+            }
+          )
+        }
       }
     }
 

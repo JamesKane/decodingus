@@ -1,6 +1,6 @@
 @import org.webjars.play.WebJarsUtil
-@import models.domain.genomics.VariantWithContig
-@(variants: Seq[VariantWithContig], query: Option[String], currentPage: Int, totalPages: Int, pageSize: Int)(implicit request: RequestHeader, messages: Messages, webJarsUtil: WebJarsUtil)
+@import models.domain.genomics.VariantGroup
+@(variantGroups: Seq[VariantGroup], query: Option[String], currentPage: Int, totalPages: Int, pageSize: Int)(implicit request: RequestHeader, messages: Messages, webJarsUtil: WebJarsUtil)
 
 @main("Curator - Variants") {
     <style>
@@ -62,7 +62,7 @@
                         </div>
 
                         <div id="variants-table">
-                            @listFragment(variants, query, currentPage, totalPages, pageSize)
+                            @listFragment(variantGroups, query, currentPage, totalPages, pageSize)
                         </div>
                     </div>
                 </div>

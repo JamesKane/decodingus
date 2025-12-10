@@ -1,7 +1,7 @@
-@import models.domain.genomics.VariantWithContig
-@(variants: Seq[VariantWithContig], query: Option[String], currentPage: Int, totalPages: Int, pageSize: Int)(implicit request: RequestHeader)
+@import models.domain.genomics.VariantGroup
+@(variantGroups: Seq[VariantGroup], query: Option[String], currentPage: Int, totalPages: Int, pageSize: Int)(implicit request: RequestHeader)
 
-@if(variants.isEmpty) {
+@if(variantGroups.isEmpty) {
     <div class="alert alert-info">No variants found matching your criteria.</div>
 } else {
     <div class="table-responsive">
@@ -9,42 +9,60 @@
             <thead>
                 <tr>
                     <th>rsId / Name</th>
-                    <th>Position</th>
-                    <th>Build</th>
                     <th>Anc/Der</th>
                     <th>Type</th>
+                    <th>Builds</th>
                     <th></th>
                 </tr>
             </thead>
             <tbody>
-                @for(vwc <- variants) {
-                    <tr class="cursor-pointer"
-                        hx-get="@controllers.routes.CuratorController.variantDetailPanel(vwc.variant.variantId.get)"
-                        hx-target="#detail-panel"
-                        hx-swap="innerHTML"
-                        style="cursor: pointer;">
-                        <td>
-                            <strong>@vwc.variant.rsId.orElse(vwc.variant.commonName).getOrElse(s"ID: ${vwc.variant.variantId.get}")</strong>
-                            @vwc.variant.commonName.filter(n => vwc.variant.rsId.isDefined).map { name =>
-                                <br><small class="text-muted">@name</small>
-                            }
-                        </td>
-                        <td><code>@vwc.formattedPosition</code></td>
-                        <td><span class="badge bg-info">@vwc.shortReferenceGenome</span></td>
-                        <td>
-                            <code>@vwc.variant.referenceAllele/@vwc.variant.alternateAllele</code>
-                        </td>
-                        <td>
-                            <span class="badge bg-secondary">@vwc.variant.variantType</span>
-                        </td>
-                        <td>
-                            <a href="@controllers.routes.CuratorController.editVariantForm(vwc.variant.variantId.get)"
-                               class="btn btn-sm btn-outline-secondary"
-                               onclick="event.stopPropagation()">
-                                <i class="bi bi-pencil"></i>
-                            </a>
-                        </td>
-                    </tr>
+                @for(group <- variantGroups) {
+                    @* Use first variant for display, clicking shows group detail *@
+                    @defining(group.variantsSorted.headOption) { firstOpt =>
+                        @firstOpt.map { first =>
+                            <tr class="cursor-pointer"
+                                hx-get="@controllers.routes.CuratorController.variantDetailPanel(first.variant.variantId.get)"
+                                hx-target="#detail-panel"
+                                hx-swap="innerHTML"
+                                style="cursor: pointer;">
+                                <td>
+                                    <strong>@group.displayName</strong>
+                                    @group.rsId.filter(_ => group.commonName.isDefined).map { rsId =>
+                                        <br><small class="text-muted">@rsId</small>
+                                    }
+                                </td>
+                                <td>
+                                    <code>@first.variant.referenceAllele/@first.variant.alternateAllele</code>
+                                </td>
+                                <td>
+                                    <span class="badge bg-secondary">@first.variant.variantType</span>
+                                </td>
+                                <td>
+                                    @for(vwc <- group.variantsSorted) {
+                                        <span class="badge @buildBadgeClass(vwc.shortReferenceGenome)" title="@vwc.formattedPosition">
+                                            @vwc.shortReferenceGenome
+                                        </span>
+                                    }
+                                </td>
+                                <td>
+                                    @if(group.variants.size > 1) {
+                                        <a href="@controllers.routes.CuratorController.editVariantGroupForm(group.groupKey)"
+                                           class="btn btn-sm btn-outline-secondary"
+                                           onclick="event.stopPropagation()"
+                                           title="Edit all @group.variants.size builds">
+                                            <i class="bi bi-pencil"></i>
+                                        </a>
+                                    } else {
+                                        <a href="@controllers.routes.CuratorController.editVariantForm(first.variant.variantId.get)"
+                                           class="btn btn-sm btn-outline-secondary"
+                                           onclick="event.stopPropagation()">
+                                            <i class="bi bi-pencil"></i>
+                                        </a>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    }
                 }
             </tbody>
         </table>
@@ -81,5 +99,14 @@
                 </li>
             </ul>
         </nav>
+    }
+}
+
+@buildBadgeClass(refGenome: String) = @{
+    refGenome match {
+        case "GRCh37" => "bg-warning text-dark"
+        case "GRCh38" => "bg-info"
+        case "T2T" => "bg-success"
+        case _ => "bg-secondary"
     }
 }
