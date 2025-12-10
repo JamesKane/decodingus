@@ -107,6 +107,9 @@ POST          /api/firehose/event                                               
 # Publication Discovery
 POST          /api/private/publication-discovery/run                                             controllers.PublicationDiscoveryController.triggerDiscovery()
 
+# Genomics Admin
+POST          /api/private/genomics/ybrowse/update                                               controllers.GenomicsAdminController.triggerYBrowseUpdate()
+
 # Authentication
 GET           /login                                                                             controllers.AuthController.login
 POST          /login                                                                             controllers.AuthController.authenticate
