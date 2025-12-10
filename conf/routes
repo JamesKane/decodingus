@@ -121,6 +121,9 @@ POST          /cookies/accept                                                   
 GET           /profile                                                                           controllers.ProfileController.view
 POST          /profile                                                                           controllers.ProfileController.update
 
+# Variant API
+GET           /api/v1/variants/search                                                            controllers.VariantController.search(name: String)
+
 # Curator Workflow
 GET           /admin/publication-candidates                                                      controllers.PublicationCandidateController.listCandidates(page: Int ?= 1, pageSize: Int ?= 20)
 POST          /admin/publication-candidates/:id/accept                                           controllers.PublicationCandidateController.accept(id: Int)

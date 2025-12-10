@@ -74,6 +74,14 @@ trait VariantRepository {
    *         or newly created variant corresponding to the input sequence order.
    */
   def findOrCreateVariantsBatch(variants: Seq[Variant]): Future[Seq[Int]]
+
+  /**
+   * Searches for variants by name (rsId or commonName).
+   *
+   * @param name The name to search for.
+   * @return A Future containing a sequence of matching Variants.
+   */
+  def searchByName(name: String): Future[Seq[Variant]]
 }
 
 class VariantRepositoryImpl @Inject()(
@@ -97,6 +105,13 @@ class VariantRepositoryImpl @Inject()(
         v.alternateAllele === alternateAllele
     ).result.headOption
 
+    db.run(query)
+  }
+
+  def searchByName(name: String): Future[Seq[Variant]] = {
+    val query = variants.filter(v =>
+      v.rsId === name || v.commonName === name
+    ).result
     db.run(query)
   }
 

@@ -39,6 +39,14 @@ trait GenbankContigRepository {
    *         The sequence may be empty if no matching GenbankContigs are found.
    */
   def getByAccessions(accessions: Seq[String]): Future[Seq[GenbankContig]]
+
+  /**
+   * Retrieves a sequence of GenbankContig objects corresponding to the provided common names.
+   *
+   * @param commonNames A sequence of common names for which GenbankContigs need to be fetched.
+   * @return A Future containing a sequence of GenbankContig objects.
+   */
+  def findByCommonNames(commonNames: Seq[String]): Future[Seq[GenbankContig]]
 }
 
 class GenbankContigRepositoryImpl @Inject()(
@@ -61,6 +69,11 @@ class GenbankContigRepositoryImpl @Inject()(
 
   def getByAccessions(accessions: Seq[String]): Future[Seq[GenbankContig]] = {
     val query = genbankContigs.filter(_.accession.inSet(accessions)).result
+    db.run(query)
+  }
+
+  def findByCommonNames(commonNames: Seq[String]): Future[Seq[GenbankContig]] = {
+    val query = genbankContigs.filter(_.commonName.inSet(commonNames)).result
     db.run(query)
   }
 }
