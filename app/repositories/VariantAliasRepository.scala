@@ -56,6 +56,12 @@ trait VariantAliasRepository {
    * Search aliases by partial match.
    */
   def searchAliases(query: String, limit: Int): Future[Seq[VariantAlias]]
+
+  /**
+   * Find aliases for multiple variants in batch.
+   * Returns a map of variantId -> Seq[VariantAlias]
+   */
+  def findByVariantIds(variantIds: Seq[Int]): Future[Map[Int, Seq[VariantAlias]]]
 }
 
 class VariantAliasRepositoryImpl @Inject()(
@@ -161,5 +167,18 @@ class VariantAliasRepositoryImpl @Inject()(
         .take(limit)
         .result
     )
+  }
+
+  override def findByVariantIds(variantIds: Seq[Int]): Future[Map[Int, Seq[VariantAlias]]] = {
+    if (variantIds.isEmpty) {
+      Future.successful(Map.empty)
+    } else {
+      db.run(
+        variantAliases
+          .filter(_.variantId inSet variantIds)
+          .sortBy(a => (a.variantId, a.aliasType, a.isPrimary.desc))
+          .result
+      ).map(_.groupBy(_.variantId))
+    }
   }
 }

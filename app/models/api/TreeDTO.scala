@@ -77,16 +77,20 @@ case class GenomicCoordinate(start: Int, stop: Int, anc: String, der: String) {
 /**
  * Represents a genomic variant along with its name, coordinates, and variant type.
  *
- * @param name        The name of the variant.
- * @param coordinates A mapping of chromosomes or regions to their respective genomic coordinates.
+ * @param name        The name of the variant (primary display name).
+ * @param coordinates A mapping of reference genomes to their respective genomic coordinates.
  *                    Each `GenomicCoordinate` represents the specific start and stop positions
  *                    along with the ancestral and derived alleles for the region.
  * @param variantType The type of the variant, indicating the nature or classification of the mutation.
+ * @param aliases     Alternative names for this variant, grouped by source/type.
+ *                    Keys are alias types (e.g., "common_name", "rs_id", "isogg", "yfull").
+ *                    Values are lists of alias values from that source.
  */
 case class VariantDTO(
                        name: String,
                        coordinates: Map[String, GenomicCoordinate],
-                       variantType: String
+                       variantType: String,
+                       aliases: Map[String, Seq[String]] = Map.empty
                      )
 
 /**
