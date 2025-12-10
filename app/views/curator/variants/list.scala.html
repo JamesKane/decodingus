@@ -1,6 +1,6 @@
 @import org.webjars.play.WebJarsUtil
-@import models.dal.domain.genomics.Variant
-@(variants: Seq[Variant], query: Option[String], currentPage: Int, totalPages: Int, pageSize: Int)(implicit request: RequestHeader, messages: Messages, webJarsUtil: WebJarsUtil)
+@import models.domain.genomics.VariantWithContig
+@(variants: Seq[VariantWithContig], query: Option[String], currentPage: Int, totalPages: Int, pageSize: Int)(implicit request: RequestHeader, messages: Messages, webJarsUtil: WebJarsUtil)
 
 @main("Curator - Variants") {
     <style>

@@ -1,5 +1,5 @@
-@import models.dal.domain.genomics.Variant
-@(variants: Seq[Variant], query: Option[String], currentPage: Int, totalPages: Int, pageSize: Int)(implicit request: RequestHeader)
+@import models.domain.genomics.VariantWithContig
+@(variants: Seq[VariantWithContig], query: Option[String], currentPage: Int, totalPages: Int, pageSize: Int)(implicit request: RequestHeader)
 
 @if(variants.isEmpty) {
     <div class="alert alert-info">No variants found matching your criteria.</div>
@@ -10,33 +10,35 @@
                 <tr>
                     <th>rsId / Name</th>
                     <th>Position</th>
-                    <th>Ref/Alt</th>
+                    <th>Build</th>
+                    <th>Anc/Der</th>
                     <th>Type</th>
                     <th></th>
                 </tr>
             </thead>
             <tbody>
-                @for(v <- variants) {
+                @for(vwc <- variants) {
                     <tr class="cursor-pointer"
-                        hx-get="@controllers.routes.CuratorController.variantDetailPanel(v.variantId.get)"
+                        hx-get="@controllers.routes.CuratorController.variantDetailPanel(vwc.variant.variantId.get)"
                         hx-target="#detail-panel"
                         hx-swap="innerHTML"
                         style="cursor: pointer;">
                         <td>
-                            <strong>@v.rsId.orElse(v.commonName).getOrElse(s"ID: ${v.variantId.get}")</strong>
-                            @v.commonName.filter(n => v.rsId.isDefined).map { name =>
+                            <strong>@vwc.variant.rsId.orElse(vwc.variant.commonName).getOrElse(s"ID: ${vwc.variant.variantId.get}")</strong>
+                            @vwc.variant.commonName.filter(n => vwc.variant.rsId.isDefined).map { name =>
                                 <br><small class="text-muted">@name</small>
                             }
                         </td>
-                        <td>Chr@v.genbankContigId:@v.position</td>
+                        <td><code>@vwc.formattedPosition</code></td>
+                        <td><span class="badge bg-info">@vwc.shortReferenceGenome</span></td>
                         <td>
-                            <code>@v.referenceAllele/@v.alternateAllele</code>
+                            <code>@vwc.variant.referenceAllele/@vwc.variant.alternateAllele</code>
                         </td>
                         <td>
-                            <span class="badge bg-secondary">@v.variantType</span>
+                            <span class="badge bg-secondary">@vwc.variant.variantType</span>
                         </td>
                         <td>
-                            <a href="@controllers.routes.CuratorController.editVariantForm(v.variantId.get)"
+                            <a href="@controllers.routes.CuratorController.editVariantForm(vwc.variant.variantId.get)"
                                class="btn btn-sm btn-outline-secondary"
                                onclick="event.stopPropagation()">
                                 <i class="bi bi-pencil"></i>

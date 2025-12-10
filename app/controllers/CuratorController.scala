@@ -4,6 +4,7 @@ import actions.{AuthenticatedAction, AuthenticatedRequest, PermissionAction}
 import jakarta.inject.{Inject, Singleton}
 import models.HaplogroupType
 import models.dal.domain.genomics.Variant
+import models.domain.genomics.VariantWithContig
 import models.domain.haplogroups.Haplogroup
 import org.webjars.play.WebJarsUtil
 import play.api.Logging
@@ -265,8 +266,8 @@ class CuratorController @Inject()(
 
       for {
         variants <- query match {
-          case Some(q) if q.nonEmpty => variantRepository.search(q, pageSize, offset)
-          case _ => variantRepository.search("", pageSize, offset)
+          case Some(q) if q.nonEmpty => variantRepository.searchWithContig(q, pageSize, offset)
+          case _ => variantRepository.searchWithContig("", pageSize, offset)
         }
         totalCount <- variantRepository.count(query.filter(_.nonEmpty))
       } yield {
@@ -281,8 +282,8 @@ class CuratorController @Inject()(
 
       for {
         variants <- query match {
-          case Some(q) if q.nonEmpty => variantRepository.search(q, pageSize, offset)
-          case _ => variantRepository.search("", pageSize, offset)
+          case Some(q) if q.nonEmpty => variantRepository.searchWithContig(q, pageSize, offset)
+          case _ => variantRepository.searchWithContig("", pageSize, offset)
         }
         totalCount <- variantRepository.count(query.filter(_.nonEmpty))
       } yield {
@@ -294,12 +295,12 @@ class CuratorController @Inject()(
   def variantDetailPanel(id: Int): Action[AnyContent] =
     withPermission("variant.view").async { implicit request =>
       for {
-        variantOpt <- variantRepository.findById(id)
+        variantOpt <- variantRepository.findByIdWithContig(id)
         history <- auditService.getVariantHistory(id)
       } yield {
         variantOpt match {
-          case Some(variant) =>
-            Ok(views.html.curator.variants.detailPanel(variant, history))
+          case Some(variantWithContig) =>
+            Ok(views.html.curator.variants.detailPanel(variantWithContig, history))
           case None =>
             NotFound("Variant not found")
         }

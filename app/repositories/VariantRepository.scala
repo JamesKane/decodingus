@@ -4,6 +4,7 @@ import jakarta.inject.Inject
 import models.dal.MyPostgresProfile
 import models.dal.MyPostgresProfile.api.*
 import models.dal.domain.genomics.Variant
+import models.domain.genomics.{GenbankContig, VariantWithContig}
 import org.postgresql.util.PSQLException
 import play.api.db.slick.DatabaseConfigProvider
 
@@ -91,9 +92,19 @@ trait VariantRepository {
   def findById(id: Int): Future[Option[Variant]]
 
   /**
+   * Find a variant by ID with its associated contig information.
+   */
+  def findByIdWithContig(id: Int): Future[Option[VariantWithContig]]
+
+  /**
    * Search variants by name with pagination.
    */
   def search(query: String, limit: Int, offset: Int): Future[Seq[Variant]]
+
+  /**
+   * Search variants by name with pagination, including contig information.
+   */
+  def searchWithContig(query: String, limit: Int, offset: Int): Future[Seq[VariantWithContig]]
 
   /**
    * Count variants matching search criteria.
@@ -117,7 +128,7 @@ class VariantRepositoryImpl @Inject()(
   extends BaseRepository(dbConfigProvider)
     with VariantRepository {
 
-  import models.dal.DatabaseSchema.domain.genomics.variants
+  import models.dal.DatabaseSchema.domain.genomics.{genbankContigs, variants}
 
   def findVariant(
                    contigId: Int,
@@ -222,6 +233,15 @@ class VariantRepositoryImpl @Inject()(
     db.run(variants.filter(_.variantId === id).result.headOption)
   }
 
+  override def findByIdWithContig(id: Int): Future[Option[VariantWithContig]] = {
+    val query = for {
+      v <- variants if v.variantId === id
+      c <- genbankContigs if c.genbankContigId === v.genbankContigId
+    } yield (v, c)
+
+    db.run(query.result.headOption).map(_.map { case (v, c) => VariantWithContig(v, c) })
+  }
+
   override def search(query: String, limit: Int, offset: Int): Future[Seq[Variant]] = {
     val upperQuery = query.toUpperCase
     val searchQuery = variants.filter(v =>
@@ -234,6 +254,20 @@ class VariantRepositoryImpl @Inject()(
       .result
 
     db.run(searchQuery)
+  }
+
+  override def searchWithContig(query: String, limit: Int, offset: Int): Future[Seq[VariantWithContig]] = {
+    val upperQuery = query.toUpperCase
+    val searchQuery = (for {
+      v <- variants if v.rsId.toUpperCase.like(s"%$upperQuery%") || v.commonName.toUpperCase.like(s"%$upperQuery%")
+      c <- genbankContigs if c.genbankContigId === v.genbankContigId
+    } yield (v, c))
+      .sortBy { case (v, _) => (v.commonName, v.rsId) }
+      .drop(offset)
+      .take(limit)
+      .result
+
+    db.run(searchQuery).map(_.map { case (v, c) => VariantWithContig(v, c) })
   }
 
   override def count(query: Option[String]): Future[Int] = {
