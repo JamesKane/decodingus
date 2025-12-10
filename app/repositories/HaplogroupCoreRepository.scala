@@ -109,6 +109,14 @@ trait HaplogroupCoreRepository {
    * @return the ID of the newly created haplogroup
    */
   def createWithParent(haplogroup: Haplogroup, parentId: Option[Int], source: String): Future[Int]
+
+  /**
+   * Find root haplogroups (those with no parent) for a given type.
+   *
+   * @param haplogroupType the type of haplogroup (Y or MT)
+   * @return a sequence of root haplogroups for that type
+   */
+  def findRoots(haplogroupType: HaplogroupType): Future[Seq[Haplogroup]]
 }
 
 class HaplogroupCoreRepositoryImpl @Inject()(
@@ -391,5 +399,18 @@ class HaplogroupCoreRepositoryImpl @Inject()(
     } yield newId
 
     runTransactionally(createAction)
+  }
+
+  override def findRoots(haplogroupType: HaplogroupType): Future[Seq[Haplogroup]] = {
+    // Find haplogroups of the given type that have no active parent relationship
+    val query = activeHaplogroups
+      .filter(_.haplogroupType === haplogroupType)
+      .filterNot(h =>
+        activeRelationships.filter(_.childHaplogroupId === h.haplogroupId).exists
+      )
+      .sortBy(_.name)
+      .result
+
+    runQuery(query)
   }
 }

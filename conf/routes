@@ -138,6 +138,7 @@ GET           /curator                                                          
 # Curator - Haplogroups
 GET           /curator/haplogroups                                                               controllers.CuratorController.listHaplogroups(query: Option[String], hgType: Option[String], page: Int ?= 1, pageSize: Int ?= 20)
 GET           /curator/haplogroups/fragment                                                      controllers.CuratorController.haplogroupsFragment(query: Option[String], hgType: Option[String], page: Int ?= 1, pageSize: Int ?= 20)
+GET           /curator/haplogroups/search.json                                                   controllers.CuratorController.searchHaplogroupsJson(query: Option[String], hgType: Option[String])
 GET           /curator/haplogroups/new                                                           controllers.CuratorController.createHaplogroupForm
 POST          /curator/haplogroups                                                               controllers.CuratorController.createHaplogroup
 GET           /curator/haplogroups/:id/panel                                                     controllers.CuratorController.haplogroupDetailPanel(id: Int)

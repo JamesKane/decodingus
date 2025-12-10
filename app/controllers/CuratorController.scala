@@ -27,6 +27,17 @@ case class HaplogroupFormData(
     confidenceLevel: String
 )
 
+case class CreateHaplogroupFormData(
+    name: String,
+    lineage: Option[String],
+    description: Option[String],
+    haplogroupType: String,
+    source: String,
+    confidenceLevel: String,
+    parentId: Option[Int],
+    createAboveRoot: Boolean
+)
+
 case class VariantFormData(
     genbankContigId: Int,
     position: Int,
@@ -100,6 +111,19 @@ class CuratorController @Inject()(
     )(SplitBranchFormData.apply)(s => Some((s.name, s.lineage, s.description, s.source, s.confidenceLevel, s.variantGroupKeys, s.childIds)))
   )
 
+  private val createHaplogroupFormMapping: Form[CreateHaplogroupFormData] = Form(
+    mapping(
+      "name" -> nonEmptyText(1, 100),
+      "lineage" -> optional(text(maxLength = 500)),
+      "description" -> optional(text(maxLength = 2000)),
+      "haplogroupType" -> nonEmptyText.verifying("Invalid type", t => HaplogroupType.fromString(t).isDefined),
+      "source" -> nonEmptyText(1, 100),
+      "confidenceLevel" -> nonEmptyText(1, 50),
+      "parentId" -> optional(number),
+      "createAboveRoot" -> boolean
+    )(CreateHaplogroupFormData.apply)(c => Some((c.name, c.lineage, c.description, c.haplogroupType, c.source, c.confidenceLevel, c.parentId, c.createAboveRoot)))
+  )
+
   // === Dashboard ===
 
   def dashboard: Action[AnyContent] = withPermission("haplogroup.view").async { implicit request =>
@@ -168,24 +192,51 @@ class CuratorController @Inject()(
       }
     }
 
+  def searchHaplogroupsJson(query: Option[String], hgType: Option[String]): Action[AnyContent] =
+    withPermission("haplogroup.view").async { implicit request =>
+      import play.api.libs.json.*
+      val haplogroupType = hgType.flatMap(HaplogroupType.fromString)
+      for {
+        haplogroups <- haplogroupRepository.search(query.getOrElse(""), haplogroupType, 100, 0)
+      } yield {
+        val json = haplogroups.map { h =>
+          Json.obj(
+            "id" -> h.id,
+            "name" -> h.name,
+            "type" -> h.haplogroupType.toString
+          )
+        }
+        Ok(Json.toJson(json))
+      }
+    }
+
   def createHaplogroupForm: Action[AnyContent] =
     withPermission("haplogroup.create").async { implicit request =>
-      Future.successful(Ok(views.html.curator.haplogroups.createForm(haplogroupForm)))
+      for {
+        yRoots <- haplogroupRepository.findRoots(HaplogroupType.Y)
+        mtRoots <- haplogroupRepository.findRoots(HaplogroupType.MT)
+      } yield {
+        Ok(views.html.curator.haplogroups.createForm(createHaplogroupFormMapping, yRoots, mtRoots))
+      }
     }
 
   def createHaplogroup: Action[AnyContent] =
     withPermission("haplogroup.create").async { implicit request =>
-      haplogroupForm.bindFromRequest().fold(
+      createHaplogroupFormMapping.bindFromRequest().fold(
         formWithErrors => {
-          Future.successful(BadRequest(views.html.curator.haplogroups.createForm(formWithErrors)))
+          for {
+            yRoots <- haplogroupRepository.findRoots(HaplogroupType.Y)
+            mtRoots <- haplogroupRepository.findRoots(HaplogroupType.MT)
+          } yield BadRequest(views.html.curator.haplogroups.createForm(formWithErrors, yRoots, mtRoots))
         },
         data => {
+          val haplogroupType = HaplogroupType.fromString(data.haplogroupType).get
           val haplogroup = Haplogroup(
             id = None,
             name = data.name,
             lineage = data.lineage,
             description = data.description,
-            haplogroupType = HaplogroupType.fromString(data.haplogroupType).get,
+            haplogroupType = haplogroupType,
             revisionId = 1,
             source = data.source,
             confidenceLevel = data.confidenceLevel,
@@ -194,13 +245,75 @@ class CuratorController @Inject()(
           )
 
           for {
-            newId <- haplogroupRepository.create(haplogroup)
-            createdHaplogroup = haplogroup.copy(id = Some(newId))
-            _ <- auditService.logHaplogroupCreate(request.user.id.get, createdHaplogroup, Some("Created via curator interface"))
-          } yield {
-            Redirect(routes.CuratorController.listHaplogroups(None, None, 1, 20))
-              .flashing("success" -> s"Haplogroup '${data.name}' created successfully")
-          }
+            // Validate parent selection
+            yRoots <- haplogroupRepository.findRoots(HaplogroupType.Y)
+            mtRoots <- haplogroupRepository.findRoots(HaplogroupType.MT)
+            existingRoots = if (haplogroupType == HaplogroupType.Y) yRoots else mtRoots
+
+            result <- (data.parentId, data.createAboveRoot, existingRoots.nonEmpty) match {
+              case (None, true, true) =>
+                // Create as NEW root above existing roots
+                for {
+                  newId <- haplogroupRepository.createWithParent(haplogroup, None, "curator-create-above-root")
+                  createdHaplogroup = haplogroup.copy(id = Some(newId))
+                  // Re-parent all existing roots to become children of the new root
+                  _ <- Future.traverse(existingRoots.flatMap(_.id)) { oldRootId =>
+                    haplogroupRepository.updateParent(oldRootId, newId, "curator-create-above-root")
+                  }
+                  _ <- auditService.logHaplogroupCreate(
+                    request.user.id.get,
+                    createdHaplogroup,
+                    Some(s"Created as new root above existing root(s): ${existingRoots.map(_.name).mkString(", ")}")
+                  )
+                } yield {
+                  Redirect(routes.CuratorController.listHaplogroups(None, None, 1, 20))
+                    .flashing("success" -> s"Haplogroup '${data.name}' created as new root. Previous root(s) are now children.")
+                }
+
+              case (None, false, true) =>
+                // Trying to create a new root when one already exists without the flag
+                val errorForm = createHaplogroupFormMapping.fill(data).withGlobalError(
+                  s"A root haplogroup already exists for ${haplogroupType}. Select a parent (leaf), use 'Create above existing root', or use Split to create a subclade."
+                )
+                Future.successful(BadRequest(views.html.curator.haplogroups.createForm(errorForm, yRoots, mtRoots)))
+
+              case (Some(parentId), _, _) =>
+                // Validate parent exists and is of the same type
+                haplogroupRepository.findById(parentId).flatMap {
+                  case Some(parent) if parent.haplogroupType != haplogroupType =>
+                    val errorForm = createHaplogroupFormMapping.fill(data).withGlobalError(
+                      s"Parent haplogroup type (${parent.haplogroupType}) must match the new haplogroup type (${haplogroupType})"
+                    )
+                    Future.successful(BadRequest(views.html.curator.haplogroups.createForm(errorForm, yRoots, mtRoots)))
+
+                  case Some(_) =>
+                    // Create with parent (leaf)
+                    for {
+                      newId <- haplogroupRepository.createWithParent(haplogroup, Some(parentId), "curator-create")
+                      createdHaplogroup = haplogroup.copy(id = Some(newId))
+                      _ <- auditService.logHaplogroupCreate(request.user.id.get, createdHaplogroup, Some("Created as leaf via curator interface"))
+                    } yield {
+                      Redirect(routes.CuratorController.listHaplogroups(None, None, 1, 20))
+                        .flashing("success" -> s"Haplogroup '${data.name}' created successfully as child of parent")
+                    }
+
+                  case None =>
+                    val errorForm = createHaplogroupFormMapping.fill(data).withGlobalError("Selected parent haplogroup not found")
+                    Future.successful(BadRequest(views.html.curator.haplogroups.createForm(errorForm, yRoots, mtRoots)))
+                }
+
+              case (None, _, false) =>
+                // Create as new root (no existing roots for this type)
+                for {
+                  newId <- haplogroupRepository.createWithParent(haplogroup, None, "curator-create")
+                  createdHaplogroup = haplogroup.copy(id = Some(newId))
+                  _ <- auditService.logHaplogroupCreate(request.user.id.get, createdHaplogroup, Some("Created as root via curator interface"))
+                } yield {
+                  Redirect(routes.CuratorController.listHaplogroups(None, None, 1, 20))
+                    .flashing("success" -> s"Haplogroup '${data.name}' created successfully as root")
+                }
+            }
+          } yield result
         }
       )
     }
