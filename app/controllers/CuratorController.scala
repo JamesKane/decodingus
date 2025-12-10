@@ -13,7 +13,7 @@ import play.api.data.Forms.*
 import play.api.i18n.I18nSupport
 import play.api.mvc.*
 import repositories.{HaplogroupCoreRepository, HaplogroupVariantRepository, VariantRepository}
-import services.CuratorAuditService
+import services.{CuratorAuditService, TreeRestructuringService}
 
 import java.time.LocalDateTime
 import scala.concurrent.{ExecutionContext, Future}
@@ -37,6 +37,16 @@ case class VariantFormData(
     commonName: Option[String]
 )
 
+case class SplitBranchFormData(
+    name: String,
+    lineage: Option[String],
+    description: Option[String],
+    source: String,
+    confidenceLevel: String,
+    variantGroupKeys: Seq[String],
+    childIds: Seq[Int]
+)
+
 @Singleton
 class CuratorController @Inject()(
     val controllerComponents: ControllerComponents,
@@ -45,7 +55,8 @@ class CuratorController @Inject()(
     haplogroupRepository: HaplogroupCoreRepository,
     variantRepository: VariantRepository,
     haplogroupVariantRepository: HaplogroupVariantRepository,
-    auditService: CuratorAuditService
+    auditService: CuratorAuditService,
+    treeRestructuringService: TreeRestructuringService
 )(implicit ec: ExecutionContext, webJarsUtil: WebJarsUtil)
     extends BaseController with I18nSupport with Logging {
 
@@ -75,6 +86,18 @@ class CuratorController @Inject()(
       "rsId" -> optional(text(maxLength = 50)),
       "commonName" -> optional(text(maxLength = 100))
     )(VariantFormData.apply)(v => Some((v.genbankContigId, v.position, v.referenceAllele, v.alternateAllele, v.variantType, v.rsId, v.commonName)))
+  )
+
+  private val splitBranchForm: Form[SplitBranchFormData] = Form(
+    mapping(
+      "name" -> nonEmptyText(1, 100),
+      "lineage" -> optional(text(maxLength = 500)),
+      "description" -> optional(text(maxLength = 2000)),
+      "source" -> nonEmptyText(1, 100),
+      "confidenceLevel" -> nonEmptyText(1, 50),
+      "variantGroupKeys" -> seq(text),
+      "childIds" -> seq(number)
+    )(SplitBranchFormData.apply)(s => Some((s.name, s.lineage, s.description, s.source, s.confidenceLevel, s.variantGroupKeys, s.childIds)))
   )
 
   // === Dashboard ===
@@ -525,6 +548,83 @@ class CuratorController @Inject()(
     withPermission("audit.view").async { implicit request =>
       auditService.getHaplogroupVariantHistory(haplogroupVariantId).map { history =>
         Ok(views.html.curator.haplogroups.variantHistoryPanel(haplogroupVariantId, history))
+      }
+    }
+
+  // === Tree Restructuring ===
+
+  def splitBranchForm(parentId: Int): Action[AnyContent] =
+    withPermission("haplogroup.update").async { implicit request =>
+      treeRestructuringService.getSplitPreview(parentId).map { preview =>
+        Ok(views.html.curator.haplogroups.splitBranchForm(preview.parent, preview.variantGroups, preview.children, splitBranchForm))
+      }.recover {
+        case e: IllegalArgumentException =>
+          NotFound(e.getMessage)
+      }
+    }
+
+  def splitBranch(parentId: Int): Action[AnyContent] =
+    withPermission("haplogroup.update").async { implicit request =>
+      treeRestructuringService.getSplitPreview(parentId).flatMap { preview =>
+        splitBranchForm.bindFromRequest().fold(
+          formWithErrors => {
+            Future.successful(BadRequest(views.html.curator.haplogroups.splitBranchForm(
+              preview.parent, preview.variantGroups, preview.children, formWithErrors
+            )))
+          },
+          data => {
+            val newHaplogroup = Haplogroup(
+              id = None,
+              name = data.name,
+              lineage = data.lineage,
+              description = data.description,
+              haplogroupType = preview.parent.haplogroupType,
+              revisionId = 1,
+              source = data.source,
+              confidenceLevel = data.confidenceLevel,
+              validFrom = LocalDateTime.now(),
+              validUntil = None
+            )
+
+            treeRestructuringService.splitBranch(
+              parentId,
+              newHaplogroup,
+              data.variantGroupKeys,
+              data.childIds,
+              request.user.id.get
+            ).map { newId =>
+              Redirect(routes.CuratorController.listHaplogroups(None, None, 1, 20))
+                .flashing("success" -> s"Created subclade '${data.name}' under '${preview.parent.name}'")
+            }.recover {
+              case e: IllegalArgumentException =>
+                BadRequest(views.html.curator.haplogroups.splitBranchForm(
+                  preview.parent, preview.variantGroups, preview.children,
+                  splitBranchForm.fill(data).withGlobalError(e.getMessage)
+                ))
+            }
+          }
+        )
+      }
+    }
+
+  def mergeConfirmForm(childId: Int): Action[AnyContent] =
+    withPermission("haplogroup.update").async { implicit request =>
+      treeRestructuringService.getMergePreview(childId).map { preview =>
+        Ok(views.html.curator.haplogroups.mergeConfirmForm(preview))
+      }.recover {
+        case e: IllegalArgumentException =>
+          NotFound(e.getMessage)
+      }
+    }
+
+  def mergeIntoParent(childId: Int): Action[AnyContent] =
+    withPermission("haplogroup.update").async { implicit request =>
+      treeRestructuringService.mergeIntoParent(childId, request.user.id.get).map { parentId =>
+        Redirect(routes.CuratorController.haplogroupDetailPanel(parentId))
+          .withHeaders("HX-Trigger" -> "haplogroupMerged")
+      }.recover {
+        case e: IllegalArgumentException =>
+          BadRequest(e.getMessage)
       }
     }
 }

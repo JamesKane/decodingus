@@ -145,6 +145,12 @@ GET           /curator/haplogroups/:id/edit                                     
 POST          /curator/haplogroups/:id                                                           controllers.CuratorController.updateHaplogroup(id: Int)
 DELETE        /curator/haplogroups/:id                                                           controllers.CuratorController.deleteHaplogroup(id: Int)
 
+# Curator - Haplogroup Tree Restructuring
+GET           /curator/haplogroups/:id/split                                                      controllers.CuratorController.splitBranchForm(id: Int)
+POST          /curator/haplogroups/:id/split                                                      controllers.CuratorController.splitBranch(id: Int)
+GET           /curator/haplogroups/:id/merge                                                      controllers.CuratorController.mergeConfirmForm(id: Int)
+POST          /curator/haplogroups/:id/merge                                                      controllers.CuratorController.mergeIntoParent(id: Int)
+
 # Curator - Haplogroup-Variant Associations
 GET           /curator/haplogroups/:id/variants/search                                           controllers.CuratorController.searchVariantsForHaplogroup(id: Int, q: Option[String])
 POST          /curator/haplogroups/:hgId/variant-groups/:groupKey                                controllers.CuratorController.addVariantGroupToHaplogroup(hgId: Int, groupKey: String)

@@ -250,4 +250,66 @@ class CuratorAuditService @Inject()(
   def getHaplogroupVariantHistory(haplogroupVariantId: Int): Future[Seq[HaplogroupVariantMetadata]] = {
     haplogroupVariantMetadataRepository.getVariantRevisionHistory(haplogroupVariantId).map(_.map(_._2))
   }
+
+  // === Tree Restructuring Audit Methods ===
+
+  /**
+   * Log a branch split operation.
+   */
+  def logBranchSplit(
+      userId: UUID,
+      parentId: Int,
+      newHaplogroupId: Int,
+      movedVariantCount: Int,
+      movedChildIds: Seq[Int],
+      comment: Option[String] = None
+  ): Future[AuditLogEntry] = {
+    val details = Json.obj(
+      "operation" -> "split",
+      "parentId" -> parentId,
+      "newHaplogroupId" -> newHaplogroupId,
+      "movedVariantCount" -> movedVariantCount,
+      "movedChildIds" -> movedChildIds
+    )
+    val entry = AuditLogEntry(
+      userId = userId,
+      entityType = "haplogroup",
+      entityId = newHaplogroupId,
+      action = "split",
+      oldValue = None,
+      newValue = Some(details),
+      comment = comment
+    )
+    auditRepository.logAction(entry)
+  }
+
+  /**
+   * Log a merge into parent operation.
+   */
+  def logMergeIntoParent(
+      userId: UUID,
+      parentId: Int,
+      absorbedChildId: Int,
+      movedVariantCount: Int,
+      promotedChildCount: Int,
+      comment: Option[String] = None
+  ): Future[AuditLogEntry] = {
+    val details = Json.obj(
+      "operation" -> "merge",
+      "parentId" -> parentId,
+      "absorbedChildId" -> absorbedChildId,
+      "movedVariantCount" -> movedVariantCount,
+      "promotedChildCount" -> promotedChildCount
+    )
+    val entry = AuditLogEntry(
+      userId = userId,
+      entityType = "haplogroup",
+      entityId = parentId,
+      action = "merge",
+      oldValue = Some(Json.obj("absorbedChildId" -> absorbedChildId)),
+      newValue = Some(details),
+      comment = comment
+    )
+    auditRepository.logAction(entry)
+  }
 }

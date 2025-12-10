@@ -1,0 +1,126 @@
+@import org.webjars.play.WebJarsUtil
+@import services.MergePreview
+@(preview: MergePreview)(implicit request: RequestHeader, messages: Messages, webJarsUtil: WebJarsUtil)
+
+@main(s"Merge ${preview.child.name}") {
+    <div class="container py-5">
+        <div class="row justify-content-center">
+            <div class="col-md-8">
+                <nav aria-label="breadcrumb">
+                    <ol class="breadcrumb">
+                        <li class="breadcrumb-item"><a href="@controllers.routes.CuratorController.dashboard">Curator</a></li>
+                        <li class="breadcrumb-item"><a href="@controllers.routes.CuratorController.listHaplogroups(None, None, 1, 20)">Haplogroups</a></li>
+                        <li class="breadcrumb-item">@preview.child.name</li>
+                        <li class="breadcrumb-item active">Merge into Parent</li>
+                    </ol>
+                </nav>
+
+                <div class="card border-warning">
+                    <div class="card-header bg-warning text-dark">
+                        <h5 class="mb-0"><i class="bi bi-exclamation-triangle"></i> Confirm Merge into Parent</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="alert alert-info">
+                            <strong>This operation will:</strong>
+                            <ol class="mb-0 mt-2">
+                                <li>Move all variants from <strong>@preview.child.name</strong> up to <strong>@preview.parent.name</strong></li>
+                                <li>Move all children of <strong>@preview.child.name</strong> to become children of <strong>@preview.parent.name</strong></li>
+                                <li>Delete <strong>@preview.child.name</strong></li>
+                            </ol>
+                        </div>
+
+                        <div class="row mb-4">
+                            <div class="col-md-6">
+                                <div class="card h-100 border-danger">
+                                    <div class="card-header bg-danger text-white">
+                                        <i class="bi bi-trash"></i> Will be Deleted
+                                    </div>
+                                    <div class="card-body">
+                                        <h5>@preview.child.name</h5>
+                                        <span class="badge @if(preview.child.haplogroupType.toString == "Y"){bg-primary}else{bg-success}">@preview.child.haplogroupType</span>
+                                        @preview.child.lineage.map { l =>
+                                            <div class="text-muted small mt-2">@l</div>
+                                        }
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="card h-100 border-success">
+                                    <div class="card-header bg-success text-white">
+                                        <i class="bi bi-check-circle"></i> Will Absorb
+                                    </div>
+                                    <div class="card-body">
+                                        <h5>@preview.parent.name</h5>
+                                        <span class="badge @if(preview.parent.haplogroupType.toString == "Y"){bg-primary}else{bg-success}">@preview.parent.haplogroupType</span>
+                                        @preview.parent.lineage.map { l =>
+                                            <div class="text-muted small mt-2">@l</div>
+                                        }
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <h6 class="text-muted">What will be transferred:</h6>
+
+                        <div class="mb-3">
+                            <strong><i class="bi bi-code-square"></i> Variants:</strong>
+                            @if(preview.allVariantGroups.nonEmpty) {
+                                <span class="badge bg-info">@preview.uniqueVariantGroups.size of @preview.allVariantGroups.size group(s) will be added</span>
+                                <ul class="list-unstyled ps-3 mt-2">
+                                    @for(group <- preview.allVariantGroups) {
+                                        <li>
+                                            @if(preview.uniqueVariantGroups.exists(_.groupKey == group.groupKey)) {
+                                                <i class="bi bi-arrow-up-circle text-success"></i>
+                                            } else {
+                                                <i class="bi bi-dash-circle text-muted"></i>
+                                                <span class="text-muted">(already on parent)</span>
+                                            }
+                                            <strong>@group.displayName</strong>
+                                            <span class="badge bg-secondary">@group.buildCount build@if(group.buildCount != 1){s}</span>
+                                        </li>
+                                    }
+                                </ul>
+                            } else {
+                                <span class="text-muted">No variants</span>
+                            }
+                        </div>
+
+                        <div class="mb-4">
+                            <strong><i class="bi bi-diagram-2"></i> Children to promote:</strong>
+                            @if(preview.grandchildren.nonEmpty) {
+                                <span class="badge bg-info">@preview.grandchildren.size</span>
+                                <ul class="list-unstyled ps-3 mt-2">
+                                    @for(child <- preview.grandchildren) {
+                                        <li>
+                                            <i class="bi bi-arrow-up-circle text-success"></i>
+                                            <strong>@child.name</strong>
+                                            <span class="badge @if(child.haplogroupType.toString == "Y"){bg-primary}else{bg-success}">@child.haplogroupType</span>
+                                        </li>
+                                    }
+                                </ul>
+                            } else {
+                                <span class="text-muted">No children</span>
+                            }
+                        </div>
+
+                        @helper.form(controllers.routes.CuratorController.mergeIntoParent(preview.child.id.get)) {
+                            @helper.CSRF.formField
+
+                            <div class="d-flex gap-2">
+                                <button type="submit" class="btn btn-danger">
+                                    <i class="bi bi-check-lg"></i> Confirm Merge
+                                </button>
+                                <a href="@controllers.routes.CuratorController.haplogroupDetailPanel(preview.child.id.get)"
+                                   class="btn btn-outline-secondary"
+                                   hx-get="@controllers.routes.CuratorController.haplogroupDetailPanel(preview.child.id.get)"
+                                   hx-target="#detail-panel">
+                                    Cancel
+                                </a>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+}
