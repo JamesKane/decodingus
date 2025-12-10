@@ -1,0 +1,156 @@
+@import org.webjars.play.WebJarsUtil
+@import controllers.VariantFormData
+@import models.domain.genomics.VariantGroup
+@(groupKey: String, variantGroup: VariantGroup, form: Form[VariantFormData])(implicit request: RequestHeader, messages: Messages, webJarsUtil: WebJarsUtil)
+
+@buildBadgeClass(refGenome: String) = @{
+    refGenome match {
+        case "GRCh37" => "bg-warning text-dark"
+        case "GRCh38" => "bg-info"
+        case "T2T" => "bg-success"
+        case _ => "bg-secondary"
+    }
+}
+
+@* Check if alleles differ from first variant (potential reverse complement) *@
+@hasAlleleDifference = @{
+    variantGroup.variants.size > 1 && {
+        val first = variantGroup.variantsSorted.head
+        variantGroup.variantsSorted.tail.exists { v =>
+            v.variant.referenceAllele != first.variant.referenceAllele ||
+            v.variant.alternateAllele != first.variant.alternateAllele
+        }
+    }
+}
+
+@main(s"Edit Variant Group: ${variantGroup.displayName}") {
+    <div class="container py-5">
+        <div class="row justify-content-center">
+            <div class="col-md-10">
+                <nav aria-label="breadcrumb">
+                    <ol class="breadcrumb">
+                        <li class="breadcrumb-item"><a href="@controllers.routes.CuratorController.dashboard">Curator</a></li>
+                        <li class="breadcrumb-item"><a href="@controllers.routes.CuratorController.listVariants(None, 1, 20)">Variants</a></li>
+                        <li class="breadcrumb-item active">Edit Group: @variantGroup.displayName</li>
+                    </ol>
+                </nav>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">
+                            <i class="bi bi-pencil"></i> Edit Variant Group
+                            <span class="badge bg-secondary ms-2">@variantGroup.variants.size builds</span>
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="alert alert-info">
+                            <i class="bi bi-info-circle"></i>
+                            Editing this group will update <strong>@variantGroup.variants.size variant@if(variantGroup.variants.size != 1){s}</strong> across different reference builds.
+                        </div>
+
+                        @if(hasAlleleDifference) {
+                            <div class="alert alert-warning">
+                                <i class="bi bi-arrow-left-right"></i>
+                                <strong>Strand difference detected:</strong> Alleles vary between builds (likely reverse complement on different strand).
+                            </div>
+                        }
+
+                        <h6 class="text-muted mb-3"><i class="bi bi-collection"></i> Variants in this group</h6>
+                        <div class="table-responsive mb-4">
+                            <table class="table table-sm table-bordered">
+                                <thead>
+                                    <tr>
+                                        <th>Build</th>
+                                        <th>Position</th>
+                                        <th>Alleles (Anc→Der)</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @for(vwc <- variantGroup.variantsSorted) {
+                                        <tr>
+                                            <td>
+                                                <span class="badge @buildBadgeClass(vwc.shortReferenceGenome)">
+                                                    @vwc.shortReferenceGenome
+                                                </span>
+                                            </td>
+                                            <td>
+                                                <code class="small">@vwc.contig.commonName.getOrElse(vwc.contig.accession):@vwc.variant.position</code>
+                                            </td>
+                                            <td>
+                                                <code class="fw-bold">@vwc.variant.referenceAllele</code>
+                                                <i class="bi bi-arrow-right text-muted mx-1"></i>
+                                                <code class="fw-bold">@vwc.variant.alternateAllele</code>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <hr>
+
+                        <h6 class="text-muted mb-3"><i class="bi bi-gear"></i> Shared Properties (applies to all builds)</h6>
+
+                        @helper.form(controllers.routes.CuratorController.updateVariantGroup(groupKey)) {
+                            @helper.CSRF.formField
+
+                            @* Hidden fields to preserve required form data *@
+                            <input type="hidden" name="genbankContigId" value="@form("genbankContigId").value.getOrElse("")">
+                            <input type="hidden" name="position" value="@form("position").value.getOrElse("")">
+                            <input type="hidden" name="referenceAllele" value="@form("referenceAllele").value.getOrElse("")">
+                            <input type="hidden" name="alternateAllele" value="@form("alternateAllele").value.getOrElse("")">
+
+                            <div class="mb-3">
+                                <label for="variantType" class="form-label">Variant Type *</label>
+                                <select class="form-select @if(form.error("variantType").isDefined){is-invalid}"
+                                        id="variantType"
+                                        name="variantType"
+                                        required>
+                                    <option value="">Select...</option>
+                                    <option value="SNP" @if(form("variantType").value.contains("SNP")){selected}>SNP</option>
+                                    <option value="INDEL" @if(form("variantType").value.contains("INDEL")){selected}>INDEL</option>
+                                    <option value="MNP" @if(form("variantType").value.contains("MNP")){selected}>MNP</option>
+                                </select>
+                                @form.error("variantType").map { error =>
+                                    <div class="invalid-feedback">@error.message</div>
+                                }
+                            </div>
+
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label for="rsId" class="form-label">rsId</label>
+                                    <input type="text"
+                                           class="form-control"
+                                           id="rsId"
+                                           name="rsId"
+                                           value="@form("rsId").value.getOrElse("")"
+                                           placeholder="e.g., rs12345">
+                                    <div class="form-text">dbSNP reference identifier</div>
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label for="commonName" class="form-label">Common Name</label>
+                                    <input type="text"
+                                           class="form-control"
+                                           id="commonName"
+                                           name="commonName"
+                                           value="@form("commonName").value.getOrElse("")"
+                                           placeholder="e.g., M269">
+                                    <div class="form-text">SNP name used in phylogenetic trees</div>
+                                </div>
+                            </div>
+
+                            <div class="d-flex gap-2">
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="bi bi-check-lg"></i> Save Changes to All @variantGroup.variants.size Builds
+                                </button>
+                                <a href="@controllers.routes.CuratorController.listVariants(None, 1, 20)" class="btn btn-outline-secondary">
+                                    Cancel
+                                </a>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+}

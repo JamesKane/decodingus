@@ -4,12 +4,12 @@ import jakarta.inject.Inject
 import models.HaplogroupType
 import models.HaplogroupType.{MT, Y}
 import models.api.*
-import models.dal.domain.genomics.Variant
+import models.dal.domain.genomics.{Variant, VariantAlias}
 import models.domain.genomics.GenbankContig
 import models.domain.haplogroups.Haplogroup
 import play.api.Logging
 import play.api.mvc.Call
-import repositories.{HaplogroupCoreRepository, HaplogroupVariantRepository}
+import repositories.{HaplogroupCoreRepository, HaplogroupVariantRepository, VariantAliasRepository}
 
 import java.time.ZoneId
 import scala.concurrent.{ExecutionContext, Future}
@@ -31,7 +31,8 @@ case object FragmentRoute extends RouteType
  */
 class HaplogroupTreeService @Inject()(
                                        coreRepository: HaplogroupCoreRepository,
-                                       variantRepository: HaplogroupVariantRepository)(implicit ec: ExecutionContext)
+                                       variantRepository: HaplogroupVariantRepository,
+                                       aliasRepository: VariantAliasRepository)(implicit ec: ExecutionContext)
   extends Logging {
 
   /**
@@ -117,7 +118,11 @@ class HaplogroupTreeService @Inject()(
     for {
       // Get variants for this haplogroup
       variants <- variantRepository.getHaplogroupVariants(haplogroup.id.get)
-      variantDTOs = mapVariants(variants)
+
+      // Fetch aliases for all variants in batch
+      variantIds = variants.flatMap(_._1.variantId)
+      aliasMap <- aliasRepository.findByVariantIds(variantIds)
+      variantDTOs = mapVariants(variants, aliasMap)
 
       // Get and process children
       children <- coreRepository.getDirectChildren(haplogroup.id.get)
@@ -128,7 +133,9 @@ class HaplogroupTreeService @Inject()(
       variants = variantDTOs,
       children = childNodes.toList,
       updated = haplogroup.validFrom.atZone(ZoneId.systemDefault()),
-      isBackbone = haplogroup.source == "backbone" // Assuming we have this field or similar logic
+      isBackbone = haplogroup.source == "backbone",
+      formedYbp = haplogroup.formedYbp,
+      tmrcaYbp = haplogroup.tmrcaYbp
     )
   }
 
@@ -140,28 +147,54 @@ class HaplogroupTreeService @Inject()(
     } yield TreeNodeDTO(
       name = haplogroup.name,
       variants = Seq.empty,
-      variantCount = Some(variantCount), // Add this field to TreeNodeDTO
+      variantCount = Some(variantCount),
       children = childNodes.toList,
       updated = haplogroup.validFrom.atZone(ZoneId.systemDefault()),
-      isBackbone = haplogroup.source == "backbone"
+      isBackbone = haplogroup.source == "backbone",
+      formedYbp = haplogroup.formedYbp,
+      tmrcaYbp = haplogroup.tmrcaYbp
     )
   }
 
-  private def mapVariants(variants: Seq[(Variant, GenbankContig)]) = {
+  private def mapVariants(variants: Seq[(Variant, GenbankContig)], aliasMap: Map[Int, Seq[VariantAlias]] = Map.empty) = {
     variants.map { case (variant, contig) =>
+      // Convert aliases to Map[String, Seq[String]] grouped by type
+      val aliases = variant.variantId
+        .flatMap(id => aliasMap.get(id))
+        .getOrElse(Seq.empty)
+        .groupBy(_.aliasType)
+        .map { case (aliasType, typeAliases) => aliasType -> typeAliases.map(_.aliasValue) }
+
+      // Format coordinate key as "RefGenome CommonName" (e.g., "GRCh38 chrY")
+      val coordKey = formatCoordinateKey(contig)
+
       VariantDTO(
-        name = variant.commonName.getOrElse(s"${contig.accession}:${variant.position}"),
+        name = variant.commonName.getOrElse(s"${contig.commonName.getOrElse(contig.accession)}:${variant.position}"),
         coordinates = Map(
-          contig.accession -> GenomicCoordinate(
+          coordKey -> GenomicCoordinate(
             variant.position,
             variant.position,
             variant.referenceAllele,
             variant.alternateAllele
           )
         ),
-        variantType = variant.variantType
+        variantType = variant.variantType,
+        aliases = aliases
       )
     }
+  }
+
+  private def formatCoordinateKey(contig: GenbankContig): String = {
+    val refGenome = contig.referenceGenome.map(shortRefGenome).getOrElse("Unknown")
+    val name = contig.commonName.getOrElse(contig.accession)
+    s"$refGenome $name"
+  }
+
+  private def shortRefGenome(ref: String): String = ref match {
+    case r if r.contains("GRCh37") || r.contains("hg19") => "b37"
+    case r if r.contains("GRCh38") || r.contains("hg38") => "b38"
+    case r if r.contains("T2T") || r.contains("CHM13") || r.contains("hs1") => "hs1"
+    case other => other
   }
 
   /**
@@ -242,7 +275,9 @@ class HaplogroupTreeService @Inject()(
     val sortedVariantsFuture: Future[Seq[VariantDTO]] = for {
       haplogroup <- coreRepository.getHaplogroupByName(haplogroupName, haplogroupType)
       variants <- variantRepository.getHaplogroupVariants(haplogroup.flatMap(_.id).getOrElse(0))
-    } yield TreeNodeDTO.sortVariants(mapVariants(variants))
+      variantIds = variants.flatMap(_._1.variantId)
+      aliasMap <- aliasRepository.findByVariantIds(variantIds)
+    } yield TreeNodeDTO.sortVariants(mapVariants(variants, aliasMap))
 
     sortedVariantsFuture.map { sortedVariants =>
       val grouped = sortedVariants
@@ -256,8 +291,14 @@ class HaplogroupTreeService @Inject()(
             case (acc, currentMap) => acc ++ currentMap
           }
 
+          // Combine aliases from all VariantDTOs in this group
+          val combinedAliases: Map[String, Seq[String]] = locations
+            .flatMap(_.aliases.toSeq)
+            .groupBy(_._1)
+            .map { case (aliasType, pairs) => aliasType -> pairs.flatMap(_._2).distinct }
+
           // Create a new VariantDTO for the combined result
-          VariantDTO(first.name, combined, first.variantType)
+          VariantDTO(first.name, combined, first.variantType, combinedAliases)
         }.toSeq
 
       TreeNodeDTO.sortVariants(grouped)

@@ -1,0 +1,77 @@
+@import org.webjars.play.WebJarsUtil
+@(yHaplogroupCount: Int, mtHaplogroupCount: Int, variantCount: Int)(implicit request: RequestHeader, messages: Messages, webJarsUtil: WebJarsUtil)
+
+@main("Curator Dashboard") {
+    <div class="container py-5">
+        <h1 class="mb-4"><i class="bi bi-tree"></i> Curator Dashboard</h1>
+
+        @request.flash.get("success").map { msg =>
+            <div class="alert alert-success alert-dismissible fade show" role="alert">
+                @msg
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+        }
+
+        <div class="row g-4 mb-5">
+            <div class="col-md-4">
+                <div class="card h-100 border-primary">
+                    <div class="card-body text-center">
+                        <h5 class="card-title"><i class="bi bi-diagram-3"></i> Y-DNA Haplogroups</h5>
+                        <p class="display-4 text-primary">@yHaplogroupCount</p>
+                        <a href="@controllers.routes.CuratorController.listHaplogroups(None, Some("Y"), 1, 20)" class="btn btn-outline-primary">
+                            Manage Y-DNA
+                        </a>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card h-100 border-success">
+                    <div class="card-body text-center">
+                        <h5 class="card-title"><i class="bi bi-diagram-3"></i> mtDNA Haplogroups</h5>
+                        <p class="display-4 text-success">@mtHaplogroupCount</p>
+                        <a href="@controllers.routes.CuratorController.listHaplogroups(None, Some("MT"), 1, 20)" class="btn btn-outline-success">
+                            Manage mtDNA
+                        </a>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card h-100 border-info">
+                    <div class="card-body text-center">
+                        <h5 class="card-title"><i class="bi bi-code-square"></i> Variants</h5>
+                        <p class="display-4 text-info">@variantCount</p>
+                        <a href="@controllers.routes.CuratorController.listVariants(None, 1, 20)" class="btn btn-outline-info">
+                            Manage Variants
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">Quick Actions</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="d-flex gap-3 flex-wrap">
+                            <a href="@controllers.routes.CuratorController.createHaplogroupForm" class="btn btn-primary">
+                                <i class="bi bi-plus-circle"></i> Create Haplogroup
+                            </a>
+                            <a href="@controllers.routes.CuratorController.createVariantForm" class="btn btn-primary">
+                                <i class="bi bi-plus-circle"></i> Create Variant
+                            </a>
+                            <a href="@controllers.routes.CuratorController.listHaplogroups(None, None, 1, 20)" class="btn btn-outline-secondary">
+                                <i class="bi bi-search"></i> Browse All Haplogroups
+                            </a>
+                            <a href="@controllers.routes.CuratorController.listVariants(None, 1, 20)" class="btn btn-outline-secondary">
+                                <i class="bi bi-search"></i> Browse All Variants
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+}

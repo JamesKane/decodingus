@@ -78,6 +78,7 @@ object DatabaseSchema {
       val specimenDonors = TableQuery[SpecimenDonorsTable]
       val validationServices = TableQuery[ValidationServicesTable]
       val variants = TableQuery[VariantsTable]
+      val variantAliases = TableQuery[VariantAliasTable]
       val testTypeDefinition = TableQuery[TestTypeTable]
 
       // New tables for Atmosphere Lexicon sync
@@ -147,5 +148,10 @@ object DatabaseSchema {
     import models.dal.support.*
     val contactMessages = TableQuery[ContactMessagesTable]
     val messageReplies = TableQuery[MessageRepliesTable]
+  }
+
+  object curator {
+    import models.dal.curator.*
+    val auditLog = TableQuery[AuditLogTable]
   }
 }

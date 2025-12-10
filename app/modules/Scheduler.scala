@@ -1,6 +1,7 @@
 package modules
 
 import actors.PublicationUpdateActor.UpdateAllPublications
+import actors.YBrowseVariantUpdateActor
 import jakarta.inject.{Inject, Named, Singleton}
 import org.apache.pekko.actor.{ActorRef, ActorSystem}
 import org.apache.pekko.extension.quartz.QuartzSchedulerExtension
@@ -14,7 +15,8 @@ import play.api.Logging
 class Scheduler @Inject()(
                            system: ActorSystem,
                            @Named("publication-update-actor") publicationUpdateActor: ActorRef,
-                           @Named("publication-discovery-actor") publicationDiscoveryActor: ActorRef
+                           @Named("publication-discovery-actor") publicationDiscoveryActor: ActorRef,
+                           @Named("ybrowse-variant-update-actor") ybrowseVariantUpdateActor: ActorRef
                          ) extends Logging {
 
   private val quartz = QuartzSchedulerExtension(system)
@@ -35,5 +37,14 @@ class Scheduler @Inject()(
   } catch {
     case e: Exception =>
       logger.error(s"Failed to schedule 'PublicationDiscovery' job: ${e.getMessage}", e)
+  }
+
+  // Schedule the YBrowseVariantUpdate job
+  try {
+    quartz.schedule("YBrowseVariantUpdate", ybrowseVariantUpdateActor, YBrowseVariantUpdateActor.RunUpdate)
+    logger.info("Successfully scheduled 'YBrowseVariantUpdate' job.")
+  } catch {
+    case e: Exception =>
+      logger.error(s"Failed to schedule 'YBrowseVariantUpdate' job: ${e.getMessage}", e)
   }
 }

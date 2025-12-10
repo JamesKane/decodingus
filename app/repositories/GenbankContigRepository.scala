@@ -39,6 +39,28 @@ trait GenbankContigRepository {
    *         The sequence may be empty if no matching GenbankContigs are found.
    */
   def getByAccessions(accessions: Seq[String]): Future[Seq[GenbankContig]]
+
+  /**
+   * Retrieves a sequence of GenbankContig objects corresponding to the provided common names.
+   *
+   * @param commonNames A sequence of common names for which GenbankContigs need to be fetched.
+   * @return A Future containing a sequence of GenbankContig objects.
+   */
+  def findByCommonNames(commonNames: Seq[String]): Future[Seq[GenbankContig]]
+
+  /**
+   * Retrieves all GenbankContig objects.
+   *
+   * @return A Future containing a sequence of all GenbankContig objects.
+   */
+  def getAll: Future[Seq[GenbankContig]]
+
+  /**
+   * Retrieves Y-DNA and mtDNA contigs (chrY and chrM).
+   *
+   * @return A Future containing a sequence of Y and MT GenbankContig objects.
+   */
+  def getYAndMtContigs: Future[Seq[GenbankContig]]
 }
 
 class GenbankContigRepositoryImpl @Inject()(
@@ -61,6 +83,28 @@ class GenbankContigRepositoryImpl @Inject()(
 
   def getByAccessions(accessions: Seq[String]): Future[Seq[GenbankContig]] = {
     val query = genbankContigs.filter(_.accession.inSet(accessions)).result
+    db.run(query)
+  }
+
+  def findByCommonNames(commonNames: Seq[String]): Future[Seq[GenbankContig]] = {
+    val query = genbankContigs.filter(_.commonName.inSet(commonNames)).result
+    db.run(query)
+  }
+
+  def getAll: Future[Seq[GenbankContig]] = {
+    val query = genbankContigs.sortBy(c => (c.referenceGenome, c.commonName)).result
+    db.run(query)
+  }
+
+  def getYAndMtContigs: Future[Seq[GenbankContig]] = {
+    // Include both "chrY"/"chrM" (GRCh38) and "Y"/"M" (GRCh37) naming conventions
+    val query = genbankContigs
+      .filter(c =>
+        c.commonName.like("chrY%") || c.commonName.like("chrM%") ||
+        c.commonName === "Y" || c.commonName === "M"
+      )
+      .sortBy(c => (c.referenceGenome, c.commonName))
+      .result
     db.run(query)
   }
 }

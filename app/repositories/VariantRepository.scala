@@ -4,6 +4,7 @@ import jakarta.inject.Inject
 import models.dal.MyPostgresProfile
 import models.dal.MyPostgresProfile.api.*
 import models.dal.domain.genomics.Variant
+import models.domain.genomics.{GenbankContig, VariantGroup, VariantWithContig}
 import org.postgresql.util.PSQLException
 import play.api.db.slick.DatabaseConfigProvider
 
@@ -74,6 +75,69 @@ trait VariantRepository {
    *         or newly created variant corresponding to the input sequence order.
    */
   def findOrCreateVariantsBatch(variants: Seq[Variant]): Future[Seq[Int]]
+
+  /**
+   * Searches for variants by name (rsId or commonName).
+   *
+   * @param name The name to search for.
+   * @return A Future containing a sequence of matching Variants.
+   */
+  def searchByName(name: String): Future[Seq[Variant]]
+
+  // === Curator CRUD Methods ===
+
+  /**
+   * Find a variant by ID.
+   */
+  def findById(id: Int): Future[Option[Variant]]
+
+  /**
+   * Find a variant by ID with its associated contig information.
+   */
+  def findByIdWithContig(id: Int): Future[Option[VariantWithContig]]
+
+  /**
+   * Search variants by name with pagination.
+   */
+  def search(query: String, limit: Int, offset: Int): Future[Seq[Variant]]
+
+  /**
+   * Search variants by name with pagination, including contig information.
+   */
+  def searchWithContig(query: String, limit: Int, offset: Int): Future[Seq[VariantWithContig]]
+
+  /**
+   * Count variants matching search criteria.
+   */
+  def count(query: Option[String]): Future[Int]
+
+  /**
+   * Update an existing variant.
+   */
+  def update(variant: Variant): Future[Boolean]
+
+  /**
+   * Delete a variant.
+   */
+  def delete(id: Int): Future[Boolean]
+
+  // === Variant Grouping Methods ===
+
+  /**
+   * Search variants and return them grouped by commonName (primary) or rsId (fallback).
+   * Variants with the same group key across different reference builds are grouped together.
+   */
+  def searchGrouped(query: String, limit: Int): Future[Seq[VariantGroup]]
+
+  /**
+   * Get all variants matching a group key (commonName or rsId) with their contig information.
+   */
+  def getVariantsByGroupKey(groupKey: String): Future[Seq[VariantWithContig]]
+
+  /**
+   * Group a sequence of variants (with contig info) by their logical identity.
+   */
+  def groupVariants(variants: Seq[VariantWithContig]): Seq[VariantGroup]
 }
 
 class VariantRepositoryImpl @Inject()(
@@ -82,7 +146,7 @@ class VariantRepositoryImpl @Inject()(
   extends BaseRepository(dbConfigProvider)
     with VariantRepository {
 
-  import models.dal.DatabaseSchema.domain.genomics.variants
+  import models.dal.DatabaseSchema.domain.genomics.{genbankContigs, variants}
 
   def findVariant(
                    contigId: Int,
@@ -97,6 +161,13 @@ class VariantRepositoryImpl @Inject()(
         v.alternateAllele === alternateAllele
     ).result.headOption
 
+    db.run(query)
+  }
+
+  def searchByName(name: String): Future[Seq[Variant]] = {
+    val query = variants.filter(v =>
+      v.rsId === name || v.commonName === name
+    ).result
     db.run(query)
   }
 
@@ -147,7 +218,22 @@ class VariantRepositoryImpl @Inject()(
   }
 
   def findOrCreateVariantsBatch(batch: Seq[Variant]): Future[Seq[Int]] = {
-    // Create a sequence of individual upsert actions
+    findOrCreateVariantsBatchWithAliases(batch, "ybrowse")
+  }
+
+  /**
+   * Find or create variants in batch, recording incoming names as aliases.
+   *
+   * When a variant already exists (matched by position/alleles), incoming names
+   * that differ from existing names are recorded as aliases. This preserves
+   * alternative nomenclature from different sources (YBrowse, ISOGG, publications, etc.).
+   *
+   * @param batch  Variants to upsert
+   * @param source Source identifier for alias tracking (e.g., "ybrowse", "isogg", "curator")
+   * @return Sequence of variant IDs (existing or newly created)
+   */
+  def findOrCreateVariantsBatchWithAliases(batch: Seq[Variant], source: String): Future[Seq[Int]] = {
+    // Create upsert actions that return variant IDs
     val upsertActions = batch.map { variant =>
       sql"""
         INSERT INTO variant (
@@ -164,13 +250,154 @@ class VariantRepositoryImpl @Inject()(
           rs_id = COALESCE(EXCLUDED.rs_id, variant.rs_id),
           common_name = COALESCE(EXCLUDED.common_name, variant.common_name)
         RETURNING variant_id
-      """.as[Int].head // Use .head to get a single Int instead of Vector[Int]
+      """.as[Int].head
     }
 
-    // Combine all actions into a single DBIO action
-    val combinedAction = DBIO.sequence(upsertActions)
+    // Execute upserts to get variant IDs
+    val upsertResult = runTransactionally(DBIO.sequence(upsertActions))
 
-    // Use runTransactionally from BaseRepository
-    runTransactionally(combinedAction)
+    // After getting IDs, add aliases for any incoming names
+    upsertResult.flatMap { variantIds =>
+      val aliasInserts = batch.zip(variantIds).flatMap { case (variant, variantId) =>
+        val aliases = Seq(
+          variant.commonName.map(name => (variantId, "common_name", name)),
+          variant.rsId.map(id => (variantId, "rs_id", id))
+        ).flatten
+
+        aliases.map { case (vid, aliasType, aliasValue) =>
+          sql"""
+            INSERT INTO variant_alias (variant_id, alias_type, alias_value, source, is_primary, created_at)
+            VALUES ($vid, $aliasType, $aliasValue, $source, FALSE, NOW())
+            ON CONFLICT (variant_id, alias_type, alias_value) DO NOTHING
+          """.asUpdate
+        }
+      }
+
+      if (aliasInserts.isEmpty) {
+        Future.successful(variantIds)
+      } else {
+        db.run(DBIO.sequence(aliasInserts)).map(_ => variantIds)
+      }
+    }
+  }
+
+  // === Curator CRUD Methods Implementation ===
+
+  override def findById(id: Int): Future[Option[Variant]] = {
+    db.run(variants.filter(_.variantId === id).result.headOption)
+  }
+
+  override def findByIdWithContig(id: Int): Future[Option[VariantWithContig]] = {
+    val query = for {
+      v <- variants if v.variantId === id
+      c <- genbankContigs if c.genbankContigId === v.genbankContigId
+    } yield (v, c)
+
+    db.run(query.result.headOption).map(_.map { case (v, c) => VariantWithContig(v, c) })
+  }
+
+  override def search(query: String, limit: Int, offset: Int): Future[Seq[Variant]] = {
+    val upperQuery = query.toUpperCase
+    val searchQuery = variants.filter(v =>
+      v.rsId.toUpperCase.like(s"%$upperQuery%") ||
+        v.commonName.toUpperCase.like(s"%$upperQuery%")
+    )
+      .sortBy(v => (v.commonName, v.rsId))
+      .drop(offset)
+      .take(limit)
+      .result
+
+    db.run(searchQuery)
+  }
+
+  override def searchWithContig(query: String, limit: Int, offset: Int): Future[Seq[VariantWithContig]] = {
+    val upperQuery = query.toUpperCase
+    val searchQuery = (for {
+      v <- variants if v.rsId.toUpperCase.like(s"%$upperQuery%") || v.commonName.toUpperCase.like(s"%$upperQuery%")
+      c <- genbankContigs if c.genbankContigId === v.genbankContigId
+    } yield (v, c))
+      .sortBy { case (v, _) => (v.commonName, v.rsId) }
+      .drop(offset)
+      .take(limit)
+      .result
+
+    db.run(searchQuery).map(_.map { case (v, c) => VariantWithContig(v, c) })
+  }
+
+  override def count(query: Option[String]): Future[Int] = {
+    val baseQuery = query match {
+      case Some(q) =>
+        val upperQuery = q.toUpperCase
+        variants.filter(v =>
+          v.rsId.toUpperCase.like(s"%$upperQuery%") ||
+            v.commonName.toUpperCase.like(s"%$upperQuery%")
+        )
+      case None => variants
+    }
+    db.run(baseQuery.length.result)
+  }
+
+  override def update(variant: Variant): Future[Boolean] = {
+    variant.variantId match {
+      case Some(id) =>
+        db.run(
+          variants
+            .filter(_.variantId === id)
+            .map(v => (v.variantType, v.rsId, v.commonName))
+            .update((variant.variantType, variant.rsId, variant.commonName))
+        ).map(_ > 0)
+      case None => Future.successful(false)
+    }
+  }
+
+  override def delete(id: Int): Future[Boolean] = {
+    db.run(variants.filter(_.variantId === id).delete).map(_ > 0)
+  }
+
+  // === Variant Grouping Methods Implementation ===
+
+  override def searchGrouped(query: String, limit: Int): Future[Seq[VariantGroup]] = {
+    val upperQuery = query.toUpperCase
+
+    // Search variants by name fields OR by aliases
+    // Use raw SQL for the alias join to keep it efficient
+    val searchQuery = sql"""
+      SELECT DISTINCT v.variant_id, v.genbank_contig_id, v.position, v.reference_allele,
+             v.alternate_allele, v.variant_type, v.rs_id, v.common_name,
+             c.genbank_contig_id as c_id, c.accession, c.common_name as c_common_name,
+             c.reference_genome, COALESCE(c.seq_length, 0) as seq_len
+      FROM variant v
+      JOIN genbank_contig c ON c.genbank_contig_id = v.genbank_contig_id
+      LEFT JOIN variant_alias va ON va.variant_id = v.variant_id
+      WHERE UPPER(v.rs_id) LIKE ${s"%$upperQuery%"}
+         OR UPPER(v.common_name) LIKE ${s"%$upperQuery%"}
+         OR UPPER(va.alias_value) LIKE ${s"%$upperQuery%"}
+      ORDER BY v.common_name, v.rs_id
+    """.as[(Int, Int, Int, String, String, String, Option[String], Option[String],
+            Int, String, Option[String], Option[String], Int)]
+
+    db.run(searchQuery).map { results =>
+      val variantsWithContig = results.map { case (vid, contigId, pos, ref, alt, vtype, rsId, commonName,
+                                                    cId, accession, cCommonName, refGenome, seqLen) =>
+        val variant = Variant(Some(vid), contigId, pos, ref, alt, vtype, rsId, commonName)
+        val contig = GenbankContig(Some(cId), accession, cCommonName, refGenome, seqLen)
+        VariantWithContig(variant, contig)
+      }
+      VariantGroup.fromVariants(variantsWithContig).take(limit)
+    }
+  }
+
+  override def getVariantsByGroupKey(groupKey: String): Future[Seq[VariantWithContig]] = {
+    val searchQuery = (for {
+      v <- variants if v.commonName === groupKey || v.rsId === groupKey
+      c <- genbankContigs if c.genbankContigId === v.genbankContigId
+    } yield (v, c))
+      .result
+
+    db.run(searchQuery).map(_.map { case (v, c) => VariantWithContig(v, c) })
+  }
+
+  override def groupVariants(variants: Seq[VariantWithContig]): Seq[VariantGroup] = {
+    VariantGroup.fromVariants(variants)
   }
 }

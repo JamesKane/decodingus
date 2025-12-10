@@ -1,0 +1,78 @@
+@import models.domain.haplogroups.Haplogroup
+@(haplogroups: Seq[Haplogroup], query: Option[String], hgType: Option[String], currentPage: Int, totalPages: Int, pageSize: Int)(implicit request: RequestHeader)
+
+@if(haplogroups.isEmpty) {
+    <div class="alert alert-info">No haplogroups found matching your criteria.</div>
+} else {
+    <div class="table-responsive">
+        <table class="table table-hover">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Type</th>
+                    <th>Source</th>
+                    <th>Confidence</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @for(hg <- haplogroups) {
+                    <tr class="cursor-pointer"
+                        hx-get="@controllers.routes.CuratorController.haplogroupDetailPanel(hg.id.get)"
+                        hx-target="#detail-panel"
+                        hx-swap="innerHTML"
+                        style="cursor: pointer;">
+                        <td><strong>@hg.name</strong></td>
+                        <td>
+                            <span class="badge @if(hg.haplogroupType.toString == "Y"){bg-primary}else{bg-success}">
+                                @hg.haplogroupType
+                            </span>
+                        </td>
+                        <td>@hg.source</td>
+                        <td>@hg.confidenceLevel</td>
+                        <td>
+                            <a href="@controllers.routes.CuratorController.editHaplogroupForm(hg.id.get)"
+                               class="btn btn-sm btn-outline-secondary"
+                               onclick="event.stopPropagation()">
+                                <i class="bi bi-pencil"></i>
+                            </a>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    @if(totalPages > 1) {
+        <nav>
+            <ul class="pagination justify-content-center">
+                <li class="page-item @if(currentPage <= 1){disabled}">
+                    <a class="page-link"
+                       hx-get="@controllers.routes.CuratorController.haplogroupsFragment(query, hgType, currentPage - 1, pageSize)"
+                       hx-target="#haplogroups-table"
+                       hx-include="#haplogroup-search, #type-filter">
+                        Previous
+                    </a>
+                </li>
+                @for(p <- Math.max(1, currentPage - 2) to Math.min(totalPages, currentPage + 2)) {
+                    <li class="page-item @if(p == currentPage){active}">
+                        <a class="page-link"
+                           hx-get="@controllers.routes.CuratorController.haplogroupsFragment(query, hgType, p, pageSize)"
+                           hx-target="#haplogroups-table"
+                           hx-include="#haplogroup-search, #type-filter">
+                            @p
+                        </a>
+                    </li>
+                }
+                <li class="page-item @if(currentPage >= totalPages){disabled}">
+                    <a class="page-link"
+                       hx-get="@controllers.routes.CuratorController.haplogroupsFragment(query, hgType, currentPage + 1, pageSize)"
+                       hx-target="#haplogroups-table"
+                       hx-include="#haplogroup-search, #type-filter">
+                        Next
+                    </a>
+                </li>
+            </ul>
+        </nav>
+    }
+}

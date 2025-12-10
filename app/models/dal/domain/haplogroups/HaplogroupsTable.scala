@@ -56,5 +56,23 @@ class HaplogroupsTable(tag: Tag) extends Table[Haplogroup](tag, Some("tree"), "h
 
   def validUntil = column[Option[LocalDateTime]]("valid_until")
 
-  def * = (haplogroupId.?, name, lineage, description, haplogroupType, revisionId, source, confidenceLevel, validFrom, validUntil).mapTo[Haplogroup]
+  // Branch age estimate columns
+  def formedYbp = column[Option[Int]]("formed_ybp")
+
+  def formedYbpLower = column[Option[Int]]("formed_ybp_lower")
+
+  def formedYbpUpper = column[Option[Int]]("formed_ybp_upper")
+
+  def tmrcaYbp = column[Option[Int]]("tmrca_ybp")
+
+  def tmrcaYbpLower = column[Option[Int]]("tmrca_ybp_lower")
+
+  def tmrcaYbpUpper = column[Option[Int]]("tmrca_ybp_upper")
+
+  def ageEstimateSource = column[Option[String]]("age_estimate_source")
+
+  def * = (
+    haplogroupId.?, name, lineage, description, haplogroupType, revisionId, source, confidenceLevel, validFrom, validUntil,
+    formedYbp, formedYbpLower, formedYbpUpper, tmrcaYbp, tmrcaYbpLower, tmrcaYbpUpper, ageEstimateSource
+  ).mapTo[Haplogroup]
 }

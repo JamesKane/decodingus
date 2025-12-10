@@ -1,0 +1,378 @@
+@import org.webjars.play.WebJarsUtil
+@import controllers.CreateHaplogroupFormData
+@import models.domain.haplogroups.Haplogroup
+@(form: Form[CreateHaplogroupFormData], yRoots: Seq[Haplogroup], mtRoots: Seq[Haplogroup])(implicit request: RequestHeader, messages: Messages, webJarsUtil: WebJarsUtil)
+
+@main("Create Haplogroup") {
+    <div class="container py-5">
+        <div class="row justify-content-center">
+            <div class="col-md-8">
+                <nav aria-label="breadcrumb">
+                    <ol class="breadcrumb">
+                        <li class="breadcrumb-item"><a href="@controllers.routes.CuratorController.dashboard">Curator</a></li>
+                        <li class="breadcrumb-item"><a href="@controllers.routes.CuratorController.listHaplogroups(None, None, 1, 20)">Haplogroups</a></li>
+                        <li class="breadcrumb-item active">Create</li>
+                    </ol>
+                </nav>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="bi bi-plus-circle"></i> Create Haplogroup</h5>
+                    </div>
+                    <div class="card-body">
+                        @form.globalError.map { error =>
+                            <div class="alert alert-danger">@error.message</div>
+                        }
+
+                        <div class="alert alert-info">
+                            <strong><i class="bi bi-info-circle"></i> Creation Rules:</strong>
+                            <ul class="mb-0 mt-2">
+                                <li><strong>New Root:</strong> Creates the tree root (only if no root exists)</li>
+                                <li><strong>New Root Above Existing:</strong> Creates a new root and makes the current root its child (e.g., Neanderthal above Human)</li>
+                                <li><strong>New Leaf:</strong> Creates a terminal node under an existing haplogroup</li>
+                                <li>To create an <em>internal</em> node (intermediate haplogroup), use the <strong>Split</strong> function from an existing haplogroup</li>
+                            </ul>
+                        </div>
+
+                        @helper.form(controllers.routes.CuratorController.createHaplogroup) {
+                            @helper.CSRF.formField
+
+                            <div class="mb-3">
+                                <label for="haplogroupType" class="form-label">Type *</label>
+                                <select class="form-select @if(form.error("haplogroupType").isDefined){is-invalid}"
+                                        id="haplogroupType"
+                                        name="haplogroupType"
+                                        required>
+                                    <option value="">Select type...</option>
+                                    <option value="Y" @if(form("haplogroupType").value.contains("Y")){selected}>Y-DNA @if(yRoots.isEmpty){(no root)} else {(root: @yRoots.map(_.name).mkString(", "))}</option>
+                                    <option value="MT" @if(form("haplogroupType").value.contains("MT")){selected}>mtDNA @if(mtRoots.isEmpty){(no root)} else {(root: @mtRoots.map(_.name).mkString(", "))}</option>
+                                </select>
+                                @form.error("haplogroupType").map { error =>
+                                    <div class="invalid-feedback">@error.message</div>
+                                }
+                            </div>
+
+                            <div class="mb-3" id="placementSection">
+                                <label class="form-label">Placement in Tree *</label>
+
+                                <div class="form-check" id="rootOption">
+                                    <input class="form-check-input" type="radio" name="placementType" id="placementRoot" value="root">
+                                    <label class="form-check-label" for="placementRoot">
+                                        <strong>Create as Root</strong>
+                                        <span class="text-muted" id="rootOptionHelp">- Will be the tree root</span>
+                                    </label>
+                                </div>
+
+                                <div class="form-check" id="aboveRootOption" style="display: none;">
+                                    <input class="form-check-input" type="radio" name="placementType" id="placementAboveRoot" value="aboveRoot">
+                                    <label class="form-check-label" for="placementAboveRoot">
+                                        <strong>Create as New Root Above Existing</strong>
+                                        <span class="text-muted">- Current root becomes a child of this new haplogroup</span>
+                                    </label>
+                                </div>
+
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="placementType" id="placementLeaf" value="leaf">
+                                    <label class="form-check-label" for="placementLeaf">
+                                        <strong>Create as Leaf</strong>
+                                        <span class="text-muted">- Select a parent haplogroup below</span>
+                                    </label>
+                                </div>
+
+                                <input type="hidden" id="parentId" name="parentId" value="@form("parentId").value.getOrElse("")">
+                                <input type="hidden" id="createAboveRoot" name="createAboveRoot" value="@form("createAboveRoot").value.getOrElse("false")">
+                            </div>
+
+                            <div class="mb-3" id="parentSection" style="display: none;">
+                                <label for="parentSearch" class="form-label">Parent Haplogroup *</label>
+                                <div class="input-group">
+                                    <input type="text"
+                                           class="form-control @if(form.error("parentId").isDefined){is-invalid}"
+                                           id="parentSearch"
+                                           placeholder="Search for parent haplogroup..."
+                                           autocomplete="off">
+                                    <button class="btn btn-outline-secondary" type="button" id="clearParent" title="Clear selection">
+                                        <i class="bi bi-x"></i>
+                                    </button>
+                                </div>
+                                @form.error("parentId").map { error =>
+                                    <div class="invalid-feedback d-block">@error.message</div>
+                                }
+                                <div id="parentSearchResults" class="list-group mt-1" style="max-height: 200px; overflow-y: auto; position: absolute; z-index: 1000; width: calc(100% - 2rem);"></div>
+                                <div id="selectedParent" class="mt-2" style="display: none;">
+                                    <span class="badge bg-primary fs-6" id="selectedParentBadge"></span>
+                                </div>
+                            </div>
+
+                            <hr>
+
+                            <div class="mb-3">
+                                <label for="name" class="form-label">Name *</label>
+                                <input type="text"
+                                       class="form-control @if(form.error("name").isDefined){is-invalid}"
+                                       id="name"
+                                       name="name"
+                                       value="@form("name").value.getOrElse("")"
+                                       placeholder="e.g., R-M269"
+                                       required>
+                                @form.error("name").map { error =>
+                                    <div class="invalid-feedback">@error.message</div>
+                                }
+                            </div>
+
+                            <div class="mb-3">
+                                <label for="lineage" class="form-label">Lineage</label>
+                                <input type="text"
+                                       class="form-control"
+                                       id="lineage"
+                                       name="lineage"
+                                       value="@form("lineage").value.getOrElse("")">
+                            </div>
+
+                            <div class="mb-3">
+                                <label for="description" class="form-label">Description</label>
+                                <textarea class="form-control"
+                                          id="description"
+                                          name="description"
+                                          rows="3">@form("description").value.getOrElse("")</textarea>
+                            </div>
+
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label for="source" class="form-label">Source *</label>
+                                    <input type="text"
+                                           class="form-control @if(form.error("source").isDefined){is-invalid}"
+                                           id="source"
+                                           name="source"
+                                           value="@form("source").value.getOrElse("")"
+                                           placeholder="e.g., ISOGG 2024"
+                                           required>
+                                    @form.error("source").map { error =>
+                                        <div class="invalid-feedback">@error.message</div>
+                                    }
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label for="confidenceLevel" class="form-label">Confidence Level *</label>
+                                    <select class="form-select @if(form.error("confidenceLevel").isDefined){is-invalid}"
+                                            id="confidenceLevel"
+                                            name="confidenceLevel"
+                                            required>
+                                        <option value="">Select...</option>
+                                        <option value="High" @if(form("confidenceLevel").value.contains("High")){selected}>High</option>
+                                        <option value="Medium" @if(form("confidenceLevel").value.contains("Medium")){selected}>Medium</option>
+                                        <option value="Low" @if(form("confidenceLevel").value.contains("Low")){selected}>Low</option>
+                                    </select>
+                                    @form.error("confidenceLevel").map { error =>
+                                        <div class="invalid-feedback">@error.message</div>
+                                    }
+                                </div>
+                            </div>
+
+                            <div class="d-flex gap-2">
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="bi bi-check-lg"></i> Create Haplogroup
+                                </button>
+                                <a href="@controllers.routes.CuratorController.listHaplogroups(None, None, 1, 20)" class="btn btn-outline-secondary">
+                                    Cancel
+                                </a>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const typeSelect = document.getElementById('haplogroupType');
+            const parentIdInput = document.getElementById('parentId');
+            const createAboveRootInput = document.getElementById('createAboveRoot');
+            const parentSearch = document.getElementById('parentSearch');
+            const parentSearchResults = document.getElementById('parentSearchResults');
+            const parentSection = document.getElementById('parentSection');
+            const selectedParentDiv = document.getElementById('selectedParent');
+            const selectedParentBadge = document.getElementById('selectedParentBadge');
+            const clearParentBtn = document.getElementById('clearParent');
+
+            const rootOption = document.getElementById('rootOption');
+            const aboveRootOption = document.getElementById('aboveRootOption');
+            const placementRoot = document.getElementById('placementRoot');
+            const placementAboveRoot = document.getElementById('placementAboveRoot');
+            const placementLeaf = document.getElementById('placementLeaf');
+            const rootOptionHelp = document.getElementById('rootOptionHelp');
+
+            const yHasRoot = @yRoots.nonEmpty;
+            const mtHasRoot = @mtRoots.nonEmpty;
+            const yRootNames = "@yRoots.map(_.name).mkString(", ")";
+            const mtRootNames = "@mtRoots.map(_.name).mkString(", ")";
+
+            let debounceTimer;
+
+            function updatePlacementOptions() {
+                const selectedType = typeSelect.value;
+
+                if (!selectedType) {
+                    // No type selected yet
+                    placementRoot.disabled = true;
+                    placementAboveRoot.disabled = true;
+                    placementLeaf.disabled = true;
+                    aboveRootOption.style.display = 'none';
+                    parentSection.style.display = 'none';
+                    return;
+                }
+
+                const hasRoot = selectedType === 'Y' ? yHasRoot : mtHasRoot;
+                const rootNames = selectedType === 'Y' ? yRootNames : mtRootNames;
+
+                if (!hasRoot) {
+                    // No root exists - only root option available
+                    placementRoot.disabled = false;
+                    placementRoot.checked = true;
+                    rootOptionHelp.textContent = '- No root exists, this will be the tree root';
+                    aboveRootOption.style.display = 'none';
+                    placementLeaf.disabled = true;
+                    parentSection.style.display = 'none';
+                    updateHiddenFields();
+                } else {
+                    // Root exists - show all options
+                    placementRoot.disabled = true;
+                    rootOptionHelp.textContent = '- Not available (root already exists: ' + rootNames + ')';
+                    aboveRootOption.style.display = 'block';
+                    placementAboveRoot.disabled = false;
+                    placementLeaf.disabled = false;
+
+                    // Default to leaf if nothing selected
+                    if (!placementAboveRoot.checked && !placementLeaf.checked) {
+                        placementLeaf.checked = true;
+                    }
+                    updateHiddenFields();
+                    updateParentSectionVisibility();
+                }
+            }
+
+            function updateParentSectionVisibility() {
+                if (placementLeaf.checked) {
+                    parentSection.style.display = 'block';
+                } else {
+                    parentSection.style.display = 'none';
+                    clearSelection();
+                }
+            }
+
+            function updateHiddenFields() {
+                if (placementAboveRoot.checked) {
+                    createAboveRootInput.value = 'true';
+                    parentIdInput.value = '';
+                } else if (placementLeaf.checked) {
+                    createAboveRootInput.value = 'false';
+                    // parentId is set by selection
+                } else {
+                    // Root
+                    createAboveRootInput.value = 'false';
+                    parentIdInput.value = '';
+                }
+            }
+
+            function clearSelection() {
+                parentIdInput.value = '';
+                parentSearch.value = '';
+                selectedParentDiv.style.display = 'none';
+                parentSearchResults.innerHTML = '';
+            }
+
+            function selectParent(id, name) {
+                parentIdInput.value = id;
+                parentSearch.value = name;
+                selectedParentBadge.textContent = name;
+                selectedParentDiv.style.display = 'block';
+                parentSearchResults.innerHTML = '';
+            }
+
+            function searchHaplogroups(query) {
+                const selectedType = typeSelect.value;
+                if (!selectedType || query.length < 1) {
+                    parentSearchResults.innerHTML = '';
+                    return;
+                }
+
+                fetch(`@controllers.routes.CuratorController.searchHaplogroupsJson(None, None).url?query=${encodeURIComponent(query)}&hgType=${selectedType}`)
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.length === 0) {
+                            parentSearchResults.innerHTML = '<div class="list-group-item text-muted">No haplogroups found</div>';
+                            return;
+                        }
+
+                        parentSearchResults.innerHTML = data.map(h =>
+                            `<button type="button" class="list-group-item list-group-item-action" data-id="${h.id}" data-name="${h.name}">
+                                <strong>${h.name}</strong>
+                                <span class="badge bg-secondary ms-2">${h.type}</span>
+                            </button>`
+                        ).join('');
+
+                        parentSearchResults.querySelectorAll('button').forEach(btn => {
+                            btn.addEventListener('click', function() {
+                                selectParent(this.dataset.id, this.dataset.name);
+                            });
+                        });
+                    })
+                    .catch(err => {
+                        console.error('Search error:', err);
+                        parentSearchResults.innerHTML = '<div class="list-group-item text-danger">Error searching</div>';
+                    });
+            }
+
+            // Event listeners
+            typeSelect.addEventListener('change', function() {
+                clearSelection();
+                updatePlacementOptions();
+            });
+
+            [placementRoot, placementAboveRoot, placementLeaf].forEach(radio => {
+                radio.addEventListener('change', function() {
+                    updateHiddenFields();
+                    updateParentSectionVisibility();
+                });
+            });
+
+            parentSearch.addEventListener('input', function() {
+                clearTimeout(debounceTimer);
+                debounceTimer = setTimeout(() => {
+                    searchHaplogroups(this.value.trim());
+                }, 300);
+            });
+
+            parentSearch.addEventListener('focus', function() {
+                if (this.value.trim().length > 0) {
+                    searchHaplogroups(this.value.trim());
+                }
+            });
+
+            clearParentBtn.addEventListener('click', clearSelection);
+
+            // Close results when clicking outside
+            document.addEventListener('click', function(e) {
+                if (!parentSection.contains(e.target)) {
+                    parentSearchResults.innerHTML = '';
+                }
+            });
+
+            // Initialize
+            updatePlacementOptions();
+
+            // Restore state from form errors
+            const initialParentId = "@form("parentId").value.getOrElse("")";
+            const initialCreateAboveRoot = "@form("createAboveRoot").value.getOrElse("false")";
+
+            if (initialCreateAboveRoot === "true") {
+                placementAboveRoot.checked = true;
+            } else if (initialParentId) {
+                placementLeaf.checked = true;
+                selectedParentBadge.textContent = "Parent ID: " + initialParentId;
+                selectedParentDiv.style.display = 'block';
+            }
+            updateParentSectionVisibility();
+        });
+    </script>
+}

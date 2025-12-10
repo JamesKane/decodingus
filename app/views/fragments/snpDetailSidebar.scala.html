@@ -15,24 +15,40 @@
     @if(snps.isEmpty) {
         <p>@messages("sidebar.noVariants", haplogroupName)</p>
     } else {
-        <ul class="snp-list">
+        <div class="snp-cards">
         @for(snp <- snps) {
-            <li>
-                <strong>@snp.name</strong>
-                <br>
-                @messages("sidebar.type", snp.variantType)
+            <div class="snp-card">
+                <div class="snp-card-header">
+                    <strong>@snp.name</strong>
+                    <span class="snp-type-badge">@snp.variantType</span>
+                </div>
                 @if(snp.coordinates.nonEmpty) {
-                    <br>
-                    @messages("sidebar.refLocation")
-                    <br>
-                    @* Convert the Map to a Seq of (String, GenomicCoordinate) tuples, then sort by the String (the key) *@
-                    @for((chr, coord) <- snp.coordinates.toSeq.sortBy(_._1)) {
-                        @chr:@coord.start [@coord.anc > @coord.der]
+                    <div class="snp-card-body">
+                        @for((ref, coord) <- snp.coordinates.toSeq.sortBy(_._1)) {
+                            <div class="snp-coord-row">
+                                <span class="snp-ref">@ref</span>
+                                <span class="snp-pos">@coord.start</span>
+                                <span class="snp-alleles">@coord.anc &gt; @coord.der</span>
+                            </div>
+                        }
+                    </div>
+                }
+                @defining(snp.aliases.values.flatten.size) { aliasCount =>
+                    @if(aliasCount > 1) {
+                        <div class="snp-card-footer">
+                            <em>Aliases:</em>
+                            @for((aliasType, values) <- snp.aliases.toSeq.sortBy(_._1)) {
+                                <span class="alias-group">
+                                    <span class="alias-type">@formatAliasType(aliasType):</span>
+                                    @values.mkString(", ")
+                                </span>
+                            }
+                        </div>
                     }
                 }
-            </li>
+            </div>
         }
-        </ul>
+        </div>
     }
 </div>
 
@@ -75,18 +91,98 @@
             color: #555;
         }
 
-        .snp-list {
-            list-style: none;
-            padding: 0;
-            margin: 0;
+        .snp-cards {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
         }
 
-        .snp-list li {
+        .snp-card {
             background-color: #ffffff;
             border: 1px solid #eee;
-            margin-bottom: 10px;
-            padding: 10px;
-            border-radius: 4px;
-            font-size: 0.9em;
+            border-radius: 6px;
+            overflow: hidden;
+        }
+
+        .snp-card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 12px;
+            background-color: #f5f5f5;
+            border-bottom: 1px solid #eee;
+        }
+
+        .snp-type-badge {
+            font-size: 0.75em;
+            padding: 2px 6px;
+            background-color: #6c757d;
+            color: white;
+            border-radius: 3px;
+        }
+
+        .snp-card-body {
+            padding: 8px 12px;
+        }
+
+        .snp-coord-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 4px 0;
+            font-size: 0.85em;
+            border-bottom: 1px solid #f0f0f0;
+        }
+
+        .snp-coord-row:last-child {
+            border-bottom: none;
+        }
+
+        .snp-ref {
+            color: #666;
+            flex: 1;
+        }
+
+        .snp-pos {
+            font-family: monospace;
+            text-align: right;
+            flex: 0 0 auto;
+            margin: 0 12px;
+        }
+
+        .snp-alleles {
+            font-family: monospace;
+            text-align: right;
+            flex: 0 0 60px;
+        }
+
+        .snp-card-footer {
+            padding: 8px 12px;
+            background-color: #fafafa;
+            border-top: 1px solid #eee;
+            font-size: 0.8em;
+            color: #666;
+        }
+
+        .alias-group {
+            display: block;
+            margin-left: 10px;
+            margin-top: 4px;
+        }
+
+        .alias-type {
+            color: #888;
+            font-style: italic;
         }
 </style>
+
+@formatAliasType(aliasType: String) = @{
+    aliasType match {
+        case "common_name" => "SNP Names"
+        case "rs_id" => "dbSNP IDs"
+        case "isogg" => "ISOGG"
+        case "yfull" => "YFull"
+        case "ftdna" => "FTDNA"
+        case other => other.replace("_", " ").capitalize
+    }
+}

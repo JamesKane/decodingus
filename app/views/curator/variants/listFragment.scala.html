@@ -1,0 +1,115 @@
+@import models.domain.genomics.VariantGroup
+@(variantGroups: Seq[VariantGroup], query: Option[String], currentPage: Int, totalPages: Int, pageSize: Int)(implicit request: RequestHeader)
+
+@if(variantGroups.isEmpty) {
+    <div class="alert alert-info">No variants found matching your criteria.</div>
+} else {
+    <div class="table-responsive">
+        <table class="table table-hover">
+            <thead>
+                <tr>
+                    <th>rsId / Name</th>
+                    <th>Anc/Der</th>
+                    <th>Type</th>
+                    <th>Builds</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @for(group <- variantGroups) {
+                    @* Use first variant for display, clicking shows group detail *@
+                    @defining(group.variantsSorted.headOption) { firstOpt =>
+                        @firstOpt.map { first =>
+                            <tr class="cursor-pointer"
+                                hx-get="@controllers.routes.CuratorController.variantDetailPanel(first.variant.variantId.get)"
+                                hx-target="#detail-panel"
+                                hx-swap="innerHTML"
+                                style="cursor: pointer;">
+                                <td>
+                                    <strong>@group.displayName</strong>
+                                    @group.rsId.filter(_ => group.commonName.isDefined).map { rsId =>
+                                        <br><small class="text-muted">@rsId</small>
+                                    }
+                                </td>
+                                <td>
+                                    <code>@first.variant.referenceAllele</code><i class="bi bi-arrow-right text-muted mx-1" style="font-size: 0.6rem;"></i><code>@first.variant.alternateAllele</code>
+                                    @if(group.variants.size > 1 && group.variantsSorted.exists(v => v.variant.referenceAllele != first.variant.referenceAllele)) {
+                                        <i class="bi bi-arrow-left-right text-warning ms-1" title="Strand differs between builds"></i>
+                                    }
+                                </td>
+                                <td>
+                                    <span class="badge bg-secondary">@first.variant.variantType</span>
+                                </td>
+                                <td>
+                                    @for(vwc <- group.variantsSorted) {
+                                        <span class="badge @buildBadgeClass(vwc.shortReferenceGenome)" title="@vwc.formattedPosition: @vwc.variant.referenceAllele→@vwc.variant.alternateAllele">
+                                            @vwc.shortReferenceGenome
+                                        </span>
+                                    }
+                                </td>
+                                <td>
+                                    @if(group.variants.size > 1) {
+                                        <a href="@controllers.routes.CuratorController.editVariantGroupForm(group.groupKey)"
+                                           class="btn btn-sm btn-outline-secondary"
+                                           onclick="event.stopPropagation()"
+                                           title="Edit all @group.variants.size builds">
+                                            <i class="bi bi-pencil"></i>
+                                        </a>
+                                    } else {
+                                        <a href="@controllers.routes.CuratorController.editVariantForm(first.variant.variantId.get)"
+                                           class="btn btn-sm btn-outline-secondary"
+                                           onclick="event.stopPropagation()">
+                                            <i class="bi bi-pencil"></i>
+                                        </a>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    }
+                }
+            </tbody>
+        </table>
+    </div>
+
+    @if(totalPages > 1) {
+        <nav>
+            <ul class="pagination justify-content-center">
+                <li class="page-item @if(currentPage <= 1){disabled}">
+                    <a class="page-link"
+                       hx-get="@controllers.routes.CuratorController.variantsFragment(query, currentPage - 1, pageSize)"
+                       hx-target="#variants-table"
+                       hx-include="#variant-search">
+                        Previous
+                    </a>
+                </li>
+                @for(p <- Math.max(1, currentPage - 2) to Math.min(totalPages, currentPage + 2)) {
+                    <li class="page-item @if(p == currentPage){active}">
+                        <a class="page-link"
+                           hx-get="@controllers.routes.CuratorController.variantsFragment(query, p, pageSize)"
+                           hx-target="#variants-table"
+                           hx-include="#variant-search">
+                            @p
+                        </a>
+                    </li>
+                }
+                <li class="page-item @if(currentPage >= totalPages){disabled}">
+                    <a class="page-link"
+                       hx-get="@controllers.routes.CuratorController.variantsFragment(query, currentPage + 1, pageSize)"
+                       hx-target="#variants-table"
+                       hx-include="#variant-search">
+                        Next
+                    </a>
+                </li>
+            </ul>
+        </nav>
+    }
+}
+
+@buildBadgeClass(refGenome: String) = @{
+    refGenome match {
+        case "GRCh37" => "bg-warning text-dark"
+        case "GRCh38" => "bg-info"
+        case "T2T" => "bg-success"
+        case _ => "bg-secondary"
+    }
+}

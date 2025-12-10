@@ -107,6 +107,9 @@ POST          /api/firehose/event                                               
 # Publication Discovery
 POST          /api/private/publication-discovery/run                                             controllers.PublicationDiscoveryController.triggerDiscovery()
 
+# Genomics Admin
+POST          /api/private/genomics/ybrowse/update                                               controllers.GenomicsAdminController.triggerYBrowseUpdate()
+
 # Authentication
 GET           /login                                                                             controllers.AuthController.login
 POST          /login                                                                             controllers.AuthController.authenticate
@@ -121,10 +124,54 @@ POST          /cookies/accept                                                   
 GET           /profile                                                                           controllers.ProfileController.view
 POST          /profile                                                                           controllers.ProfileController.update
 
+# Variant API
+GET           /api/v1/variants/search                                                            controllers.VariantController.search(name: String)
+
 # Curator Workflow
 GET           /admin/publication-candidates                                                      controllers.PublicationCandidateController.listCandidates(page: Int ?= 1, pageSize: Int ?= 20)
 POST          /admin/publication-candidates/:id/accept                                           controllers.PublicationCandidateController.accept(id: Int)
 POST          /admin/publication-candidates/:id/reject                                           controllers.PublicationCandidateController.reject(id: Int)
+
+# Curator Tools (requires TreeCurator or Admin role)
+GET           /curator                                                                           controllers.CuratorController.dashboard
+
+# Curator - Haplogroups
+GET           /curator/haplogroups                                                               controllers.CuratorController.listHaplogroups(query: Option[String], hgType: Option[String], page: Int ?= 1, pageSize: Int ?= 20)
+GET           /curator/haplogroups/fragment                                                      controllers.CuratorController.haplogroupsFragment(query: Option[String], hgType: Option[String], page: Int ?= 1, pageSize: Int ?= 20)
+GET           /curator/haplogroups/search.json                                                   controllers.CuratorController.searchHaplogroupsJson(query: Option[String], hgType: Option[String])
+GET           /curator/haplogroups/new                                                           controllers.CuratorController.createHaplogroupForm
+POST          /curator/haplogroups                                                               controllers.CuratorController.createHaplogroup
+GET           /curator/haplogroups/:id/panel                                                     controllers.CuratorController.haplogroupDetailPanel(id: Int)
+GET           /curator/haplogroups/:id/edit                                                      controllers.CuratorController.editHaplogroupForm(id: Int)
+POST          /curator/haplogroups/:id                                                           controllers.CuratorController.updateHaplogroup(id: Int)
+DELETE        /curator/haplogroups/:id                                                           controllers.CuratorController.deleteHaplogroup(id: Int)
+
+# Curator - Haplogroup Tree Restructuring
+GET           /curator/haplogroups/:id/split                                                      controllers.CuratorController.splitBranchForm(id: Int)
+POST          /curator/haplogroups/:id/split                                                      controllers.CuratorController.splitBranch(id: Int)
+GET           /curator/haplogroups/:id/merge                                                      controllers.CuratorController.mergeConfirmForm(id: Int)
+POST          /curator/haplogroups/:id/merge                                                      controllers.CuratorController.mergeIntoParent(id: Int)
+
+# Curator - Haplogroup-Variant Associations
+GET           /curator/haplogroups/:id/variants/search                                           controllers.CuratorController.searchVariantsForHaplogroup(id: Int, q: Option[String])
+POST          /curator/haplogroups/:hgId/variant-groups/:groupKey                                controllers.CuratorController.addVariantGroupToHaplogroup(hgId: Int, groupKey: String)
+DELETE        /curator/haplogroups/:hgId/variant-groups/:groupKey                                controllers.CuratorController.removeVariantGroupFromHaplogroup(hgId: Int, groupKey: String)
+GET           /curator/haplogroup-variants/:hvId/history                                         controllers.CuratorController.haplogroupVariantHistory(hvId: Int)
+
+# Curator - Variants
+GET           /curator/variants                                                                  controllers.CuratorController.listVariants(query: Option[String], page: Int ?= 1, pageSize: Int ?= 20)
+GET           /curator/variants/fragment                                                         controllers.CuratorController.variantsFragment(query: Option[String], page: Int ?= 1, pageSize: Int ?= 20)
+GET           /curator/variants/new                                                              controllers.CuratorController.createVariantForm
+POST          /curator/variants                                                                  controllers.CuratorController.createVariant
+GET           /curator/variants/:id/panel                                                        controllers.CuratorController.variantDetailPanel(id: Int)
+GET           /curator/variants/:id/edit                                                         controllers.CuratorController.editVariantForm(id: Int)
+POST          /curator/variants/:id                                                              controllers.CuratorController.updateVariant(id: Int)
+DELETE        /curator/variants/:id                                                              controllers.CuratorController.deleteVariant(id: Int)
+GET           /curator/variants/group/:groupKey/edit                                             controllers.CuratorController.editVariantGroupForm(groupKey: String)
+POST          /curator/variants/group/:groupKey                                                  controllers.CuratorController.updateVariantGroup(groupKey: String)
+
+# Curator - Audit
+GET           /curator/audit/:entityType/:entityId                                               controllers.CuratorController.auditHistory(entityType: String, entityId: Int)
 
 # --- API Routes (Handled by Tapir, including Swagger UI) ---
 POST          /api/registerPDS                                                                   controllers.PDSRegistrationController.registerPDS()

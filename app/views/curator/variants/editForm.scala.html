@@ -1,0 +1,116 @@
+@import org.webjars.play.WebJarsUtil
+@import controllers.VariantFormData
+@(id: Int, form: Form[VariantFormData])(implicit request: RequestHeader, messages: Messages, webJarsUtil: WebJarsUtil)
+
+@main("Edit Variant") {
+    <div class="container py-5">
+        <div class="row justify-content-center">
+            <div class="col-md-8">
+                <nav aria-label="breadcrumb">
+                    <ol class="breadcrumb">
+                        <li class="breadcrumb-item"><a href="@controllers.routes.CuratorController.dashboard">Curator</a></li>
+                        <li class="breadcrumb-item"><a href="@controllers.routes.CuratorController.listVariants(None, 1, 20)">Variants</a></li>
+                        <li class="breadcrumb-item active">Edit</li>
+                    </ol>
+                </nav>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="bi bi-pencil"></i> Edit Variant</h5>
+                    </div>
+                    <div class="card-body">
+                        @helper.form(controllers.routes.CuratorController.updateVariant(id)) {
+                            @helper.CSRF.formField
+
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">Genbank Contig ID</label>
+                                    <input type="text"
+                                           class="form-control"
+                                           value="@form("genbankContigId").value.getOrElse("")"
+                                           disabled>
+                                    <input type="hidden" name="genbankContigId" value="@form("genbankContigId").value.getOrElse("")">
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">Position</label>
+                                    <input type="text"
+                                           class="form-control"
+                                           value="@form("position").value.getOrElse("")"
+                                           disabled>
+                                    <input type="hidden" name="position" value="@form("position").value.getOrElse("")">
+                                </div>
+                            </div>
+
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">Reference Allele</label>
+                                    <input type="text"
+                                           class="form-control font-monospace"
+                                           value="@form("referenceAllele").value.getOrElse("")"
+                                           disabled>
+                                    <input type="hidden" name="referenceAllele" value="@form("referenceAllele").value.getOrElse("")">
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">Alternate Allele</label>
+                                    <input type="text"
+                                           class="form-control font-monospace"
+                                           value="@form("alternateAllele").value.getOrElse("")"
+                                           disabled>
+                                    <input type="hidden" name="alternateAllele" value="@form("alternateAllele").value.getOrElse("")">
+                                </div>
+                            </div>
+
+                            <small class="text-muted d-block mb-3">Genomic coordinates cannot be changed after creation</small>
+
+                            <div class="mb-3">
+                                <label for="variantType" class="form-label">Variant Type *</label>
+                                <select class="form-select @if(form.error("variantType").isDefined){is-invalid}"
+                                        id="variantType"
+                                        name="variantType"
+                                        required>
+                                    <option value="">Select...</option>
+                                    <option value="SNP" @if(form("variantType").value.contains("SNP")){selected}>SNP</option>
+                                    <option value="INDEL" @if(form("variantType").value.contains("INDEL")){selected}>INDEL</option>
+                                    <option value="MNP" @if(form("variantType").value.contains("MNP")){selected}>MNP</option>
+                                </select>
+                                @form.error("variantType").map { error =>
+                                    <div class="invalid-feedback">@error.message</div>
+                                }
+                            </div>
+
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label for="rsId" class="form-label">rsId</label>
+                                    <input type="text"
+                                           class="form-control"
+                                           id="rsId"
+                                           name="rsId"
+                                           value="@form("rsId").value.getOrElse("")"
+                                           placeholder="e.g., rs12345">
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label for="commonName" class="form-label">Common Name</label>
+                                    <input type="text"
+                                           class="form-control"
+                                           id="commonName"
+                                           name="commonName"
+                                           value="@form("commonName").value.getOrElse("")"
+                                           placeholder="e.g., M269">
+                                </div>
+                            </div>
+
+                            <div class="d-flex gap-2">
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="bi bi-check-lg"></i> Save Changes
+                                </button>
+                                <a href="@controllers.routes.CuratorController.listVariants(None, 1, 20)" class="btn btn-outline-secondary">
+                                    Cancel
+                                </a>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+}

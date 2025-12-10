@@ -1337,13 +1337,61 @@ decodingus.discovery {
 - [X] Updated Slick table definitions with `Some("tree")` schema parameter
 - [X] Updated `DatabaseSchema.scala` with tree schema table references
 - [X] Updated all haplogroup repositories for cross-schema queries
-- [ ] Regression tests to verify existing functionality
+- [X] Regression tests to verify existing functionality
 - [ ] Documentation update for new schema structure
 
 **Risk Mitigation:**
 - Run migration on staging environment first
 - Verify all foreign key constraints work cross-schema
 - Test recursive CTE queries still function correctly
+
+### Phase 0.5: Base Curator Functionality (COMPLETED)
+
+**Scope:**
+Foundation curator tools for manual tree management, independent of the automated discovery system. These tools allow curators to maintain the haplogroup tree before the discovery system is operational.
+
+**Deliverables:**
+
+*Curator Dashboard & Authentication:*
+- [X] Permission-based access control (`haplogroup.view`, `haplogroup.create`, `variant.update`, etc.)
+- [X] Curator dashboard with counts (Y-DNA haplogroups, mtDNA haplogroups, variants)
+- [X] HTMX-powered list/detail views for haplogroups and variants
+
+*Haplogroup Management:*
+- [X] List haplogroups with search, type filter, pagination
+- [X] Create haplogroup (restricted to root or terminal leaf placement)
+- [X] Create haplogroup above existing root ("Neanderthal > Human" scenario)
+- [X] Edit haplogroup metadata (name, lineage, description, source, confidence)
+- [X] Delete haplogroup (soft-delete)
+- [X] View haplogroup detail panel with children, variants, parent info
+
+*Variant Management:*
+- [X] List variants grouped by commonName/rsId across reference builds (VariantGroup model)
+- [X] Create variant with auto-liftover to other reference genomes (GRCh37, GRCh38, T2T-CHM13)
+- [X] Edit single variant
+- [X] Edit variant group (update all builds simultaneously)
+- [X] Delete variant
+- [X] Contig selection filtered to Y/MT chromosomes with friendly labels
+
+*Haplogroup-Variant Associations:*
+- [X] Link variants to haplogroups (with source tracking)
+- [X] Unlink variants from haplogroups
+- [X] Search variants for association
+
+*Tree Restructuring:*
+- [X] Split branch: Create subclade by moving selected variants and/or re-parenting children
+- [X] Merge into parent: Absorb child haplogroup (variants move up, grandchildren promoted, child deleted)
+- [X] `TreeRestructuringService` with transactional operations
+
+*Audit Trail:*
+- [X] `CuratorAuditService` logging all curator operations
+- [X] Audit log entries with action type, before/after state, timestamps
+- [X] History panel for haplogroups and variants
+
+*Views & Routes:*
+- [X] Twirl templates for all curator pages (dashboard, lists, forms, detail panels)
+- [X] Routes for all CRUD and tree restructuring operations
+- [X] JSON endpoints for AJAX operations (haplogroup search, variant search)
 
 ### Phase 1: Data Capture
 
@@ -1383,39 +1431,46 @@ decodingus.discovery {
 - [ ] `ProposalEngine` service with Jaccard similarity matching
 - [ ] `ConsensusDetectionService` with unified evidence aggregation
 
-### Phase 3: Curator Workflow
+### Phase 3: Curator Workflow (Discovery Proposals)
 
 **Scope:**
-- Curator API endpoints for proposal management
-- Accept/reject/modify operations
+- Curator API endpoints for **proposal management** (extends base curator from Phase 0.5)
+- Accept/reject/modify operations for automated discovery proposals
 - Publication bulk upload with private variants
-- Audit trail implementation
-- Curator dashboard views
+- Audit trail for discovery-specific actions
+- Proposal review dashboard views
+
+**Note:** Base curator functionality (haplogroup/variant CRUD, tree restructuring, audit logging) was implemented in Phase 0.5. This phase focuses on the **discovery proposal** workflow.
 
 **Deliverables:**
-- [ ] Database migration (curator_action, discovery_config tables)
-- [ ] `CuratorService` with full proposal lifecycle management
-- [ ] `CuratorActionRepository`
+- [ ] Database migration (curator_action for discovery, discovery_config tables)
+- [ ] `CuratorService` with proposal lifecycle management (accept/reject/modify/split proposals)
+- [ ] `CuratorActionRepository` (discovery-specific actions)
 - [ ] `PublicationUploadService` for bulk biosample+variant uploads
-- [ ] Tapir endpoints for curator API
+- [ ] Tapir endpoints for proposal management API
 - [ ] Tapir endpoints for publication upload API
-- [ ] Curator authentication/authorization
-- [ ] Audit logging
+- [X] Curator authentication/authorization - *Implemented in Phase 0.5*
+- [X] Audit logging foundation - *Implemented in Phase 0.5 (`CuratorAuditService`)*
 
 ### Phase 4: Tree Evolution
 
 **Scope:**
-- Promotion workflow
+- Promotion workflow (automated from discovery proposals)
 - Tree update mechanics
 - Biosample reassignment (both sample types)
 - Reporting isolation
 - Private variant status updates
 
+**Note:** Manual tree evolution (split/merge) was implemented in Phase 0.5 via `TreeRestructuringService`. This phase focuses on **automated** promotion from discovery proposals.
+
 **Deliverables:**
-- [ ] `TreeEvolutionService` with promotion logic
+- [ ] `TreeEvolutionService` with automated promotion logic (from proposals)
 - [ ] Modified tree queries (visibility filter for public vs curator views)
 - [ ] Biosample reassignment logic (unified across sample types)
 - [ ] Private variant status transition logic (ACTIVE → PROMOTED)
+- [X] Manual tree restructuring: Split branch - *Implemented in Phase 0.5*
+- [X] Manual tree restructuring: Merge into parent - *Implemented in Phase 0.5*
+- [X] Repository methods: `updateParent`, `createWithParent` - *Implemented in Phase 0.5*
 - [ ] Integration tests for full workflow (Citizen samples)
 - [ ] Integration tests for full workflow (External samples)
 - [ ] Integration tests for mixed-source consensus scenarios
@@ -1429,7 +1484,8 @@ decodingus.discovery {
 - Public tree with proposal indicators (curator view)
 
 **Deliverables:**
-- [ ] Twirl templates for curator views
+- [X] Twirl templates for base curator views (haplogroups, variants, dashboard) - *See Phase 0.5*
+- [ ] Twirl templates for proposal review views
 - [ ] JavaScript for interactive proposal review
 - [ ] Notification service (email/webhook)
 - [ ] Tree visualization with proposal overlay

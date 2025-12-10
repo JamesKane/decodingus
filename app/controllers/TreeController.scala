@@ -1,5 +1,6 @@
 package controllers
 
+import config.FeatureFlags
 import models.HaplogroupType
 import models.HaplogroupType.{MT, Y}
 import models.api.{SubcladeDTO, TreeNodeDTO}
@@ -28,6 +29,7 @@ import scala.concurrent.{ExecutionContext, Future}
 @Singleton
 class TreeController @Inject()(val controllerComponents: MessagesControllerComponents,
                                treeService: HaplogroupTreeService,
+                               featureFlags: FeatureFlags,
                                cached: Cached,
                                cache: AsyncCacheApi)
                               (using webJarsUtil: WebJarsUtil, ec: ExecutionContext)
@@ -205,7 +207,7 @@ class TreeController @Inject()(val controllerComponents: MessagesControllerCompo
         val treeViewModel: Option[TreeViewModel] = treeDto.subclade.flatMap { _ =>
           services.TreeLayoutService.layoutTree(treeDto, isAbsoluteTopRootView)
         }
-        Ok(views.html.fragments.haplogroup(treeDto, config.haplogroupType, treeViewModel, request.uri))
+        Ok(views.html.fragments.haplogroup(treeDto, config.haplogroupType, treeViewModel, request.uri, featureFlags.showBranchAgeEstimates))
       }
       .recover {
         case _: IllegalArgumentException =>
@@ -252,7 +254,7 @@ class TreeController @Inject()(val controllerComponents: MessagesControllerCompo
               services.TreeLayoutService.layoutTree(treeDto, isAbsoluteTopRootView)
             }
 
-            Ok(views.html.fragments.haplogroup(treeDto, config.haplogroupType, treeViewModel, request.uri))
+            Ok(views.html.fragments.haplogroup(treeDto, config.haplogroupType, treeViewModel, request.uri, featureFlags.showBranchAgeEstimates))
         }
       }
       .recover {
