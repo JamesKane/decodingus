@@ -7,6 +7,12 @@ body {
     padding-bottom: 56px;
 }
 
+/* Override Bootstrap's default pink/cyan code styling to use gray */
+code {
+    color: #495057;
+    background-color: #f8f9fa;
+}
+
 .logo-placeholder {
     max-width: 900px; /* Increased for more horizontal span */
     display: block;
