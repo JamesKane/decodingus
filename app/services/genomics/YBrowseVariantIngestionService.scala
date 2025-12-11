@@ -145,11 +145,16 @@ class YBrowseVariantIngestionService @Inject()(
 
     genbankContigRepository.findByCommonNames(contigNames).flatMap { contigs =>
       // Map: (CommonName, Genome) -> ContigID
+      // Normalize genome names to canonical form using aliases (e.g., "GRCh38.p14" -> "GRCh38", "T2T-CHM13v2.0" -> "hs1")
       val contigMap = contigs.flatMap { c =>
         for {
           cn <- c.commonName
           rg <- c.referenceGenome
-        } yield (cn, rg) -> c.id.get
+        } yield {
+          // First try alias resolution, then fall back to stripping patch version
+          val normalizedGenome = genomicsConfig.referenceAliases.getOrElse(rg, rg.split("\\.").head)
+          (cn, normalizedGenome) -> c.id.get
+        }
       }.toMap
 
       // Debug: log contig mapping on first batch
