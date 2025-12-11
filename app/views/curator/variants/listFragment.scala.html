@@ -1,8 +1,29 @@
 @import models.domain.genomics.VariantGroup
-@(variantGroups: Seq[VariantGroup], query: Option[String], currentPage: Int, totalPages: Int, pageSize: Int)(implicit request: RequestHeader)
+@(variantGroups: Seq[VariantGroup], query: Option[String], currentPage: Int, totalPages: Int, pageSize: Int, totalCount: Int)(implicit request: RequestHeader)
+
+@defining(java.text.NumberFormat.getIntegerInstance()) { nf =>
+<div class="d-flex justify-content-between align-items-center mb-2">
+    <small class="text-muted">
+        @if(query.exists(_.trim.nonEmpty)) {
+            Found @nf.format(totalCount) variant groups matching "@query.get"
+        } else {
+            Showing @nf.format(totalCount) total variant groups
+        }
+    </small>
+    @if(totalPages > 1) {
+        <small class="text-muted">Page @currentPage of @nf.format(totalPages)</small>
+    }
+</div>
+}
 
 @if(variantGroups.isEmpty) {
-    <div class="alert alert-info">No variants found matching your criteria.</div>
+    <div class="alert alert-info">
+        @if(query.exists(_.trim.nonEmpty)) {
+            No variants found matching "@query.get".
+        } else {
+            Enter a search term to find variants.
+        }
+    </div>
 } else {
     <div class="table-responsive">
         <table class="table table-hover">

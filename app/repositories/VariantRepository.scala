@@ -140,6 +140,17 @@ trait VariantRepository {
   def searchGrouped(query: String, limit: Int): Future[Seq[VariantGroup]]
 
   /**
+   * Search variants with proper database pagination.
+   * Returns (results, totalCount) for the given query.
+   *
+   * @param query Search term (searches rsId, commonName, and aliases)
+   * @param offset Number of groups to skip
+   * @param limit Max number of groups to return
+   * @return Future of (grouped variants, total count of unique groups matching query)
+   */
+  def searchGroupedPaginated(query: String, offset: Int, limit: Int): Future[(Seq[VariantGroup], Int)]
+
+  /**
    * Get all variants matching a group key (commonName or rsId) with their contig information.
    */
   def getVariantsByGroupKey(groupKey: String): Future[Seq[VariantWithContig]]
@@ -404,34 +415,82 @@ class VariantRepositoryImpl @Inject()(
   // === Variant Grouping Methods Implementation ===
 
   override def searchGrouped(query: String, limit: Int): Future[Seq[VariantGroup]] = {
+    // Delegate to paginated version for backwards compatibility
+    searchGroupedPaginated(query, 0, limit).map(_._1)
+  }
+
+  override def searchGroupedPaginated(query: String, offset: Int, limit: Int): Future[(Seq[VariantGroup], Int)] = {
     val upperQuery = query.toUpperCase
+    val hasQuery = query.trim.nonEmpty
 
-    // Search variants by name fields OR by aliases
-    // Use raw SQL for the alias join to keep it efficient
-    val searchQuery = sql"""
-      SELECT DISTINCT v.variant_id, v.genbank_contig_id, v.position, v.reference_allele,
-             v.alternate_allele, v.variant_type, v.rs_id, v.common_name,
-             c.genbank_contig_id as c_id, c.accession, c.common_name as c_common_name,
-             c.reference_genome, COALESCE(c.seq_length, 0) as seq_len
-      FROM variant v
-      JOIN genbank_contig c ON c.genbank_contig_id = v.genbank_contig_id
-      LEFT JOIN variant_alias va ON va.variant_id = v.variant_id
-      WHERE UPPER(v.rs_id) LIKE ${s"%$upperQuery%"}
-         OR UPPER(v.common_name) LIKE ${s"%$upperQuery%"}
-         OR UPPER(va.alias_value) LIKE ${s"%$upperQuery%"}
-      ORDER BY v.common_name, v.rs_id
-    """.as[(Int, Int, Int, String, String, String, Option[String], Option[String],
-            Int, String, Option[String], Option[String], Int)]
-
-    db.run(searchQuery).map { results =>
-      val variantsWithContig = results.map { case (vid, contigId, pos, ref, alt, vtype, rsId, commonName,
-                                                    cId, accession, cCommonName, refGenome, seqLen) =>
-        val variant = Variant(Some(vid), contigId, pos, ref, alt, vtype, rsId, commonName)
-        val contig = GenbankContig(Some(cId), accession, cCommonName, refGenome, seqLen)
-        VariantWithContig(variant, contig)
-      }
-      VariantGroup.fromVariants(variantsWithContig).take(limit)
+    // Step 1: Get paginated group keys (distinct commonName/rsId combinations)
+    // For no query, just list all unique group keys alphabetically
+    val groupKeysQuery = if (hasQuery) {
+      sql"""
+        WITH matching_variants AS (
+          SELECT DISTINCT COALESCE(v.common_name, v.rs_id, CONCAT('var_', v.variant_id)) as group_key
+          FROM variant v
+          LEFT JOIN variant_alias va ON va.variant_id = v.variant_id
+          WHERE UPPER(v.rs_id) LIKE ${s"%$upperQuery%"}
+             OR UPPER(v.common_name) LIKE ${s"%$upperQuery%"}
+             OR UPPER(va.alias_value) LIKE ${s"%$upperQuery%"}
+        )
+        SELECT group_key FROM matching_variants
+        ORDER BY group_key
+        OFFSET $offset LIMIT $limit
+      """.as[String]
+    } else {
+      sql"""
+        SELECT DISTINCT COALESCE(common_name, rs_id, CONCAT('var_', variant_id)) as group_key
+        FROM variant
+        ORDER BY group_key
+        OFFSET $offset LIMIT $limit
+      """.as[String]
     }
+
+    // Step 2: Count total unique groups for pagination
+    val countQuery = if (hasQuery) {
+      sql"""
+        SELECT COUNT(DISTINCT COALESCE(v.common_name, v.rs_id, CONCAT('var_', v.variant_id)))
+        FROM variant v
+        LEFT JOIN variant_alias va ON va.variant_id = v.variant_id
+        WHERE UPPER(v.rs_id) LIKE ${s"%$upperQuery%"}
+           OR UPPER(v.common_name) LIKE ${s"%$upperQuery%"}
+           OR UPPER(va.alias_value) LIKE ${s"%$upperQuery%"}
+      """.as[Int].head
+    } else {
+      sql"""
+        SELECT COUNT(DISTINCT COALESCE(common_name, rs_id, CONCAT('var_', variant_id)))
+        FROM variant
+      """.as[Int].head
+    }
+
+    for {
+      groupKeys <- db.run(groupKeysQuery)
+      totalCount <- db.run(countQuery)
+      variantGroups <- if (groupKeys.isEmpty) {
+        Future.successful(Seq.empty[VariantGroup])
+      } else {
+        // Step 3: Fetch all variants for the paginated group keys
+        // Split group keys into named variants vs unnamed (var_XXXX)
+        val (unnamedKeys, namedKeys) = groupKeys.partition(_.startsWith("var_"))
+        val unnamedIds = unnamedKeys.flatMap(k => k.stripPrefix("var_").toIntOption)
+
+        val variantsQuery = (for {
+          v <- variants if v.commonName.inSet(namedKeys) ||
+                           v.rsId.inSet(namedKeys) ||
+                           (v.commonName.isEmpty && v.rsId.isEmpty && v.variantId.inSet(unnamedIds))
+          c <- genbankContigs if c.genbankContigId === v.genbankContigId
+        } yield (v, c)).sortBy { case (v, c) => (v.commonName, v.rsId, c.referenceGenome) }
+
+        db.run(variantsQuery.result).map { results =>
+          val variantsWithContig = results.map { case (v, c) =>
+            VariantWithContig(v, c)
+          }
+          VariantGroup.fromVariants(variantsWithContig)
+        }
+      }
+    } yield (variantGroups, totalCount)
   }
 
   override def getVariantsByGroupKey(groupKey: String): Future[Seq[VariantWithContig]] = {

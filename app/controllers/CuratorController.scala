@@ -434,24 +434,23 @@ class CuratorController @Inject()(
 
   def listVariants(query: Option[String], page: Int, pageSize: Int): Action[AnyContent] =
     withPermission("variant.view").async { implicit request =>
+      val offset = (page - 1) * pageSize
       for {
-        // Fetch grouped variants - note: pagination is approximate since we group after fetching
-        variantGroups <- variantRepository.searchGrouped(query.getOrElse(""), pageSize * 3) // Fetch extra to ensure we have enough groups
+        (variantGroups, totalCount) <- variantRepository.searchGroupedPaginated(query.getOrElse(""), offset, pageSize)
       } yield {
-        val pagedGroups = variantGroups.drop((page - 1) * pageSize).take(pageSize)
-        val totalPages = Math.max(1, (variantGroups.size + pageSize - 1) / pageSize)
-        Ok(views.html.curator.variants.list(pagedGroups, query, page, totalPages, pageSize))
+        val totalPages = Math.max(1, (totalCount + pageSize - 1) / pageSize)
+        Ok(views.html.curator.variants.list(variantGroups, query, page, totalPages, pageSize, totalCount))
       }
     }
 
   def variantsFragment(query: Option[String], page: Int, pageSize: Int): Action[AnyContent] =
     withPermission("variant.view").async { implicit request =>
+      val offset = (page - 1) * pageSize
       for {
-        variantGroups <- variantRepository.searchGrouped(query.getOrElse(""), pageSize * 3)
+        (variantGroups, totalCount) <- variantRepository.searchGroupedPaginated(query.getOrElse(""), offset, pageSize)
       } yield {
-        val pagedGroups = variantGroups.drop((page - 1) * pageSize).take(pageSize)
-        val totalPages = Math.max(1, (variantGroups.size + pageSize - 1) / pageSize)
-        Ok(views.html.curator.variants.listFragment(pagedGroups, query, page, totalPages, pageSize))
+        val totalPages = Math.max(1, (totalCount + pageSize - 1) / pageSize)
+        Ok(views.html.curator.variants.listFragment(variantGroups, query, page, totalPages, pageSize, totalCount))
       }
     }
 

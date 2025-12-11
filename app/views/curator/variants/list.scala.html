@@ -1,6 +1,6 @@
 @import org.webjars.play.WebJarsUtil
 @import models.domain.genomics.VariantGroup
-@(variantGroups: Seq[VariantGroup], query: Option[String], currentPage: Int, totalPages: Int, pageSize: Int)(implicit request: RequestHeader, messages: Messages, webJarsUtil: WebJarsUtil)
+@(variantGroups: Seq[VariantGroup], query: Option[String], currentPage: Int, totalPages: Int, pageSize: Int, totalCount: Int)(implicit request: RequestHeader, messages: Messages, webJarsUtil: WebJarsUtil)
 
 @main("Curator - Variants") {
     <style>
@@ -62,7 +62,7 @@
                         </div>
 
                         <div id="variants-table">
-                            @listFragment(variantGroups, query, currentPage, totalPages, pageSize)
+                            @listFragment(variantGroups, query, currentPage, totalPages, pageSize, totalCount)
                         </div>
                     </div>
                 </div>
