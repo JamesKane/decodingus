@@ -39,7 +39,7 @@
                         <div class="mb-2">
                             <small class="text-muted">@formatAliasType(aliasType):</small>
                             @for(alias <- typeAliases) {
-                                <span class="badge @if(alias.isPrimary){bg-primary}else{bg-outline-secondary border} me-1"
+                                <span class="badge @if(alias.isPrimary){bg-primary}else{text-dark bg-light border} me-1"
                                       title="@messages("variants.detail.source"): @alias.source.getOrElse("unknown")">
                                     @alias.aliasValue
                                     @if(alias.isPrimary){<i class="bi bi-star-fill ms-1" style="font-size: 0.6rem;"></i>}
