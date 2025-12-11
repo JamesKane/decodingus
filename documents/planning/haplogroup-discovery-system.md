@@ -6,6 +6,34 @@ This document outlines a comprehensive system for evolving Y-DNA and mtDNA haplo
 
 ---
 
+## Prerequisites / Prework
+
+### Variant Schema Simplification (Required)
+
+Before implementing the discovery system, the variant schema must be migrated to support:
+
+1. **Universal coordinates** - JSONB storage for positions across all reference assemblies
+2. **Parallel mutation handling** - Same variant name can exist for different lineages
+3. **JSONB aliases** - No separate `variant_alias` table
+
+See: `documents/proposals/variant-schema-simplification.md`
+
+**Key dependency**: The `tree.biosample_private_variant` and `tree.proposed_branch_variant` tables reference the variant table. The new schema changes how variants are identified:
+
+| Old Model | New Model |
+|-----------|-----------|
+| `variant_id` unique per (contig, position, ref, alt) | `variant_id` unique per (canonical_name, defining_haplogroup_id) |
+| N rows per variant (one per reference genome) | 1 row per named variant per lineage |
+| Separate `variant_alias` table | JSONB `aliases` column |
+| Coordinates tied to single reference | JSONB `coordinates` with all assemblies |
+
+**Impact on discovery system:**
+- `resolveOrCreateVariants()` must check for parallel mutations before creating
+- Proposal engine must detect when a "new" variant is actually a parallel occurrence
+- Curator workflow needs warning when linking variant to unrelated branch
+
+---
+
 ## Problem Statement
 
 Biosamples enter the system from two primary sources:
@@ -245,10 +273,36 @@ case class CuratorAction(
 )
 
 enum CuratorActionType:
-  case Review, Accept, Reject, Modify, Split, Merge, Create, Delete, Reassign
+  case Review, Accept, Reject, Modify, Split, Merge, Create, Delete, Reassign, NameVariant
 
 enum CuratorTargetType:
   case ProposedBranch, Haplogroup, HaplogroupRelationship, Variant, Biosample
+```
+
+#### 7. VariantNamingDecision
+
+Curator's decision on how to name an unnamed variant during promotion.
+
+```scala
+case class VariantNamingDecision(
+  variantId: Int,
+  namingChoice: NamingChoice,
+  externalName: Option[String],      // If using external name
+  submitToIsogg: Boolean             // Whether to submit DU name to ISOGG
+)
+
+enum NamingChoice:
+  case AssignDuName      // Get next DU sequence number
+  case UseExternalName   // Curator provides known external name
+  case LeaveUnnamed      // Keep unnamed (not recommended)
+
+case class UnnamedVariantView(
+  variantId: Int,
+  coordinates: JsonObject,           // {GRCh38.p14: {contig, position, ref, alt}}
+  displayCoordinate: String,         // "chrY:2887824:G>A"
+  evidenceCount: Int,                // Biosamples with this variant
+  suggestedDuName: String            // Next available (e.g., "DU00042")
+)
 ```
 
 ---
@@ -626,9 +680,16 @@ trait PrivateVariantExtractionService {
 
   /**
    * Resolve variant calls to existing variant records or create new ones.
+   *
+   * IMPORTANT: With the new variant schema, this must handle parallel mutations:
+   * - First, look up by name in the context of the terminal haplogroup's lineage
+   * - If found in same lineage → use existing variant_id
+   * - If found in DIFFERENT lineage → this is a parallel mutation, create new variant
+   * - If not found → create new variant with defining_haplogroup set to terminal
    */
   def resolveOrCreateVariants(
-    variantCalls: Seq[VariantCall]
+    variantCalls: Seq[VariantCall],
+    terminalHaplogroupId: Int       // Context for parallel mutation detection
   ): Future[Map[VariantCall, Int]]  // Returns variant IDs
 }
 ```
@@ -636,8 +697,47 @@ trait PrivateVariantExtractionService {
 **Implementation Notes:**
 - The Atmosphere Lexicon provides `mismatchingSnps` as a count; we need the actual variant calls
 - Extend `HaplogroupResult` or add a parallel `PrivateVariantData` structure to capture detailed calls
-- Variants not in the `variant` table should be created with appropriate reference genome coordinates
 - External biosamples may come with variant data from publications or curator uploads
+
+**Variant Resolution with New Schema:**
+```
+For each VariantCall in context of terminal haplogroup R-M269:
+
+CASE A: VariantCall has a name (e.g., "L21")
+  1. Query: SELECT * FROM variant_v2 WHERE canonical_name = 'L21'
+  2. Results scenarios:
+     a) No results → Create new variant with canonical_name='L21', defining_haplogroup_id = terminal
+     b) One result, haplogroup in R lineage → Use existing variant_id
+     c) One result, haplogroup in I lineage → PARALLEL MUTATION!
+        → Create new variant "L21" with defining_haplogroup_id in R lineage
+        → Log for curator review
+     d) Multiple results → Check which is in correct lineage, or flag ambiguity
+
+CASE B: VariantCall has NO name (novel/private variant)
+  1. Query: SELECT * FROM variant_v2 WHERE coordinates->'GRCh38.p14'->>'position' = '12345'
+  2. Results scenarios:
+     a) No results → Create UNNAMED variant:
+        canonical_name = NULL
+        naming_status = 'UNNAMED'
+        defining_haplogroup_id = terminal
+        coordinates = {GRCh38.p14: {...}}
+     b) Found existing unnamed at same position → Use existing variant_id
+     c) Found NAMED variant at same position → Use existing (someone else named it)
+```
+
+**Novel Variant Lifecycle:**
+```
+1. DISCOVERY: variant created with canonical_name=NULL, naming_status='UNNAMED'
+2. EVIDENCE: linked to biosample_private_variant, proposal evidence grows
+3. THRESHOLD: proposal reaches review threshold
+4. CURATOR REVIEW: naming_status → 'PENDING_REVIEW'
+5. PROMOTION: curator assigns name (external OR DU prefix), naming_status → 'NAMED'
+```
+
+**Parallel Mutation Detection:**
+- Query the haplogroup tree to determine if the existing variant's `defining_haplogroup_id` is an ancestor of the terminal haplogroup
+- If NOT an ancestor → parallel mutation scenario
+- The new variant gets its own `variant_id` with the same `canonical_name` but different `defining_haplogroup_id`
 
 ### 2. ProposalEngine
 
@@ -768,13 +868,20 @@ trait CuratorService {
 
   /**
    * Accept a proposal for promotion.
+   * Includes naming assignments for any unnamed variants.
    */
   def acceptProposal(
     proposalId: Int,
     curatorId: String,
     proposedName: String,
+    variantNaming: Seq[VariantNamingDecision],  // Names for unnamed variants
     reason: Option[String]
   ): Future[ProposedBranch]
+
+  /**
+   * Get unnamed variants in a proposal that need naming decisions.
+   */
+  def getUnnamedVariantsForProposal(proposalId: Int): Future[Seq[UnnamedVariantView]]
 
   /**
    * Reject a proposal.
@@ -1324,6 +1431,33 @@ decodingus.discovery {
 
 ## Implementation Phases
 
+### Phase -1: Variant Schema Simplification (PREREQUISITE)
+
+**Scope:**
+- Migrate variant storage from N-rows-per-reference to 1-row-per-named-variant
+- Replace `variant_alias` table with JSONB `aliases` column
+- Add JSONB `coordinates` column for all reference assemblies
+- Add `defining_haplogroup_id` FK for parallel mutation support
+- Update curator workflows with parallel mutation detection warnings
+
+**Deliverables:**
+- [ ] Database evolution: Create `variant_v2` table with new schema
+- [ ] Database evolution: Migrate data from `variant` + `variant_alias` to `variant_v2`
+- [ ] Update `VariantRepository` for new schema
+- [ ] Update curator variant forms with parallel mutation warnings
+- [ ] Update liftover logic to update JSONB coordinates instead of creating rows
+- [ ] Remove `variant_alias` table and related code
+- [ ] Rename `variant_v2` to `variant`
+
+**See:** `documents/proposals/variant-schema-simplification.md`
+
+**Risk Mitigation:**
+- Dual-write period: write to both old and new schema during transition
+- Validate data consistency between old and new representations
+- Test parallel mutation detection with known ISOGG examples
+
+---
+
 ### Phase 0: Schema Reorganization
 
 **Scope:**
@@ -1550,6 +1684,8 @@ Foundation curator tools for manual tree management, independent of the automate
 3. **Publication Integration**: Automatically create proposals from new publications
 4. **Collaborative Curation**: Multi-curator review workflow with voting
 5. **Geographic Correlation**: Analyze proposal evidence by geographic distribution
+6. **DecodingUs Naming Authority**: Register "DU" prefix with ISOGG for naming discovered variants (see `documents/proposals/variant-schema-simplification.md`)
+7. **Pangenome Coordinates**: Extend variant coordinates JSONB to support graph-based pangenome references as they become available
 
 ### Scalability
 
