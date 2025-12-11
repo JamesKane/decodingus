@@ -108,6 +108,8 @@ POST          /api/firehose/event                                               
 POST          /api/private/publication-discovery/run                                             controllers.PublicationDiscoveryController.triggerDiscovery()
 
 # Genomics Admin
+GET           /admin/genomics                                                                    controllers.GenomicsAdminController.dashboard()
++nocsrf
 POST          /api/private/genomics/ybrowse/update                                               controllers.GenomicsAdminController.triggerYBrowseUpdate()
 
 # Authentication

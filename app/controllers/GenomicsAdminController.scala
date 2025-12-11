@@ -6,7 +6,9 @@ import jakarta.inject.{Inject, Named, Singleton}
 import org.apache.pekko.actor.ActorRef
 import org.apache.pekko.pattern.ask
 import org.apache.pekko.util.Timeout
+import org.webjars.play.WebJarsUtil
 import play.api.Logging
+import play.api.i18n.I18nSupport
 import play.api.libs.json.{Json, OWrites}
 import play.api.mvc.{Action, AnyContent, BaseController, ControllerComponents}
 import services.AuthService
@@ -20,7 +22,7 @@ class GenomicsAdminController @Inject()(
   val controllerComponents: ControllerComponents,
   authService: AuthService,
   @Named("ybrowse-variant-update-actor") ybrowseUpdateActor: ActorRef
-)(implicit ec: ExecutionContext) extends BaseController with Logging {
+)(implicit ec: ExecutionContext, webJarsUtil: WebJarsUtil) extends BaseController with Logging with I18nSupport {
 
   implicit val timeout: Timeout = Timeout(10.minutes)
 
@@ -50,20 +52,43 @@ class GenomicsAdminController @Inject()(
   }
 
   /**
+   * Admin dashboard for genomics operations.
+   */
+  def dashboard(): Action[AnyContent] = Action.async { implicit request =>
+    withAdminAuth(request) { _ =>
+      Future.successful(Ok(views.html.admin.genomics.dashboard()))
+    }
+  }
+
+  /**
    * Trigger on-demand YBrowse variant update.
    * Only accessible by users with Admin role.
+   * Fire-and-forget: returns immediately, job runs in background.
    */
   def triggerYBrowseUpdate(): Action[AnyContent] = Action.async { implicit request =>
     withAdminAuth(request) { adminUserId =>
       logger.info(s"Admin $adminUserId triggered YBrowse variant update")
 
+      // Use a short timeout just to check if job started or was rejected
+      implicit val shortTimeout: Timeout = Timeout(5.seconds)
+
       (ybrowseUpdateActor ? RunUpdate).mapTo[UpdateResult].map { result =>
-        if (result.success) {
+        // If we get a quick response, it's either a rejection (already running) or an error
+        if (result.message.contains("already in progress")) {
+          Ok(Json.toJson(result))
+        } else if (result.success) {
           Ok(Json.toJson(result))
         } else {
           InternalServerError(Json.toJson(result))
         }
       }.recover {
+        case _: org.apache.pekko.pattern.AskTimeoutException =>
+          // Timeout means job started successfully and is running
+          Ok(Json.obj(
+            "success" -> true,
+            "variantsIngested" -> 0,
+            "message" -> "Update started. Monitor server logs for progress."
+          ))
         case ex: Exception =>
           logger.error(s"YBrowse update request failed: ${ex.getMessage}", ex)
           InternalServerError(Json.obj(

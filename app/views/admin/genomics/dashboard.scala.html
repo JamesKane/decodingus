@@ -1,0 +1,74 @@
+@import org.webjars.play.WebJarsUtil
+@()(implicit request: RequestHeader, messages: Messages, webJarsUtil: WebJarsUtil)
+
+@main("Genomics Admin") {
+    <div class="container py-5">
+        <h1 class="mb-4"><i class="bi bi-gear"></i> Genomics Admin</h1>
+
+        <div class="row g-4">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="bi bi-arrow-repeat"></i> YBrowse Variant Update</h5>
+                    </div>
+                    <div class="card-body">
+                        <p class="text-muted">
+                            Download and ingest the latest Y-DNA variant data from YBrowse.
+                            This will fetch the VCF file, sanitize malformed records, and update the variant database.
+                            <strong>This process takes several hours.</strong> Monitor progress in the server logs.
+                        </p>
+                        <div id="ybrowse-status" class="mb-3" style="display: none;">
+                            <div class="alert mb-0" role="alert">
+                                <span id="ybrowse-message"></span>
+                            </div>
+                        </div>
+                        <button id="ybrowse-update-btn" type="button" class="btn btn-primary" onclick="triggerYBrowseUpdate()">
+                            <i class="bi bi-cloud-download"></i> Start YBrowse Update
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function triggerYBrowseUpdate() {
+            const btn = document.getElementById('ybrowse-update-btn');
+            const status = document.getElementById('ybrowse-status');
+            const message = document.getElementById('ybrowse-message');
+            const alertDiv = status.querySelector('.alert');
+
+            // Disable button
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status"></span> Starting...';
+
+            // Fire-and-forget: send request, show immediate feedback
+            fetch('@routes.GenomicsAdminController.triggerYBrowseUpdate()', {
+                method: 'POST',
+                credentials: 'same-origin'
+            })
+            .then(response => response.json())
+            .then(data => {
+                status.style.display = 'block';
+                if (data.message && data.message.includes('already in progress')) {
+                    alertDiv.className = 'alert alert-warning mb-0';
+                    message.textContent = data.message;
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="bi bi-cloud-download"></i> Start YBrowse Update';
+                } else {
+                    alertDiv.className = 'alert alert-success mb-0';
+                    message.innerHTML = 'Update started successfully. <strong>Monitor server logs for progress.</strong> This will take several hours.';
+                    // Keep button disabled while job is running
+                    btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Update Running...';
+                }
+            })
+            .catch(error => {
+                status.style.display = 'block';
+                alertDiv.className = 'alert alert-danger mb-0';
+                message.textContent = 'Failed to start update: ' + error.message;
+                btn.disabled = false;
+                btn.innerHTML = '<i class="bi bi-cloud-download"></i> Start YBrowse Update';
+            });
+        }
+    </script>
+}

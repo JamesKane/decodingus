@@ -14,6 +14,7 @@ import repositories.{GenbankContigRepository, VariantRepository}
 import java.io.File
 import scala.concurrent.{ExecutionContext, Future}
 import scala.jdk.CollectionConverters.*
+import scala.util.{Try, Success, Failure}
 
 @Singleton
 class YBrowseVariantIngestionService @Inject()(
@@ -79,26 +80,69 @@ class YBrowseVariantIngestionService @Inject()(
                               liftovers: Map[String, LiftOver],
                               sourceGenome: String
                             ): Future[Int] = {
-    
-    def processNextBatch(accumulatedCount: Int): Future[Int] = {
+
+    val progressInterval = 100 // Log progress every 100 batches (100k records)
+
+    def processNextBatch(accumulatedCount: Int, skippedCount: Int, batchNumber: Int): Future[Int] = {
       if (!iterator.hasNext) {
+        logger.info(s"Ingestion complete. Processed $accumulatedCount variants" +
+          (if (skippedCount > 0) s", skipped $skippedCount malformed records." else "."))
         Future.successful(accumulatedCount)
       } else {
-        val batch = iterator.take(batchSize).toSeq
+        // Safely materialize records, skipping malformed ones
+        val (batch, newSkipped) = safelyTakeBatch(iterator, batchSize)
         processBatch(batch, liftovers, sourceGenome).flatMap { count =>
-          processNextBatch(accumulatedCount + count)
+          val newTotal = accumulatedCount + count
+          val newBatchNumber = batchNumber + 1
+
+          // Log progress every N batches
+          if (newBatchNumber % progressInterval == 0) {
+            val recordsProcessed = newBatchNumber * batchSize
+            logger.info(s"Progress: processed ~$recordsProcessed VCF records, created/updated $newTotal variants...")
+          }
+
+          processNextBatch(newTotal, skippedCount + newSkipped, newBatchNumber)
         }
       }
     }
-    
-    processNextBatch(0)
+
+    logger.info(s"Starting variant ingestion (batch size: $batchSize, progress logged every ${progressInterval * batchSize} records)")
+    processNextBatch(0, 0, 0)
+  }
+
+  /**
+   * Safely takes a batch of records from the iterator, skipping malformed records.
+   * HTSJDK may throw TribbleException for malformed VCF lines (e.g., duplicate alleles).
+   *
+   * @param iterator The VCF record iterator
+   * @param batchSize Maximum number of valid records to collect
+   * @return Tuple of (validRecords, skippedCount)
+   */
+  private def safelyTakeBatch(iterator: Iterator[VariantContext], batchSize: Int): (Seq[VariantContext], Int) = {
+    val batch = scala.collection.mutable.ArrayBuffer[VariantContext]()
+    var skipped = 0
+
+    while (batch.size < batchSize && iterator.hasNext) {
+      Try(iterator.next()) match {
+        case Success(vc) => batch += vc
+        case Failure(e) =>
+          skipped += 1
+          if (skipped <= 10) {
+            logger.warn(s"Skipping malformed VCF record: ${e.getMessage}")
+          } else if (skipped == 11) {
+            logger.warn("Suppressing further malformed record warnings...")
+          }
+      }
+    }
+
+    (batch.toSeq, skipped)
   }
 
   private def processBatch(batch: Seq[VariantContext], liftovers: Map[String, LiftOver], sourceGenome: String): Future[Int] = {
     // 1. Collect all contig names from batch
     val contigNames = batch.map(_.getContig).distinct
     // 2. Resolve Contig IDs for hg38 (source) and targets
-    
+
     genbankContigRepository.findByCommonNames(contigNames).flatMap { contigs =>
       // Map: (CommonName, Genome) -> ContigID
       val contigMap = contigs.flatMap { c =>
@@ -108,10 +152,15 @@ class YBrowseVariantIngestionService @Inject()(
         } yield (cn, rg) -> c.id.get
       }.toMap
 
+      // Debug: log contig mapping on first batch
+      if (contigMap.isEmpty && batch.nonEmpty) {
+        logger.warn(s"Contig mapping failed! Looking for: ${contigNames.mkString(", ")}. Found contigs: ${contigs.map(c => s"${c.commonName}/${c.referenceGenome}").mkString(", ")}")
+      }
+
       val variantsToSave = batch.flatMap { vc =>
         // Create source variants (normalization happens in createVariantsForContext)
         val sourceVariants = createVariantsForContext(vc, sourceGenome, contigMap)
-        
+
         // Create lifted variants
         val liftedVariants = liftovers.flatMap { case (targetGenome, liftOver) =>
           val interval = new Interval(vc.getContig, vc.getStart, vc.getEnd)
@@ -129,10 +178,15 @@ class YBrowseVariantIngestionService @Inject()(
             Seq.empty
           }
         }
-        
+
         sourceVariants ++ liftedVariants
       }
-      
+
+      // Debug: log if we're losing variants
+      if (variantsToSave.isEmpty && batch.nonEmpty) {
+        logger.warn(s"No variants to save from batch of ${batch.size} records! Source genome: $sourceGenome, contigMap keys: ${contigMap.keys.mkString(", ")}")
+      }
+
       variantRepository.findOrCreateVariantsBatch(variantsToSave).map(_.size)
     }
   }
