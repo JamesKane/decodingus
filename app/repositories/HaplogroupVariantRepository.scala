@@ -73,6 +73,14 @@ trait HaplogroupVariantRepository {
    * @return A Future containing a sequence of haplogroups that match the given defining variant and type.
    */
   def findHaplogroupsByDefiningVariant(variantId: String, haplogroupType: HaplogroupType): Future[Seq[Haplogroup]]
+
+  /**
+   * Retrieves variants associated with a haplogroup by its name.
+   *
+   * @param haplogroupName The name of the haplogroup (e.g., "R-M269")
+   * @return A Future containing a sequence of VariantWithContig for the haplogroup
+   */
+  def getVariantsByHaplogroupName(haplogroupName: String): Future[Seq[models.domain.genomics.VariantWithContig]]
 }
 
 class HaplogroupVariantRepositoryImpl @Inject()(
@@ -189,5 +197,18 @@ class HaplogroupVariantRepositoryImpl @Inject()(
     } yield haplogroup
 
     runQuery(query.result)
+  }
+
+  override def getVariantsByHaplogroupName(haplogroupName: String): Future[Seq[models.domain.genomics.VariantWithContig]] = {
+    val query = for {
+      hg <- haplogroups if hg.name === haplogroupName
+      hv <- haplogroupVariants if hv.haplogroupId === hg.haplogroupId
+      v <- variants if v.variantId === hv.variantId
+      c <- genbankContigs if c.genbankContigId === v.genbankContigId
+    } yield (v, c)
+
+    runQuery(query.result).map(_.map { case (v, c) =>
+      models.domain.genomics.VariantWithContig(v, c)
+    })
   }
 }

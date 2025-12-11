@@ -159,6 +159,14 @@ trait VariantRepository {
    * Group a sequence of variants (with contig info) by their logical identity.
    */
   def groupVariants(variants: Seq[VariantWithContig]): Seq[VariantGroup]
+
+  /**
+   * Stream all variants grouped by logical identity.
+   * Used for bulk export operations.
+   *
+   * @return Future of all variant groups (loaded in memory - use for export jobs only)
+   */
+  def streamAllGrouped(): Future[Seq[VariantGroup]]
 }
 
 class VariantRepositoryImpl @Inject()(
@@ -505,5 +513,18 @@ class VariantRepositoryImpl @Inject()(
 
   override def groupVariants(variants: Seq[VariantWithContig]): Seq[VariantGroup] = {
     VariantGroup.fromVariants(variants)
+  }
+
+  override def streamAllGrouped(): Future[Seq[VariantGroup]] = {
+    // Fetch all variants with their contig information
+    val query = (for {
+      v <- variants
+      c <- genbankContigs if c.genbankContigId === v.genbankContigId
+    } yield (v, c)).result
+
+    db.run(query).map { results =>
+      val variantsWithContig = results.map { case (v, c) => VariantWithContig(v, c) }
+      VariantGroup.fromVariants(variantsWithContig)
+    }
   }
 }

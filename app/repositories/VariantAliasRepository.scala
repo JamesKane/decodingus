@@ -62,6 +62,32 @@ trait VariantAliasRepository {
    * Returns a map of variantId -> Seq[VariantAlias]
    */
   def findByVariantIds(variantIds: Seq[Int]): Future[Map[Int, Seq[VariantAlias]]]
+
+  /**
+   * Bulk update source for aliases matching a prefix pattern.
+   * Used to fix migration data where source was not properly attributed.
+   *
+   * @param aliasPrefix  The prefix to match (e.g., "FGC" matches "FGC29071")
+   * @param newSource    The new source value (e.g., "FGC")
+   * @param oldSource    Optional: only update aliases with this current source (e.g., "migration")
+   * @return Number of aliases updated
+   */
+  def bulkUpdateSourceByPrefix(aliasPrefix: String, newSource: String, oldSource: Option[String]): Future[Int]
+
+  /**
+   * Get distinct sources currently in the database.
+   */
+  def getDistinctSources(): Future[Seq[String]]
+
+  /**
+   * Count aliases by source.
+   */
+  def countBySource(source: String): Future[Int]
+
+  /**
+   * Count aliases matching a prefix with a specific source.
+   */
+  def countByPrefixAndSource(aliasPrefix: String, source: String): Future[Int]
 }
 
 class VariantAliasRepositoryImpl @Inject()(
@@ -180,5 +206,55 @@ class VariantAliasRepositoryImpl @Inject()(
           .result
       ).map(_.groupBy(_.variantId))
     }
+  }
+
+  override def bulkUpdateSourceByPrefix(aliasPrefix: String, newSource: String, oldSource: Option[String]): Future[Int] = {
+    val upperPrefix = aliasPrefix.toUpperCase
+    val updateQuery = oldSource match {
+      case Some(oldSrc) =>
+        sql"""
+          UPDATE variant_alias
+          SET source = $newSource
+          WHERE UPPER(alias_value) LIKE ${upperPrefix + "%"}
+            AND (source = $oldSrc OR source IS NULL)
+        """.asUpdate
+      case None =>
+        sql"""
+          UPDATE variant_alias
+          SET source = $newSource
+          WHERE UPPER(alias_value) LIKE ${upperPrefix + "%"}
+        """.asUpdate
+    }
+    db.run(updateQuery)
+  }
+
+  override def getDistinctSources(): Future[Seq[String]] = {
+    db.run(
+      variantAliases
+        .map(_.source)
+        .distinct
+        .result
+    ).map(_.flatten)
+  }
+
+  override def countBySource(source: String): Future[Int] = {
+    db.run(
+      variantAliases
+        .filter(_.source === source)
+        .length
+        .result
+    )
+  }
+
+  override def countByPrefixAndSource(aliasPrefix: String, source: String): Future[Int] = {
+    val upperPrefix = aliasPrefix.toUpperCase
+    db.run(
+      sql"""
+        SELECT COUNT(*)
+        FROM variant_alias
+        WHERE UPPER(alias_value) LIKE ${upperPrefix + "%"}
+          AND source = $source
+      """.as[Int].head
+    )
   }
 }

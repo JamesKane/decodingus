@@ -117,6 +117,15 @@ GET           /admin/genomics                                                   
 +nocsrf
 POST          /api/private/genomics/ybrowse/update                                               controllers.GenomicsAdminController.triggerYBrowseUpdate()
 
+# Private Variant API (unlisted, X-API-Key secured)
+POST          /api/private/variants/builds                                                       controllers.VariantApiController.bulkAddBuilds()
+POST          /api/private/variants/rsids                                                        controllers.VariantApiController.bulkUpdateRsIds()
+
+# Private Alias Source Management API (X-API-Key secured)
+GET           /api/private/aliases/sources/stats                                                 controllers.VariantApiController.getAliasSourceStats()
+GET           /api/private/aliases/sources/preview                                               controllers.VariantApiController.previewAliasSourceUpdate(aliasPrefix: String, currentSource: String)
+POST          /api/private/aliases/sources                                                       controllers.VariantApiController.bulkUpdateAliasSources()
+
 # Authentication
 GET           /login                                                                             controllers.AuthController.login
 POST          /login                                                                             controllers.AuthController.authenticate
@@ -131,8 +140,18 @@ POST          /cookies/accept                                                   
 GET           /profile                                                                           controllers.ProfileController.view
 POST          /profile                                                                           controllers.ProfileController.update
 
-# Variant API
+# Variant API (legacy)
 GET           /api/v1/variants/search                                                            controllers.VariantController.search(name: String)
+
+# Public Variant API
+GET           /api/v1/variants                                                                   controllers.VariantPublicApiController.searchVariants(query: Option[String] ?= None, page: Int ?= 1, pageSize: Int ?= 25)
+GET           /api/v1/variants/export                                                            controllers.VariantPublicApiController.downloadExport()
+GET           /api/v1/variants/export/metadata                                                   controllers.VariantPublicApiController.exportMetadata()
+GET           /api/v1/variants/:variantId                                                        controllers.VariantPublicApiController.getVariantById(variantId: Int)
+GET           /api/v1/haplogroups/:haplogroupName/variants                                       controllers.VariantPublicApiController.getVariantsByHaplogroup(haplogroupName: String)
+
+# Private Variant Export API (X-API-Key secured)
+POST          /api/private/variants/export/generate                                              controllers.VariantPublicApiController.triggerExport()
 
 # Curator Workflow
 GET           /admin/publication-candidates                                                      controllers.PublicationCandidateController.listCandidates(page: Int ?= 1, pageSize: Int ?= 20)
