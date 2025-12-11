@@ -77,6 +77,16 @@ trait VariantRepository {
   def findOrCreateVariantsBatch(variants: Seq[Variant]): Future[Seq[Int]]
 
   /**
+   * Finds or creates variants without creating aliases (for lifted/derived variants).
+   */
+  def findOrCreateVariantsBatchNoAliases(variants: Seq[Variant]): Future[Seq[Int]]
+
+  /**
+   * Finds or creates variants with alias tracking from a specific source.
+   */
+  def findOrCreateVariantsBatchWithAliases(variants: Seq[Variant], source: String): Future[Seq[Int]]
+
+  /**
    * Searches for variants by name (rsId or commonName).
    *
    * @param name The name to search for.
@@ -222,18 +232,11 @@ class VariantRepositoryImpl @Inject()(
   }
 
   /**
-   * Find or create variants in batch, recording incoming names as aliases.
-   *
-   * When a variant already exists (matched by position/alleles), incoming names
-   * that differ from existing names are recorded as aliases. This preserves
-   * alternative nomenclature from different sources (YBrowse, ISOGG, publications, etc.).
-   *
-   * @param batch  Variants to upsert
-   * @param source Source identifier for alias tracking (e.g., "ybrowse", "isogg", "curator")
-   * @return Sequence of variant IDs (existing or newly created)
+   * Find or create variants without creating aliases (for lifted/derived variants).
    */
-  def findOrCreateVariantsBatchWithAliases(batch: Seq[Variant], source: String): Future[Seq[Int]] = {
-    // Create upsert actions that return variant IDs
+  def findOrCreateVariantsBatchNoAliases(batch: Seq[Variant]): Future[Seq[Int]] = {
+    if (batch.isEmpty) return Future.successful(Seq.empty)
+
     val upsertActions = batch.map { variant =>
       sql"""
         INSERT INTO variant (
@@ -253,18 +256,62 @@ class VariantRepositoryImpl @Inject()(
       """.as[Int].head
     }
 
+    runTransactionally(DBIO.sequence(upsertActions))
+  }
+
+  /**
+   * Find or create variants in batch, recording incoming names as aliases.
+   *
+   * When a variant already exists (matched by position/alleles), incoming names
+   * that differ from existing names are recorded as aliases. This preserves
+   * alternative nomenclature from different sources (YBrowse, ISOGG, publications, etc.).
+   *
+   * Comma-separated names (e.g., "BY11122,FGC49371") are split into individual aliases.
+   *
+   * @param batch  Variants to upsert
+   * @param source Source identifier for alias tracking (e.g., "ybrowse", "isogg", "curator")
+   * @return Sequence of variant IDs (existing or newly created)
+   */
+  def findOrCreateVariantsBatchWithAliases(batch: Seq[Variant], source: String): Future[Seq[Int]] = {
+    if (batch.isEmpty) return Future.successful(Seq.empty)
+
+    // For the variant record, use the first name if comma-separated
+    val upsertActions = batch.map { variant =>
+      val primaryName = variant.commonName.map(_.split(",").head.trim)
+      sql"""
+        INSERT INTO variant (
+          genbank_contig_id, position, reference_allele, alternate_allele,
+          variant_type, rs_id, common_name
+        ) VALUES (
+          ${variant.genbankContigId}, ${variant.position},
+          ${variant.referenceAllele}, ${variant.alternateAllele},
+          ${variant.variantType}, ${variant.rsId}, $primaryName
+        )
+        ON CONFLICT (genbank_contig_id, position, reference_allele, alternate_allele)
+        DO UPDATE SET
+          variant_type = EXCLUDED.variant_type,
+          rs_id = COALESCE(EXCLUDED.rs_id, variant.rs_id),
+          common_name = COALESCE(EXCLUDED.common_name, variant.common_name)
+        RETURNING variant_id
+      """.as[Int].head
+    }
+
     // Execute upserts to get variant IDs
     val upsertResult = runTransactionally(DBIO.sequence(upsertActions))
 
-    // After getting IDs, add aliases for any incoming names
+    // After getting IDs, add aliases for any incoming names (split comma-separated)
     upsertResult.flatMap { variantIds =>
       val aliasInserts = batch.zip(variantIds).flatMap { case (variant, variantId) =>
-        val aliases = Seq(
-          variant.commonName.map(name => (variantId, "common_name", name)),
-          variant.rsId.map(id => (variantId, "rs_id", id))
-        ).flatten
+        // Split comma-separated common names into individual aliases
+        val commonNameAliases = variant.commonName.toSeq.flatMap { names =>
+          names.split(",").map(_.trim).filter(_.nonEmpty).map { name =>
+            (variantId, "common_name", name)
+          }
+        }
 
-        aliases.map { case (vid, aliasType, aliasValue) =>
+        val rsIdAliases = variant.rsId.toSeq.map(id => (variantId, "rs_id", id))
+
+        (commonNameAliases ++ rsIdAliases).map { case (vid, aliasType, aliasValue) =>
           sql"""
             INSERT INTO variant_alias (variant_id, alias_type, alias_value, source, is_primary, created_at)
             VALUES ($vid, $aliasType, $aliasValue, $source, FALSE, NOW())

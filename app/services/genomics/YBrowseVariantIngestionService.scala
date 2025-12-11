@@ -157,37 +157,39 @@ class YBrowseVariantIngestionService @Inject()(
         logger.warn(s"Contig mapping failed! Looking for: ${contigNames.mkString(", ")}. Found contigs: ${contigs.map(c => s"${c.commonName}/${c.referenceGenome}").mkString(", ")}")
       }
 
-      val variantsToSave = batch.flatMap { vc =>
-        // Create source variants (normalization happens in createVariantsForContext)
-        val sourceVariants = createVariantsForContext(vc, sourceGenome, contigMap)
+      // Separate source variants (get aliases) from lifted variants (no aliases)
+      val sourceVariants = batch.flatMap { vc =>
+        createVariantsForContext(vc, sourceGenome, contigMap)
+      }
 
-        // Create lifted variants
-        val liftedVariants = liftovers.flatMap { case (targetGenome, liftOver) =>
+      val liftedVariants = batch.flatMap { vc =>
+        liftovers.flatMap { case (targetGenome, liftOver) =>
           val interval = new Interval(vc.getContig, vc.getStart, vc.getEnd)
           val lifted = liftOver.liftOver(interval)
           if (lifted != null) {
-             // Create variant context with new position
-             val liftedVc = new htsjdk.variant.variantcontext.VariantContextBuilder(vc)
-               .chr(lifted.getContig)
-               .start(lifted.getStart)
-               .stop(lifted.getEnd)
-               .make()
-
-             createVariantsForContext(liftedVc, targetGenome, contigMap)
+            val liftedVc = new htsjdk.variant.variantcontext.VariantContextBuilder(vc)
+              .chr(lifted.getContig)
+              .start(lifted.getStart)
+              .stop(lifted.getEnd)
+              .make()
+            // Clear the ID for lifted variants - they share the source variant's name
+            createVariantsForContext(liftedVc, targetGenome, contigMap).map(_.copy(commonName = None, rsId = None))
           } else {
             Seq.empty
           }
         }
-
-        sourceVariants ++ liftedVariants
       }
 
       // Debug: log if we're losing variants
-      if (variantsToSave.isEmpty && batch.nonEmpty) {
+      if (sourceVariants.isEmpty && batch.nonEmpty) {
         logger.warn(s"No variants to save from batch of ${batch.size} records! Source genome: $sourceGenome, contigMap keys: ${contigMap.keys.mkString(", ")}")
       }
 
-      variantRepository.findOrCreateVariantsBatch(variantsToSave).map(_.size)
+      // Create source variants with aliases, lifted variants without
+      for {
+        sourceCount <- variantRepository.findOrCreateVariantsBatchWithAliases(sourceVariants, "ybrowse")
+        liftedCount <- if (liftedVariants.nonEmpty) variantRepository.findOrCreateVariantsBatchNoAliases(liftedVariants) else Future.successful(Seq.empty)
+      } yield sourceCount.size + liftedCount.size
     }
   }
 
