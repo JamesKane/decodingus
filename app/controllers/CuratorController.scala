@@ -547,8 +547,9 @@ class CuratorController @Inject()(
 
   def editVariantForm(id: Int): Action[AnyContent] =
     withPermission("variant.update").async { implicit request =>
-      variantRepository.findById(id).map {
-        case Some(variant) =>
+      variantRepository.findByIdWithContig(id).map {
+        case Some(vwc) =>
+          val variant = vwc.variant
           val formData = VariantFormData(
             genbankContigId = variant.genbankContigId,
             position = variant.position,
@@ -558,7 +559,9 @@ class CuratorController @Inject()(
             rsId = variant.rsId,
             commonName = variant.commonName
           )
-          Ok(views.html.curator.variants.editForm(id, variantForm.fill(formData)))
+          // Display contig as "accession (commonName / refGenome)" e.g., "CP068255.2 (chrX / hs1)"
+          val contigDisplay = s"${vwc.contig.accession} (${vwc.contig.commonName.getOrElse("?")} / ${vwc.contig.referenceGenome.getOrElse("?")})"
+          Ok(views.html.curator.variants.editForm(id, variantForm.fill(formData), contigDisplay))
         case None =>
           NotFound("Variant not found")
       }
@@ -566,11 +569,13 @@ class CuratorController @Inject()(
 
   def updateVariant(id: Int): Action[AnyContent] =
     withPermission("variant.update").async { implicit request =>
-      variantRepository.findById(id).flatMap {
-        case Some(oldVariant) =>
+      variantRepository.findByIdWithContig(id).flatMap {
+        case Some(vwc) =>
+          val oldVariant = vwc.variant
+          val contigDisplay = s"${vwc.contig.accession} (${vwc.contig.commonName.getOrElse("?")} / ${vwc.contig.referenceGenome.getOrElse("?")})"
           variantForm.bindFromRequest().fold(
             formWithErrors => {
-              Future.successful(BadRequest(views.html.curator.variants.editForm(id, formWithErrors)))
+              Future.successful(BadRequest(views.html.curator.variants.editForm(id, formWithErrors, contigDisplay)))
             },
             data => {
               val updatedVariant = oldVariant.copy(

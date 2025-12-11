@@ -33,77 +33,13 @@
         @if(aliases.nonEmpty) {
             <hr>
             <h6><i class="bi bi-tags"></i> @messages("variants.detail.altNames")</h6>
-            @defining(aliases.groupBy(_.aliasType)) { aliasesByType =>
-                <div class="mb-3">
-                    @for((aliasType, typeAliases) <- aliasesByType) {
-                        <div class="mb-2">
-                            <small class="text-muted">@formatAliasType(aliasType):</small>
-                            @for(alias <- typeAliases) {
-                                <span class="badge @if(alias.isPrimary){bg-primary}else{text-dark bg-light border} me-1"
-                                      title="@messages("variants.detail.source"): @alias.source.getOrElse("unknown")">
-                                    @alias.aliasValue
-                                    @if(alias.isPrimary){<i class="bi bi-star-fill ms-1" style="font-size: 0.6rem;"></i>}
-                                </span>
-                            }
-                        </div>
-                    }
-                </div>
-            }
+            @views.html.components.variantAliases(aliases)
         }
 
         <hr>
 
         <h6><i class="bi bi-collection"></i> @messages("variants.detail.refBuilds")</h6>
-        @variantGroup match {
-            case Some(group) if group.variants.size > 1 => {
-                @defining(group.variantsSorted.head) { first =>
-                    @if(group.variantsSorted.tail.exists(v => v.variant.referenceAllele != first.variant.referenceAllele || v.variant.alternateAllele != first.variant.alternateAllele)) {
-                        <div class="alert alert-warning py-1 px-2 small mb-2">
-                            <i class="bi bi-arrow-left-right"></i> @messages("variants.detail.strandDiff")
-                        </div>
-                    }
-                }
-                <div class="table-responsive">
-                    <table class="table table-sm">
-                        <thead>
-                            <tr>
-                                <th>@messages("variants.detail.build")</th>
-                                <th>@messages("variants.detail.position")</th>
-                                <th>@messages("variants.detail.alleles")</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @for(v <- group.variantsSorted) {
-                                <tr class="@if(v.variant.variantId == vwc.variant.variantId){table-active}">
-                                    <td>
-                                        <span class="badge @buildBadgeClass(v.shortReferenceGenome)">
-                                            @v.shortReferenceGenome
-                                        </span>
-                                    </td>
-                                    <td><code>@v.formattedPosition</code></td>
-                                    <td>
-                                        <code>@v.variant.referenceAllele</code>
-                                        <i class="bi bi-arrow-right text-muted" style="font-size: 0.7rem;"></i>
-                                        <code>@v.variant.alternateAllele</code>
-                                    </td>
-                                </tr>
-                            }
-                        </tbody>
-                    </table>
-                </div>
-            }
-            case _ => {
-                <div class="mb-3">
-                    <span class="badge @buildBadgeClass(vwc.shortReferenceGenome)">@vwc.shortReferenceGenome</span>
-                    <code class="ms-2">@vwc.formattedPosition</code>
-                    <span class="ms-2">
-                        <code>@vwc.variant.referenceAllele</code>
-                        <i class="bi bi-arrow-right text-muted" style="font-size: 0.7rem;"></i>
-                        <code>@vwc.variant.alternateAllele</code>
-                    </span>
-                </div>
-            }
-        }
+        @views.html.components.variantBuilds(vwc, variantGroup)
 
         <hr>
 
@@ -127,24 +63,3 @@
         }
     </div>
 </div>
-
-@formatAliasType(aliasType: String) = @{
-    aliasType match {
-        case "common_name" => messages("variants.detail.aliasType.snpNames")
-        case "rs_id" => messages("variants.detail.aliasType.dbsnp")
-        case "isogg" => "ISOGG"
-        case "yfull" => "YFull"
-        case "ftdna" => "FTDNA"
-        case "ybrowse" => "YBrowse"
-        case other => other.replace("_", " ").capitalize
-    }
-}
-
-@buildBadgeClass(refGenome: String) = @{
-    refGenome match {
-        case "GRCh37" => "bg-warning text-dark"
-        case "GRCh38" => "bg-info"
-        case "hs1" => "bg-success"
-        case _ => "bg-secondary"
-    }
-}

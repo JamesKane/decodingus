@@ -1,6 +1,6 @@
 @import org.webjars.play.WebJarsUtil
 @import controllers.VariantFormData
-@(id: Int, form: Form[VariantFormData])(implicit request: RequestHeader, messages: Messages, webJarsUtil: WebJarsUtil)
+@(id: Int, form: Form[VariantFormData], contigDisplay: String)(implicit request: RequestHeader, messages: Messages, webJarsUtil: WebJarsUtil)
 
 @main("Edit Variant") {
     <div class="container py-5">
@@ -24,17 +24,17 @@
 
                             <div class="row">
                                 <div class="col-md-6 mb-3">
-                                    <label class="form-label">Genbank Contig ID</label>
+                                    <label class="form-label">Contig</label>
                                     <input type="text"
                                            class="form-control"
-                                           value="@form("genbankContigId").value.getOrElse("")"
+                                           value="@contigDisplay"
                                            disabled>
                                     <input type="hidden" name="genbankContigId" value="@form("genbankContigId").value.getOrElse("")">
                                 </div>
                                 <div class="col-md-6 mb-3">
                                     <label class="form-label">Position</label>
                                     <input type="text"
-                                           class="form-control"
+                                           class="form-control font-monospace"
                                            value="@form("position").value.getOrElse("")"
                                            disabled>
                                     <input type="hidden" name="position" value="@form("position").value.getOrElse("")">
@@ -43,7 +43,7 @@
 
                             <div class="row">
                                 <div class="col-md-6 mb-3">
-                                    <label class="form-label">Reference Allele</label>
+                                    <label class="form-label">Ancestral Allele</label>
                                     <input type="text"
                                            class="form-control font-monospace"
                                            value="@form("referenceAllele").value.getOrElse("")"
@@ -51,7 +51,7 @@
                                     <input type="hidden" name="referenceAllele" value="@form("referenceAllele").value.getOrElse("")">
                                 </div>
                                 <div class="col-md-6 mb-3">
-                                    <label class="form-label">Alternate Allele</label>
+                                    <label class="form-label">Derived Allele</label>
                                     <input type="text"
                                            class="form-control font-monospace"
                                            value="@form("alternateAllele").value.getOrElse("")"

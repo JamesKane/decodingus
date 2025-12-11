@@ -1,0 +1,33 @@
+@import models.dal.domain.genomics.VariantAlias
+@(aliases: Seq[VariantAlias], showSourceTooltip: Boolean = true)
+
+@if(aliases.nonEmpty) {
+    @defining(aliases.groupBy(_.aliasType)) { aliasesByType =>
+        <div class="mb-3">
+            @for((aliasType, typeAliases) <- aliasesByType) {
+                <div class="mb-2">
+                    <small class="text-muted">@formatAliasType(aliasType):</small>
+                    @for(alias <- typeAliases) {
+                        <span class="badge @if(alias.isPrimary){bg-primary}else{text-dark bg-light border} me-1"
+                              @if(showSourceTooltip){title="Source: @alias.source.getOrElse("unknown")"}>
+                            @alias.aliasValue
+                            @if(alias.isPrimary){<i class="bi bi-star-fill ms-1" style="font-size: 0.6rem;"></i>}
+                        </span>
+                    }
+                </div>
+            }
+        </div>
+    }
+}
+
+@formatAliasType(aliasType: String) = @{
+    aliasType match {
+        case "common_name" => "SNP Names"
+        case "rs_id" => "dbSNP IDs"
+        case "isogg" => "ISOGG"
+        case "yfull" => "YFull"
+        case "ftdna" => "FTDNA"
+        case "ybrowse" => "YBrowse"
+        case other => other.replace("_", " ").capitalize
+    }
+}

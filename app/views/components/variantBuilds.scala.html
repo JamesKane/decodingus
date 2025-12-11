@@ -1,0 +1,62 @@
+@import models.domain.genomics.{VariantWithContig, VariantGroup}
+@(vwc: VariantWithContig, variantGroup: Option[VariantGroup], highlightCurrentVariant: Boolean = true)
+
+@variantGroup match {
+    case Some(group) if group.variants.size > 1 => {
+        @defining(group.variantsSorted.head) { first =>
+            @if(group.variantsSorted.tail.exists(v => v.variant.referenceAllele != first.variant.referenceAllele || v.variant.alternateAllele != first.variant.alternateAllele)) {
+                <div class="alert alert-warning py-1 px-2 small mb-2">
+                    <i class="bi bi-arrow-left-right"></i> Strand difference (reverse complement)
+                </div>
+            }
+        }
+        <div class="table-responsive">
+            <table class="table table-sm">
+                <thead>
+                    <tr>
+                        <th>Build</th>
+                        <th>Position</th>
+                        <th>Alleles</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @for(v <- group.variantsSorted) {
+                        <tr class="@if(highlightCurrentVariant && v.variant.variantId == vwc.variant.variantId){table-active}">
+                            <td>
+                                <span class="badge @buildBadgeClass(v.shortReferenceGenome)">
+                                    @v.shortReferenceGenome
+                                </span>
+                            </td>
+                            <td><code>@v.formattedPosition</code></td>
+                            <td>
+                                <code>@v.variant.referenceAllele</code>
+                                <i class="bi bi-arrow-right text-muted" style="font-size: 0.7rem;"></i>
+                                <code>@v.variant.alternateAllele</code>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+    case _ => {
+        <div class="mb-3">
+            <span class="badge @buildBadgeClass(vwc.shortReferenceGenome)">@vwc.shortReferenceGenome</span>
+            <code class="ms-2">@vwc.formattedPosition</code>
+            <span class="ms-2">
+                <code>@vwc.variant.referenceAllele</code>
+                <i class="bi bi-arrow-right text-muted" style="font-size: 0.7rem;"></i>
+                <code>@vwc.variant.alternateAllele</code>
+            </span>
+        </div>
+    }
+}
+
+@buildBadgeClass(refGenome: String) = @{
+    refGenome match {
+        case "GRCh37" => "bg-warning text-dark"
+        case "GRCh38" => "bg-info"
+        case "hs1" => "bg-success"
+        case _ => "bg-secondary"
+    }
+}
