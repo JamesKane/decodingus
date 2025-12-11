@@ -677,11 +677,11 @@ The proposed JSONB schema naturally supports this:
   "canonical_name": "DU12345",
   "aliases": {
     "common_names": ["DU12345"],
-    "external_names": ["BY98765", "FGC54321"],
+    "external_names": ["BYxxxx", "Axxx"],
     "sources": {
       "decodingus": ["DU12345"],
-      "ybrowse": ["BY98765"],
-      "ftdna": ["FGC54321"]
+      "ybrowse": ["Axxx"],
+      "ftdna": ["BYxxxx"]
     }
   }
 }
