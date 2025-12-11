@@ -287,8 +287,7 @@ Curator's decision on how to name an unnamed variant during promotion.
 case class VariantNamingDecision(
   variantId: Int,
   namingChoice: NamingChoice,
-  externalName: Option[String],      // If using external name
-  submitToIsogg: Boolean             // Whether to submit DU name to ISOGG
+  externalName: Option[String]       // If using external name (e.g., from YBrowse/FTDNA)
 )
 
 enum NamingChoice:
@@ -1684,7 +1683,7 @@ Foundation curator tools for manual tree management, independent of the automate
 3. **Publication Integration**: Automatically create proposals from new publications
 4. **Collaborative Curation**: Multi-curator review workflow with voting
 5. **Geographic Correlation**: Analyze proposal evidence by geographic distribution
-6. **DecodingUs Naming Authority**: Register "DU" prefix with ISOGG for naming discovered variants (see `documents/proposals/variant-schema-simplification.md`)
+6. **DecodingUs Naming Authority**: Establish "DU" prefix for naming discovered variants; publish in format for YBrowse aggregation (see `documents/proposals/variant-schema-simplification.md`)
 7. **Pangenome Coordinates**: Extend variant coordinates JSONB to support graph-based pangenome references as they become available
 
 ### Scalability

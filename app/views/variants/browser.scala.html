@@ -1,0 +1,70 @@
+@import org.webjars.play.WebJarsUtil
+@import models.domain.genomics.VariantGroup
+@(variantGroups: Seq[VariantGroup], query: Option[String], currentPage: Int, totalPages: Int, pageSize: Int, totalCount: Int)(implicit request: RequestHeader, messages: Messages, webJarsUtil: WebJarsUtil)
+
+@main(messages("variants.browser.title")) {
+    <style>
+        .search-indicator { display: none; }
+        .htmx-request .search-indicator { display: inline-block; }
+        .htmx-request .search-icon { display: none; }
+        .detail-panel { min-height: 400px; }
+    </style>
+
+    <div class="container-fluid py-4">
+        <div class="row">
+            <div class="col-12">
+                <h1 class="mb-3"><i class="bi bi-search"></i> @messages("variants.browser.heading")</h1>
+                <p class="text-muted mb-4">@messages("variants.browser.description")</p>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-lg-7">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="bi bi-code-square"></i> @messages("variants.browser.variants")</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row g-3 mb-4">
+                            <div class="col-12">
+                                <div class="input-group" id="search-box">
+                                    <span class="input-group-text">
+                                        <i class="bi bi-search search-icon"></i>
+                                        <span class="spinner-border spinner-border-sm search-indicator" role="status"></span>
+                                    </span>
+                                    <input type="text"
+                                        class="form-control"
+                                        id="variant-search"
+                                        name="query"
+                                        value="@query.getOrElse("")"
+                                        placeholder="@messages("variants.browser.searchPlaceholder")"
+                                        hx-get="@controllers.routes.VariantBrowserController.listFragment(None, 1, pageSize)"
+                                        hx-trigger="input changed delay:300ms"
+                                        hx-target="#variants-table"
+                                        hx-indicator="#search-box"
+                                        autocomplete="off">
+                                </div>
+                                <small class="text-muted">@messages("variants.browser.searchHelp")</small>
+                            </div>
+                        </div>
+
+                        <div id="variants-table">
+                            @listFragment(variantGroups, query, currentPage, totalPages, pageSize, totalCount)
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-lg-5">
+                <div id="detail-panel" class="detail-panel">
+                    <div class="card">
+                        <div class="card-body text-center text-muted py-5">
+                            <i class="bi bi-arrow-left-circle display-4"></i>
+                            <p class="mt-3">@messages("variants.browser.selectVariant")</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+}

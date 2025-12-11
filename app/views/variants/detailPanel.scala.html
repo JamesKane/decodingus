@@ -1,0 +1,150 @@
+@import models.domain.genomics.{VariantWithContig, VariantGroup}
+@import models.dal.domain.genomics.VariantAlias
+@import models.domain.haplogroups.Haplogroup
+@(vwc: VariantWithContig, variantGroup: Option[VariantGroup], aliases: Seq[VariantAlias], haplogroups: Seq[Haplogroup])(implicit request: RequestHeader, messages: Messages)
+
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0">@vwc.variant.commonName.orElse(vwc.variant.rsId).getOrElse(s"Variant ${vwc.variant.variantId.get}")</h5>
+        <span class="badge bg-secondary">@vwc.variant.variantType</span>
+    </div>
+    <div class="card-body">
+        <dl class="row mb-0">
+            <dt class="col-sm-4">@messages("variants.detail.rsId")</dt>
+            <dd class="col-sm-8">
+                @vwc.variant.rsId.map { rs =>
+                    <a href="https://www.ncbi.nlm.nih.gov/snp/@rs" target="_blank" rel="noopener">@rs <i class="bi bi-box-arrow-up-right" style="font-size: 0.7rem;"></i></a>
+                }.getOrElse("-")
+            </dd>
+
+            <dt class="col-sm-4">@messages("variants.detail.commonName")</dt>
+            <dd class="col-sm-8">@vwc.variant.commonName.getOrElse("-")</dd>
+
+            <dt class="col-sm-4">@messages("variants.detail.ancestral")</dt>
+            <dd class="col-sm-8"><code>@vwc.variant.referenceAllele</code></dd>
+
+            <dt class="col-sm-4">@messages("variants.detail.derived")</dt>
+            <dd class="col-sm-8"><code>@vwc.variant.alternateAllele</code></dd>
+
+            <dt class="col-sm-4">@messages("variants.detail.type")</dt>
+            <dd class="col-sm-8">@vwc.variant.variantType</dd>
+        </dl>
+
+        @if(aliases.nonEmpty) {
+            <hr>
+            <h6><i class="bi bi-tags"></i> @messages("variants.detail.altNames")</h6>
+            @defining(aliases.groupBy(_.aliasType)) { aliasesByType =>
+                <div class="mb-3">
+                    @for((aliasType, typeAliases) <- aliasesByType) {
+                        <div class="mb-2">
+                            <small class="text-muted">@formatAliasType(aliasType):</small>
+                            @for(alias <- typeAliases) {
+                                <span class="badge @if(alias.isPrimary){bg-primary}else{bg-outline-secondary border} me-1"
+                                      title="@messages("variants.detail.source"): @alias.source.getOrElse("unknown")">
+                                    @alias.aliasValue
+                                    @if(alias.isPrimary){<i class="bi bi-star-fill ms-1" style="font-size: 0.6rem;"></i>}
+                                </span>
+                            }
+                        </div>
+                    }
+                </div>
+            }
+        }
+
+        <hr>
+
+        <h6><i class="bi bi-collection"></i> @messages("variants.detail.refBuilds")</h6>
+        @variantGroup match {
+            case Some(group) if group.variants.size > 1 => {
+                @defining(group.variantsSorted.head) { first =>
+                    @if(group.variantsSorted.tail.exists(v => v.variant.referenceAllele != first.variant.referenceAllele || v.variant.alternateAllele != first.variant.alternateAllele)) {
+                        <div class="alert alert-warning py-1 px-2 small mb-2">
+                            <i class="bi bi-arrow-left-right"></i> @messages("variants.detail.strandDiff")
+                        </div>
+                    }
+                }
+                <div class="table-responsive">
+                    <table class="table table-sm">
+                        <thead>
+                            <tr>
+                                <th>@messages("variants.detail.build")</th>
+                                <th>@messages("variants.detail.position")</th>
+                                <th>@messages("variants.detail.alleles")</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @for(v <- group.variantsSorted) {
+                                <tr class="@if(v.variant.variantId == vwc.variant.variantId){table-active}">
+                                    <td>
+                                        <span class="badge @buildBadgeClass(v.shortReferenceGenome)">
+                                            @v.shortReferenceGenome
+                                        </span>
+                                    </td>
+                                    <td><code>@v.formattedPosition</code></td>
+                                    <td>
+                                        <code>@v.variant.referenceAllele</code>
+                                        <i class="bi bi-arrow-right text-muted" style="font-size: 0.7rem;"></i>
+                                        <code>@v.variant.alternateAllele</code>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+            case _ => {
+                <div class="mb-3">
+                    <span class="badge @buildBadgeClass(vwc.shortReferenceGenome)">@vwc.shortReferenceGenome</span>
+                    <code class="ms-2">@vwc.formattedPosition</code>
+                    <span class="ms-2">
+                        <code>@vwc.variant.referenceAllele</code>
+                        <i class="bi bi-arrow-right text-muted" style="font-size: 0.7rem;"></i>
+                        <code>@vwc.variant.alternateAllele</code>
+                    </span>
+                </div>
+            }
+        }
+
+        <hr>
+
+        <h6><i class="bi bi-diagram-3"></i> @messages("variants.detail.usedBy")</h6>
+        @if(haplogroups.isEmpty) {
+            <p class="text-muted small">@messages("variants.detail.noHaplogroups")</p>
+        } else {
+            <div class="mb-3">
+                @for(hg <- haplogroups.take(10)) {
+                    @defining(if(hg.haplogroupType.toString == "Y") controllers.routes.TreeController.ytree(Some(hg.name)).url else controllers.routes.TreeController.mtree(Some(hg.name)).url) { treeUrl =>
+                        <a href="@treeUrl"
+                           class="badge @if(hg.haplogroupType.toString == "Y"){bg-primary}else{bg-success} text-decoration-none me-1">
+                            @hg.name
+                        </a>
+                    }
+                }
+                @if(haplogroups.size > 10) {
+                    <span class="text-muted small">+@(haplogroups.size - 10) @messages("variants.detail.more")</span>
+                }
+            </div>
+        }
+    </div>
+</div>
+
+@formatAliasType(aliasType: String) = @{
+    aliasType match {
+        case "common_name" => messages("variants.detail.aliasType.snpNames")
+        case "rs_id" => messages("variants.detail.aliasType.dbsnp")
+        case "isogg" => "ISOGG"
+        case "yfull" => "YFull"
+        case "ftdna" => "FTDNA"
+        case "ybrowse" => "YBrowse"
+        case other => other.replace("_", " ").capitalize
+    }
+}
+
+@buildBadgeClass(refGenome: String) = @{
+    refGenome match {
+        case "GRCh37" => "bg-warning text-dark"
+        case "GRCh38" => "bg-info"
+        case "T2T" => "bg-success"
+        case _ => "bg-secondary"
+    }
+}

@@ -583,36 +583,38 @@ When promoting a proposal, curator sees:
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
-### ISOGG Submission Workflow
+### YBrowse Integration
 
-When assigning DU names, system should:
+YBrowse aggregates variant names from all research organizations into a central ISOGG database. Each organization uses their own prefix:
 
-1. **Log the assignment** with coordinates, haplogroup context, evidence count
-2. **Generate submission record** for ISOGG registration
-3. **Track submission status**: PENDING → SUBMITTED → ACCEPTED/REJECTED
-4. **Handle ISOGG feedback**: If ISOGG assigns different name, add as alias
+| Prefix | Organization |
+|--------|--------------|
+| BY | BigY (FTDNA) |
+| FGC | Full Genomes Corp |
+| Y | YFull |
+| A | ISOGG historical |
+| **DU** | **DecodingUs** |
+
+To have DU variants included in YBrowse:
+
+1. **Publish variants** with DU names in our public tree
+2. **Provide VCF export** in standard format for aggregation
+3. **Document coordinates** with GRCh38 positions (YBrowse standard)
+
+YBrowse will aggregate our DU-prefixed names alongside names from other sources. A variant may have multiple names from different organizations (e.g., DU00042 = BY98765 = FGC54321).
 
 ```scala
-case class IsoggSubmission(
+// Track when variants are published and any cross-references discovered
+case class VariantPublication(
   id: Option[Int],
   variantId: Int,
   duName: String,                    // Our assigned name (e.g., "DU00042")
   coordinates: JsonObject,           // GRCh38 coordinates
   definingHaplogroup: String,        // e.g., "R-DU00042"
   evidenceCount: Int,                // Supporting biosamples
-  submittedAt: Option[LocalDateTime],
-  submissionStatus: SubmissionStatus,
-  isoggAssignedName: Option[String], // If ISOGG gives different name
-  isoggResponse: Option[String],     // Notes from ISOGG
-  resolvedAt: Option[LocalDateTime]
+  publishedAt: LocalDateTime,
+  crossReferences: Map[String, String]  // Other names: {"ybrowse": "A12345", "ftdna": "BY98765"}
 )
-
-enum SubmissionStatus:
-  case Pending     // Ready to submit
-  case Submitted   // Sent to ISOGG
-  case Accepted    // ISOGG accepted our name
-  case Renamed     // ISOGG assigned different name (added as alias)
-  case Rejected    // ISOGG rejected (duplicate, invalid, etc.)
 ```
 
 ---
@@ -687,19 +689,23 @@ The proposed JSONB schema naturally supports this:
 }
 ```
 
-### Requirements for ISOGG Recognition
+### Requirements for YBrowse Aggregation
 
-1. **Consistent naming scheme**: Sequential numbering with prefix
-2. **Public variant database**: Our tree already provides this
-3. **Submission process**: Contribute discoveries to ISOGG
+YBrowse aggregates from organizations that meet these criteria:
+
+1. **Consistent naming scheme**: Sequential numbering with unique prefix (DU)
+2. **Public variant database**: Searchable tree with variant details
+3. **VCF availability**: Standard format for aggregation
 4. **Quality standards**: Validated variants with evidence
+5. **Coordinate accuracy**: GRCh38 positions matching YBrowse conventions
 
 ### Action Items
 
-- [ ] Contact ISOGG about registering "DU" prefix
+- [ ] Establish "DU" prefix convention in our public tree
 - [ ] Define variant discovery/validation pipeline
-- [ ] Create variant submission workflow to ISOGG
+- [ ] Create VCF export endpoint for YBrowse aggregation
 - [ ] Add `discovered_by` field to track DecodingUs-discovered variants
+- [ ] Build cross-reference sync to track when same variant has multiple names (DU* = BY* = FGC*)
 
 ---
 

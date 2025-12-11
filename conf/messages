@@ -285,3 +285,42 @@ profile.editProfile = Edit Profile
 profile.displayName = Display Name
 profile.displayNameHelp = This name will be visible to other users in the messaging system.
 profile.save = Save Profile
+
+# Variant Browser
+nav.variants = Variant Browser
+variants.browser.title = Variant Browser
+variants.browser.heading = Variant Browser
+variants.browser.description = Search the Y-DNA and mtDNA variant database. Find SNPs by name, rsID, or alias.
+variants.browser.variants = Variants
+variants.browser.searchPlaceholder = Search by rsID, SNP name, or alias (e.g., M269, rs9786076)...
+variants.browser.searchHelp = Enter at least 2 characters to search. Searches variant names, rsIDs, and aliases.
+variants.browser.selectVariant = Select a variant to view details
+variants.browser.foundMatching = Found {0} variant groups matching "{1}"
+variants.browser.showingTotal = Showing {0} total variant groups
+variants.browser.pageOf = Page {0} of {1}
+variants.browser.noResults = No variants found matching "{0}".
+variants.browser.enterSearch = Enter a search term to find variants.
+variants.browser.col.name = Name / rsID
+variants.browser.col.alleles = Anc/Der
+variants.browser.col.type = Type
+variants.browser.col.builds = Builds
+variants.browser.strandDiffers = Strand differs between builds
+
+# Variant Detail Panel
+variants.detail.rsId = rsID
+variants.detail.commonName = Common Name
+variants.detail.ancestral = Ancestral
+variants.detail.derived = Derived
+variants.detail.type = Type
+variants.detail.altNames = Alternative Names
+variants.detail.source = Source
+variants.detail.refBuilds = Reference Builds
+variants.detail.strandDiff = Strand difference (reverse complement)
+variants.detail.build = Build
+variants.detail.position = Position
+variants.detail.alleles = Alleles
+variants.detail.usedBy = Used By Haplogroups
+variants.detail.noHaplogroups = This variant is not associated with any haplogroups.
+variants.detail.more = more
+variants.detail.aliasType.snpNames = SNP Names
+variants.detail.aliasType.dbsnp = dbSNP IDs

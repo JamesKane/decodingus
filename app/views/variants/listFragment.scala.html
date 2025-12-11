@@ -1,0 +1,118 @@
+@import models.domain.genomics.VariantGroup
+@(variantGroups: Seq[VariantGroup], query: Option[String], currentPage: Int, totalPages: Int, pageSize: Int, totalCount: Int)(implicit request: RequestHeader, messages: Messages)
+
+@defining(java.text.NumberFormat.getIntegerInstance()) { nf =>
+<div class="d-flex justify-content-between align-items-center mb-2">
+    <small class="text-muted">
+        @if(query.exists(_.trim.nonEmpty)) {
+            @messages("variants.browser.foundMatching", nf.format(totalCount), query.get)
+        } else {
+            @messages("variants.browser.showingTotal", nf.format(totalCount))
+        }
+    </small>
+    @if(totalPages > 1) {
+        <small class="text-muted">@messages("variants.browser.pageOf", currentPage, nf.format(totalPages))</small>
+    }
+</div>
+}
+
+@if(variantGroups.isEmpty) {
+    <div class="alert alert-info">
+        @if(query.exists(_.trim.nonEmpty)) {
+            @messages("variants.browser.noResults", query.get)
+        } else {
+            @messages("variants.browser.enterSearch")
+        }
+    </div>
+} else {
+    <div class="table-responsive">
+        <table class="table table-hover">
+            <thead>
+                <tr>
+                    <th>@messages("variants.browser.col.name")</th>
+                    <th>@messages("variants.browser.col.alleles")</th>
+                    <th>@messages("variants.browser.col.type")</th>
+                    <th>@messages("variants.browser.col.builds")</th>
+                </tr>
+            </thead>
+            <tbody>
+                @for(group <- variantGroups) {
+                    @defining(group.variantsSorted.headOption) { firstOpt =>
+                        @firstOpt.map { first =>
+                            <tr class="cursor-pointer"
+                                hx-get="@controllers.routes.VariantBrowserController.detailPanel(first.variant.variantId.get)"
+                                hx-target="#detail-panel"
+                                hx-swap="innerHTML"
+                                style="cursor: pointer;">
+                                <td>
+                                    <strong>@group.displayName</strong>
+                                    @group.rsId.filter(_ => group.commonName.isDefined).map { rsId =>
+                                        <br><small class="text-muted">@rsId</small>
+                                    }
+                                </td>
+                                <td>
+                                    <code>@first.variant.referenceAllele</code><i class="bi bi-arrow-right text-muted mx-1" style="font-size: 0.6rem;"></i><code>@first.variant.alternateAllele</code>
+                                    @if(group.variants.size > 1 && group.variantsSorted.exists(v => v.variant.referenceAllele != first.variant.referenceAllele)) {
+                                        <i class="bi bi-arrow-left-right text-warning ms-1" title="@messages("variants.browser.strandDiffers")"></i>
+                                    }
+                                </td>
+                                <td>
+                                    <span class="badge bg-secondary">@first.variant.variantType</span>
+                                </td>
+                                <td>
+                                    @for(vwc <- group.variantsSorted) {
+                                        <span class="badge @buildBadgeClass(vwc.shortReferenceGenome)" title="@vwc.formattedPosition: @vwc.variant.referenceAllele→@vwc.variant.alternateAllele">
+                                            @vwc.shortReferenceGenome
+                                        </span>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    }
+                }
+            </tbody>
+        </table>
+    </div>
+
+    @if(totalPages > 1) {
+        <nav>
+            <ul class="pagination justify-content-center">
+                <li class="page-item @if(currentPage <= 1){disabled}">
+                    <a class="page-link"
+                       hx-get="@controllers.routes.VariantBrowserController.listFragment(query, currentPage - 1, pageSize)"
+                       hx-target="#variants-table"
+                       hx-include="#variant-search">
+                        @messages("pagination.previous")
+                    </a>
+                </li>
+                @for(p <- Math.max(1, currentPage - 2) to Math.min(totalPages, currentPage + 2)) {
+                    <li class="page-item @if(p == currentPage){active}">
+                        <a class="page-link"
+                           hx-get="@controllers.routes.VariantBrowserController.listFragment(query, p, pageSize)"
+                           hx-target="#variants-table"
+                           hx-include="#variant-search">
+                            @p
+                        </a>
+                    </li>
+                }
+                <li class="page-item @if(currentPage >= totalPages){disabled}">
+                    <a class="page-link"
+                       hx-get="@controllers.routes.VariantBrowserController.listFragment(query, currentPage + 1, pageSize)"
+                       hx-target="#variants-table"
+                       hx-include="#variant-search">
+                        @messages("pagination.next")
+                    </a>
+                </li>
+            </ul>
+        </nav>
+    }
+}
+
+@buildBadgeClass(refGenome: String) = @{
+    refGenome match {
+        case "GRCh37" => "bg-warning text-dark"
+        case "GRCh38" => "bg-info"
+        case "T2T" => "bg-success"
+        case _ => "bg-secondary"
+    }
+}

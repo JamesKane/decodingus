@@ -34,6 +34,11 @@ POST          /publications/submit                                              
 
 GET           /coverage-benchmarks                                                               controllers.CoverageController.index()
 
+# Variant Browser (public read-only)
+GET           /variants                                                                          controllers.VariantBrowserController.index(query: Option[String] ?= None, page: Int ?= 1, pageSize: Int ?= 25)
+GET           /variants/list                                                                     controllers.VariantBrowserController.listFragment(query: Option[String] ?= None, page: Int ?= 1, pageSize: Int ?= 25)
+GET           /variants/detail/:id                                                               controllers.VariantBrowserController.detailPanel(id: Int)
+
 # Contact form routes
 GET           /contact                                                                           controllers.ContactController.show()
 POST          /contact                                                                           controllers.ContactController.submit()
