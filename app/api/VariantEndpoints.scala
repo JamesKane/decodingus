@@ -34,7 +34,7 @@ object VariantEndpoints {
           |
           |Results include:
           |- Canonical name (primary identifier)
-          |- Coordinates across reference assemblies (GRCh37, GRCh38, T2T-CHM13)
+          |- Coordinates across reference assemblies (GRCh37, GRCh38, hs1)
           |- Per-assembly alleles (handles strand differences between assemblies)
           |- All known aliases grouped by source
           |- Defining haplogroup (if this variant defines a branch)

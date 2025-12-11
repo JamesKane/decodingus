@@ -4,7 +4,7 @@ package models.domain.genomics
  * Groups variants that represent the same logical SNP across different reference builds.
  * Variants are grouped by commonName (primary) or rsId (fallback).
  *
- * For example, M269 might have positions in GRCh37, GRCh38, and T2T-CHM13,
+ * For example, M269 might have positions in GRCh37, GRCh38, and hs1,
  * each stored as a separate Variant row but logically the same marker.
  *
  * @param groupKey    The key used to group these variants (commonName or rsId)
@@ -29,7 +29,7 @@ case class VariantGroup(
   def displayName: String = commonName.orElse(rsId).getOrElse(s"ID: ${variantIds.headOption.getOrElse("?")}")
 
   /**
-   * Summary of all builds available (e.g., "GRCh37, GRCh38, T2T")
+   * Summary of all builds available (e.g., "GRCh37, GRCh38, hs1")
    */
   def buildSummary: String = variants
     .map(_.shortReferenceGenome)
@@ -49,7 +49,7 @@ case class VariantGroup(
     v.shortReferenceGenome match {
       case "GRCh37" => 1
       case "GRCh38" => 2
-      case "T2T"    => 3
+      case "hs1"    => 3
       case other    => 4
     }
   }

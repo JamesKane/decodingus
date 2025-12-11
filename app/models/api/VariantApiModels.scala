@@ -13,7 +13,7 @@ import play.api.libs.json.{Json, OFormat}
  * @param position     The position on the contig
  * @param refAllele    The reference allele
  * @param altAllele    The alternate allele
- * @param refGenome    The reference genome (e.g., "GRCh37.p13", "T2T-CHM13v2.0")
+ * @param refGenome    The reference genome (e.g., "GRCh37", "GRCh38", "hs1")
  * @param variantType  The variant type (e.g., "SNP", "INDEL")
  */
 case class AddVariantBuildRequest(

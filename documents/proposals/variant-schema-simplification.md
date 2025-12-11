@@ -13,7 +13,7 @@
 | Decision | Rationale |
 |----------|-----------|
 | **Name is the primary identifier** | Coordinates can have parallel mutations; strand orientation varies |
-| **No reference-agnostic mutation field** | G>A in GRCh38 may be C>T in CHM13 (reverse complement) |
+| **No reference-agnostic mutation field** | G>A in GRCh38 may be C>T in hs1 (reverse complement) |
 | **JSONB for coordinates** | Each assembly needs its own position AND alleles |
 | **JSONB for aliases** | Flexible, no joins, supports multiple sources |
 | **`defining_haplogroup_id` FK** | Distinguishes parallel mutations without .1/.2 suffixes |
@@ -34,7 +34,7 @@
 
 The current variant storage model has several issues:
 
-1. **Row explosion**: Each variant is stored N times (once per reference genome: GRCh37.p13, GRCh38.p14, T2T-CHM13v2.0)
+1. **Row explosion**: Each variant is stored N times (once per reference genome: GRCh37, GRCh38, hs1)
 2. **Alias table complexity**: Separate `variant_alias` table requires joins and has duplication issues
 3. **Liftover coupling**: Variants are tightly coupled to specific linear reference coordinates
 4. **Future incompatibility**: Pangenome references (graph-based) will break the linear coordinate model
@@ -62,8 +62,10 @@ variant_alias (M rows per variant)
 ```
 
 **Example**: SNP "M269" currently creates:
-- 3 variant rows (GRCh38.p14, GRCh37.p13, T2T-CHM13v2.0)
+- 3 variant rows (GRCh38, GRCh37, hs1)
 - Multiple alias rows per variant_id
+
+> **Note on Reference Genome Naming**: We use UCSC's naming convention `hs1` for the T2T-CHM13v2.0 assembly, following established precedent.
 
 ---
 
@@ -77,11 +79,11 @@ A genetic variant's **identity** is independent of its **coordinates**, but the 
 |--------|-------------|---------|
 | **Identity** | The assigned name + haplogroup context | M269, or L21 in R-L21 vs L21 in I-L21 (parallel mutations) |
 | **Coordinates** | Where it maps | GRCh38: chrY:2,887,824 / GRCh37: chrY:2,793,009 |
-| **Alleles** | Reference-specific | GRCh38: G→A / CHM13: C→T (if reverse complemented) |
+| **Alleles** | Reference-specific | GRCh38: G→A / hs1: C→T (if reverse complemented) |
 
 The **name** is stable; coordinates AND allele representations change with each reference assembly.
 
-**Important**: T2T-CHM13v2.0 reverse complements large sections relative to GRCh38. A G>A mutation in GRCh38 may appear as C>T in CHM13. Each coordinate entry MUST store its own ref/alt alleles.
+**Important**: hs1 (T2T-CHM13) reverse complements large sections relative to GRCh38. A G>A mutation in GRCh38 may appear as C>T in hs1. Each coordinate entry MUST store its own ref/alt alleles.
 
 ### Variant Equivalence Across Assemblies
 
@@ -89,7 +91,7 @@ When matching variants across assemblies, you CANNOT compare alleles directly:
 
 ```
 GRCh38:  chrY:2887824  G → A  (forward strand)
-CHM13:   chrY:2912345  C → T  (reverse complemented region)
+hs1:     chrY:2912345  C → T  (reverse complemented region)
 ```
 
 These are the SAME variant (M269), but allele comparison would fail.
@@ -185,22 +187,24 @@ CREATE TABLE variant_v2 (
     -- }
 
     -- Coordinates (JSONB - all reference positions)
+    -- Keys use short reference names without patch versions (e.g., "GRCh38" not "GRCh38.p14")
+    -- NOTE: genbank_contig.reference_genome should also use these short names
     coordinates JSONB DEFAULT '{}',
     -- Example:
     -- {
-    --   "GRCh38.p14": {
+    --   "GRCh38": {
     --     "contig": "chrY",
     --     "position": 2887824,
     --     "ref": "G",
     --     "alt": "A"
     --   },
-    --   "GRCh37.p13": {
+    --   "GRCh37": {
     --     "contig": "chrY",
     --     "position": 2793009,
     --     "ref": "G",
     --     "alt": "A"
     --   },
-    --   "T2T-CHM13v2.0": {
+    --   "hs1": {
     --     "contig": "chrY",
     --     "position": 2912345,
     --     "ref": "C",              -- Reverse complemented!
@@ -234,10 +238,10 @@ CREATE UNIQUE INDEX idx_variant_v2_name_haplogroup
 -- Uses a functional index on JSONB to extract GRCh38 coordinates
 CREATE UNIQUE INDEX idx_variant_v2_unnamed_coordinates
     ON variant_v2(
-        (coordinates->'GRCh38.p14'->>'contig'),
-        ((coordinates->'GRCh38.p14'->>'position')::int),
-        (coordinates->'GRCh38.p14'->>'ref'),
-        (coordinates->'GRCh38.p14'->>'alt')
+        (coordinates->'GRCh38'->>'contig'),
+        ((coordinates->'GRCh38'->>'position')::int),
+        (coordinates->'GRCh38'->>'ref'),
+        (coordinates->'GRCh38'->>'alt')
     )
     WHERE canonical_name IS NULL;
 
@@ -275,7 +279,7 @@ The JSONB `coordinates` field naturally supports graph coordinates:
 
 ```json
 {
-  "GRCh38.p14": {
+  "GRCh38": {
     "type": "linear",
     "contig": "chrY",
     "position": 2887824,
@@ -290,7 +294,7 @@ The JSONB `coordinates` field naturally supports graph coordinates:
     "ref": "G",
     "alt": "A",
     "paths": ["GRCh38#chrY", "HG002#chrY"],
-    "note": "CHM13 path may have different alleles if reverse complemented"
+    "note": "hs1 path may have different alleles if reverse complemented"
   }
 }
 ```
@@ -305,8 +309,8 @@ WHERE canonical_name = 'M269'
 
 -- Find variant at GRCh38 position
 SELECT * FROM variant_v2
-WHERE coordinates->'GRCh38.p14'->>'position' = '2887824'
-  AND coordinates->'GRCh38.p14'->>'contig' = 'chrY';
+WHERE coordinates->'GRCh38'->>'position' = '2887824'
+  AND coordinates->'GRCh38'->>'contig' = 'chrY';
 
 -- Find all variants with pangenome coordinates
 SELECT * FROM variant_v2
@@ -315,8 +319,8 @@ WHERE coordinates ? 'HPRC_v1';
 -- Get position in specific reference
 SELECT
     canonical_name,
-    coordinates->'GRCh38.p14'->>'position' as grch38_pos,
-    coordinates->'GRCh37.p13'->>'position' as grch37_pos
+    coordinates->'GRCh38'->>'position' as grch38_pos,
+    coordinates->'GRCh37'->>'position' as grch37_pos
 FROM variant_v2
 WHERE canonical_name = 'M269';
 ```
@@ -522,7 +526,7 @@ Existing data may have parallel mutations incorrectly stored as:
 │     Option B: Novel discovery, no external name                          │
 │              → Request DU sequence number                                │
 │              → canonical_name = "DU00001", naming_status = 'NAMED'       │
-│              → Submit to ISOGG for registration                          │
+│              → Publish in VCF/GFF for YBrowse aggregation                │
 │                                                                          │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -585,20 +589,32 @@ When promoting a proposal, curator sees:
 
 ### YBrowse Integration
 
-YBrowse aggregates variant names from all research organizations into a central ISOGG database. Each organization uses their own prefix:
+YBrowse aggregates variant names from all research organizations into a central database administered by YSEQ's chief officer. Each organization uses their own prefix:
 
-| Prefix | Organization |
-|--------|--------------|
-| BY | BigY (FTDNA) |
-| FGC | Full Genomes Corp |
-| Y | YFull |
-| A | ISOGG historical |
-| **DU** | **DecodingUs** |
+| Prefix | Organization | Status |
+|--------|--------------|--------|
+| A | FTDNA (legacy naming) | Active |
+| BY | BigY (FTDNA) | Active |
+| CTS | Chris Tyler-Smith | Active |
+| DF | ScotlandsDNA | Deprecated |
+| DU | **DecodingUs** | **Proposed** |
+| F | Li Jin | Active |
+| FGC | Full Genomes Corp | Active |
+| FT | FTDNA (legacy) | Deprecated |
+| L | FTDNA (legacy) | Active |
+| M | Stanford (Underhill/Jobling) | Active |
+| P | AFDIL (Hammer) | Active |
+| PF | Paolo Francalacci | Active |
+| S | ScotlandsDNA | Deprecated |
+| U | Uppsala | Active |
+| V | Valencia | Active |
+| Y | YFull | Active |
+| Z | FTDNA (legacy) | Active |
 
 To have DU variants included in YBrowse:
 
 1. **Publish variants** with DU names in our public tree
-2. **Provide VCF export** in standard format for aggregation
+2. **Provide VCF/GFF export** in standard format for aggregation
 3. **Document coordinates** with GRCh38 positions (YBrowse standard)
 
 YBrowse will aggregate our DU-prefixed names alongside names from other sources. A variant may have multiple names from different organizations (e.g., DU00042 = BY98765 = FGC54321).
@@ -615,6 +631,72 @@ case class VariantPublication(
   publishedAt: LocalDateTime,
   crossReferences: Map[String, String]  // Other names: {"ybrowse": "A12345", "ftdna": "BY98765"}
 )
+```
+
+### YBrowse GFF Data Enrichment
+
+YBrowse provides data in both VCF and GFF formats. The GFF format contains significantly richer metadata that should be ingested when implementing the new schema:
+
+**GFF Example (FGC29071):**
+```
+Name:              FGC29071
+allele_anc:        A
+allele_der:        C
+comment:           Downstream of S1121.
+count_derived:     1
+count_tested:      5
+isogg_haplogroup:  R1b1a1a2a1a2c1c1b1a1b4a2a
+mutation:          A to C
+primer_f:          A1069_F
+primer_r:          A1069_R
+ref:               Full Genomes Corp. (2014)
+ycc_haplogroup:    R1b-CTS4466 (not listed)
+yfull_node:        Not found on the YFull Ytree
+primary_id:        171175
+```
+
+**Field Mapping for variant_v2:**
+
+| GFF Field | Schema Field / Use | Notes |
+|-----------|-------------------|-------|
+| `ref` | `aliases.sources` key | Full source attribution: "Full Genomes Corp. (2014)" |
+| `allele_anc` / `allele_der` | `coordinates.*.ref/alt` | Clearer than VCF ref/alt terminology |
+| `count_derived` / `count_tested` | New: `evidence` JSONB | YSEQ testing evidence (see below) |
+| `comment` | New: `notes` field | Contextual info like "Downstream of S1121" |
+| `isogg_haplogroup` | Cross-ref to tree | Full ISOGG path for validation |
+| `primer_f` / `primer_r` | New: `primers` JSONB | YSEQ Sanger sequencing primers |
+| `yfull_node` | `aliases.sources.yfull` | YFull tree cross-reference |
+| `ycc_haplogroup` | Historical reference | YCC nomenclature (deprecated but useful) |
+| `primary_id` | `aliases.sources.ybrowse_id` | YBrowse internal ID for back-linking |
+
+**YSEQ Evidence Fields:**
+
+The `count_derived` and `count_tested` fields are testing results from [YSEQ.net](https://yseq.net). YSEQ's chief officer administers the YBrowse variant list and provides these evidence counts to indicate testing confidence:
+
+- `count_tested`: Number of samples tested for this variant
+- `count_derived`: Number showing the derived (mutant) allele
+- Example: 1/5 = 20% derived rate in tested population
+
+**YSEQ Primer Information:**
+
+The `primer_f` and `primer_r` fields are YSEQ's PCR primers, provided for transparency. When ordering a Sanger sequencing test from YSEQ, these primers define exactly what region is amplified and sequenced. This enables:
+
+- Independent verification of test methodology
+- Primer design for other labs
+- Understanding of test coverage/limitations
+
+**Proposed Schema Addition:**
+
+```sql
+-- Add to variant_v2 for GFF-sourced metadata
+ALTER TABLE variant_v2 ADD COLUMN evidence JSONB DEFAULT '{}';
+-- Example: {"yseq": {"tested": 5, "derived": 1, "as_of": "2024-01"}}
+
+ALTER TABLE variant_v2 ADD COLUMN primers JSONB DEFAULT '{}';
+-- Example: {"yseq": {"forward": "A1069_F", "reverse": "A1069_R"}}
+
+ALTER TABLE variant_v2 ADD COLUMN notes TEXT;
+-- Example: "Downstream of S1121."
 ```
 
 ---
@@ -644,16 +726,7 @@ case class VariantPublication(
 
 ### ISOGG Naming Organization
 
-ISOGG recognizes variant naming prefixes from authorized organizations:
-
-| Prefix | Organization |
-|--------|--------------|
-| BY | BigY (FTDNA) |
-| FGC | Full Genomes Corp |
-| Y | YFull |
-| FT | FTDNA (legacy) |
-| S | ScotlandsDNA (now deprecated) |
-| **DU** | **DecodingUs (proposed)** |
+YBrowse (administered by YSEQ) recognizes variant naming prefixes from authorized organizations. See the full prefix table in the "YBrowse Integration" section above.
 
 ### Benefits of Becoming a Naming Authority
 
@@ -678,8 +751,8 @@ The proposed JSONB schema naturally supports this:
 {
   "canonical_name": "DU12345",
   "aliases": {
-    "common_names": ["DU12345"],
-    "external_names": ["BYxxxx", "Axxx"],
+    "common_names": ["DU12345", "BYxxxx", "Axxx"],
+    "rs_ids": [],
     "sources": {
       "decodingus": ["DU12345"],
       "ybrowse": ["Axxx"],

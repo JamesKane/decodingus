@@ -4,7 +4,7 @@ import play.api.libs.json.{Json, OFormat}
 
 /**
  * Public API response for a variant coordinate in a specific reference assembly.
- * Includes ref/alt alleles per assembly to handle strand differences (e.g., CHM13 reverse complements).
+ * Includes ref/alt alleles per assembly to handle strand differences (e.g., hs1 reverse complements).
  *
  * @param contig   The contig/chromosome name (e.g., "chrY")
  * @param position The 1-based position on the contig

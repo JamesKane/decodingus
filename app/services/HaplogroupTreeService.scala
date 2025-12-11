@@ -187,7 +187,7 @@ class HaplogroupTreeService @Inject()(
   private def formatCoordinateKey(contig: GenbankContig): String = {
     val refGenome = contig.referenceGenome.map(shortRefGenome).getOrElse("Unknown")
     val name = contig.commonName.getOrElse(contig.accession)
-    s"$refGenome $name"
+    s"$name [$refGenome]"
   }
 
   private def shortRefGenome(ref: String): String = ref match {
