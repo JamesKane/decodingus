@@ -1,5 +1,6 @@
 package models
 
+import play.api.libs.json.{Format, Reads, Writes}
 import play.api.mvc.QueryStringBindable
 
 /**
@@ -32,6 +33,15 @@ object HaplogroupType {
     case "MT" => Some(MT)
     case _ => None
   }
+
+  // JSON serialization
+  implicit val reads: Reads[HaplogroupType] = Reads.StringReads.map { str =>
+    fromString(str).getOrElse(throw new IllegalArgumentException(s"Invalid HaplogroupType: $str"))
+  }
+
+  implicit val writes: Writes[HaplogroupType] = Writes.StringWrites.contramap(_.toString)
+
+  implicit val format: Format[HaplogroupType] = Format(reads, writes)
 
   implicit val queryStringBindable: QueryStringBindable[HaplogroupType] =
     new QueryStringBindable[HaplogroupType] {

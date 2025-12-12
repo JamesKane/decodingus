@@ -310,6 +310,23 @@ trait MyPostgresProfile extends ExPostgresProfile
       )
     }
 
+    // --- Haplogroup Provenance JSONB Type Mapper ---
+    import models.domain.haplogroups.HaplogroupProvenance
+
+    implicit val haplogroupProvenanceJsonbTypeMapper: JdbcType[Option[HaplogroupProvenance]] with BaseTypedType[Option[HaplogroupProvenance]] = {
+      import play.api.libs.json.{JsNull, JsObject}
+      MappedJdbcType.base[Option[HaplogroupProvenance], JsValue](
+        {
+          case Some(prov) => Json.toJson(prov)
+          case None => JsNull
+        },
+        { jsValue =>
+          if (jsValue == JsNull || (jsValue.isInstanceOf[JsObject] && jsValue.as[JsObject].value.isEmpty)) None
+          else Some(jsValue.as[HaplogroupProvenance])
+        }
+      )
+    }
+
     // Declare the name of an aggregate function:
     val ArrayAgg = new SqlAggregateFunction("array_agg")
 

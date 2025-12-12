@@ -80,7 +80,8 @@ case class Haplogroup(
                        tmrcaYbp: Option[Int] = None,
                        tmrcaYbpLower: Option[Int] = None,
                        tmrcaYbpUpper: Option[Int] = None,
-                       ageEstimateSource: Option[String] = None
+                       ageEstimateSource: Option[String] = None,
+                       provenance: Option[HaplogroupProvenance] = None
                      ) {
   /** Get formed date as AgeEstimate if available */
   def formedEstimate: Option[AgeEstimate] = formedYbp.map(y => AgeEstimate(y, formedYbpLower, formedYbpUpper))
