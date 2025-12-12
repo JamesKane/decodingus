@@ -1,0 +1,153 @@
+@import org.webjars.play.WebJarsUtil
+@import models.domain.genomics.GenbankContig
+@import controllers.GenomeRegionFormData
+@(form: Form[GenomeRegionFormData], contigs: Seq[GenbankContig], supportedBuilds: Seq[String])(implicit request: RequestHeader, messages: Messages, webJarsUtil: WebJarsUtil)
+
+@main("Create Genome Region") {
+    <div class="container py-4">
+        <div class="row">
+            <div class="col-12">
+                <nav aria-label="breadcrumb">
+                    <ol class="breadcrumb">
+                        <li class="breadcrumb-item"><a href="@controllers.routes.CuratorController.dashboard">Curator</a></li>
+                        <li class="breadcrumb-item"><a href="@controllers.routes.GenomeRegionsCuratorController.listRegions(None, 1, 25)">Genome Regions</a></li>
+                        <li class="breadcrumb-item active">Create</li>
+                    </ol>
+                </nav>
+            </div>
+        </div>
+
+        <div class="row justify-content-center">
+            <div class="col-lg-8">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="bi bi-plus-circle"></i> Create Genome Region</h5>
+                    </div>
+                    <div class="card-body">
+                        @if(form.hasGlobalErrors) {
+                            <div class="alert alert-danger">
+                                @for(error <- form.globalErrors) {
+                                    @error.message
+                                }
+                            </div>
+                        }
+
+                        @helper.form(action = controllers.routes.GenomeRegionsCuratorController.createRegion, Symbol("class") -> "needs-validation") {
+                            @helper.CSRF.formField
+
+                            <div class="mb-3">
+                                <label for="genbankContigId" class="form-label">Chromosome *</label>
+                                <select class="form-select @if(form.error("genbankContigId").isDefined){is-invalid}"
+                                        id="genbankContigId"
+                                        name="genbankContigId"
+                                        required>
+                                    <option value="">Select chromosome...</option>
+                                    @for(build <- supportedBuilds) {
+                                        <optgroup label="@build">
+                                            @for(contig <- contigs.filter(_.referenceGenome.contains(build))) {
+                                                <option value="@contig.id.get"
+                                                        @if(form("genbankContigId").value.map(_.toInt) == contig.id){selected}>
+                                                    @contig.commonName.getOrElse(contig.accession)
+                                                </option>
+                                            }
+                                        </optgroup>
+                                    }
+                                </select>
+                                @form.error("genbankContigId").map { error =>
+                                    <div class="invalid-feedback">@error.message</div>
+                                }
+                            </div>
+
+                            <div class="mb-3">
+                                <label for="regionType" class="form-label">Region Type *</label>
+                                <select class="form-select @if(form.error("regionType").isDefined){is-invalid}"
+                                        id="regionType"
+                                        name="regionType"
+                                        required>
+                                    <option value="">Select type...</option>
+                                    <option value="Centromere" @if(form("regionType").value.contains("Centromere")){selected}>Centromere</option>
+                                    <option value="Telomere_P" @if(form("regionType").value.contains("Telomere_P")){selected}>Telomere (p-arm)</option>
+                                    <option value="Telomere_Q" @if(form("regionType").value.contains("Telomere_Q")){selected}>Telomere (q-arm)</option>
+                                    <option value="PAR1" @if(form("regionType").value.contains("PAR1")){selected}>PAR1</option>
+                                    <option value="PAR2" @if(form("regionType").value.contains("PAR2")){selected}>PAR2</option>
+                                    <option value="XTR" @if(form("regionType").value.contains("XTR")){selected}>XTR</option>
+                                    <option value="Ampliconic" @if(form("regionType").value.contains("Ampliconic")){selected}>Ampliconic</option>
+                                    <option value="Palindrome" @if(form("regionType").value.contains("Palindrome")){selected}>Palindrome</option>
+                                    <option value="Heterochromatin" @if(form("regionType").value.contains("Heterochromatin")){selected}>Heterochromatin</option>
+                                    <option value="XDegenerate" @if(form("regionType").value.contains("XDegenerate")){selected}>X-Degenerate</option>
+                                </select>
+                                @form.error("regionType").map { error =>
+                                    <div class="invalid-feedback">@error.message</div>
+                                }
+                            </div>
+
+                            <div class="mb-3">
+                                <label for="name" class="form-label">Name (optional)</label>
+                                <input type="text"
+                                       class="form-control @if(form.error("name").isDefined){is-invalid}"
+                                       id="name"
+                                       name="name"
+                                       value="@form("name").value.getOrElse("")"
+                                       maxlength="50"
+                                       placeholder="e.g., P1, P2 for palindromes">
+                                <div class="form-text">Optional name for named regions like palindromes</div>
+                            </div>
+
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label for="startPos" class="form-label">Start Position *</label>
+                                    <input type="number"
+                                           class="form-control @if(form.error("startPos").isDefined){is-invalid}"
+                                           id="startPos"
+                                           name="startPos"
+                                           value="@form("startPos").value.getOrElse("")"
+                                           min="0"
+                                           required>
+                                    @form.error("startPos").map { error =>
+                                        <div class="invalid-feedback">@error.message</div>
+                                    }
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label for="endPos" class="form-label">End Position *</label>
+                                    <input type="number"
+                                           class="form-control @if(form.error("endPos").isDefined){is-invalid}"
+                                           id="endPos"
+                                           name="endPos"
+                                           value="@form("endPos").value.getOrElse("")"
+                                           min="0"
+                                           required>
+                                    @form.error("endPos").map { error =>
+                                        <div class="invalid-feedback">@error.message</div>
+                                    }
+                                </div>
+                            </div>
+
+                            <div class="mb-3">
+                                <label for="modifier" class="form-label">Modifier (optional)</label>
+                                <input type="number"
+                                       class="form-control @if(form.error("modifier").isDefined){is-invalid}"
+                                       id="modifier"
+                                       name="modifier"
+                                       value="@form("modifier").value.getOrElse("")"
+                                       step="0.01"
+                                       min="0"
+                                       max="1"
+                                       placeholder="0.00 - 1.00">
+                                <div class="form-text">Quality modifier between 0 and 1</div>
+                            </div>
+
+                            <div class="d-flex gap-2">
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="bi bi-check-circle"></i> Create Region
+                                </button>
+                                <a href="@controllers.routes.GenomeRegionsCuratorController.listRegions(None, 1, 25)" class="btn btn-outline-secondary">
+                                    Cancel
+                                </a>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+}

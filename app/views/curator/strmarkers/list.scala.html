@@ -1,0 +1,99 @@
+@import org.webjars.play.WebJarsUtil
+@import models.api.genomics.StrMarkerDetailDto
+@(markers: Seq[StrMarkerDetailDto], build: Option[String], currentPage: Int, totalPages: Int, pageSize: Int, totalCount: Int, supportedBuilds: Seq[String])(implicit request: RequestHeader, messages: Messages, webJarsUtil: WebJarsUtil)
+
+@main("Curator - STR Markers") {
+    <style>
+        .search-indicator { display: none; }
+        .htmx-request .search-indicator { display: inline-block; }
+        .search-icon { }
+        .htmx-request .search-icon { display: none; }
+        .detail-panel { min-height: 400px; }
+    </style>
+
+    <div class="container-fluid py-4">
+        <div class="row">
+            <div class="col-12">
+                <nav aria-label="breadcrumb">
+                    <ol class="breadcrumb">
+                        <li class="breadcrumb-item"><a href="@controllers.routes.CuratorController.dashboard">Curator</a></li>
+                        <li class="breadcrumb-item active">STR Markers</li>
+                    </ol>
+                </nav>
+            </div>
+        </div>
+
+        @request.flash.get("success").map { msg =>
+            <div class="alert alert-success alert-dismissible fade show" role="alert">
+                @msg
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+        }
+
+        @request.flash.get("error").map { msg =>
+            <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                @msg
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+        }
+
+        <div class="row">
+            <div class="col-lg-8">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0"><i class="bi bi-diagram-3"></i> STR Markers</h5>
+                        <a href="@controllers.routes.GenomeRegionsCuratorController.createStrMarkerForm" class="btn btn-primary btn-sm">
+                            <i class="bi bi-plus-circle"></i> Create
+                        </a>
+                    </div>
+                    <div class="card-body">
+                        <div class="row g-3 mb-4">
+                            <div class="col-md-6">
+                                <div class="input-group" id="filter-box">
+                                    <span class="input-group-text">
+                                        <i class="bi bi-funnel search-icon"></i>
+                                        <span class="spinner-border spinner-border-sm search-indicator" role="status"></span>
+                                    </span>
+                                    <select class="form-select"
+                                            id="build-filter"
+                                            name="build"
+                                            hx-get="@controllers.routes.GenomeRegionsCuratorController.strMarkersFragment(None, 1, pageSize)"
+                                            hx-trigger="change"
+                                            hx-target="#markers-table"
+                                            hx-indicator="#filter-box">
+                                        <option value="">All builds</option>
+                                        @for(b <- supportedBuilds) {
+                                            <option value="@b" @if(build.contains(b)){selected}>@b</option>
+                                        }
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="markers-table">
+                            @listFragment(markers, build, currentPage, totalPages, pageSize, totalCount)
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-lg-4">
+                <div id="detail-panel" class="detail-panel">
+                    <div class="card">
+                        <div class="card-body text-center text-muted py-5">
+                            <i class="bi bi-arrow-left-circle display-4"></i>
+                            <p class="mt-3">Select a marker to view details</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.body.addEventListener('strMarkerDeleted', function() {
+            document.getElementById('detail-panel').innerHTML = '<div class="card"><div class="card-body text-center text-muted py-5"><p>STR Marker deleted</p></div></div>';
+            htmx.trigger('#build-filter', 'change');
+        });
+    </script>
+}

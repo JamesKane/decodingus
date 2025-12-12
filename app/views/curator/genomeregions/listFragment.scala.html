@@ -1,0 +1,111 @@
+@import models.api.genomics.GenomeRegionDetailDto
+@(regions: Seq[GenomeRegionDetailDto], build: Option[String], currentPage: Int, totalPages: Int, pageSize: Int, totalCount: Int)(implicit request: RequestHeader)
+
+@defining(java.text.NumberFormat.getIntegerInstance()) { nf =>
+<div class="d-flex justify-content-between align-items-center mb-2">
+    <small class="text-muted">
+        @if(build.nonEmpty) {
+            Found @nf.format(totalCount) regions for @build.get
+        } else {
+            Showing @nf.format(totalCount) total regions
+        }
+    </small>
+    @if(totalPages > 1) {
+        <small class="text-muted">Page @currentPage of @nf.format(totalPages)</small>
+    }
+</div>
+}
+
+@if(regions.isEmpty) {
+    <div class="alert alert-info">
+        @if(build.nonEmpty) {
+            No genome regions found for @build.get.
+        } else {
+            Select a build to view genome regions.
+        }
+    </div>
+} else {
+    <div class="table-responsive">
+        <table class="table table-hover">
+            <thead>
+                <tr>
+                    <th>Chromosome</th>
+                    <th>Type</th>
+                    <th>Name</th>
+                    <th>Position</th>
+                    <th>Build</th>
+                </tr>
+            </thead>
+            <tbody>
+                @for(region <- regions) {
+                    <tr class="cursor-pointer"
+                        hx-get="@controllers.routes.GenomeRegionsCuratorController.regionDetailPanel(region.id)"
+                        hx-target="#detail-panel"
+                        hx-swap="innerHTML"
+                        style="cursor: pointer;">
+                        <td>
+                            <strong>@region.contigName.getOrElse("Unknown")</strong>
+                        </td>
+                        <td>
+                            <span class="badge bg-secondary">@region.regionType</span>
+                        </td>
+                        <td>
+                            @region.name.getOrElse("-")
+                        </td>
+                        <td>
+                            <code>@{java.text.NumberFormat.getIntegerInstance().format(region.startPos)}</code> -
+                            <code>@{java.text.NumberFormat.getIntegerInstance().format(region.endPos)}</code>
+                        </td>
+                        <td>
+                            <span class="badge @buildBadgeClass(region.referenceGenome.getOrElse(""))">
+                                @region.referenceGenome.getOrElse("Unknown")
+                            </span>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    @if(totalPages > 1) {
+        <nav>
+            <ul class="pagination justify-content-center">
+                <li class="page-item @if(currentPage <= 1){disabled}">
+                    <a class="page-link"
+                       hx-get="@controllers.routes.GenomeRegionsCuratorController.regionsFragment(build, currentPage - 1, pageSize)"
+                       hx-target="#regions-table"
+                       hx-include="#build-filter">
+                        Previous
+                    </a>
+                </li>
+                @for(p <- Math.max(1, currentPage - 2) to Math.min(totalPages, currentPage + 2)) {
+                    <li class="page-item @if(p == currentPage){active}">
+                        <a class="page-link"
+                           hx-get="@controllers.routes.GenomeRegionsCuratorController.regionsFragment(build, p, pageSize)"
+                           hx-target="#regions-table"
+                           hx-include="#build-filter">
+                            @p
+                        </a>
+                    </li>
+                }
+                <li class="page-item @if(currentPage >= totalPages){disabled}">
+                    <a class="page-link"
+                       hx-get="@controllers.routes.GenomeRegionsCuratorController.regionsFragment(build, currentPage + 1, pageSize)"
+                       hx-target="#regions-table"
+                       hx-include="#build-filter">
+                        Next
+                    </a>
+                </li>
+            </ul>
+        </nav>
+    }
+}
+
+@buildBadgeClass(refGenome: String) = @{
+    refGenome match {
+        case "GRCh37" => "bg-warning text-dark"
+        case "GRCh38" => "bg-info"
+        case "hs1" => "bg-success"
+        case _ => "bg-secondary"
+    }
+}
