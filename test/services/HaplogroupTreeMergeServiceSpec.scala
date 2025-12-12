@@ -11,7 +11,7 @@ import org.scalatest.concurrent.ScalaFutures
 import org.scalatest.time.{Millis, Seconds, Span}
 import org.scalatestplus.mockito.MockitoSugar
 import org.scalatestplus.play.PlaySpec
-import repositories.{HaplogroupCoreRepository, HaplogroupVariantRepository, VariantRepository}
+import repositories.{HaplogroupCoreRepository, HaplogroupVariantRepository, VariantAliasRepository, VariantRepository}
 
 import java.time.LocalDateTime
 import scala.concurrent.{ExecutionContext, Future}
@@ -25,6 +25,7 @@ class HaplogroupTreeMergeServiceSpec extends PlaySpec with MockitoSugar with Sca
   var mockHaplogroupRepo: HaplogroupCoreRepository = _
   var mockVariantRepo: HaplogroupVariantRepository = _
   var mockVariantRepository: VariantRepository = _
+  var mockVariantAliasRepository: VariantAliasRepository = _
   var service: HaplogroupTreeMergeService = _
 
   // Test fixtures
@@ -57,7 +58,7 @@ class HaplogroupTreeMergeServiceSpec extends PlaySpec with MockitoSugar with Sca
     formedYbp: Option[Int] = None
   ): PhyloNodeInput = PhyloNodeInput(
     name = name,
-    variants = variants,
+    variants = variants.map(v => VariantInput(v)), // Convert strings to VariantInput
     children = children,
     formedYbp = formedYbp
   )
@@ -66,7 +67,13 @@ class HaplogroupTreeMergeServiceSpec extends PlaySpec with MockitoSugar with Sca
     mockHaplogroupRepo = mock[HaplogroupCoreRepository]
     mockVariantRepo = mock[HaplogroupVariantRepository]
     mockVariantRepository = mock[VariantRepository]
-    service = new HaplogroupTreeMergeService(mockHaplogroupRepo, mockVariantRepo, mockVariantRepository)
+    mockVariantAliasRepository = mock[VariantAliasRepository]
+    service = new HaplogroupTreeMergeService(
+      mockHaplogroupRepo,
+      mockVariantRepo,
+      mockVariantRepository,
+      mockVariantAliasRepository
+    )
   }
 
   "HaplogroupTreeMergeService" should {

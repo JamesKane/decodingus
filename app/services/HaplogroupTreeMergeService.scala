@@ -3,9 +3,10 @@ package services
 import jakarta.inject.{Inject, Singleton}
 import models.HaplogroupType
 import models.api.haplogroups.*
+import models.dal.domain.genomics.VariantAlias
 import models.domain.haplogroups.{Haplogroup, HaplogroupProvenance}
 import play.api.Logging
-import repositories.{HaplogroupCoreRepository, HaplogroupVariantRepository, VariantRepository}
+import repositories.{HaplogroupCoreRepository, HaplogroupVariantRepository, VariantAliasRepository, VariantRepository}
 
 import java.time.LocalDateTime
 import scala.concurrent.{ExecutionContext, Future}
@@ -25,8 +26,29 @@ import scala.concurrent.{ExecutionContext, Future}
 class HaplogroupTreeMergeService @Inject()(
   haplogroupRepository: HaplogroupCoreRepository,
   haplogroupVariantRepository: HaplogroupVariantRepository,
-  variantRepository: VariantRepository
+  variantRepository: VariantRepository,
+  variantAliasRepository: VariantAliasRepository
 )(implicit ec: ExecutionContext) extends Logging {
+
+  // ============================================================================
+  // Helper methods for VariantInput
+  // ============================================================================
+
+  /** Extract all variant names (primary + aliases) from a VariantInput */
+  private def allVariantNames(variant: VariantInput): List[String] =
+    variant.name :: variant.aliases
+
+  /** Extract all variant names from a list of VariantInput */
+  private def allVariantNames(variants: List[VariantInput]): List[String] =
+    variants.flatMap(allVariantNames)
+
+  /** Extract just the primary variant names from a list of VariantInput */
+  private def primaryVariantNames(variants: List[VariantInput]): List[String] =
+    variants.map(_.name)
+
+  // ============================================================================
+  // Public API
+  // ============================================================================
 
   /**
    * Merge a full tree, replacing the existing tree for the given haplogroup type.
@@ -204,11 +226,12 @@ class HaplogroupTreeMergeService @Inject()(
 
   /**
    * Find an existing haplogroup that matches the input node.
-   * Primary matching is by variants; fallback is by name.
+   * Primary matching is by variants (including aliases); fallback is by name.
    */
   private def findExistingMatch(node: PhyloNodeInput, index: VariantIndex): Option[Haplogroup] = {
-    // First try variant-based matching
-    val variantMatches = node.variants
+    // First try variant-based matching - check primary names and all aliases
+    val allNames = allVariantNames(node.variants)
+    val variantMatches = allNames
       .flatMap(v => index.variantToHaplogroup.getOrElse(v.toUpperCase, Seq.empty))
       .groupBy(identity)
       .view.mapValues(_.size)
@@ -311,7 +334,8 @@ class HaplogroupTreeMergeService @Inject()(
   ): Future[MergeAccumulator] = {
     // Determine credit - incoming source gets credit for new nodes
     val primaryCredit = context.sourceName
-    val provenance = HaplogroupProvenance.forNewNode(context.sourceName, node.variants)
+    val variantNames = primaryVariantNames(node.variants)
+    val provenance = HaplogroupProvenance.forNewNode(context.sourceName, variantNames)
 
     val newHaplogroup = Haplogroup(
       id = None,
@@ -352,10 +376,11 @@ class HaplogroupTreeMergeService @Inject()(
           accumulator.statistics.relationshipsCreated
       )
 
-      // Update index with new haplogroup
+      // Update index with new haplogroup - include all variant names (primary + aliases) for matching
+      allVarNames = allVariantNames(node.variants)
       updatedIndex = index.copy(
         haplogroupByName = index.haplogroupByName + (node.name.toUpperCase -> newHaplogroup.copy(id = Some(newId))),
-        variantToHaplogroup = node.variants.foldLeft(index.variantToHaplogroup) { (idx, v) =>
+        variantToHaplogroup = allVarNames.foldLeft(index.variantToHaplogroup) { (idx, v) =>
           idx.updatedWith(v.toUpperCase) {
             case Some(hgs) => Some(hgs :+ newHaplogroup.copy(id = Some(newId)))
             case None => Some(Seq(newHaplogroup.copy(id = Some(newId))))
@@ -396,7 +421,7 @@ class HaplogroupTreeMergeService @Inject()(
    */
   private def updateProvenance(
     existing: Haplogroup,
-    newVariants: List[String],
+    newVariants: List[VariantInput],
     context: MergeContext
   ): Future[Boolean] = {
     val existingProvenance = existing.provenance.getOrElse(
@@ -413,8 +438,9 @@ class HaplogroupTreeMergeService @Inject()(
     // Add new source to node provenance
     val updatedNodeProv = existingProvenance.nodeProvenance + context.sourceName
 
-    // Add variant provenance for new variants
-    val updatedVariantProv = newVariants.foldLeft(existingProvenance.variantProvenance) { (prov, variant) =>
+    // Add variant provenance for new variants (primary names only for provenance tracking)
+    val variantNames = primaryVariantNames(newVariants)
+    val updatedVariantProv = variantNames.foldLeft(existingProvenance.variantProvenance) { (prov, variant) =>
       prov.updatedWith(variant) {
         case Some(sources) => Some(sources + context.sourceName)
         case None => Some(Set(context.sourceName))
@@ -460,21 +486,39 @@ class HaplogroupTreeMergeService @Inject()(
   /**
    * Associate variants with a haplogroup, finding or creating variants as needed.
    */
-  private def associateVariants(haplogroupId: Int, variantNames: List[String]): Future[Int] = {
-    if (variantNames.isEmpty) {
+  private def associateVariants(haplogroupId: Int, variants: List[VariantInput]): Future[Int] = {
+    if (variants.isEmpty) {
       Future.successful(0)
     } else {
-      // For each variant name, find existing variants by name and associate them
-      Future.traverse(variantNames) { variantName =>
-        variantRepository.searchByName(variantName).flatMap { variants =>
+      // For each variant, find existing variants by primary name and associate them,
+      // then create alias records for any aliases
+      Future.traverse(variants) { variantInput =>
+        // First find/associate the primary variant
+        variantRepository.searchByName(variantInput.name).flatMap { foundVariants =>
           // Associate all found variants with this haplogroup
-          Future.traverse(variants) { variant =>
+          val associateFutures = foundVariants.map { variant =>
             variant.variantId match {
-              case Some(vid) => haplogroupVariantRepository.addVariantToHaplogroup(haplogroupId, vid)
+              case Some(vid) =>
+                for {
+                  // Associate variant with haplogroup
+                  count <- haplogroupVariantRepository.addVariantToHaplogroup(haplogroupId, vid)
+                  // Create alias records for any aliases from the ISOGG data
+                  _ <- Future.traverse(variantInput.aliases) { alias =>
+                    val variantAlias = VariantAlias(
+                      variantId = vid,
+                      aliasType = "common_name",
+                      aliasValue = alias,
+                      source = Some("ISOGG"),
+                      isPrimary = false
+                    )
+                    variantAliasRepository.addAlias(variantAlias).recover { case _ => false }
+                  }
+                } yield count
               case None => Future.successful(0)
             }
           }
-        }.map(_.sum)
+          Future.sequence(associateFutures).map(_.sum)
+        }
       }.map(_.sum)
     }
   }

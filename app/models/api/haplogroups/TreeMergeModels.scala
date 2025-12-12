@@ -15,12 +15,26 @@ import play.api.libs.json.{Format, Json, OFormat, Reads, Writes}
 // ============================================================================
 
 /**
+ * A variant with its primary name and optional aliases.
+ * Aliases represent alternative names for the same SNP from different labs/sources.
+ * Example: M207 (primary) with aliases Page37, UTY2
+ */
+case class VariantInput(
+  name: String,
+  aliases: List[String] = List.empty
+)
+
+object VariantInput {
+  implicit val format: OFormat[VariantInput] = Json.format[VariantInput]
+}
+
+/**
  * A node in the input phylogenetic tree for merging.
  * Matching is done by variants, not names, to handle different naming conventions.
  */
 case class PhyloNodeInput(
   name: String,
-  variants: List[String] = List.empty,
+  variants: List[VariantInput] = List.empty,
   formedYbp: Option[Int] = None,
   formedYbpLower: Option[Int] = None,
   formedYbpUpper: Option[Int] = None,

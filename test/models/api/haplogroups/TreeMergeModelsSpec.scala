@@ -7,21 +7,69 @@ import play.api.libs.json.{JsError, JsSuccess, Json}
 
 class TreeMergeModelsSpec extends AnyFunSpec with Matchers {
 
+  describe("VariantInput") {
+
+    describe("JSON serialization") {
+
+      it("should deserialize a simple variant") {
+        val json = Json.parse("""{"name": "M207"}""")
+        json.validate[VariantInput] match {
+          case JsSuccess(v, _) =>
+            v.name mustBe "M207"
+            v.aliases mustBe List.empty
+          case JsError(errors) => fail(s"Parse failed: $errors")
+        }
+      }
+
+      it("should deserialize a variant with aliases") {
+        val json = Json.parse("""{"name": "M207", "aliases": ["Page37", "UTY2"]}""")
+        json.validate[VariantInput] match {
+          case JsSuccess(v, _) =>
+            v.name mustBe "M207"
+            v.aliases mustBe List("Page37", "UTY2")
+          case JsError(errors) => fail(s"Parse failed: $errors")
+        }
+      }
+
+      it("should serialize to JSON") {
+        val variant = VariantInput("M207", List("Page37", "UTY2"))
+        val json = Json.toJson(variant)
+        (json \ "name").as[String] mustBe "M207"
+        (json \ "aliases").as[List[String]] mustBe List("Page37", "UTY2")
+      }
+    }
+  }
+
   describe("PhyloNodeInput") {
 
     describe("JSON serialization") {
 
-      it("should deserialize a simple node") {
+      it("should deserialize a simple node with variant objects") {
         val json = Json.parse("""{
           "name": "R1b-L21",
-          "variants": ["L21", "S145"]
+          "variants": [{"name": "L21"}, {"name": "S145"}]
         }""")
 
         json.validate[PhyloNodeInput] match {
           case JsSuccess(node, _) =>
             node.name mustBe "R1b-L21"
-            node.variants mustBe List("L21", "S145")
+            node.variants.map(_.name) mustBe List("L21", "S145")
             node.children mustBe List.empty
+          case JsError(errors) => fail(s"Parse failed: $errors")
+        }
+      }
+
+      it("should deserialize a node with variant aliases") {
+        val json = Json.parse("""{
+          "name": "R",
+          "variants": [{"name": "M207", "aliases": ["Page37", "UTY2"]}]
+        }""")
+
+        json.validate[PhyloNodeInput] match {
+          case JsSuccess(node, _) =>
+            node.variants must have size 1
+            node.variants.head.name mustBe "M207"
+            node.variants.head.aliases mustBe List("Page37", "UTY2")
           case JsError(errors) => fail(s"Parse failed: $errors")
         }
       }
@@ -29,7 +77,7 @@ class TreeMergeModelsSpec extends AnyFunSpec with Matchers {
       it("should deserialize node with all age fields") {
         val json = Json.parse("""{
           "name": "R1b-L21",
-          "variants": ["L21"],
+          "variants": [{"name": "L21"}],
           "formedYbp": 4500,
           "formedYbpLower": 4200,
           "formedYbpUpper": 4800,
@@ -53,15 +101,15 @@ class TreeMergeModelsSpec extends AnyFunSpec with Matchers {
       it("should deserialize nested children") {
         val json = Json.parse("""{
           "name": "R1b-L21",
-          "variants": ["L21"],
+          "variants": [{"name": "L21"}],
           "children": [
             {
               "name": "R1b-DF13",
-              "variants": ["DF13"],
+              "variants": [{"name": "DF13"}],
               "children": [
                 {
                   "name": "R1b-Z39589",
-                  "variants": ["Z39589"]
+                  "variants": [{"name": "Z39589"}]
                 }
               ]
             }
@@ -82,17 +130,17 @@ class TreeMergeModelsSpec extends AnyFunSpec with Matchers {
       it("should serialize to JSON") {
         val node = PhyloNodeInput(
           name = "R1b-L21",
-          variants = List("L21", "S145"),
+          variants = List(VariantInput("L21"), VariantInput("S145")),
           formedYbp = Some(4500),
           children = List(
-            PhyloNodeInput(name = "R1b-DF13", variants = List("DF13"))
+            PhyloNodeInput(name = "R1b-DF13", variants = List(VariantInput("DF13")))
           )
         )
 
         val json = Json.toJson(node)
 
         (json \ "name").as[String] mustBe "R1b-L21"
-        (json \ "variants").as[List[String]] mustBe List("L21", "S145")
+        (json \ "variants").as[List[VariantInput]].map(_.name) mustBe List("L21", "S145")
         (json \ "formedYbp").as[Int] mustBe 4500
         (json \ "children").as[List[PhyloNodeInput]] must have size 1
       }
@@ -194,7 +242,7 @@ class TreeMergeModelsSpec extends AnyFunSpec with Matchers {
         "haplogroupType": "Y",
         "sourceTree": {
           "name": "R1b",
-          "variants": ["M269"]
+          "variants": [{"name": "M269"}]
         },
         "sourceName": "ytree.net",
         "priorityConfig": {
@@ -255,7 +303,7 @@ class TreeMergeModelsSpec extends AnyFunSpec with Matchers {
         "anchorHaplogroupName": "R1b",
         "sourceTree": {
           "name": "R1b-L21",
-          "variants": ["L21"]
+          "variants": [{"name": "L21"}]
         },
         "sourceName": "ytree.net",
         "dryRun": false
