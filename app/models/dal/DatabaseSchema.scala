@@ -87,6 +87,12 @@ object DatabaseSchema {
       val superPopulationSummaries = TableQuery[SuperPopulationSummaryTable]
       val genotypeData = TableQuery[GenotypeDataTable]
       val haplogroupReconciliations = TableQuery[HaplogroupReconciliationTable]
+
+      // Genome regions API tables
+      val genomeRegions = TableQuery[GenomeRegionTable]
+      val genomeRegionVersions = TableQuery[GenomeRegionVersionTable]
+      val cytobands = TableQuery[CytobandTable]
+      val strMarkers = TableQuery[StrMarkerTable]
     }
 
     object haplogroups {

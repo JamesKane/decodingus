@@ -29,7 +29,8 @@ class ApiRouter @Inject()(cc: ControllerComponents, configuration: play.api.Conf
       endpoints = _root_.api.ReferenceEndpoints.all ++ _root_.api.HaplogroupEndpoints.all
         ++ _root_.api.SampleEndpoints.all ++ _root_.api.CoverageEndpoints.all
         ++ _root_.api.SequencerEndpoints.all ++ _root_.api.FirehoseEndpoints.all
-        ++ _root_.api.ProjectEndpoints.all ++ _root_.api.VariantEndpoints.all,
+        ++ _root_.api.ProjectEndpoints.all ++ _root_.api.VariantEndpoints.all
+        ++ _root_.api.GenomeRegionsEndpoints.all,
       info = apiInfo
     )
 

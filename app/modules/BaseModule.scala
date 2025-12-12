@@ -113,5 +113,9 @@ class BaseModule extends AbstractModule {
     bind(classOf[HaplogroupReconciliationRepository])
       .to(classOf[HaplogroupReconciliationRepositoryImpl])
       .asEagerSingleton()
+
+    bind(classOf[GenomeRegionsRepository])
+      .to(classOf[GenomeRegionsRepositoryImpl])
+      .asEagerSingleton()
   }
 }
