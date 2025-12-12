@@ -276,7 +276,8 @@ trait MyPostgresProfile extends ExPostgresProfile
           case None => JsNull
         },
         { jsValue =>
-          if (jsValue == JsNull || (jsValue.isInstanceOf[JsObject] && jsValue.as[JsObject].value.isEmpty)) None
+          // Handle database NULL (Java null), JSON null, or empty object
+          if (jsValue == null || jsValue == JsNull || (jsValue.isInstanceOf[JsObject] && jsValue.as[JsObject].value.isEmpty)) None
           else Some(jsValue.as[IdentityVerification])
         }
       )
@@ -290,7 +291,8 @@ trait MyPostgresProfile extends ExPostgresProfile
           case None => JsNull
         },
         { jsValue =>
-          if (jsValue == JsNull || (jsValue.isInstanceOf[JsObject] && jsValue.as[JsObject].value.isEmpty)) None
+          // Handle database NULL (Java null), JSON null, or empty object
+          if (jsValue == null || jsValue == JsNull || (jsValue.isInstanceOf[JsObject] && jsValue.as[JsObject].value.isEmpty)) None
           else Some(jsValue.as[ManualOverride])
         }
       )
@@ -304,28 +306,20 @@ trait MyPostgresProfile extends ExPostgresProfile
           case None => JsNull
         },
         { jsValue =>
-          if (jsValue == JsNull) None
+          // Handle database NULL (Java null) or JSON null
+          if (jsValue == null || jsValue == JsNull) None
           else Some(jsValue.as[Seq[AuditEntry]])
         }
       )
     }
 
     // --- Haplogroup Provenance JSONB Type Mapper ---
+    // Maps HaplogroupProvenance directly to JsValue. For nullable columns, use column[Option[HaplogroupProvenance]]
+    // and Slick will handle NULL automatically.
     import models.domain.haplogroups.HaplogroupProvenance
 
-    implicit val haplogroupProvenanceJsonbTypeMapper: JdbcType[Option[HaplogroupProvenance]] with BaseTypedType[Option[HaplogroupProvenance]] = {
-      import play.api.libs.json.{JsNull, JsObject}
-      MappedJdbcType.base[Option[HaplogroupProvenance], JsValue](
-        {
-          case Some(prov) => Json.toJson(prov)
-          case None => JsNull
-        },
-        { jsValue =>
-          if (jsValue == JsNull || (jsValue.isInstanceOf[JsObject] && jsValue.as[JsObject].value.isEmpty)) None
-          else Some(jsValue.as[HaplogroupProvenance])
-        }
-      )
-    }
+    implicit val haplogroupProvenanceJsonbTypeMapper: JdbcType[HaplogroupProvenance] with BaseTypedType[HaplogroupProvenance] =
+      MappedJdbcType.base[HaplogroupProvenance, JsValue](Json.toJson(_), _.as[HaplogroupProvenance])
 
     // Declare the name of an aggregate function:
     val ArrayAgg = new SqlAggregateFunction("array_agg")

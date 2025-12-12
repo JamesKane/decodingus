@@ -174,9 +174,12 @@ class HaplogroupVariantRepositoryImpl @Inject()(
   }
 
   override def addVariantToHaplogroup(haplogroupId: Int, variantId: Int): Future[Int] = {
-    val insertion = (haplogroupVariants returning haplogroupVariants.map(_.haplogroupVariantId)) +=
-      HaplogroupVariant(None, haplogroupId, variantId)
-    runQuery(insertion)
+    val insertAction = sqlu"""
+      INSERT INTO haplogroup_variant (haplogroup_id, variant_id)
+      VALUES ($haplogroupId, $variantId)
+      ON CONFLICT (haplogroup_id, variant_id) DO NOTHING
+    """
+    runQuery(insertAction)
   }
 
   def removeVariantFromHaplogroup(haplogroupId: Int, variantId: Int): Future[Int] = {
