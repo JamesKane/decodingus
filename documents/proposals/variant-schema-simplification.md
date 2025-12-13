@@ -10,15 +10,19 @@
 
 ## Key Design Decisions
 
-| Decision | Rationale |
-|----------|-----------|
-| **Name is the primary identifier** | Coordinates can have parallel mutations; strand orientation varies |
-| **No reference-agnostic mutation field** | G>A in GRCh38 may be C>T in hs1 (reverse complement) |
-| **JSONB for coordinates** | Each assembly needs its own position AND alleles |
-| **JSONB for aliases** | Flexible, no joins, supports multiple sources |
-| **`defining_haplogroup_id` FK** | Distinguishes parallel mutations without .1/.2 suffixes |
-| **Haplogroup context = implicit suffix** | Display "L21 (R-L21)" vs "L21 (I-L21)" instead of "L21.1" vs "L21.2" |
-| **1 row per named variant per lineage** | Parallel mutations at same position = separate rows, same name allowed |
+| Decision | Rationale                                                                                             |
+|----------|-------------------------------------------------------------------------------------------------------|
+| **Name is the primary identifier** | Coordinates can have parallel mutations; strand orientation varies                                    |
+| **No reference-agnostic mutation field** | G>A in GRCh38 may be C>T in hs1 (reverse complement)                                                  |
+| **JSONB for coordinates** | Each assembly needs its own position AND alleles; structure varies by type                            |
+| **JSONB for aliases** | Flexible, no joins, supports multiple sources                                                         |
+| **`defining_haplogroup_id` FK** | Distinguishes parallel mutations without .1/.2 suffixes                                               |
+| **Haplogroup context = implicit suffix** | Display "L21 (R-L21)" vs "L21 (I-L21)" instead of "L21.1" vs "L21.2"                                  |
+| **1 row per named variant per lineage** | Parallel mutations at same position = separate rows, same name allowed                                |
+| **Unified `variant_v2` for SNPs, STRs, SVs** | All phylogenetic characters in one table; `mutation_type` differentiates                              |
+| **ASR character state tables** | `haplogroup_character_state` + `branch_mutation` support all variant types                            |
+| **STRs typically don't define haplogroups** | Most STRs have `defining_haplogroup_id = NULL`; NULL alleles (e.g., R-U106>L1) can be branch-defining |
+| **SVs can define branches** | Deletions, inversions, etc. are phylogenetically informative markers                                  |
 
 ---
 
@@ -27,6 +31,7 @@
 | Document | Relationship |
 |----------|-------------|
 | `../planning/haplogroup-discovery-system.md` | **Blocked by this proposal.** Discovery system requires new variant schema for parallel mutation handling. Added as Phase -1 prerequisite. |
+| `branch-age-estimation.md` | **Depends on this proposal.** Branch age estimation uses ASR tables defined here. The `haplogroup_character_state` table replaces the originally-proposed `haplogroup_ancestral_str` table, providing unified modal/ancestral values for all variant types via ASR. |
 
 ---
 
@@ -168,8 +173,10 @@ CREATE TABLE variant_v2 (
     variant_id      SERIAL PRIMARY KEY,
 
     -- Identity (stable across references)
-    canonical_name  TEXT,                    -- Primary name (e.g., "M269"), NULL for unnamed/novel variants
-    mutation_type   TEXT NOT NULL,           -- "SNP", "INDEL", "MNP"
+    canonical_name  TEXT,                    -- Primary name (e.g., "M269", "DYS456"), NULL for unnamed/novel variants
+    mutation_type   TEXT NOT NULL,           -- Point: "SNP", "INDEL", "MNP"
+                                             -- Repeat: "STR"
+                                             -- Structural: "DEL", "DUP", "INS", "INV", "CNV", "TRANS"
     naming_status   TEXT NOT NULL DEFAULT 'UNNAMED',  -- UNNAMED, PENDING_REVIEW, NAMED
     -- NOTE: No mutation field - alleles stored per-coordinate due to strand differences
 
@@ -188,40 +195,35 @@ CREATE TABLE variant_v2 (
 
     -- Coordinates (JSONB - all reference positions)
     -- Keys use short reference names without patch versions (e.g., "GRCh38" not "GRCh38.p14")
-    -- NOTE: genbank_contig.reference_genome should also use these short names
+    -- Structure varies by mutation_type (see "Coordinate JSONB Structure by mutation_type" below)
     coordinates JSONB DEFAULT '{}',
-    -- Example:
+    -- SNP/INDEL/MNP example:
     -- {
-    --   "GRCh38": {
-    --     "contig": "chrY",
-    --     "position": 2887824,
-    --     "ref": "G",
-    --     "alt": "A"
-    --   },
-    --   "GRCh37": {
-    --     "contig": "chrY",
-    --     "position": 2793009,
-    --     "ref": "G",
-    --     "alt": "A"
-    --   },
-    --   "hs1": {
-    --     "contig": "chrY",
-    --     "position": 2912345,
-    --     "ref": "C",              -- Reverse complemented!
-    --     "alt": "T"               -- G→A becomes C→T
-    --   },
-    --   "pangenome_v1": {
-    --     "node": "chrY.segment.12345",
-    --     "offset": 42,
-    --     "ref": "G",
-    --     "alt": "A"
-    --   }
+    --   "GRCh38": {"contig": "chrY", "position": 2887824, "ref": "G", "alt": "A"},
+    --   "hs1":    {"contig": "chrY", "position": 2912345, "ref": "C", "alt": "T"}  -- reverse complemented
+    -- }
+    --
+    -- STR example:
+    -- {
+    --   "GRCh38": {"contig": "chrY", "start": 12997923, "end": 12998019, "repeat_motif": "GATA", "period": 4}
+    -- }
+    --
+    -- DEL/DUP/INS example:
+    -- {
+    --   "GRCh38": {"contig": "chrY", "start": 58819361, "end": 58913456, "length": 94095}
     -- }
 
-    -- Phylogenetic context (for haplogroup-defining variants)
+    -- Phylogenetic context
+    -- For SNPs/SVs: the haplogroup this variant defines
+    -- For STRs: usually NULL (repeat counts don't define haplogroups), but NULL alleles CAN define branches
     defining_haplogroup_id INTEGER REFERENCES tree.haplogroup(haplogroup_id),
 
-    -- Metadata
+    -- Additional metadata (optional, for GFF/evidence enrichment)
+    evidence JSONB DEFAULT '{}',             -- {"yseq": {"tested": 5, "derived": 1}}
+    primers JSONB DEFAULT '{}',              -- {"yseq": {"forward": "A1069_F", "reverse": "A1069_R"}}
+    notes TEXT,                              -- "Downstream of S1121."
+
+    -- Timestamps
     created_at      TIMESTAMPTZ DEFAULT NOW(),
     updated_at      TIMESTAMPTZ DEFAULT NOW()
 );
@@ -782,6 +784,626 @@ YBrowse aggregates from organizations that meet these criteria:
 
 ---
 
+## Extension: STRs and Ancestral State Reconstruction
+
+### Rethinking STRs as Phylogenetic Characters
+
+Initially, STRs might seem fundamentally different from SNPs:
+
+| Aspect | SNP | STR |
+|--------|-----|-----|
+| **Variation type** | Single nucleotide change | Repeat count variation |
+| **Allele representation** | ref/alt bases (G→A) | Repeat count (e.g., 12, 13, 14) |
+| **Mutation rate** | ~10⁻⁸ per generation | ~10⁻³ per generation (1000x higher) |
+| **Mutation model** | Infinite sites (rarely back-mutates) | Stepwise (can increase/decrease) |
+
+However, with **Ancestral State Reconstruction (ASR)**, both become phylogenetic characters:
+
+| Concept | SNP | STR |
+|---------|-----|-----|
+| **Character** | The variant itself | The STR marker |
+| **Character state** | Ancestral (G) or Derived (A) | Repeat count (12, 13, 14...) |
+| **ASR output** | Inferred ancestral allele at each node | Inferred repeat count at each node |
+| **Branch annotation** | "M269: G→A" | "DYS456: 15→16" |
+
+This suggests **STRs should be unified with variants**, not kept separate.
+
+### STR Coordinate Structure
+
+STRs use `mutation_type = 'STR'` in the canonical `variant_v2` table (see "Proposed Schema" above). The `coordinates` JSONB for STRs includes:
+
+```json
+{
+  "GRCh38": {
+    "contig": "chrY",
+    "start": 12997923,
+    "end": 12998019,
+    "repeat_motif": "GATA",
+    "period": 4,
+    "reference_repeats": 13
+  }
+}
+```
+
+**Key difference from SNPs**: Most STRs have `defining_haplogroup_id = NULL` because repeat count variation doesn't typically define haplogroups—states are reconstructed at all nodes via ASR. However, **NULL alleles** (e.g., DYS439 NULL under R-U106, also known as L1/S26) can be branch-defining and would have a `defining_haplogroup_id` set.
+
+### Ancestral State Reconstruction Tables
+
+ASR produces inferred character states at internal tree nodes. This applies to **both SNPs and STRs**:
+
+```sql
+-- Reconstructed character states at haplogroup nodes
+CREATE TABLE haplogroup_character_state (
+    id              SERIAL PRIMARY KEY,
+    haplogroup_id   INT NOT NULL REFERENCES haplogroup(haplogroup_id),
+    variant_id      INT NOT NULL REFERENCES variant_v2(variant_id),
+
+    -- The inferred state at this node
+    -- For SNPs: "ancestral" or "derived" (or the actual allele: "G", "A")
+    -- For STRs: the repeat count as string (e.g., "15") or "NULL" for null alleles
+    inferred_state  TEXT NOT NULL,
+
+    -- Confidence/probability from ASR algorithm
+    confidence      DECIMAL(5,4),         -- 0.0000 to 1.0000
+
+    -- For STRs: probability distribution over states (optional, for uncertain reconstructions)
+    state_probabilities JSONB,
+    -- Example: {"13": 0.05, "14": 0.25, "15": 0.65, "16": 0.05}
+
+    -- ASR metadata
+    algorithm       TEXT,                 -- "parsimony", "ml", "bayesian"
+    reconstructed_at TIMESTAMPTZ DEFAULT NOW(),
+
+    UNIQUE(haplogroup_id, variant_id)
+);
+
+CREATE INDEX idx_character_state_haplogroup ON haplogroup_character_state(haplogroup_id);
+CREATE INDEX idx_character_state_variant ON haplogroup_character_state(variant_id);
+```
+
+### Branch Mutations (State Changes)
+
+For tree visualization and analysis, track where states change along branches:
+
+```sql
+-- State changes along tree branches
+CREATE TABLE branch_mutation (
+    id              SERIAL PRIMARY KEY,
+    variant_id      INT NOT NULL REFERENCES variant_v2(variant_id),
+
+    -- The branch where the mutation occurred (parent → child)
+    parent_haplogroup_id INT NOT NULL REFERENCES haplogroup(haplogroup_id),
+    child_haplogroup_id  INT NOT NULL REFERENCES haplogroup(haplogroup_id),
+
+    -- State transition
+    from_state      TEXT NOT NULL,        -- "G" or "15"
+    to_state        TEXT NOT NULL,        -- "A" or "16"
+
+    -- For STRs: direction of change
+    -- +1 = expansion, -1 = contraction, NULL for SNPs
+    step_direction  INT,
+
+    -- Confidence from ASR
+    confidence      DECIMAL(5,4),
+
+    UNIQUE(variant_id, parent_haplogroup_id, child_haplogroup_id)
+);
+
+CREATE INDEX idx_branch_mutation_child ON branch_mutation(child_haplogroup_id);
+```
+
+### Query Examples with Unified Model
+
+```sql
+-- Get all character states at a haplogroup node (SNPs and STRs together)
+SELECT
+    v.canonical_name,
+    v.mutation_type,
+    hcs.inferred_state,
+    hcs.confidence
+FROM haplogroup_character_state hcs
+JOIN variant_v2 v ON hcs.variant_id = v.variant_id
+WHERE hcs.haplogroup_id = 12345
+ORDER BY v.mutation_type, v.canonical_name;
+
+-- Get STR mutations along a branch (useful for age estimation)
+SELECT
+    v.canonical_name,
+    bm.from_state,
+    bm.to_state,
+    bm.step_direction
+FROM branch_mutation bm
+JOIN variant_v2 v ON bm.variant_id = v.variant_id
+WHERE bm.child_haplogroup_id = 12345
+  AND v.mutation_type = 'STR';
+
+-- Reconstruct ancestral STR haplotype at a node
+SELECT
+    v.canonical_name,
+    hcs.inferred_state as repeat_count,
+    hcs.confidence
+FROM haplogroup_character_state hcs
+JOIN variant_v2 v ON hcs.variant_id = v.variant_id
+WHERE hcs.haplogroup_id = 12345
+  AND v.mutation_type = 'STR'
+ORDER BY v.canonical_name;
+```
+
+### Biosample Observations
+
+Observed values from actual samples (input to ASR):
+
+```sql
+-- Observed character states from biosamples
+CREATE TABLE biosample_variant_call (
+    id              SERIAL PRIMARY KEY,
+    biosample_id    INT NOT NULL REFERENCES biosample(id),
+    variant_id      INT NOT NULL REFERENCES variant_v2(variant_id),
+
+    -- The observed state
+    -- For SNPs: "ref", "alt", "het", or actual alleles
+    -- For STRs: repeat count as string (e.g., "15")
+    observed_state  TEXT NOT NULL,
+
+    -- Call quality
+    quality_score   INT,
+    read_depth      INT,
+    confidence      TEXT,                 -- "high", "medium", "low"
+
+    -- Source
+    source          TEXT,                 -- "ftdna", "yfull", "user_upload"
+    created_at      TIMESTAMPTZ DEFAULT NOW(),
+
+    UNIQUE(biosample_id, variant_id)
+);
+```
+
+### STR Mutation Rate Reference Data
+
+STR-based ASR and age estimation require per-marker mutation rates. This reference table supports both:
+
+```sql
+-- Per-marker STR mutation rates (reference data)
+CREATE TABLE str_mutation_rate (
+    id SERIAL PRIMARY KEY,
+    marker_name TEXT NOT NULL UNIQUE,         -- DYS456, DYS389I, etc.
+    panel_names TEXT[],                       -- PowerPlex, YHRD, BigY, etc.
+
+    -- Mutation rate per generation
+    mutation_rate DECIMAL(12,10) NOT NULL,
+    mutation_rate_lower DECIMAL(12,10),       -- 95% CI lower
+    mutation_rate_upper DECIMAL(12,10),       -- 95% CI upper
+
+    -- Directional bias (for stepwise mutation model)
+    omega_plus DECIMAL(5,4) DEFAULT 0.5,      -- Probability of expansion
+    omega_minus DECIMAL(5,4) DEFAULT 0.5,     -- Probability of contraction
+
+    -- Multi-step mutation frequencies
+    multi_step_rate DECIMAL(5,4),             -- ω±2 + ω±3 + ...
+
+    source TEXT,                              -- Ballantyne 2010, Willems 2016, etc.
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Link variant_v2 STR entries to their mutation rates
+CREATE INDEX idx_str_mutation_rate_marker ON str_mutation_rate(marker_name);
+```
+
+**Sources**: Ballantyne et al. 2010 (186 markers), Willems et al. 2016 (702 markers)
+
+### Why Unification Makes Sense
+
+1. **ASR treats them the same**: Both are characters with states at nodes
+2. **Tree visualization**: Show SNP and STR mutations on branches together
+3. **Age estimation**: STR mutation counts inform TMRCA calculations
+4. **Simpler queries**: One table for "all variants at this haplogroup"
+5. **Consistent coordinate pattern**: JSONB handles the structural differences
+
+### What Differs (handled in JSONB/metadata)
+
+| Aspect | SNP | STR | How Handled |
+|--------|-----|-----|-------------|
+| Allele type | Bases | Count or NULL | `coordinates` JSONB structure differs |
+| Defines haplogroup | Usually yes | Rarely (NULL alleles can) | `defining_haplogroup_id` usually NULL for STRs |
+| State space | Binary (anc/der) | Integer range + NULL | `state_probabilities` JSONB |
+| Mutation model | Infinite sites | Stepwise | `step_direction` in branch_mutation |
+| Rate data | Fixed per region | Per-marker | `str_mutation_rate` reference table |
+
+### Modal Haplotypes (Derived from ASR)
+
+Modal haplotypes become a **view over ASR results**, not a separate table:
+
+```sql
+-- Modal haplotype is just the reconstructed state at the haplogroup node
+CREATE VIEW haplogroup_str_modal AS
+SELECT
+    hcs.haplogroup_id,
+    v.canonical_name as str_name,
+    hcs.inferred_state::int as modal_value,
+    hcs.confidence
+FROM haplogroup_character_state hcs
+JOIN variant_v2 v ON hcs.variant_id = v.variant_id
+WHERE v.mutation_type = 'STR';
+```
+
+### Current STR Schema Migration Path
+
+The existing `str_marker` table (from 50.sql) migrates into `variant_v2`:
+
+```sql
+INSERT INTO variant_v2 (canonical_name, mutation_type, naming_status, coordinates)
+SELECT
+    sm.name,
+    'STR',
+    'NAMED',
+    jsonb_build_object(
+        gc.reference_genome,
+        jsonb_build_object(
+            'contig', gc.common_name,
+            'start', sm.start_pos,
+            'end', sm.end_pos,
+            'period', sm.period,
+            'repeat_motif', 'UNKNOWN'  -- Will need enrichment from external data
+        )
+    )
+FROM str_marker sm
+JOIN genbank_contig gc ON sm.genbank_contig_id = gc.genbank_contig_id;
+```
+
+---
+
+## Extension: Structural Variants (SVs)
+
+### SVs as Branch-Defining Markers
+
+Structural variants are phylogenetically informative and can define haplogroup branches, as demonstrated in [Poznik et al. 2016](https://www.science.org/doi/10.1126/science.aab3812) and subsequent work on Y chromosome phylogeny.
+
+This means SVs should be **unified with SNPs and STRs** in `variant_v2`, not kept separate.
+
+### SV Characteristics
+
+| SV Type | Description | Size Range |
+|---------|-------------|------------|
+| **Deletion (DEL)** | Sequence removed | 50bp - Mb |
+| **Duplication (DUP)** | Sequence copied | 50bp - Mb |
+| **Insertion (INS)** | Sequence added | 50bp - Mb |
+| **Inversion (INV)** | Sequence reversed | 1kb - Mb |
+| **Translocation (TRANS)** | Sequence moved to different location | Variable |
+| **CNV** | Copy Number Variant (special case of DUP/DEL) | Variable |
+
+### SV Coordinate Challenges
+
+SVs have unique coordinate considerations (handled in JSONB):
+
+1. **Breakpoint precision**: Start/end may be imprecise (±bp) → `confidence_interval`
+2. **Reference content**: May need sequence hash → `deleted_sequence_hash`
+3. **Complex events**: Inversions have inner coordinates → `inner_start`, `inner_end`
+4. **Size**: Length stored explicitly → `length`
+
+### Unified Schema: SVs in variant_v2
+
+SVs become additional `mutation_type` values in the unified table:
+
+```sql
+-- mutation_type now includes:
+-- Point mutations: 'SNP', 'INDEL', 'MNP'
+-- Repeat variations: 'STR'
+-- Structural variants: 'DEL', 'DUP', 'INS', 'INV', 'CNV', 'TRANS'
+
+-- SV coordinate examples in variant_v2:
+
+-- Deletion example:
+-- {
+--   "GRCh38": {
+--     "contig": "chrY",
+--     "start": 58819361,
+--     "end": 58913456,
+--     "length": 94095,
+--     "confidence_interval_start": [-50, 50],
+--     "confidence_interval_end": [-100, 100],
+--     "deleted_sequence_hash": "sha256:abc123..."
+--   }
+-- }
+
+-- Inversion example:
+-- {
+--   "GRCh38": {
+--     "contig": "chrY",
+--     "start": 58819361,
+--     "end": 58913456,
+--     "length": 94095,
+--     "inner_start": 58819500,
+--     "inner_end": 58913300
+--   }
+-- }
+
+-- CNV example (with copy number):
+-- {
+--   "GRCh38": {
+--     "contig": "chrY",
+--     "start": 23800000,
+--     "end": 24100000,
+--     "length": 300000,
+--     "reference_copies": 2,
+--     "copy_number_range": [0, 4]
+--   }
+-- }
+```
+
+### SVs in ASR Context
+
+Like SNPs and STRs, SVs have character states at tree nodes:
+
+| Variant Type | Character State | Example |
+|--------------|-----------------|---------|
+| SNP | Ancestral or Derived allele | G or A |
+| STR | Repeat count or NULL | 15, NULL |
+| DEL/DUP/INS | Presence/Absence | "present" or "absent" |
+| INV | Orientation | "forward" or "inverted" |
+| CNV | Copy number | 0, 1, 2, 3... |
+
+The `haplogroup_character_state` and `branch_mutation` tables handle all of these:
+
+```sql
+-- SV state at a node
+INSERT INTO haplogroup_character_state (haplogroup_id, variant_id, inferred_state, confidence)
+VALUES (12345, 999, 'present', 0.98);  -- Deletion is present at this haplogroup
+
+-- SV mutation on a branch
+INSERT INTO branch_mutation (variant_id, parent_haplogroup_id, child_haplogroup_id, from_state, to_state)
+VALUES (999, 100, 12345, 'absent', 'present');  -- Deletion arose on this branch
+```
+
+### Known Branch-Defining Y-DNA SVs
+
+| Name | Type | Size | Defining Haplogroup | Reference |
+|------|------|------|---------------------|-----------|
+| **AZFa deletion** | DEL | ~800kb | Multiple independent | Medical/fertility |
+| **AZFb deletion** | DEL | ~6.2Mb | Multiple independent | Medical/fertility |
+| **AZFc deletion** | DEL | ~3.5Mb | Multiple independent | Medical/fertility |
+| **gr/gr deletion** | DEL | ~1.6Mb | Various | Repping et al. 2006 |
+| **IR2 inversion** | INV | ~300kb | Specific lineages | Poznik et al. 2016 |
+| **P1-P8 palindrome variants** | Various | Variable | Various | Skaletsky et al. 2003 |
+
+### SV Evidence Fields
+
+SVs often require additional evidence metadata:
+
+```sql
+-- The existing 'evidence' JSONB field in variant_v2 handles this:
+-- {
+--   "call_method": "read_depth",       -- or "split_read", "paired_end", "assembly"
+--   "supporting_reads": 45,
+--   "quality_score": 99,
+--   "callers_agreeing": ["manta", "delly", "lumpy"],
+--   "validated": true,
+--   "validation_method": "PCR"
+-- }
+```
+
+### Query Examples
+
+```sql
+-- Find all SVs defining a haplogroup
+SELECT v.canonical_name, v.mutation_type, v.coordinates
+FROM variant_v2 v
+WHERE v.defining_haplogroup_id = 12345
+  AND v.mutation_type IN ('DEL', 'DUP', 'INS', 'INV', 'CNV', 'TRANS');
+
+-- Get all branch-defining variants (SNPs + SVs) for a haplogroup
+SELECT v.canonical_name, v.mutation_type,
+       bm.from_state, bm.to_state
+FROM branch_mutation bm
+JOIN variant_v2 v ON bm.variant_id = v.variant_id
+WHERE bm.child_haplogroup_id = 12345;
+
+-- Find large deletions (>100kb)
+SELECT v.canonical_name,
+       (v.coordinates->'GRCh38'->>'length')::int as length_bp
+FROM variant_v2 v
+WHERE v.mutation_type = 'DEL'
+  AND (v.coordinates->'GRCh38'->>'length')::int > 100000;
+```
+
+---
+
+## Extension: Genome Region Annotations
+
+### Genome Annotation Tables
+
+The non-variant tables in evolution 50.sql share the multi-reference coordinate challenge:
+
+| Table | Purpose | Coordinate Nature |
+|-------|---------|-------------------|
+| `genome_region` | Structural annotations (centromere, PAR, etc.) | Start/end positions |
+| `cytoband` | Cytogenetic bands | Start/end positions |
+
+**Note**: The `str_marker` table from 50.sql migrates into `variant_v2` (see "STR Migration" below), since STRs are phylogenetic characters used in ASR.
+
+### Current Schema (50.sql)
+
+```sql
+-- Structural regions
+CREATE TABLE genome_region (
+  id SERIAL PRIMARY KEY,
+  genbank_contig_id INT NOT NULL REFERENCES genbank_contig(genbank_contig_id),
+  region_type VARCHAR(30) NOT NULL,   -- Centromere, Telomere_P, PAR1, etc.
+  name VARCHAR(50),                   -- For named regions (P1-P8 palindromes)
+  start_pos BIGINT NOT NULL,
+  end_pos BIGINT NOT NULL,
+  modifier DECIMAL(3,2),              -- Quality modifier
+  UNIQUE(genbank_contig_id, region_type, name, start_pos)
+);
+
+-- Cytobands
+CREATE TABLE cytoband (
+  id SERIAL PRIMARY KEY,
+  genbank_contig_id INT NOT NULL REFERENCES genbank_contig(genbank_contig_id),
+  name VARCHAR(20) NOT NULL,          -- p11.32, q11.21, etc.
+  start_pos BIGINT NOT NULL,
+  end_pos BIGINT NOT NULL,
+  stain VARCHAR(10) NOT NULL,         -- gneg, gpos25, acen, etc.
+  UNIQUE(genbank_contig_id, name)
+);
+```
+
+### Recommendation: Keep Regions Separate from Variants
+
+Genome annotations differ from variants in key ways:
+
+| Aspect | Variants (SNP/STR/SV) | Genome Annotations |
+|--------|----------------------|-------------------|
+| **Identity** | Name + haplogroup context | Name + region type |
+| **Variability** | Varies between individuals | Fixed per reference |
+| **Updates** | Continuous discovery | Per-reference updates |
+| **Query pattern** | "Where is M269?" | "What region contains position X?" |
+
+**Recommendation**: Keep `genome_region` and `cytoband` in a separate table (`genome_region_v2`), but apply the JSONB coordinate pattern for multi-reference support:
+
+```sql
+CREATE TABLE genome_region_v2 (
+    region_id       SERIAL PRIMARY KEY,
+    region_type     TEXT NOT NULL,        -- Centromere, Telomere_P, PAR1, XTR, etc.
+    name            TEXT,                 -- For named regions (P1-P8 palindromes)
+
+    -- Coordinates per reference (the key insight from variant_v2)
+    coordinates JSONB NOT NULL,
+    -- Example:
+    -- {
+    --   "GRCh38": {
+    --     "contig": "chrY",
+    --     "start": 10316944,
+    --     "end": 10544039
+    --   },
+    --   "GRCh37": {
+    --     "contig": "chrY",
+    --     "start": 10246944,
+    --     "end": 10474039
+    --   },
+    --   "hs1": {
+    --     "contig": "chrY",
+    --     "start": 10400000,
+    --     "end": 10627095
+    --   }
+    -- }
+
+    -- Region-specific metadata
+    properties JSONB DEFAULT '{}',
+    -- Example for regions: {"modifier": 0.5}
+    -- Example for cytobands: {"stain": "gpos75"}
+
+    UNIQUE(region_type, name)
+);
+
+CREATE INDEX idx_genome_region_v2_coords ON genome_region_v2 USING GIN(coordinates);
+
+-- Efficient lookup: "What region contains GRCh38:chrY:15000000?"
+CREATE INDEX idx_genome_region_v2_grch38_range ON genome_region_v2 (
+    (coordinates->'GRCh38'->>'contig'),
+    ((coordinates->'GRCh38'->>'start')::bigint),
+    ((coordinates->'GRCh38'->>'end')::bigint)
+);
+```
+
+---
+
+## Unified Coordinate Pattern Summary
+
+The key insight across all these schemas is the **JSONB coordinate pattern**:
+
+```json
+{
+  "GRCh38": { "contig": "chrY", "start": 12345, "end": 12345, ... },
+  "GRCh37": { "contig": "chrY", "start": 12300, "end": 12300, ... },
+  "hs1":    { "contig": "chrY", "start": 12400, "end": 12400, ... }
+}
+```
+
+### Schema Unification Summary
+
+| Feature | Table | Rationale |
+|---------|-------|-----------|
+| **SNP/INDEL/MNP** | `variant_v2` | Core point mutations |
+| **STR** | `variant_v2` | Unified - phylogenetic characters for ASR |
+| **SV (DEL/DUP/INS/INV/CNV)** | `variant_v2` | Unified - branch-defining markers |
+| **STR mutation rates** | `str_mutation_rate` | Reference data - per-marker rates for ASR/age estimation |
+| **Genome Region** | `genome_region_v2` | Separate - fixed per reference, not variants |
+| **Cytoband** | `genome_region_v2` | Merged with regions via `properties` JSONB |
+
+**Key insight**: If it can define a branch or has states reconstructed by ASR, it belongs in `variant_v2`.
+
+### Coordinate JSONB Structure by mutation_type
+
+| mutation_type | Coordinate Fields | Extra Fields |
+|---------------|-------------------|--------------|
+| **SNP** | contig, position | ref, alt |
+| **INDEL** | contig, position | ref, alt |
+| **MNP** | contig, position | ref, alt |
+| **STR** | contig, start, end | repeat_motif, period, reference_repeats |
+| **DEL/DUP/INS** | contig, start, end, length | confidence_intervals, sequence_hash |
+| **INV** | contig, start, end, length | inner_start, inner_end |
+| **CNV** | contig, start, end, length | reference_copies, copy_number_range |
+
+| Separate Table | Coordinate Fields | Extra Fields |
+|----------------|-------------------|--------------|
+| **genome_region_v2** | contig, start, end | (in `properties`: modifier, stain) |
+
+### ASR Integration
+
+With ancestral state reconstruction, all variant types share these tables:
+
+| Table | Purpose |
+|-------|---------|
+| `haplogroup_character_state` | Inferred state at each tree node (replaces `haplogroup_ancestral_str` concept) |
+| `branch_mutation` | State transitions along branches |
+| `biosample_variant_call` | Observed values (input to ASR) |
+| `str_mutation_rate` | Per-marker mutation rates for STR ASR/age estimation |
+
+| Variant Type | State Type | Example States |
+|--------------|------------|----------------|
+| SNP/INDEL/MNP | Allele | "G", "A", "ancestral", "derived" |
+| STR | Repeat count or NULL | "13", "14", "15", "NULL" |
+| DEL/DUP/INS | Presence | "present", "absent" |
+| INV | Orientation | "forward", "inverted" |
+| CNV | Copy number | "0", "1", "2", "3" |
+
+---
+
+## Migration Considerations
+
+### STR Migration
+
+STRs migrate into `variant_v2` as `mutation_type = 'STR'`. See the migration query in the "STRs and Ancestral State Reconstruction" section above.
+
+### SV Migration
+
+SVs migrate into `variant_v2` with `mutation_type` set to the specific SV type ('DEL', 'DUP', 'INS', 'INV', 'CNV'). If there's no existing SV table, SVs will be ingested directly into the new schema.
+
+### Genome Region Migration
+
+```sql
+INSERT INTO genome_region_v2 (region_type, name, coordinates, properties)
+SELECT
+    gr.region_type,
+    gr.name,
+    jsonb_build_object(
+        gc.reference_genome,
+        jsonb_build_object(
+            'contig', gc.common_name,
+            'start', gr.start_pos,
+            'end', gr.end_pos
+        )
+    ) as coordinates,
+    CASE WHEN gr.modifier IS NOT NULL
+         THEN jsonb_build_object('modifier', gr.modifier)
+         ELSE '{}'::jsonb
+    END as properties
+FROM genome_region gr
+JOIN genbank_contig gc ON gr.genbank_contig_id = gc.genbank_contig_id;
+```
+
+---
+
 ## References
 
 - [GFA Format Specification](https://github.com/GFA-spec/GFA-spec) - Graph assembly format
@@ -789,3 +1411,7 @@ YBrowse aggregates from organizations that meet these criteria:
 - [Human Pangenome Reference Consortium](https://humanpangenome.org/)
 - [PostgreSQL JSONB Documentation](https://www.postgresql.org/docs/current/datatype-json.html)
 - [ISOGG Y-DNA SNP Index](https://isogg.org/tree/) - Naming conventions
+- [YHRD STR Database](https://yhrd.org/) - Y-STR reference
+- [dbVar](https://www.ncbi.nlm.nih.gov/dbvar/) - NCBI Structural Variation database
+- [Hallast et al. 2021](https://www.science.org/doi/10.1126/science.abg8871) - Y chromosome structural variants and phylogeny
+- [Poznik et al. 2016](https://www.science.org/doi/10.1126/science.aab3812) - Punctuated bursts in human male demography

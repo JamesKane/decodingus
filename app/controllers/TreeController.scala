@@ -4,6 +4,7 @@ import config.FeatureFlags
 import models.HaplogroupType
 import models.HaplogroupType.{MT, Y}
 import models.api.{SubcladeDTO, TreeNodeDTO}
+import models.domain.haplogroups.HaplogroupProvenance
 import models.view.TreeViewModel
 import org.webjars.play.WebJarsUtil
 import play.api.cache.{AsyncCacheApi, Cached}
@@ -272,8 +273,9 @@ class TreeController @Inject()(val controllerComponents: MessagesControllerCompo
   }
 
   def getSnpDetailSidebar(haplogroupName: String, haplogroupType: HaplogroupType): Action[AnyContent] = Action.async { implicit request =>
-    treeService.findVariantsForHaplogroup(haplogroupName, haplogroupType).map { snps =>
-      Ok(views.html.fragments.snpDetailSidebar(haplogroupName, snps))
+    treeService.findHaplogroupWithVariants(haplogroupName, haplogroupType).map { case (haplogroup, snps) =>
+      val provenance = haplogroup.flatMap(_.provenance)
+      Ok(views.html.fragments.snpDetailSidebar(haplogroupName, snps, provenance))
     }
   }
 

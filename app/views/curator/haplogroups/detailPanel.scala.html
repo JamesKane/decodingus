@@ -48,6 +48,72 @@
             }
         </dl>
 
+        @haplogroup.provenance.map { prov =>
+            <hr>
+            <h6><i class="bi bi-people"></i> Provenance</h6>
+            <dl class="row mb-0">
+                <dt class="col-sm-4">Primary Credit</dt>
+                <dd class="col-sm-8">
+                    <span class="badge @if(prov.primaryCredit.equalsIgnoreCase("ISOGG")){bg-warning text-dark}else if(prov.primaryCredit.equalsIgnoreCase("DecodingUs")){bg-primary}else{bg-secondary}">
+                        @prov.primaryCredit
+                    </span>
+                </dd>
+
+                @if(prov.nodeProvenance.nonEmpty) {
+                    <dt class="col-sm-4">Contributors</dt>
+                    <dd class="col-sm-8">
+                        @for(source <- prov.nodeProvenance.toSeq.sorted) {
+                            <span class="badge bg-light text-dark border me-1">@source</span>
+                        }
+                    </dd>
+                }
+
+                @prov.lastMergedFrom.map { source =>
+                    <dt class="col-sm-4">Last Merged</dt>
+                    <dd class="col-sm-8">
+                        <small>
+                            from <strong>@source</strong>
+                            @prov.lastMergedAt.map { ts =>
+                                on @ts.toLocalDate
+                            }
+                        </small>
+                    </dd>
+                }
+
+                @if(prov.variantProvenance.nonEmpty) {
+                    <dt class="col-sm-4">Variant Sources</dt>
+                    <dd class="col-sm-8">
+                        <button class="btn btn-sm btn-outline-secondary"
+                                type="button"
+                                data-bs-toggle="collapse"
+                                data-bs-target="#variant-provenance-@haplogroup.id.get"
+                                aria-expanded="false">
+                            <i class="bi bi-chevron-down"></i> @prov.variantProvenance.size variants
+                        </button>
+                        <div class="collapse mt-2" id="variant-provenance-@haplogroup.id.get">
+                            <ul class="list-group list-group-flush small">
+                                @for((variant, sources) <- prov.variantProvenance.toSeq.sortBy(_._1).take(20)) {
+                                    <li class="list-group-item px-0 py-1 d-flex justify-content-between">
+                                        <code>@variant</code>
+                                        <span>
+                                            @for(src <- sources.toSeq.sorted) {
+                                                <span class="badge bg-light text-dark border">@src</span>
+                                            }
+                                        </span>
+                                    </li>
+                                }
+                                @if(prov.variantProvenance.size > 20) {
+                                    <li class="list-group-item px-0 py-1 text-muted">
+                                        +@(prov.variantProvenance.size - 20) more variants...
+                                    </li>
+                                }
+                            </ul>
+                        </div>
+                    </dd>
+                }
+            </dl>
+        }
+
         <hr>
 
         <h6><i class="bi bi-diagram-3"></i> Tree Position</h6>

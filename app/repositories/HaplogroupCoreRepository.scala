@@ -2,7 +2,7 @@ package repositories
 
 import jakarta.inject.Inject
 import models.HaplogroupType
-import models.domain.haplogroups.Haplogroup
+import models.domain.haplogroups.{Haplogroup, HaplogroupProvenance}
 import play.api.Logging
 import play.api.db.slick.DatabaseConfigProvider
 import slick.jdbc.GetResult
@@ -117,6 +117,26 @@ trait HaplogroupCoreRepository {
    * @return a sequence of root haplogroups for that type
    */
   def findRoots(haplogroupType: HaplogroupType): Future[Seq[Haplogroup]]
+
+  // === Tree Merge Methods ===
+
+  /**
+   * Update the provenance field for a haplogroup.
+   *
+   * @param id the haplogroup ID
+   * @param provenance the new provenance data
+   * @return true if updated successfully
+   */
+  def updateProvenance(id: Int, provenance: HaplogroupProvenance): Future[Boolean]
+
+  /**
+   * Get all haplogroups of a type with their associated variant names.
+   * Used for building variant-based lookup index for merge operations.
+   *
+   * @param haplogroupType the type of haplogroup (Y or MT)
+   * @return sequence of tuples: (haplogroup, list of variant names)
+   */
+  def getAllWithVariantNames(haplogroupType: HaplogroupType): Future[Seq[(Haplogroup, Seq[String])]]
 }
 
 class HaplogroupCoreRepositoryImpl @Inject()(
@@ -412,5 +432,41 @@ class HaplogroupCoreRepositoryImpl @Inject()(
       .result
 
     runQuery(query)
+  }
+
+  // === Tree Merge Methods Implementation ===
+
+  override def updateProvenance(id: Int, provenance: HaplogroupProvenance): Future[Boolean] = {
+    runQuery(
+      haplogroups
+        .filter(_.haplogroupId === id)
+        .map(_.provenance)
+        .update(Some(provenance))
+    ).map(_ > 0)
+  }
+
+  override def getAllWithVariantNames(haplogroupType: HaplogroupType): Future[Seq[(Haplogroup, Seq[String])]] = {
+    import models.dal.DatabaseSchema.domain.haplogroups.haplogroupVariants
+    import models.dal.DatabaseSchema.domain.genomics.variants
+
+    // Query haplogroups with their associated variant names via join
+    val query = for {
+      hg <- activeHaplogroups.filter(_.haplogroupType === haplogroupType)
+    } yield hg
+
+    runQuery(query.result).flatMap { hgList =>
+      // For each haplogroup, fetch its variant names (using commonName from Variant table)
+      val futures = hgList.map { hg =>
+        val variantQuery = for {
+          hv <- haplogroupVariants.filter(_.haplogroupId === hg.id.get)
+          v <- variants.filter(_.variantId === hv.variantId)
+        } yield v.commonName
+
+        runQuery(variantQuery.result).map { variantNames =>
+          (hg, variantNames.flatten) // Filter out None values
+        }
+      }
+      Future.sequence(futures)
+    }
   }
 }

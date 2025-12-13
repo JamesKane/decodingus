@@ -2,7 +2,7 @@ package models.dal.domain.haplogroups
 
 import models.HaplogroupType
 import models.dal.MyPostgresProfile.api.*
-import models.domain.haplogroups.Haplogroup
+import models.domain.haplogroups.{Haplogroup, HaplogroupProvenance}
 import slick.ast.TypedType
 import slick.lifted.{MappedProjection, ProvenShape}
 
@@ -71,8 +71,11 @@ class HaplogroupsTable(tag: Tag) extends Table[Haplogroup](tag, Some("tree"), "h
 
   def ageEstimateSource = column[Option[String]]("age_estimate_source")
 
+  // Multi-source provenance tracking (JSONB)
+  def provenance = column[Option[HaplogroupProvenance]]("provenance")
+
   def * = (
     haplogroupId.?, name, lineage, description, haplogroupType, revisionId, source, confidenceLevel, validFrom, validUntil,
-    formedYbp, formedYbpLower, formedYbpUpper, tmrcaYbp, tmrcaYbpLower, tmrcaYbpUpper, ageEstimateSource
+    formedYbp, formedYbpLower, formedYbpUpper, tmrcaYbp, tmrcaYbpLower, tmrcaYbpUpper, ageEstimateSource, provenance
   ).mapTo[Haplogroup]
 }

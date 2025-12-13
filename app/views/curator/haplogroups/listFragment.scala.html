@@ -11,7 +11,7 @@
                     <th>Name</th>
                     <th>Type</th>
                     <th>Source</th>
-                    <th>Confidence</th>
+                    <th>Provenance</th>
                     <th></th>
                 </tr>
             </thead>
@@ -29,7 +29,19 @@
                             </span>
                         </td>
                         <td>@hg.source</td>
-                        <td>@hg.confidenceLevel</td>
+                        <td>
+                            @hg.provenance.map { prov =>
+                                <span class="badge @if(prov.primaryCredit.equalsIgnoreCase("ISOGG")){bg-warning text-dark}else if(prov.primaryCredit.equalsIgnoreCase("DecodingUs")){bg-primary}else{bg-secondary}"
+                                      title="Primary: @prov.primaryCredit, Contributors: @prov.nodeProvenance.mkString(", ")">
+                                    @prov.primaryCredit
+                                    @if(prov.nodeProvenance.size > 1) {
+                                        <span class="badge bg-light text-dark ms-1">+@(prov.nodeProvenance.size - 1)</span>
+                                    }
+                                </span>
+                            }.getOrElse {
+                                <span class="text-muted">-</span>
+                            }
+                        </td>
                         <td>
                             <a href="@controllers.routes.CuratorController.editHaplogroupForm(hg.id.get)"
                                class="btn btn-sm btn-outline-secondary"

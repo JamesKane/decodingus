@@ -28,6 +28,7 @@ class ServicesModule(environment: Environment, configuration: Configuration) ext
 
     bind(classOf[services.PublicationDiscoveryService]).asEagerSingleton()
     bind(classOf[services.UserPermissionHelper]).asEagerSingleton()
+    bind(classOf[services.HaplogroupTreeMergeService]).asEagerSingleton()
   }
 }
 
