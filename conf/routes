@@ -126,6 +126,11 @@ GET           /api/private/aliases/sources/stats                                
 GET           /api/private/aliases/sources/preview                                               controllers.VariantApiController.previewAliasSourceUpdate(aliasPrefix: String, currentSource: String)
 POST          /api/private/aliases/sources                                                       controllers.VariantApiController.bulkUpdateAliasSources()
 
+# DU Naming Authority API (X-API-Key secured)
+POST          /api/private/variants/:variantId/du-name                                           controllers.VariantApiController.assignDuName(variantId: Int)
+POST          /api/private/variants/du-names                                                     controllers.VariantApiController.bulkAssignDuNames()
+GET           /api/private/variants/du-names/next                                                controllers.VariantApiController.previewNextDuName()
+
 # Authentication
 GET           /login                                                                             controllers.AuthController.login
 POST          /login                                                                             controllers.AuthController.authenticate

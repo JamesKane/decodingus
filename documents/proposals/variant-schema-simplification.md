@@ -1,10 +1,66 @@
 # Variant Schema Simplification with Universal Coordinates
 
-**Status:** Backlog
+**Status:** Implementation Complete - Pending Data Migration
 **Priority:** Medium
 **Complexity:** Large
 **Author:** DecodingUs Team
 **Created:** 2025-12-10
+**Updated:** 2025-12-13
+
+---
+
+## Implementation Status
+
+### Completed
+
+| Component | Status | Notes |
+|-----------|--------|-------|
+| **Evolution 53.sql** | ✅ Done | Creates `variant_v2`, ASR tables. Does NOT drop old tables. |
+| **Domain Models** | ✅ Done | `VariantV2`, `MutationType` enum, `NamingStatus` enum in `models.domain.genomics` |
+| **VariantV2Repository** | ✅ Done | Full CRUD, JSONB operations, search |
+| **HaplogroupVariantRepository** | ✅ Done | Updated to use `variant_v2` |
+| **YBrowseVariantIngestionService** | ✅ Done | Refactored for single-row-per-variant with JSONB coordinates |
+| **VariantPublicApiService** | ✅ Done | Simplified (no grouping needed) |
+| **VariantExportService** | ✅ Done | Updated for VariantV2 |
+| **VariantBrowserController** | ✅ Done | Public read-only browser restored |
+| **VariantApiController** | ✅ Done | Private bulk API restored |
+| **CuratorController** | ✅ Done | Updated for VariantV2 |
+| **View Templates** | ✅ Done | All curator and public views updated |
+| **DatabaseSchema/BaseModule** | ✅ Done | Configuration updated |
+| **Old files removed** | ✅ Done | Variant.scala, VariantAlias*.scala, VariantGroup.scala, old repositories |
+
+### Pending (Production Deployment)
+
+| Task | Notes |
+|------|-------|
+| **Run data migration** | `scripts/migrate_variant_to_v2.sql` - consolidates old data |
+| **Verify migration** | Check counts, orphaned FKs |
+| **Drop old tables** | `variant`, `variant_alias`, `str_marker` (after verification) |
+| **Update haplogroup_variant FK** | Done in migration script |
+
+### Files Created
+
+| File | Purpose |
+|------|---------|
+| `conf/evolutions/default/53.sql` | Schema evolution (creates new tables) |
+| `conf/evolutions/default/54.sql` | DU naming authority (sequence + functions) |
+| `scripts/migrate_variant_to_v2.sql` | Data migration script (run manually) |
+| `scripts/maintenance.html` | NGINX maintenance page for downtime |
+| `app/models/domain/genomics/VariantV2.scala` | Domain model |
+| `app/models/domain/genomics/MutationType.scala` | Scala 3 parameterized enum |
+| `app/models/domain/genomics/NamingStatus.scala` | Scala 3 parameterized enum |
+| `app/repositories/VariantV2Repository.scala` | Repository layer (includes DU naming methods) |
+| `app/controllers/VariantBrowserController.scala` | Public browser |
+| `app/controllers/VariantApiController.scala` | Private bulk API |
+| `app/views/variants/*.scala.html` | Public browser views |
+
+### DU Naming Authority
+
+| Component | Status | Notes |
+|-----------|--------|-------|
+| **Evolution 54.sql** | ✅ Done | `du_variant_name_seq`, `next_du_name()`, `is_du_name()` |
+| **Repository methods** | ✅ Done | `nextDuName()`, `currentDuName()`, `isDuName()`, `createWithDuName()` |
+| **Format** | DU1, DU2, ... | No zero padding per ISOGG guidelines |
 
 ---
 

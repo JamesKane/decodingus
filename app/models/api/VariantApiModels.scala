@@ -180,3 +180,62 @@ case class AliasSourceStatsResponse(
 object AliasSourceStatsResponse {
   implicit val format: OFormat[AliasSourceStatsResponse] = Json.format[AliasSourceStatsResponse]
 }
+
+// ============================================================================
+// DU Naming Authority Models
+// ============================================================================
+
+/**
+ * Request to assign a DU name to a variant.
+ * Variant is identified by variantId.
+ *
+ * @param variantId  The variant ID to assign a DU name to
+ */
+case class AssignDuNameRequest(
+  variantId: Int
+)
+
+object AssignDuNameRequest {
+  implicit val format: OFormat[AssignDuNameRequest] = Json.format[AssignDuNameRequest]
+}
+
+/**
+ * Bulk request to assign DU names to multiple variants.
+ */
+case class BulkAssignDuNamesRequest(
+  variantIds: Seq[Int]
+)
+
+object BulkAssignDuNamesRequest {
+  implicit val format: OFormat[BulkAssignDuNamesRequest] = Json.format[BulkAssignDuNamesRequest]
+}
+
+/**
+ * Result of a DU name assignment operation.
+ */
+case class DuNameAssignmentResult(
+  variantId: Int,
+  duName: Option[String],
+  previousName: Option[String],
+  status: String,
+  message: Option[String] = None
+)
+
+object DuNameAssignmentResult {
+  implicit val format: OFormat[DuNameAssignmentResult] = Json.format[DuNameAssignmentResult]
+}
+
+/**
+ * Response for bulk DU name assignment.
+ */
+case class BulkDuNameAssignmentResponse(
+  total: Int,
+  succeeded: Int,
+  failed: Int,
+  skipped: Int,
+  results: Seq[DuNameAssignmentResult]
+)
+
+object BulkDuNameAssignmentResponse {
+  implicit val format: OFormat[BulkDuNameAssignmentResponse] = Json.format[BulkDuNameAssignmentResponse]
+}

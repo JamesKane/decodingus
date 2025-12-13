@@ -262,4 +262,143 @@ class VariantApiController @Inject()(
       ))
     }
   }
+
+  // ============================================================================
+  // DU Naming Authority Endpoints
+  // ============================================================================
+
+  /**
+   * Assign a DU name to a single variant.
+   * The variant must exist and not already have a DU name.
+   */
+  def assignDuName(variantId: Int): Action[AnyContent] = secureApi.async { _ =>
+    variantRepository.findById(variantId).flatMap {
+      case None =>
+        Future.successful(NotFound(Json.toJson(DuNameAssignmentResult(
+          variantId = variantId,
+          duName = None,
+          previousName = None,
+          status = "error",
+          message = Some(s"Variant $variantId not found")
+        ))))
+
+      case Some(variant) =>
+        // Check if already has a DU name
+        if (variant.canonicalName.exists(variantRepository.isDuName)) {
+          Future.successful(Ok(Json.toJson(DuNameAssignmentResult(
+            variantId = variantId,
+            duName = variant.canonicalName,
+            previousName = variant.canonicalName,
+            status = "skipped",
+            message = Some("Variant already has a DU name")
+          ))))
+        } else {
+          // Assign new DU name
+          assignDuNameToVariant(variant).map { result =>
+            Ok(Json.toJson(result))
+          }
+        }
+    }
+  }
+
+  /**
+   * Bulk assign DU names to multiple variants.
+   * Skips variants that already have DU names.
+   */
+  def bulkAssignDuNames(): Action[BulkAssignDuNamesRequest] =
+    secureApi.jsonAction[BulkAssignDuNamesRequest].async { request =>
+      val variantIds = request.body.variantIds
+      logger.info(s"Bulk assign DU names request for ${variantIds.size} variants")
+
+      // Process sequentially to maintain name ordering
+      variantIds.foldLeft(Future.successful(Seq.empty[DuNameAssignmentResult])) { (accFuture, variantId) =>
+        accFuture.flatMap { acc =>
+          processAssignDuName(variantId).map(result => acc :+ result)
+        }
+      }.map { results =>
+        val succeeded = results.count(_.status == "success")
+        val failed = results.count(_.status == "error")
+        val skipped = results.count(_.status == "skipped")
+
+        logger.info(s"Bulk assign DU names completed: $succeeded succeeded, $failed failed, $skipped skipped")
+
+        Ok(Json.toJson(BulkDuNameAssignmentResponse(
+          total = results.size,
+          succeeded = succeeded,
+          failed = failed,
+          skipped = skipped,
+          results = results
+        )))
+      }
+    }
+
+  /**
+   * Get the next DU name that would be assigned (preview without consuming).
+   */
+  def previewNextDuName(): Action[AnyContent] = secureApi.async { _ =>
+    variantRepository.nextDuName().map { nextName =>
+      Ok(Json.obj(
+        "nextDuName" -> nextName,
+        "note" -> "This name has been reserved. Use assignDuName to apply it to a variant."
+      ))
+    }
+  }
+
+  private def processAssignDuName(variantId: Int): Future[DuNameAssignmentResult] = {
+    variantRepository.findById(variantId).flatMap {
+      case None =>
+        Future.successful(DuNameAssignmentResult(
+          variantId = variantId,
+          duName = None,
+          previousName = None,
+          status = "error",
+          message = Some(s"Variant $variantId not found")
+        ))
+
+      case Some(variant) =>
+        if (variant.canonicalName.exists(variantRepository.isDuName)) {
+          Future.successful(DuNameAssignmentResult(
+            variantId = variantId,
+            duName = variant.canonicalName,
+            previousName = variant.canonicalName,
+            status = "skipped",
+            message = Some("Variant already has a DU name")
+          ))
+        } else {
+          assignDuNameToVariant(variant)
+        }
+    }
+  }
+
+  private def assignDuNameToVariant(variant: VariantV2): Future[DuNameAssignmentResult] = {
+    val previousName = variant.canonicalName
+
+    for {
+      duName <- variantRepository.nextDuName()
+      updated = variant.copy(
+        canonicalName = Some(duName),
+        namingStatus = models.domain.genomics.NamingStatus.Named
+      )
+      success <- variantRepository.update(updated)
+    } yield {
+      if (success) {
+        logger.info(s"Assigned DU name $duName to variant ${variant.variantId.get} (was: ${previousName.getOrElse("unnamed")})")
+        DuNameAssignmentResult(
+          variantId = variant.variantId.get,
+          duName = Some(duName),
+          previousName = previousName,
+          status = "success",
+          message = Some(s"Assigned $duName")
+        )
+      } else {
+        DuNameAssignmentResult(
+          variantId = variant.variantId.get,
+          duName = None,
+          previousName = previousName,
+          status = "error",
+          message = Some("Failed to update variant")
+        )
+      }
+    }
+  }
 }

@@ -183,6 +183,31 @@ trait VariantV2Repository {
    * Get variants by IDs.
    */
   def findByIds(ids: Seq[Int]): Future[Seq[VariantV2]]
+
+  // === DU Naming Authority ===
+
+  /**
+   * Generate the next DU name from the sequence.
+   * Format: DU1, DU2, DU123 (no zero padding per ISOGG guidelines)
+   */
+  def nextDuName(): Future[String]
+
+  /**
+   * Get the current DU name without incrementing the sequence.
+   * Useful for previewing what name would be assigned.
+   */
+  def currentDuName(): Future[Option[String]]
+
+  /**
+   * Check if a name follows the DU naming convention.
+   */
+  def isDuName(name: String): Boolean
+
+  /**
+   * Create a variant with a new DU name.
+   * Atomically generates the name and creates the variant.
+   */
+  def createWithDuName(variant: VariantV2): Future[VariantV2]
 }
 
 class VariantV2RepositoryImpl @Inject()(
@@ -682,6 +707,46 @@ class VariantV2RepositoryImpl @Inject()(
     } else {
       db.run(variantsV2.filter(_.variantId.inSet(ids)).result)
     }
+  }
+
+  // === DU Naming Authority ===
+
+  private val DuNamePattern = "^DU[1-9][0-9]*$".r
+
+  override def nextDuName(): Future[String] = {
+    db.run(sql"SELECT next_du_name()".as[String].head)
+  }
+
+  override def currentDuName(): Future[Option[String]] = {
+    // currval throws if nextval hasn't been called in this session
+    // So we handle this gracefully
+    db.run(sql"SELECT current_du_name()".as[String].headOption).recover {
+      case _: PSQLException => None
+    }
+  }
+
+  override def isDuName(name: String): Boolean = {
+    DuNamePattern.matches(name)
+  }
+
+  override def createWithDuName(variant: VariantV2): Future[VariantV2] = {
+    // Atomically get next DU name and create the variant
+    val action = for {
+      duName <- sql"SELECT next_du_name()".as[String].head
+      now = Instant.now()
+      id <- (variantsV2 returning variantsV2.map(_.variantId)) += variant.copy(
+        canonicalName = Some(duName),
+        namingStatus = NamingStatus.Named,
+        createdAt = now,
+        updatedAt = now
+      )
+    } yield variant.copy(
+      variantId = Some(id),
+      canonicalName = Some(duName),
+      namingStatus = NamingStatus.Named
+    )
+
+    db.run(action.transactionally)
   }
 
   // === GetResult for raw SQL queries ===
