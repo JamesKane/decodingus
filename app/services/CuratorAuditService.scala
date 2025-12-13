@@ -2,7 +2,7 @@ package services
 
 import jakarta.inject.{Inject, Singleton}
 import models.HaplogroupType
-import models.dal.domain.genomics.Variant
+import models.domain.genomics.VariantV2
 import models.domain.curator.AuditLogEntry
 import models.domain.haplogroups.{Haplogroup, HaplogroupVariantMetadata}
 import play.api.Logging
@@ -38,7 +38,17 @@ class CuratorAuditService @Inject()(
   )
 
   private given Format[Haplogroup] = Json.format[Haplogroup]
-  private given Format[Variant] = Json.format[Variant]
+
+  // Helper to convert VariantV2 to JSON for audit logging
+  private def variantV2ToJson(variant: VariantV2): JsValue = Json.obj(
+    "variantId" -> variant.variantId,
+    "canonicalName" -> variant.canonicalName,
+    "mutationType" -> variant.mutationType,
+    "namingStatus" -> variant.namingStatus,
+    "aliases" -> variant.aliases,
+    "coordinates" -> variant.coordinates,
+    "notes" -> variant.notes
+  )
 
   // === Haplogroup Audit Methods ===
 
@@ -110,7 +120,7 @@ class CuratorAuditService @Inject()(
    */
   def logVariantCreate(
       userId: UUID,
-      variant: Variant,
+      variant: VariantV2,
       comment: Option[String] = None
   ): Future[AuditLogEntry] = {
     val entry = AuditLogEntry(
@@ -119,7 +129,7 @@ class CuratorAuditService @Inject()(
       entityId = variant.variantId.getOrElse(0),
       action = "create",
       oldValue = None,
-      newValue = Some(Json.toJson(variant)),
+      newValue = Some(variantV2ToJson(variant)),
       comment = comment
     )
     auditRepository.logAction(entry)
@@ -130,8 +140,8 @@ class CuratorAuditService @Inject()(
    */
   def logVariantUpdate(
       userId: UUID,
-      oldVariant: Variant,
-      newVariant: Variant,
+      oldVariant: VariantV2,
+      newVariant: VariantV2,
       comment: Option[String] = None
   ): Future[AuditLogEntry] = {
     val entry = AuditLogEntry(
@@ -139,8 +149,8 @@ class CuratorAuditService @Inject()(
       entityType = "variant",
       entityId = oldVariant.variantId.getOrElse(0),
       action = "update",
-      oldValue = Some(Json.toJson(oldVariant)),
-      newValue = Some(Json.toJson(newVariant)),
+      oldValue = Some(variantV2ToJson(oldVariant)),
+      newValue = Some(variantV2ToJson(newVariant)),
       comment = comment
     )
     auditRepository.logAction(entry)
@@ -151,7 +161,7 @@ class CuratorAuditService @Inject()(
    */
   def logVariantDelete(
       userId: UUID,
-      variant: Variant,
+      variant: VariantV2,
       comment: Option[String] = None
   ): Future[AuditLogEntry] = {
     val entry = AuditLogEntry(
@@ -159,7 +169,7 @@ class CuratorAuditService @Inject()(
       entityType = "variant",
       entityId = variant.variantId.getOrElse(0),
       action = "delete",
-      oldValue = Some(Json.toJson(variant)),
+      oldValue = Some(variantV2ToJson(variant)),
       newValue = None,
       comment = comment
     )

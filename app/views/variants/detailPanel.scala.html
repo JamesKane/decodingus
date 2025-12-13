@@ -1,45 +1,145 @@
-@import models.domain.genomics.{VariantWithContig, VariantGroup}
-@import models.dal.domain.genomics.VariantAlias
+@import models.domain.genomics.{NamingStatus, VariantV2}
 @import models.domain.haplogroups.Haplogroup
-@(vwc: VariantWithContig, variantGroup: Option[VariantGroup], aliases: Seq[VariantAlias], haplogroups: Seq[Haplogroup])(implicit request: RequestHeader, messages: Messages)
+@import play.api.libs.json.JsObject
+@(variant: VariantV2, haplogroups: Seq[Haplogroup])(implicit request: RequestHeader, messages: Messages)
+
+@* Helper to extract reference genomes from coordinates *@
+@refGenomes = @{
+    variant.coordinates.asOpt[Map[String, JsObject]].map(_.keys.toSeq.sorted).getOrElse(Seq.empty)
+}
+
+@* Helper to format position for a specific reference *@
+@formatPosition(refGenome: String) = @{
+    variant.getCoordinates(refGenome).map { coords =>
+        val contig = (coords \ "contig").asOpt[String].getOrElse("?")
+        val pos = (coords \ "position").asOpt[Int].getOrElse(0)
+        s"$contig:$pos"
+    }.getOrElse("-")
+}
+
+@* Helper to format alleles for a specific reference *@
+@formatAlleles(refGenome: String) = @{
+    variant.getCoordinates(refGenome).map { coords =>
+        val ref = (coords \ "ref").asOpt[String].getOrElse("?")
+        val alt = (coords \ "alt").asOpt[String].getOrElse("?")
+        (ref, alt)
+    }.getOrElse(("?", "?"))
+}
 
 <div class="card">
     <div class="card-header d-flex justify-content-between align-items-center">
-        <h5 class="mb-0">@vwc.variant.commonName.orElse(vwc.variant.rsId).getOrElse(s"Variant ${vwc.variant.variantId.get}")</h5>
-        <span class="badge bg-secondary">@vwc.variant.variantType</span>
+        <h5 class="mb-0">@variant.displayName</h5>
+        <span class="badge bg-secondary">@variant.mutationType.displayName</span>
     </div>
     <div class="card-body">
         <dl class="row mb-0">
             <dt class="col-sm-4">@messages("variants.detail.rsId")</dt>
             <dd class="col-sm-8">
-                @vwc.variant.rsId.map { rs =>
+                @variant.rsIds.headOption.map { rs =>
                     <a href="https://www.ncbi.nlm.nih.gov/snp/@rs" target="_blank" rel="noopener">@rs <i class="bi bi-box-arrow-up-right" style="font-size: 0.7rem;"></i></a>
                 }.getOrElse("-")
             </dd>
 
             <dt class="col-sm-4">@messages("variants.detail.commonName")</dt>
-            <dd class="col-sm-8">@vwc.variant.commonName.getOrElse("-")</dd>
+            <dd class="col-sm-8">@variant.canonicalName.getOrElse("-")</dd>
 
-            <dt class="col-sm-4">@messages("variants.detail.ancestral")</dt>
-            <dd class="col-sm-8"><code>@vwc.variant.referenceAllele</code></dd>
+            @defining(variant.getCoordinates("hs1").orElse(variant.getCoordinates("GRCh38"))) { primaryCoords =>
+                @primaryCoords.map { coords =>
+                    <dt class="col-sm-4">@messages("variants.detail.ancestral")</dt>
+                    <dd class="col-sm-8"><code>@((coords \ "ref").asOpt[String].getOrElse("?"))</code></dd>
 
-            <dt class="col-sm-4">@messages("variants.detail.derived")</dt>
-            <dd class="col-sm-8"><code>@vwc.variant.alternateAllele</code></dd>
+                    <dt class="col-sm-4">@messages("variants.detail.derived")</dt>
+                    <dd class="col-sm-8"><code>@((coords \ "alt").asOpt[String].getOrElse("?"))</code></dd>
+                }
+            }
 
             <dt class="col-sm-4">@messages("variants.detail.type")</dt>
-            <dd class="col-sm-8">@vwc.variant.variantType</dd>
+            <dd class="col-sm-8">@variant.mutationType.displayName</dd>
+
+            <dt class="col-sm-4">@messages("variants.detail.status")</dt>
+            <dd class="col-sm-8">
+                <span class="badge @if(variant.namingStatus == NamingStatus.Named){bg-success}else if(variant.namingStatus == NamingStatus.PendingReview){bg-warning text-dark}else{bg-secondary}">
+                    @variant.namingStatus.displayName
+                </span>
+            </dd>
         </dl>
 
-        @if(aliases.nonEmpty) {
+        @if(variant.commonNames.nonEmpty || variant.rsIds.size > 1) {
             <hr>
             <h6><i class="bi bi-tags"></i> @messages("variants.detail.altNames")</h6>
-            @views.html.components.variantAliases(aliases)
+            <div class="mb-3">
+                @if(variant.commonNames.nonEmpty) {
+                    <div class="mb-2">
+                        <small class="text-muted">@messages("variants.detail.aliasType.snpNames"):</small>
+                        @for(name <- variant.commonNames) {
+                            <span class="badge bg-outline-secondary border me-1">@name</span>
+                        }
+                    </div>
+                }
+                @if(variant.rsIds.nonEmpty) {
+                    <div class="mb-2">
+                        <small class="text-muted">@messages("variants.detail.aliasType.dbsnp"):</small>
+                        @for(rsId <- variant.rsIds) {
+                            <a href="https://www.ncbi.nlm.nih.gov/snp/@rsId" target="_blank" rel="noopener" class="badge bg-primary text-decoration-none me-1">@rsId</a>
+                        }
+                    </div>
+                }
+            </div>
         }
 
         <hr>
 
         <h6><i class="bi bi-collection"></i> @messages("variants.detail.refBuilds")</h6>
-        @views.html.components.variantBuilds(vwc, variantGroup)
+        @defining(refGenomes) { refs =>
+            @if(refs.size > 1) {
+                <div class="table-responsive">
+                    <table class="table table-sm">
+                        <thead>
+                            <tr>
+                                <th>@messages("variants.detail.build")</th>
+                                <th>@messages("variants.detail.position")</th>
+                                <th>@messages("variants.detail.alleles")</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @for(refGenome <- refs) {
+                                @defining(formatAlleles(refGenome)) { alleles =>
+                                    <tr>
+                                        <td>
+                                            <span class="badge @buildBadgeClass(refGenome)">
+                                                @shortRefGenome(refGenome)
+                                            </span>
+                                        </td>
+                                        <td><code>@formatPosition(refGenome)</code></td>
+                                        <td>
+                                            <code>@alleles._1</code>
+                                            <i class="bi bi-arrow-right text-muted" style="font-size: 0.7rem;"></i>
+                                            <code>@alleles._2</code>
+                                        </td>
+                                    </tr>
+                                }
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            } else if(refs.nonEmpty) {
+                @defining(refs.head) { refGenome =>
+                    @defining(formatAlleles(refGenome)) { alleles =>
+                        <div class="mb-3">
+                            <span class="badge @buildBadgeClass(refGenome)">@shortRefGenome(refGenome)</span>
+                            <code class="ms-2">@formatPosition(refGenome)</code>
+                            <span class="ms-2">
+                                <code>@alleles._1</code>
+                                <i class="bi bi-arrow-right text-muted" style="font-size: 0.7rem;"></i>
+                                <code>@alleles._2</code>
+                            </span>
+                        </div>
+                    }
+                }
+            } else {
+                <p class="text-muted small">@messages("variants.detail.noCoordinates")</p>
+            }
+        }
 
         <hr>
 
@@ -61,5 +161,29 @@
                 }
             </div>
         }
+
+        @variant.notes.map { notes =>
+            <hr>
+            <h6><i class="bi bi-journal-text"></i> @messages("variants.detail.notes")</h6>
+            <p class="small text-muted">@notes</p>
+        }
     </div>
 </div>
+
+@buildBadgeClass(refGenome: String) = @{
+    refGenome match {
+        case "GRCh37" => "bg-warning text-dark"
+        case "GRCh38" => "bg-info"
+        case "hs1" => "bg-success"
+        case _ => "bg-secondary"
+    }
+}
+
+@shortRefGenome(refGenome: String) = @{
+    refGenome match {
+        case "GRCh37" => "GRCh37"
+        case "GRCh38" => "GRCh38"
+        case "hs1" => "T2T"
+        case other => other
+    }
+}

@@ -2,8 +2,7 @@ package repositories
 
 import jakarta.inject.Inject
 import models.*
-import models.dal.domain.genomics.Variant
-import models.domain.genomics.GenbankContig
+import models.domain.genomics.{MutationType, NamingStatus, VariantV2}
 import models.domain.haplogroups.{Haplogroup, HaplogroupVariant}
 import play.api.db.slick.DatabaseConfigProvider
 
@@ -19,15 +18,15 @@ trait HaplogroupVariantRepository {
    * @param query The search query used to filter and retrieve the relevant variants.
    * @return A future containing a sequence of variants that match the provided query.
    */
-  def findVariants(query: String): Future[Seq[Variant]]
+  def findVariants(query: String): Future[Seq[VariantV2]]
 
   /**
    * Retrieves the list of variants associated with a given haplogroup.
    *
    * @param haplogroupId the identifier of the haplogroup for which variants are to be retrieved
-   * @return a future containing a sequence of tuples, where each tuple consists of a Variant and its associated GenbankContig
+   * @return a future containing a sequence of VariantV2 objects
    */
-  def getHaplogroupVariants(haplogroupId: Int): Future[Seq[(Variant, GenbankContig)]]
+  def getHaplogroupVariants(haplogroupId: Int): Future[Seq[VariantV2]]
 
   def countHaplogroupVariants(haplogroupId: Long): Future[Int]
 
@@ -35,9 +34,9 @@ trait HaplogroupVariantRepository {
    * Retrieves a list of genetic variants associated with the given haplogroup.
    *
    * @param haplogroupId The unique identifier of the haplogroup for which the variants are being requested.
-   * @return A Future containing a sequence of Variant objects associated with the specified haplogroup.
+   * @return A Future containing a sequence of VariantV2 objects associated with the specified haplogroup.
    */
-  def getVariantsByHaplogroup(haplogroupId: Int): Future[Seq[Variant]]
+  def getVariantsByHaplogroup(haplogroupId: Int): Future[Seq[VariantV2]]
 
   /**
    * Retrieves a list of haplogroups associated with the specified variant.
@@ -78,9 +77,9 @@ trait HaplogroupVariantRepository {
    * Retrieves variants associated with a haplogroup by its name.
    *
    * @param haplogroupName The name of the haplogroup (e.g., "R-M269")
-   * @return A Future containing a sequence of VariantWithContig for the haplogroup
+   * @return A Future containing a sequence of VariantV2 for the haplogroup
    */
-  def getVariantsByHaplogroupName(haplogroupName: String): Future[Seq[models.domain.genomics.VariantWithContig]]
+  def getVariantsByHaplogroupName(haplogroupName: String): Future[Seq[VariantV2]]
 }
 
 class HaplogroupVariantRepositoryImpl @Inject()(
@@ -89,76 +88,118 @@ class HaplogroupVariantRepositoryImpl @Inject()(
   extends BaseRepository(dbConfigProvider)
     with HaplogroupVariantRepository {
 
-  import models.dal.DatabaseSchema.*
-  import models.dal.DatabaseSchema.domain.genomics.{genbankContigs, variants}
   import models.dal.DatabaseSchema.domain.haplogroups.{haplogroupVariants, haplogroups}
   import models.dal.MyPostgresProfile.api.*
+  import models.dal.domain.genomics.VariantV2Table
+  import play.api.libs.json.Json
+  import slick.jdbc.GetResult
 
-  override def findVariants(query: String): Future[Seq[Variant]] = {
-    val normalizedQuery = query.trim.toLowerCase
+  private val variantsV2 = TableQuery[VariantV2Table]
 
-    def buildQuery = {
-      if (normalizedQuery.startsWith("rs")) {
-        variants.filter(v => v.rsId.isDefined && v.rsId === normalizedQuery)
-      } else if (normalizedQuery.contains(":")) {
-        val parts = normalizedQuery.split(":")
-        parts.length match {
-          case 2 =>
-            for {
-              variant <- variants
-              contig <- genbankContigs if variant.genbankContigId === contig.genbankContigId
-              if (variant.commonName.isDefined && variant.commonName === parts(0)) ||
-                (contig.commonName.isDefined && contig.commonName === parts(0))
-              if variant.position === parts(1).toIntOption.getOrElse(0)
-            } yield variant
-          case 4 =>
-            for {
-              variant <- variants
-              contig <- genbankContigs if variant.genbankContigId === contig.genbankContigId
-              if (variant.commonName.isDefined && variant.commonName === parts(0)) ||
-                (contig.commonName.isDefined && contig.commonName === parts(0))
-              if variant.position === parts(1).toIntOption.getOrElse(0) &&
-                variant.referenceAllele === parts(2) &&
-                variant.alternateAllele === parts(3)
-            } yield variant
-          case _ =>
-            variants.filter(_ => false)
-        }
-      } else {
-        variants.filter(v =>
-          (v.rsId.isDefined && v.rsId === normalizedQuery) ||
-            (v.commonName.isDefined && v.commonName === normalizedQuery)
-        )
-      }
-    }
-
-    runQuery(buildQuery.result)
+  // GetResult for raw SQL queries
+  private implicit val variantV2GetResult: GetResult[VariantV2] = GetResult { r =>
+    VariantV2(
+      variantId = Some(r.nextInt()),
+      canonicalName = r.nextStringOption(),
+      mutationType = MutationType.fromStringOrDefault(r.nextString()),
+      namingStatus = NamingStatus.fromStringOrDefault(r.nextString()),
+      aliases = Json.parse(r.nextString()),
+      coordinates = Json.parse(r.nextString()),
+      definingHaplogroupId = r.nextIntOption(),
+      evidence = Json.parse(r.nextString()),
+      primers = Json.parse(r.nextString()),
+      notes = r.nextStringOption(),
+      createdAt = r.nextTimestamp().toInstant,
+      updatedAt = r.nextTimestamp().toInstant
+    )
   }
 
-  override def getHaplogroupVariants(haplogroupId: Int): Future[Seq[(Variant, GenbankContig)]] = {
+  override def findVariants(query: String): Future[Seq[VariantV2]] = {
+    val normalizedQuery = query.trim.toLowerCase
+    val upperQuery = normalizedQuery.toUpperCase
+    val searchPattern = s"%$upperQuery%"
+
+    // Handle different query formats
+    if (normalizedQuery.startsWith("rs")) {
+      // Search rs_ids in aliases
+      val rsQuery = sql"""
+        SELECT * FROM variant_v2
+        WHERE aliases->'rs_ids' ? $normalizedQuery
+      """.as[VariantV2]
+      runQuery(rsQuery)
+    } else if (normalizedQuery.contains(":")) {
+      // Coordinate-based search (contig:position or contig:position:ref:alt)
+      val parts = normalizedQuery.split(":")
+      parts.length match {
+        case 2 =>
+          val contig = parts(0)
+          val position = parts(1).toIntOption.getOrElse(0)
+          val coordQuery = sql"""
+            SELECT * FROM variant_v2
+            WHERE EXISTS (
+              SELECT 1 FROM jsonb_each(coordinates) AS c(ref_genome, coords)
+              WHERE coords->>'contig' ILIKE $contig
+                AND (coords->>'position')::int = $position
+            )
+          """.as[VariantV2]
+          runQuery(coordQuery)
+        case 4 =>
+          val contig = parts(0)
+          val position = parts(1).toIntOption.getOrElse(0)
+          val ref = parts(2).toUpperCase
+          val alt = parts(3).toUpperCase
+          val coordQuery = sql"""
+            SELECT * FROM variant_v2
+            WHERE EXISTS (
+              SELECT 1 FROM jsonb_each(coordinates) AS c(ref_genome, coords)
+              WHERE coords->>'contig' ILIKE $contig
+                AND (coords->>'position')::int = $position
+                AND UPPER(coords->>'ref') = $ref
+                AND UPPER(coords->>'alt') = $alt
+            )
+          """.as[VariantV2]
+          runQuery(coordQuery)
+        case _ =>
+          Future.successful(Seq.empty)
+      }
+    } else {
+      // Search by canonical name or aliases
+      val nameQuery = sql"""
+        SELECT * FROM variant_v2
+        WHERE UPPER(canonical_name) LIKE $searchPattern
+           OR aliases->'common_names' ? $normalizedQuery
+           OR EXISTS (
+             SELECT 1 FROM jsonb_array_elements_text(aliases->'common_names') AS name
+             WHERE UPPER(name) LIKE $searchPattern
+           )
+        LIMIT 100
+      """.as[VariantV2]
+      runQuery(nameQuery)
+    }
+  }
+
+  override def getHaplogroupVariants(haplogroupId: Int): Future[Seq[VariantV2]] = {
     val query = for {
       hv <- haplogroupVariants if hv.haplogroupId === haplogroupId
-      v <- variants if v.variantId === hv.variantId
-      gc <- genbankContigs if gc.genbankContigId === v.genbankContigId
-    } yield (v, gc)
+      v <- variantsV2 if v.variantId === hv.variantId
+    } yield v
 
     runQuery(query.result)
   }
 
   def countHaplogroupVariants(haplogroupId: Long): Future[Int] = {
-    val q = (for {
+    val q = for {
       hv <- haplogroupVariants if hv.haplogroupId === haplogroupId.toInt
-      v <- variants if hv.variantId === v.variantId
-    } yield v.commonName)
+      v <- variantsV2 if hv.variantId === v.variantId
+    } yield v.canonicalName
 
     runQuery(q.distinct.length.result)
   }
 
-
-  override def getVariantsByHaplogroup(haplogroupId: Int): Future[Seq[Variant]] = {
+  override def getVariantsByHaplogroup(haplogroupId: Int): Future[Seq[VariantV2]] = {
     val query = for {
       hv <- haplogroupVariants if hv.haplogroupId === haplogroupId
-      variant <- variants if variant.variantId === hv.variantId
+      variant <- variantsV2 if variant.variantId === hv.variantId
     } yield variant
 
     runQuery(query.result)
@@ -175,7 +216,7 @@ class HaplogroupVariantRepositoryImpl @Inject()(
 
   override def addVariantToHaplogroup(haplogroupId: Int, variantId: Int): Future[Int] = {
     val insertAction = sqlu"""
-      INSERT INTO haplogroup_variant (haplogroup_id, variant_id)
+      INSERT INTO tree.haplogroup_variant (haplogroup_id, variant_id)
       VALUES ($haplogroupId, $variantId)
       ON CONFLICT (haplogroup_id, variant_id) DO NOTHING
     """
@@ -191,27 +232,38 @@ class HaplogroupVariantRepositoryImpl @Inject()(
   }
 
   override def findHaplogroupsByDefiningVariant(variantId: String, haplogroupType: HaplogroupType): Future[Seq[Haplogroup]] = {
-    val query = for {
-      variant <- variants if variant.rsId === variantId || variant.variantId === variantId.toIntOption
-      haplogroupVariant <- haplogroupVariants if haplogroupVariant.variantId === variant.variantId
-      haplogroup <- haplogroups if
-        haplogroup.haplogroupId === haplogroupVariant.haplogroupId &&
-          haplogroup.haplogroupType === haplogroupType
-    } yield haplogroup
+    // Search by canonical name or variant ID
+    val variantIdOpt = variantId.toIntOption
+
+    val query = variantIdOpt match {
+      case Some(vid) =>
+        for {
+          variant <- variantsV2 if variant.variantId === vid || variant.canonicalName === variantId
+          haplogroupVariant <- haplogroupVariants if haplogroupVariant.variantId === variant.variantId
+          haplogroup <- haplogroups if
+            haplogroup.haplogroupId === haplogroupVariant.haplogroupId &&
+              haplogroup.haplogroupType === haplogroupType
+        } yield haplogroup
+      case None =>
+        for {
+          variant <- variantsV2 if variant.canonicalName === variantId
+          haplogroupVariant <- haplogroupVariants if haplogroupVariant.variantId === variant.variantId
+          haplogroup <- haplogroups if
+            haplogroup.haplogroupId === haplogroupVariant.haplogroupId &&
+              haplogroup.haplogroupType === haplogroupType
+        } yield haplogroup
+    }
 
     runQuery(query.result)
   }
 
-  override def getVariantsByHaplogroupName(haplogroupName: String): Future[Seq[models.domain.genomics.VariantWithContig]] = {
+  override def getVariantsByHaplogroupName(haplogroupName: String): Future[Seq[VariantV2]] = {
     val query = for {
       hg <- haplogroups if hg.name === haplogroupName
       hv <- haplogroupVariants if hv.haplogroupId === hg.haplogroupId
-      v <- variants if v.variantId === hv.variantId
-      c <- genbankContigs if c.genbankContigId === v.genbankContigId
-    } yield (v, c)
+      v <- variantsV2 if v.variantId === hv.variantId
+    } yield v
 
-    runQuery(query.result).map(_.map { case (v, c) =>
-      models.domain.genomics.VariantWithContig(v, c)
-    })
+    runQuery(query.result)
   }
 }

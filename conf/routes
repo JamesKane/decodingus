@@ -117,11 +117,11 @@ GET           /admin/genomics                                                   
 +nocsrf
 POST          /api/private/genomics/ybrowse/update                                               controllers.GenomicsAdminController.triggerYBrowseUpdate()
 
-# Private Variant API (unlisted, X-API-Key secured)
+# Private Variant API
 POST          /api/private/variants/builds                                                       controllers.VariantApiController.bulkAddBuilds()
 POST          /api/private/variants/rsids                                                        controllers.VariantApiController.bulkUpdateRsIds()
 
-# Private Alias Source Management API (X-API-Key secured)
+# Private Alias Source Management API
 GET           /api/private/aliases/sources/stats                                                 controllers.VariantApiController.getAliasSourceStats()
 GET           /api/private/aliases/sources/preview                                               controllers.VariantApiController.previewAliasSourceUpdate(aliasPrefix: String, currentSource: String)
 POST          /api/private/aliases/sources                                                       controllers.VariantApiController.bulkUpdateAliasSources()
@@ -139,9 +139,6 @@ POST          /cookies/accept                                                   
 # User Profile
 GET           /profile                                                                           controllers.ProfileController.view
 POST          /profile                                                                           controllers.ProfileController.update
-
-# Variant API (legacy)
-GET           /api/v1/variants/search                                                            controllers.VariantController.search(name: String)
 
 # Public Variant API
 GET           /api/v1/variants                                                                   controllers.VariantPublicApiController.searchVariants(query: Option[String] ?= None, page: Int ?= 1, pageSize: Int ?= 25)
@@ -218,8 +215,8 @@ POST          /curator/haplogroups/:id/merge                                    
 
 # Curator - Haplogroup-Variant Associations
 GET           /curator/haplogroups/:id/variants/search                                           controllers.CuratorController.searchVariantsForHaplogroup(id: Int, q: Option[String])
-POST          /curator/haplogroups/:hgId/variant-groups/:groupKey                                controllers.CuratorController.addVariantGroupToHaplogroup(hgId: Int, groupKey: String)
-DELETE        /curator/haplogroups/:hgId/variant-groups/:groupKey                                controllers.CuratorController.removeVariantGroupFromHaplogroup(hgId: Int, groupKey: String)
+POST          /curator/haplogroups/:hgId/variants/:variantId                                      controllers.CuratorController.addVariantToHaplogroup(hgId: Int, variantId: Int)
+DELETE        /curator/haplogroups/:hgId/variants/:variantId                                    controllers.CuratorController.removeVariantFromHaplogroup(hgId: Int, variantId: Int)
 GET           /curator/haplogroup-variants/:hvId/history                                         controllers.CuratorController.haplogroupVariantHistory(hvId: Int)
 
 # Curator - Variants
@@ -231,8 +228,7 @@ GET           /curator/variants/:id/panel                                       
 GET           /curator/variants/:id/edit                                                         controllers.CuratorController.editVariantForm(id: Int)
 POST          /curator/variants/:id                                                              controllers.CuratorController.updateVariant(id: Int)
 DELETE        /curator/variants/:id                                                              controllers.CuratorController.deleteVariant(id: Int)
-GET           /curator/variants/group/:groupKey/edit                                             controllers.CuratorController.editVariantGroupForm(groupKey: String)
-POST          /curator/variants/group/:groupKey                                                  controllers.CuratorController.updateVariantGroup(groupKey: String)
+# Variant group editing removed - now using VariantV2 with consolidated coordinates
 
 # Curator - Audit
 GET           /curator/audit/:entityType/:entityId                                               controllers.CuratorController.auditHistory(entityType: String, entityId: Int)

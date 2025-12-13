@@ -2,7 +2,7 @@ package services
 
 import models.HaplogroupType
 import models.api.haplogroups.*
-import models.dal.domain.genomics.Variant
+import models.domain.genomics.VariantV2
 import models.domain.haplogroups.{Haplogroup, HaplogroupProvenance}
 import org.mockito.ArgumentMatchers.{any, anyInt, anyString}
 import org.mockito.Mockito.{never, reset, verify, when}
@@ -11,7 +11,8 @@ import org.scalatest.concurrent.ScalaFutures
 import org.scalatest.time.{Millis, Seconds, Span}
 import org.scalatestplus.mockito.MockitoSugar
 import org.scalatestplus.play.PlaySpec
-import repositories.{HaplogroupCoreRepository, HaplogroupVariantRepository, VariantAliasRepository, VariantRepository}
+import play.api.libs.json.Json
+import repositories.{HaplogroupCoreRepository, HaplogroupVariantRepository, VariantV2Repository}
 
 import java.time.LocalDateTime
 import scala.concurrent.{ExecutionContext, Future}
@@ -24,8 +25,7 @@ class HaplogroupTreeMergeServiceSpec extends PlaySpec with MockitoSugar with Sca
   // Mocks
   var mockHaplogroupRepo: HaplogroupCoreRepository = _
   var mockVariantRepo: HaplogroupVariantRepository = _
-  var mockVariantRepository: VariantRepository = _
-  var mockVariantAliasRepository: VariantAliasRepository = _
+  var mockVariantV2Repository: VariantV2Repository = _
   var service: HaplogroupTreeMergeService = _
 
   // Test fixtures
@@ -66,13 +66,11 @@ class HaplogroupTreeMergeServiceSpec extends PlaySpec with MockitoSugar with Sca
   override def beforeEach(): Unit = {
     mockHaplogroupRepo = mock[HaplogroupCoreRepository]
     mockVariantRepo = mock[HaplogroupVariantRepository]
-    mockVariantRepository = mock[VariantRepository]
-    mockVariantAliasRepository = mock[VariantAliasRepository]
+    mockVariantV2Repository = mock[VariantV2Repository]
     service = new HaplogroupTreeMergeService(
       mockHaplogroupRepo,
       mockVariantRepo,
-      mockVariantRepository,
-      mockVariantAliasRepository
+      mockVariantV2Repository
     )
   }
 
@@ -363,7 +361,7 @@ class HaplogroupTreeMergeServiceSpec extends PlaySpec with MockitoSugar with Sca
         .thenReturn(Future.successful(101))
       when(mockHaplogroupRepo.updateProvenance(anyInt(), any[HaplogroupProvenance]))
         .thenReturn(Future.successful(true))
-      when(mockVariantRepository.searchByName(anyString()))
+      when(mockVariantV2Repository.searchByName(anyString()))
         .thenReturn(Future.successful(Seq.empty))
 
       val sourceTree = createPhyloNode(

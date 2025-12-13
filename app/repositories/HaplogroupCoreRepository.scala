@@ -447,7 +447,7 @@ class HaplogroupCoreRepositoryImpl @Inject()(
 
   override def getAllWithVariantNames(haplogroupType: HaplogroupType): Future[Seq[(Haplogroup, Seq[String])]] = {
     import models.dal.DatabaseSchema.domain.haplogroups.haplogroupVariants
-    import models.dal.DatabaseSchema.domain.genomics.variants
+    import models.dal.DatabaseSchema.domain.genomics.variantsV2
 
     // Query haplogroups with their associated variant names via join
     val query = for {
@@ -455,12 +455,12 @@ class HaplogroupCoreRepositoryImpl @Inject()(
     } yield hg
 
     runQuery(query.result).flatMap { hgList =>
-      // For each haplogroup, fetch its variant names (using commonName from Variant table)
+      // For each haplogroup, fetch its variant names (using canonicalName from VariantV2 table)
       val futures = hgList.map { hg =>
         val variantQuery = for {
           hv <- haplogroupVariants.filter(_.haplogroupId === hg.id.get)
-          v <- variants.filter(_.variantId === hv.variantId)
-        } yield v.commonName
+          v <- variantsV2.filter(_.variantId === hv.variantId)
+        } yield v.canonicalName
 
         runQuery(variantQuery.result).map { variantNames =>
           (hg, variantNames.flatten) // Filter out None values

@@ -1,10 +1,10 @@
 package services
 
 import jakarta.inject.{Inject, Singleton}
-import models.domain.genomics.VariantGroup
+import models.domain.genomics.VariantV2
 import models.domain.haplogroups.Haplogroup
 import play.api.Logging
-import repositories.{HaplogroupCoreRepository, HaplogroupVariantRepository, VariantRepository}
+import repositories.{HaplogroupCoreRepository, HaplogroupVariantRepository, VariantV2Repository}
 
 import java.util.UUID
 import scala.concurrent.{ExecutionContext, Future}
@@ -16,7 +16,7 @@ import scala.concurrent.{ExecutionContext, Future}
 class TreeRestructuringService @Inject()(
     haplogroupRepository: HaplogroupCoreRepository,
     haplogroupVariantRepository: HaplogroupVariantRepository,
-    variantRepository: VariantRepository,
+    variantV2Repository: VariantV2Repository,
     auditService: CuratorAuditService
 )(implicit ec: ExecutionContext) extends Logging {
 
@@ -25,7 +25,7 @@ class TreeRestructuringService @Inject()(
    *
    * @param parentId ID of the parent haplogroup
    * @param newHaplogroup The new subclade haplogroup to create
-   * @param variantGroupKeys Keys of variant groups to MOVE from parent to new child
+   * @param variantIds IDs of variants to MOVE from parent to new child
    * @param childIds IDs of existing children to re-parent under new subclade
    * @param userId User performing the operation
    * @return ID of newly created haplogroup
@@ -33,7 +33,7 @@ class TreeRestructuringService @Inject()(
   def splitBranch(
       parentId: Int,
       newHaplogroup: Haplogroup,
-      variantGroupKeys: Seq[String],
+      variantIds: Seq[Int],
       childIds: Seq[Int],
       userId: UUID
   ): Future[Int] = {
@@ -53,7 +53,7 @@ class TreeRestructuringService @Inject()(
       newId <- haplogroupRepository.createWithParent(newHaplogroup, Some(parentId), "split-operation")
 
       // Move variants from parent to new child
-      movedVariantCount <- moveVariants(parentId, newId, variantGroupKeys)
+      movedVariantCount <- moveVariants(parentId, newId, variantIds)
 
       // Re-parent selected children to the new subclade
       _ <- Future.traverse(childIds) { childId =>
@@ -90,13 +90,10 @@ class TreeRestructuringService @Inject()(
 
       // Get child's variants to move up
       childVariants <- haplogroupVariantRepository.getHaplogroupVariants(childId)
-      childVariantGroups = variantRepository.groupVariants(childVariants.map { case (v, c) =>
-        models.domain.genomics.VariantWithContig(v, c)
-      })
 
       // Get parent's existing variants to check for duplicates
       parentVariants <- haplogroupVariantRepository.getHaplogroupVariants(parentId)
-      parentVariantIds = parentVariants.map(_._1.variantId).flatten.toSet
+      parentVariantIds = parentVariants.flatMap(_.variantId).toSet
 
       // Move unique variants from child to parent
       movedVariantCount <- moveVariantsUp(childId, parentId, parentVariantIds)
@@ -116,26 +113,19 @@ class TreeRestructuringService @Inject()(
   }
 
   /**
-   * Move variant groups from source haplogroup to target haplogroup.
+   * Move variants from source haplogroup to target haplogroup.
    */
-  private def moveVariants(sourceId: Int, targetId: Int, groupKeys: Seq[String]): Future[Int] = {
-    if (groupKeys.isEmpty) {
+  private def moveVariants(sourceId: Int, targetId: Int, variantIds: Seq[Int]): Future[Int] = {
+    if (variantIds.isEmpty) {
       Future.successful(0)
     } else {
-      // For each group key, get all variants and move them
-      Future.traverse(groupKeys) { groupKey =>
+      Future.traverse(variantIds) { variantId =>
         for {
-          variants <- variantRepository.getVariantsByGroupKey(groupKey)
-          movedCount <- Future.traverse(variants) { vwc =>
-            val variantId = vwc.variant.variantId.get
-            for {
-              // Remove from source
-              _ <- haplogroupVariantRepository.removeVariantFromHaplogroup(sourceId, variantId)
-              // Add to target
-              _ <- haplogroupVariantRepository.addVariantToHaplogroup(targetId, variantId)
-            } yield 1
-          }
-        } yield movedCount.sum
+          // Remove from source
+          _ <- haplogroupVariantRepository.removeVariantFromHaplogroup(sourceId, variantId)
+          // Add to target
+          _ <- haplogroupVariantRepository.addVariantToHaplogroup(targetId, variantId)
+        } yield 1
       }.map(_.sum)
     }
   }
@@ -145,7 +135,7 @@ class TreeRestructuringService @Inject()(
    */
   private def moveVariantsUp(childId: Int, parentId: Int, existingParentVariantIds: Set[Int]): Future[Int] = {
     for {
-      childVariants <- haplogroupVariantRepository.getVariantsByHaplogroup(childId)
+      childVariants <- haplogroupVariantRepository.getHaplogroupVariants(childId)
       childVariantIds = childVariants.flatMap(_.variantId)
 
       // Only move variants that don't already exist on parent
@@ -169,11 +159,8 @@ class TreeRestructuringService @Inject()(
       parentOpt <- haplogroupRepository.findById(parentId)
       parent = parentOpt.getOrElse(throw new IllegalArgumentException(s"Parent haplogroup $parentId not found"))
       variants <- haplogroupVariantRepository.getHaplogroupVariants(parentId)
-      variantGroups = variantRepository.groupVariants(variants.map { case (v, c) =>
-        models.domain.genomics.VariantWithContig(v, c)
-      })
       children <- haplogroupRepository.getDirectChildren(parentId)
-    } yield SplitPreview(parent, variantGroups, children)
+    } yield SplitPreview(parent, variants, children)
   }
 
   /**
@@ -188,21 +175,17 @@ class TreeRestructuringService @Inject()(
       parent = parentOpt.getOrElse(throw new IllegalArgumentException(s"Haplogroup $childId has no parent"))
 
       childVariants <- haplogroupVariantRepository.getHaplogroupVariants(childId)
-      childVariantGroups = variantRepository.groupVariants(childVariants.map { case (v, c) =>
-        models.domain.genomics.VariantWithContig(v, c)
-      })
-
       grandchildren <- haplogroupRepository.getDirectChildren(childId)
 
       parentVariants <- haplogroupVariantRepository.getHaplogroupVariants(parent.id.get)
-      parentVariantIds = parentVariants.map(_._1.variantId).flatten.toSet
+      parentVariantIds = parentVariants.flatMap(_.variantId).toSet
 
       // Calculate unique variants that will be moved
-      uniqueVariantGroups = childVariantGroups.filter { group =>
-        group.variantIds.exists(!parentVariantIds.contains(_))
+      uniqueVariants = childVariants.filter { v =>
+        v.variantId.exists(!parentVariantIds.contains(_))
       }
 
-    } yield MergePreview(child, parent, childVariantGroups, uniqueVariantGroups, grandchildren)
+    } yield MergePreview(child, parent, childVariants, uniqueVariants, grandchildren)
   }
 }
 
@@ -211,7 +194,7 @@ class TreeRestructuringService @Inject()(
  */
 case class SplitPreview(
     parent: Haplogroup,
-    variantGroups: Seq[VariantGroup],
+    variants: Seq[VariantV2],
     children: Seq[Haplogroup]
 )
 
@@ -221,7 +204,7 @@ case class SplitPreview(
 case class MergePreview(
     child: Haplogroup,
     parent: Haplogroup,
-    allVariantGroups: Seq[VariantGroup],
-    uniqueVariantGroups: Seq[VariantGroup],
+    allVariants: Seq[VariantV2],
+    uniqueVariants: Seq[VariantV2],
     grandchildren: Seq[Haplogroup]
 )

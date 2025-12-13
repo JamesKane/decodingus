@@ -136,12 +136,9 @@ class GenomeRegionsRepositoryImpl @Inject()(
     db.run(query)
   }
 
+  // STR marker table was replaced in schema migration - stub for now
   override def getStrMarkersForContig(contigId: Int): Future[Seq[StrMarker]] = {
-    val query = strMarkers
-      .filter(_.genbankContigId === contigId)
-      .sortBy(_.startPos)
-      .result
-    db.run(query)
+    Future.successful(Seq.empty)
   }
 
   override def getFullBuildData(referenceGenome: String): Future[FullBuildData] = {
@@ -168,21 +165,12 @@ class GenomeRegionsRepositoryImpl @Inject()(
         db.run(query)
       } else Future.successful(Seq.empty)
 
-      // Fetch all STR markers for the build's contigs
-      allStrMarkers <- if (contigIds.nonEmpty) {
-        val query = strMarkers
-          .filter(_.genbankContigId.inSet(contigIds))
-          .sortBy(s => (s.genbankContigId, s.startPos))
-          .result
-        db.run(query)
-      } else Future.successful(Seq.empty)
-
     } yield FullBuildData(
       version = version,
       contigs = contigs,
       regions = allRegions.groupBy(_.genbankContigId),
       cytobands = allCytobands.groupBy(_.genbankContigId),
-      strMarkers = allStrMarkers.groupBy(_.genbankContigId)
+      strMarkers = Map.empty  // STR marker table was replaced in schema migration
     )
   }
 
@@ -298,56 +286,39 @@ class GenomeRegionsRepositoryImpl @Inject()(
 
   // ============================================================================
   // StrMarker CRUD implementations
+  // NOTE: STR marker table was replaced with str_mutation_rate in schema migration.
+  // These methods are stubbed to maintain API compatibility.
   // ============================================================================
 
   override def findStrMarkerById(id: Int): Future[Option[StrMarker]] = {
-    db.run(strMarkers.filter(_.id === id).result.headOption)
+    Future.successful(None)
   }
 
   override def findStrMarkerByIdWithContig(id: Int): Future[Option[(StrMarker, GenbankContig)]] = {
-    val query = for {
-      marker <- strMarkers if marker.id === id
-      contig <- genbankContigs if contig.genbankContigId === marker.genbankContigId
-    } yield (marker, contig)
-    db.run(query.result.headOption)
+    Future.successful(None)
   }
 
   override def findStrMarkersByBuild(referenceGenome: String, offset: Int, limit: Int): Future[Seq[(StrMarker, GenbankContig)]] = {
-    val query = for {
-      marker <- strMarkers
-      contig <- genbankContigs if contig.genbankContigId === marker.genbankContigId && contig.referenceGenome === referenceGenome
-    } yield (marker, contig)
-    db.run(query.sortBy(_._1.startPos).drop(offset).take(limit).result)
+    Future.successful(Seq.empty)
   }
 
   override def countStrMarkersByBuild(referenceGenome: Option[String]): Future[Int] = {
-    val query = referenceGenome match {
-      case Some(ref) =>
-        for {
-          marker <- strMarkers
-          contig <- genbankContigs if contig.genbankContigId === marker.genbankContigId && contig.referenceGenome === ref
-        } yield marker
-      case None => strMarkers
-    }
-    db.run(query.length.result)
+    Future.successful(0)
   }
 
   override def createStrMarker(marker: StrMarker): Future[Int] = {
-    db.run((strMarkers returning strMarkers.map(_.id)) += marker)
+    Future.failed(new UnsupportedOperationException("STR marker table has been replaced with str_mutation_rate"))
   }
 
   override def updateStrMarker(id: Int, marker: StrMarker): Future[Boolean] = {
-    val query = strMarkers.filter(_.id === id).map(m =>
-      (m.genbankContigId, m.name, m.startPos, m.endPos, m.period, m.verified, m.note)
-    ).update((marker.genbankContigId, marker.name, marker.startPos, marker.endPos, marker.period, marker.verified, marker.note))
-    db.run(query).map(_ > 0)
+    Future.successful(false)
   }
 
   override def deleteStrMarker(id: Int): Future[Boolean] = {
-    db.run(strMarkers.filter(_.id === id).delete).map(_ > 0)
+    Future.successful(false)
   }
 
   override def bulkCreateStrMarkers(markers: Seq[StrMarker]): Future[Seq[Int]] = {
-    db.run((strMarkers returning strMarkers.map(_.id)) ++= markers)
+    Future.failed(new UnsupportedOperationException("STR marker table has been replaced with str_mutation_rate"))
   }
 }

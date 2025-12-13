@@ -70,16 +70,21 @@ object DatabaseSchema {
       val genbankContigs = TableQuery[GenbankContigsTable]
       val geneAnnotations = TableQuery[GeneAnnotationsTable]
       val populations = TableQuery[PopulationsTable]
-      val sequenceFiles = TableQuery[SequenceFilesTable] // Added back
+      val sequenceFiles = TableQuery[SequenceFilesTable]
 
       val sequenceLibraries = TableQuery[SequenceLibrariesTable]
       val sequencingLabs = TableQuery[SequencingLabsTable]
       val sequencerInstruments = TableQuery[SequencerInstrumentsTable]
       val specimenDonors = TableQuery[SpecimenDonorsTable]
       val validationServices = TableQuery[ValidationServicesTable]
-      val variants = TableQuery[VariantsTable]
-      val variantAliases = TableQuery[VariantAliasTable]
       val testTypeDefinition = TableQuery[TestTypeTable]
+
+      // Consolidated variant schema (replaces variant + variant_alias)
+      val variantsV2 = TableQuery[VariantV2Table]
+      val haplogroupCharacterStates = TableQuery[HaplogroupCharacterStateTable]
+      val branchMutations = TableQuery[BranchMutationTable]
+      val biosampleVariantCalls = TableQuery[BiosampleVariantCallTable]
+      val strMutationRates = TableQuery[StrMutationRateTable]
 
       // New tables for Atmosphere Lexicon sync
       val populationBreakdowns = TableQuery[PopulationBreakdownTable]
@@ -92,7 +97,6 @@ object DatabaseSchema {
       val genomeRegions = TableQuery[GenomeRegionTable]
       val genomeRegionVersions = TableQuery[GenomeRegionVersionTable]
       val cytobands = TableQuery[CytobandTable]
-      val strMarkers = TableQuery[StrMarkerTable]
     }
 
     object haplogroups {

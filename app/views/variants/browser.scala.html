@@ -1,6 +1,6 @@
 @import org.webjars.play.WebJarsUtil
-@import models.domain.genomics.VariantGroup
-@(variantGroups: Seq[VariantGroup], query: Option[String], currentPage: Int, totalPages: Int, pageSize: Int, totalCount: Int)(implicit request: RequestHeader, messages: Messages, webJarsUtil: WebJarsUtil)
+@import models.domain.genomics.VariantV2
+@(variants: Seq[VariantV2], query: Option[String], currentPage: Int, totalPages: Int, pageSize: Int, totalCount: Int)(implicit request: RequestHeader, messages: Messages, webJarsUtil: WebJarsUtil)
 
 @main(messages("variants.browser.title")) {
     <style>
@@ -49,7 +49,7 @@
                         </div>
 
                         <div id="variants-table">
-                            @listFragment(variantGroups, query, currentPage, totalPages, pageSize, totalCount)
+                            @listFragment(variants, query, currentPage, totalPages, pageSize, totalCount)
                         </div>
                     </div>
                 </div>

@@ -88,7 +88,7 @@ class VariantPublicApiController @Inject()(
       ).withHeaders(
         "Content-Type" -> "application/gzip",
         "X-Variant-Count" -> metadata.map(_.variantCount.toString).getOrElse("unknown"),
-        "X-Generated-At" -> metadata.map(_.generatedAt).getOrElse("unknown")
+        "X-Generated-At" -> metadata.map(_.generatedAt.toString).getOrElse("unknown")
       )
     } else {
       NotFound(Json.obj(

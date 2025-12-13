@@ -1,8 +1,32 @@
 @import org.webjars.play.WebJarsUtil
 @import controllers.SplitBranchFormData
 @import models.domain.haplogroups.Haplogroup
-@import models.domain.genomics.VariantGroup
-@(parent: Haplogroup, variantGroups: Seq[VariantGroup], children: Seq[Haplogroup], form: Form[SplitBranchFormData])(implicit request: RequestHeader, messages: Messages, webJarsUtil: WebJarsUtil)
+@import models.domain.genomics.VariantV2
+@import play.api.libs.json.JsObject
+@(parent: Haplogroup, variants: Seq[VariantV2], children: Seq[Haplogroup], form: Form[SplitBranchFormData])(implicit request: RequestHeader, messages: Messages, webJarsUtil: WebJarsUtil)
+
+@* Helper to extract reference genomes from coordinates *@
+@refGenomes(v: VariantV2) = @{
+    v.coordinates.asOpt[Map[String, JsObject]].map(_.keys.toSeq.sorted).getOrElse(Seq.empty)
+}
+
+@* Helper to format position for a specific reference *@
+@formatPosition(v: VariantV2, refGenome: String) = @{
+    v.getCoordinates(refGenome).map { coords =>
+        val contig = (coords \ "contig").asOpt[String].getOrElse("?")
+        val pos = (coords \ "position").asOpt[Int].getOrElse(0)
+        s"$contig:$pos"
+    }.getOrElse("-")
+}
+
+@* Helper to format alleles for a specific reference *@
+@formatAlleles(v: VariantV2, refGenome: String) = @{
+    v.getCoordinates(refGenome).map { coords =>
+        val ref = (coords \ "ref").asOpt[String].getOrElse("?")
+        val alt = (coords \ "alt").asOpt[String].getOrElse("?")
+        s"$ref→$alt"
+    }.getOrElse("-")
+}
 
 @main(s"Split ${parent.name}") {
     <div class="container py-5">
@@ -95,33 +119,35 @@
 
                             <hr>
 
-                            @if(variantGroups.nonEmpty) {
+                            @if(variants.nonEmpty) {
                                 <h6 class="text-muted mb-3">
                                     <i class="bi bi-code-square"></i> Variants to MOVE to new subclade
                                     <small class="text-muted">(will be removed from @parent.name)</small>
                                 </h6>
 
                                 <div class="mb-4">
-                                    @for(group <- variantGroups) {
+                                    @for(variant <- variants) {
+                                        @defining(refGenomes(variant)) { refs =>
                                         <div class="form-check">
                                             <input class="form-check-input"
                                                    type="checkbox"
-                                                   name="variantGroupKeys[]"
-                                                   value="@group.groupKey"
-                                                   id="variant-@group.groupKey"
-                                                   @if(form("variantGroupKeys").indexes.flatMap(i => form(s"variantGroupKeys[$i]").value).contains(group.groupKey)){checked}>
-                                            <label class="form-check-label" for="variant-@group.groupKey">
-                                                <strong>@group.displayName</strong>
-                                                <span class="badge bg-secondary ms-1">@group.buildCount build@if(group.buildCount != 1){s}</span>
+                                                   name="variantIds[]"
+                                                   value="@variant.variantId.get"
+                                                   id="variant-@variant.variantId.get"
+                                                   @if(form("variantIds").indexes.flatMap(i => form(s"variantIds[$i]").value).map(_.toInt).contains(variant.variantId.get)){checked}>
+                                            <label class="form-check-label" for="variant-@variant.variantId.get">
+                                                <strong>@variant.displayName</strong>
+                                                <span class="badge bg-secondary ms-1">@refs.size build@if(refs.size != 1){s}</span>
                                                 <div class="small text-muted ps-2">
-                                                    @for(vwc <- group.variantsSorted) {
-                                                        <span class="badge bg-info me-1">@vwc.shortReferenceGenome</span>
-                                                        <code>@vwc.formattedPosition</code>
-                                                        <span class="me-2">@vwc.variant.referenceAllele&rarr;@vwc.variant.alternateAllele</span>
+                                                    @for(refGenome <- refs) {
+                                                        <span class="badge @buildBadgeClass(refGenome) me-1">@refGenome</span>
+                                                        <code>@formatPosition(variant, refGenome)</code>
+                                                        <span class="me-2">@Html(formatAlleles(variant, refGenome))</span>
                                                     }
                                                 </div>
                                             </label>
                                         </div>
+                                        }
                                     }
                                 </div>
                             } else {
@@ -177,4 +203,13 @@
             </div>
         </div>
     </div>
+}
+
+@buildBadgeClass(refGenome: String) = @{
+    refGenome match {
+        case "GRCh37" => "bg-warning text-dark"
+        case "GRCh38" => "bg-info"
+        case "hs1" => "bg-success"
+        case _ => "bg-secondary"
+    }
 }

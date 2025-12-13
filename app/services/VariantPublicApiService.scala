@@ -2,25 +2,30 @@ package services
 
 import jakarta.inject.{Inject, Singleton}
 import models.api.*
-import models.domain.genomics.VariantGroup
+import models.domain.genomics.VariantV2
 import play.api.cache.AsyncCacheApi
-import repositories.{HaplogroupVariantRepository, VariantAliasRepository, VariantRepository}
+import play.api.libs.json.JsObject
+import repositories.{HaplogroupVariantRepository, VariantV2Repository}
 
 import scala.concurrent.duration.*
 import scala.concurrent.{ExecutionContext, Future}
 
 /**
  * Service for the public Variant API.
- * Transforms internal data models to forward-compatible API DTOs.
+ * Transforms internal VariantV2 models to forward-compatible API DTOs.
  * Results are cached for performance.
+ *
+ * With the consolidated VariantV2 schema, this service is much simpler:
+ * - No grouping logic needed (variants are already consolidated)
+ * - Aliases are embedded in JSONB (no separate repository)
+ * - Coordinates for all assemblies are in one row
  */
 @Singleton
 class VariantPublicApiService @Inject()(
-                                         variantRepository: VariantRepository,
-                                         variantAliasRepository: VariantAliasRepository,
-                                         haplogroupVariantRepository: HaplogroupVariantRepository,
-                                         cache: AsyncCacheApi
-                                       )(implicit ec: ExecutionContext) {
+  variantV2Repository: VariantV2Repository,
+  haplogroupVariantRepository: HaplogroupVariantRepository,
+  cache: AsyncCacheApi
+)(implicit ec: ExecutionContext) {
 
   private val SearchCacheDuration = 10.minutes
   private val DetailCacheDuration = 30.minutes
@@ -35,8 +40,8 @@ class VariantPublicApiService @Inject()(
       val offset = (page - 1) * pageSize
 
       for {
-        (groups, totalCount) <- variantRepository.searchGroupedPaginated(query.getOrElse(""), offset, pageSize)
-        dtos <- Future.traverse(groups)(groupToDto)
+        (variants, totalCount) <- variantV2Repository.searchPaginated(query.getOrElse(""), offset, pageSize)
+        dtos <- Future.traverse(variants)(variantToDto)
       } yield {
         val totalPages = Math.max(1, ((totalCount + pageSize - 1) / pageSize))
         VariantSearchResponse(
@@ -58,19 +63,12 @@ class VariantPublicApiService @Inject()(
 
     cache.getOrElseUpdate(cacheKey, DetailCacheDuration) {
       for {
-        variantOpt <- variantRepository.findByIdWithContig(variantId)
+        variantOpt <- variantV2Repository.findById(variantId)
         result <- variantOpt match {
-          case Some(vwc) =>
-            // Get all variants in the same group (different builds)
-            val groupKey = vwc.variant.commonName.orElse(vwc.variant.rsId).getOrElse(s"variant_$variantId")
+          case Some(variant) =>
             for {
-              allBuilds <- variantRepository.getVariantsByGroupKey(groupKey)
-              aliases <- variantAliasRepository.findByVariantId(variantId)
               haplogroups <- haplogroupVariantRepository.getHaplogroupsByVariant(variantId)
-            } yield {
-              val group = variantRepository.groupVariants(allBuilds).headOption
-              group.map(g => buildDto(g, aliases, haplogroups.headOption))
-            }
+            } yield Some(buildDto(variant, haplogroups.headOption))
           case None =>
             Future.successful(None)
         }
@@ -85,73 +83,55 @@ class VariantPublicApiService @Inject()(
     val cacheKey = s"api-variants-by-haplogroup:$haplogroupName"
 
     cache.getOrElseUpdate(cacheKey, DetailCacheDuration) {
-      for {
-        variants <- haplogroupVariantRepository.getVariantsByHaplogroupName(haplogroupName)
-        dtos <- Future.traverse(variants) { vwc =>
-          for {
-            aliases <- variantAliasRepository.findByVariantId(vwc.variant.variantId.get)
-          } yield {
-            // Single build variant - create a minimal group
-            val singleGroup = VariantGroup(
-              groupKey = vwc.variant.commonName.orElse(vwc.variant.rsId).getOrElse(s"variant_${vwc.variant.variantId.get}"),
-              variants = Seq(vwc),
-              rsId = vwc.variant.rsId,
-              commonName = vwc.variant.commonName
-            )
-            buildDto(singleGroup, aliases, None) // Haplogroup already known from context
-          }
-        }
-      } yield dtos
+      haplogroupVariantRepository.getVariantsByHaplogroupName(haplogroupName).map { variants =>
+        variants.map(v => buildDto(v, None)) // Haplogroup already known from context
+      }
     }
   }
 
   /**
-   * Transform a VariantGroup to a PublicVariantDTO.
+   * Transform a VariantV2 to a PublicVariantDTO.
    */
-  private def groupToDto(group: VariantGroup): Future[PublicVariantDTO] = {
-    val primaryVariantId = group.variants.headOption.flatMap(_.variant.variantId).getOrElse(0)
+  private def variantToDto(variant: VariantV2): Future[PublicVariantDTO] = {
+    val variantId = variant.variantId.getOrElse(0)
 
     for {
-      aliases <- if (primaryVariantId > 0) variantAliasRepository.findByVariantId(primaryVariantId) else Future.successful(Seq.empty)
-      haplogroups <- if (primaryVariantId > 0) haplogroupVariantRepository.getHaplogroupsByVariant(primaryVariantId) else Future.successful(Seq.empty)
-    } yield buildDto(group, aliases, haplogroups.headOption)
+      haplogroups <- if (variantId > 0) haplogroupVariantRepository.getHaplogroupsByVariant(variantId) else Future.successful(Seq.empty)
+    } yield buildDto(variant, haplogroups.headOption)
   }
 
   /**
-   * Build the DTO from domain objects.
+   * Build the DTO from a VariantV2.
+   *
+   * With VariantV2, the transformation is straightforward:
+   * - Coordinates come directly from JSONB
+   * - Aliases come directly from JSONB
+   * - No grouping or joining needed
    */
   private def buildDto(
-                        group: VariantGroup,
-                        aliases: Seq[models.dal.domain.genomics.VariantAlias],
-                        definingHaplogroup: Option[models.domain.haplogroups.Haplogroup]
-                      ): PublicVariantDTO = {
+    variant: VariantV2,
+    definingHaplogroup: Option[models.domain.haplogroups.Haplogroup]
+  ): PublicVariantDTO = {
 
-    val primaryVariant = group.variants.headOption.map(_.variant)
-    val primaryVariantId = primaryVariant.flatMap(_.variantId).getOrElse(0)
-
-    // Build coordinates map from all builds
-    val coordinates: Map[String, VariantCoordinateDTO] = group.variants.flatMap { vwc =>
-      vwc.contig.referenceGenome.map { refGenome =>
-        // Normalize reference genome name (e.g., "GRCh38.p14" -> "GRCh38")
-        val shortRef = refGenome.split("\\.").head
-        shortRef -> VariantCoordinateDTO(
-          contig = vwc.contig.commonName.getOrElse(vwc.contig.accession),
-          position = vwc.variant.position,
-          ref = vwc.variant.referenceAllele,
-          alt = vwc.variant.alternateAllele
+    // Extract coordinates from JSONB - one entry per reference genome
+    val coordinates: Map[String, VariantCoordinateDTO] = variant.coordinates.asOpt[Map[String, JsObject]].map { coordsMap =>
+      coordsMap.flatMap { case (refGenome, coords) =>
+        for {
+          contig <- (coords \ "contig").asOpt[String]
+          position <- (coords \ "position").asOpt[Int]
+          ref <- (coords \ "ref").asOpt[String]
+          alt <- (coords \ "alt").asOpt[String]
+        } yield refGenome -> VariantCoordinateDTO(
+          contig = contig,
+          position = position,
+          ref = ref,
+          alt = alt
         )
       }
-    }.toMap
+    }.getOrElse(Map.empty)
 
-    // Build aliases DTO
-    val aliasesDto = buildAliasesDto(aliases, primaryVariant)
-
-    // Determine naming status based on current data
-    val namingStatus = (group.commonName, group.rsId) match {
-      case (Some(_), _) => "NAMED"
-      case (None, Some(_)) => "NAMED"  // rsId counts as named
-      case (None, None) => "UNNAMED"
-    }
+    // Extract aliases from JSONB
+    val aliasesDto = buildAliasesDto(variant)
 
     // Build defining haplogroup DTO
     val definingHaplogroupDto = definingHaplogroup.map { hg =>
@@ -162,10 +142,10 @@ class VariantPublicApiService @Inject()(
     }
 
     PublicVariantDTO(
-      variantId = primaryVariantId,
-      canonicalName = group.commonName.orElse(group.rsId),
-      variantType = primaryVariant.map(_.variantType).getOrElse("SNP"),
-      namingStatus = namingStatus,
+      variantId = variant.variantId.getOrElse(0),
+      canonicalName = variant.canonicalName,
+      variantType = variant.mutationType.dbValue,
+      namingStatus = variant.namingStatus.dbValue,
       coordinates = coordinates,
       aliases = aliasesDto,
       definingHaplogroup = definingHaplogroupDto
@@ -173,31 +153,30 @@ class VariantPublicApiService @Inject()(
   }
 
   /**
-   * Build aliases DTO from alias records.
+   * Build aliases DTO from VariantV2 JSONB aliases field.
    */
-  private def buildAliasesDto(
-                               aliases: Seq[models.dal.domain.genomics.VariantAlias],
-                               primaryVariant: Option[models.dal.domain.genomics.Variant]
-                             ): VariantAliasesDTO = {
-    // Group aliases by type
-    val byType = aliases.groupBy(_.aliasType)
+  private def buildAliasesDto(variant: VariantV2): VariantAliasesDTO = {
+    val aliases = variant.aliases
 
-    val commonNames = byType.getOrElse("common_name", Seq.empty).map(_.aliasValue).distinct
-    val rsIds = byType.getOrElse("rs_id", Seq.empty).map(_.aliasValue).distinct
+    // Extract common_names array
+    val commonNames = (aliases \ "common_names").asOpt[Seq[String]].getOrElse(Seq.empty)
 
-    // Group by source
-    val bySource = aliases.groupBy(_.source.getOrElse("unknown")).map {
-      case (source, sourceAliases) => source -> sourceAliases.map(_.aliasValue).distinct
+    // Extract rs_ids array
+    val rsIds = (aliases \ "rs_ids").asOpt[Seq[String]].getOrElse(Seq.empty)
+
+    // Extract sources map
+    val sources = (aliases \ "sources").asOpt[Map[String, Seq[String]]].getOrElse(Map.empty)
+
+    // Include canonical name if not already in common_names
+    val allCommonNames = variant.canonicalName match {
+      case Some(name) if !commonNames.contains(name) => name +: commonNames
+      case _ => commonNames
     }
-
-    // Include primary variant names if not already in aliases
-    val allCommonNames = (commonNames ++ primaryVariant.flatMap(_.commonName).toSeq).distinct
-    val allRsIds = (rsIds ++ primaryVariant.flatMap(_.rsId).toSeq).distinct
 
     VariantAliasesDTO(
       commonNames = allCommonNames,
-      rsIds = allRsIds,
-      sources = bySource
+      rsIds = rsIds,
+      sources = sources
     )
   }
 }

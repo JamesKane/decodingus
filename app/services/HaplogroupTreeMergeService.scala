@@ -3,10 +3,10 @@ package services
 import jakarta.inject.{Inject, Singleton}
 import models.HaplogroupType
 import models.api.haplogroups.*
-import models.dal.domain.genomics.VariantAlias
+import models.domain.genomics.VariantV2
 import models.domain.haplogroups.{Haplogroup, HaplogroupProvenance}
 import play.api.Logging
-import repositories.{HaplogroupCoreRepository, HaplogroupVariantRepository, VariantAliasRepository, VariantRepository}
+import repositories.{HaplogroupCoreRepository, HaplogroupVariantRepository, VariantV2Repository}
 
 import java.time.LocalDateTime
 import scala.concurrent.{ExecutionContext, Future}
@@ -26,8 +26,7 @@ import scala.concurrent.{ExecutionContext, Future}
 class HaplogroupTreeMergeService @Inject()(
   haplogroupRepository: HaplogroupCoreRepository,
   haplogroupVariantRepository: HaplogroupVariantRepository,
-  variantRepository: VariantRepository,
-  variantAliasRepository: VariantAliasRepository
+  variantV2Repository: VariantV2Repository
 )(implicit ec: ExecutionContext) extends Logging {
 
   // ============================================================================
@@ -485,16 +484,17 @@ class HaplogroupTreeMergeService @Inject()(
 
   /**
    * Associate variants with a haplogroup, finding or creating variants as needed.
+   * Updated to use VariantV2Repository where aliases are stored in JSONB.
    */
   private def associateVariants(haplogroupId: Int, variants: List[VariantInput]): Future[Int] = {
     if (variants.isEmpty) {
       Future.successful(0)
     } else {
       // For each variant, find existing variants by primary name and associate them,
-      // then create alias records for any aliases
+      // then add any aliases to the variant's JSONB aliases field
       Future.traverse(variants) { variantInput =>
-        // First find/associate the primary variant
-        variantRepository.searchByName(variantInput.name).flatMap { foundVariants =>
+        // First find variant by canonical name or alias
+        variantV2Repository.searchByName(variantInput.name).flatMap { foundVariants =>
           // Associate all found variants with this haplogroup
           val associateFutures = foundVariants.map { variant =>
             variant.variantId match {
@@ -502,16 +502,9 @@ class HaplogroupTreeMergeService @Inject()(
                 for {
                   // Associate variant with haplogroup
                   count <- haplogroupVariantRepository.addVariantToHaplogroup(haplogroupId, vid)
-                  // Create alias records for any aliases from the ISOGG data
+                  // Add any aliases from the ISOGG data to the variant's JSONB aliases
                   _ <- Future.traverse(variantInput.aliases) { alias =>
-                    val variantAlias = VariantAlias(
-                      variantId = vid,
-                      aliasType = "common_name",
-                      aliasValue = alias,
-                      source = Some("ISOGG"),
-                      isPrimary = false
-                    )
-                    variantAliasRepository.addAlias(variantAlias).recover { case _ => false }
+                    variantV2Repository.addAlias(vid, "common_name", alias).recover { case _ => false }
                   }
                 } yield count
               case None => Future.successful(0)

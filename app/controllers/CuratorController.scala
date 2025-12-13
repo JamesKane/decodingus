@@ -3,8 +3,7 @@ package controllers
 import actions.{AuthenticatedAction, AuthenticatedRequest, PermissionAction}
 import jakarta.inject.{Inject, Singleton}
 import models.HaplogroupType
-import models.dal.domain.genomics.Variant
-import models.domain.genomics.{VariantGroup, VariantWithContig}
+import models.domain.genomics.VariantV2
 import models.domain.haplogroups.Haplogroup
 import org.webjars.play.WebJarsUtil
 import play.api.Logging
@@ -12,7 +11,7 @@ import play.api.data.Form
 import play.api.data.Forms.*
 import play.api.i18n.I18nSupport
 import play.api.mvc.*
-import repositories.{GenbankContigRepository, HaplogroupCoreRepository, HaplogroupVariantRepository, VariantAliasRepository, VariantRepository}
+import repositories.{GenbankContigRepository, HaplogroupCoreRepository, HaplogroupVariantRepository, VariantV2Repository}
 import services.{CuratorAuditService, TreeRestructuringService}
 import services.genomics.YBrowseVariantIngestionService
 
@@ -62,7 +61,7 @@ case class SplitBranchFormData(
     description: Option[String],
     source: String,
     confidenceLevel: String,
-    variantGroupKeys: Seq[String],
+    variantIds: Seq[Int],
     childIds: Seq[Int]
 )
 
@@ -72,8 +71,7 @@ class CuratorController @Inject()(
     authenticatedAction: AuthenticatedAction,
     permissionAction: PermissionAction,
     haplogroupRepository: HaplogroupCoreRepository,
-    variantRepository: VariantRepository,
-    variantAliasRepository: VariantAliasRepository,
+    variantV2Repository: VariantV2Repository,
     haplogroupVariantRepository: HaplogroupVariantRepository,
     genbankContigRepository: GenbankContigRepository,
     auditService: CuratorAuditService,
@@ -124,9 +122,9 @@ class CuratorController @Inject()(
       "description" -> optional(text(maxLength = 2000)),
       "source" -> nonEmptyText(1, 100),
       "confidenceLevel" -> nonEmptyText(1, 50),
-      "variantGroupKeys" -> seq(text),
+      "variantIds" -> seq(number),
       "childIds" -> seq(number)
-    )(SplitBranchFormData.apply)(s => Some((s.name, s.lineage, s.description, s.source, s.confidenceLevel, s.variantGroupKeys, s.childIds)))
+    )(SplitBranchFormData.apply)(s => Some((s.name, s.lineage, s.description, s.source, s.confidenceLevel, s.variantIds, s.childIds)))
   )
 
   private val createHaplogroupFormMapping: Form[CreateHaplogroupFormData] = Form(
@@ -148,7 +146,7 @@ class CuratorController @Inject()(
     for {
       yCount <- haplogroupRepository.countByType(HaplogroupType.Y)
       mtCount <- haplogroupRepository.countByType(HaplogroupType.MT)
-      variantCount <- variantRepository.count(None)
+      variantCount <- variantV2Repository.count(None)
     } yield {
       Ok(views.html.curator.dashboard(yCount, mtCount, variantCount))
     }
@@ -199,11 +197,9 @@ class CuratorController @Inject()(
         variants <- haplogroupVariantRepository.getHaplogroupVariants(id)
         history <- auditService.getHaplogroupHistory(id)
       } yield {
-        val variantsWithContig = variants.map { case (v, c) => VariantWithContig(v, c) }
-        val variantGroups = variantRepository.groupVariants(variantsWithContig)
         haplogroupOpt match {
           case Some(haplogroup) =>
-            Ok(views.html.curator.haplogroups.detailPanel(haplogroup, parentOpt, children, variantGroups, history))
+            Ok(views.html.curator.haplogroups.detailPanel(haplogroup, parentOpt, children, variants, history))
           case None =>
             NotFound("Haplogroup not found")
         }
@@ -436,10 +432,10 @@ class CuratorController @Inject()(
     withPermission("variant.view").async { implicit request =>
       val offset = (page - 1) * pageSize
       for {
-        (variantGroups, totalCount) <- variantRepository.searchGroupedPaginated(query.getOrElse(""), offset, pageSize)
+        (variants, totalCount) <- variantV2Repository.searchPaginated(query.getOrElse(""), offset, pageSize)
       } yield {
         val totalPages = Math.max(1, (totalCount + pageSize - 1) / pageSize)
-        Ok(views.html.curator.variants.list(variantGroups, query, page, totalPages, pageSize, totalCount))
+        Ok(views.html.curator.variants.list(variants, query, page, totalPages, pageSize, totalCount))
       }
     }
 
@@ -447,237 +443,89 @@ class CuratorController @Inject()(
     withPermission("variant.view").async { implicit request =>
       val offset = (page - 1) * pageSize
       for {
-        (variantGroups, totalCount) <- variantRepository.searchGroupedPaginated(query.getOrElse(""), offset, pageSize)
+        (variants, totalCount) <- variantV2Repository.searchPaginated(query.getOrElse(""), offset, pageSize)
       } yield {
         val totalPages = Math.max(1, (totalCount + pageSize - 1) / pageSize)
-        Ok(views.html.curator.variants.listFragment(variantGroups, query, page, totalPages, pageSize, totalCount))
+        Ok(views.html.curator.variants.listFragment(variants, query, page, totalPages, pageSize, totalCount))
       }
     }
 
   def variantDetailPanel(id: Int): Action[AnyContent] =
     withPermission("variant.view").async { implicit request =>
       for {
-        variantOpt <- variantRepository.findByIdWithContig(id)
-        // Get all variants in the same group
-        allVariantsInGroup <- variantOpt match {
-          case Some(vwc) =>
-            val groupKey = vwc.variant.commonName.orElse(vwc.variant.rsId).getOrElse(s"variant_${id}")
-            variantRepository.getVariantsByGroupKey(groupKey)
-          case None => Future.successful(Seq.empty)
-        }
-        // Fetch aliases for this variant
-        aliases <- variantAliasRepository.findByVariantId(id)
+        variantOpt <- variantV2Repository.findById(id)
         haplogroups <- haplogroupVariantRepository.getHaplogroupsByVariant(id)
         history <- auditService.getVariantHistory(id)
       } yield {
         variantOpt match {
-          case Some(variantWithContig) =>
-            val variantGroup = variantRepository.groupVariants(allVariantsInGroup).headOption
-            Ok(views.html.curator.variants.detailPanel(variantWithContig, variantGroup, aliases, haplogroups, history))
+          case Some(variant) =>
+            Ok(views.html.curator.variants.detailPanel(variant, haplogroups, history))
           case None =>
             NotFound("Variant not found")
         }
       }
     }
 
+  // TODO: Redesign variant creation for VariantV2 with JSONB coordinates
   def createVariantForm: Action[AnyContent] =
     withPermission("variant.create").async { implicit request =>
-      genbankContigRepository.getYAndMtContigs.map { contigs =>
-        Ok(views.html.curator.variants.createForm(variantForm, contigs))
-      }
-    }
-
-  def createVariant: Action[AnyContent] =
-    withPermission("variant.create").async { implicit request =>
-      variantForm.bindFromRequest().fold(
-        formWithErrors => {
-          genbankContigRepository.getYAndMtContigs.map { contigs =>
-            BadRequest(views.html.curator.variants.createForm(formWithErrors, contigs))
-          }
-        },
-        data => {
-          val variant = Variant(
-            variantId = None,
-            genbankContigId = data.genbankContigId,
-            position = data.position,
-            referenceAllele = data.referenceAllele,
-            alternateAllele = data.alternateAllele,
-            variantType = data.variantType,
-            rsId = data.rsId,
-            commonName = data.commonName
-          )
-
-          for {
-            // Create the source variant
-            newId <- variantRepository.createVariant(variant)
-            createdVariant = variant.copy(variantId = Some(newId))
-            _ <- auditService.logVariantCreate(request.user.id.get, createdVariant, Some("Created via curator interface"))
-
-            // Get the source contig for liftover
-            sourceContigOpt <- genbankContigRepository.findById(data.genbankContigId)
-
-            // Attempt liftover to other reference genomes
-            liftedCount <- sourceContigOpt match {
-              case Some(sourceContig) =>
-                variantIngestionService.liftoverVariant(createdVariant, sourceContig).flatMap { liftedVariants =>
-                  if (liftedVariants.nonEmpty) {
-                    logger.info(s"Lifting variant ${data.commonName.getOrElse("unnamed")} to ${liftedVariants.size} other reference(s)")
-                    // Create or find each lifted variant
-                    variantRepository.findOrCreateVariantsBatch(liftedVariants).map(_.size)
-                  } else {
-                    Future.successful(0)
-                  }
-                }
-              case None =>
-                logger.warn(s"Source contig ${data.genbankContigId} not found for liftover")
-                Future.successful(0)
-            }
-          } yield {
-            val message = if (liftedCount > 0) {
-              s"Variant created successfully. Also lifted to $liftedCount other reference genome(s)."
-            } else {
-              s"Variant created successfully. (Liftover to other references not available or failed)"
-            }
-            Redirect(routes.CuratorController.listVariants(None, 1, 20))
-              .flashing("success" -> message)
-          }
-        }
+      Future.successful(
+        Redirect(routes.CuratorController.listVariants(None, 1, 20))
+          .flashing("warning" -> "Variant creation is being updated for the new schema. Use YBrowse ingestion for now.")
       )
     }
 
+  // TODO: Redesign variant creation for VariantV2 with JSONB coordinates
+  def createVariant: Action[AnyContent] =
+    withPermission("variant.create").async { implicit request =>
+      Future.successful(
+        Redirect(routes.CuratorController.listVariants(None, 1, 20))
+          .flashing("warning" -> "Variant creation is being updated for the new schema.")
+      )
+    }
+
+  // TODO: Redesign variant editing for VariantV2 with JSONB coordinates
   def editVariantForm(id: Int): Action[AnyContent] =
     withPermission("variant.update").async { implicit request =>
-      variantRepository.findByIdWithContig(id).map {
-        case Some(vwc) =>
-          val variant = vwc.variant
-          val formData = VariantFormData(
-            genbankContigId = variant.genbankContigId,
-            position = variant.position,
-            referenceAllele = variant.referenceAllele,
-            alternateAllele = variant.alternateAllele,
-            variantType = variant.variantType,
-            rsId = variant.rsId,
-            commonName = variant.commonName
-          )
-          // Display contig as "accession (commonName / refGenome)" e.g., "CP068255.2 (chrX / hs1)"
-          val contigDisplay = s"${vwc.contig.accession} (${vwc.contig.commonName.getOrElse("?")} / ${vwc.contig.referenceGenome.getOrElse("?")})"
-          Ok(views.html.curator.variants.editForm(id, variantForm.fill(formData), contigDisplay))
-        case None =>
-          NotFound("Variant not found")
-      }
+      Future.successful(
+        Redirect(routes.CuratorController.listVariants(None, 1, 20))
+          .flashing("warning" -> "Variant editing is being updated for the new schema.")
+      )
     }
 
+  // TODO: Redesign variant editing for VariantV2 with JSONB coordinates
   def updateVariant(id: Int): Action[AnyContent] =
     withPermission("variant.update").async { implicit request =>
-      variantRepository.findByIdWithContig(id).flatMap {
-        case Some(vwc) =>
-          val oldVariant = vwc.variant
-          val contigDisplay = s"${vwc.contig.accession} (${vwc.contig.commonName.getOrElse("?")} / ${vwc.contig.referenceGenome.getOrElse("?")})"
-          variantForm.bindFromRequest().fold(
-            formWithErrors => {
-              Future.successful(BadRequest(views.html.curator.variants.editForm(id, formWithErrors, contigDisplay)))
-            },
-            data => {
-              val updatedVariant = oldVariant.copy(
-                variantType = data.variantType,
-                rsId = data.rsId,
-                commonName = data.commonName
-              )
-
-              for {
-                updated <- variantRepository.update(updatedVariant)
-                _ <- if (updated) {
-                  auditService.logVariantUpdate(request.user.id.get, oldVariant, updatedVariant, Some("Updated via curator interface"))
-                } else {
-                  Future.successful(())
-                }
-              } yield {
-                if (updated) {
-                  Redirect(routes.CuratorController.listVariants(None, 1, 20))
-                    .flashing("success" -> "Variant updated successfully")
-                } else {
-                  BadRequest("Failed to update variant")
-                }
-              }
-            }
-          )
-        case None =>
-          Future.successful(NotFound("Variant not found"))
-      }
+      Future.successful(
+        Redirect(routes.CuratorController.listVariants(None, 1, 20))
+          .flashing("warning" -> "Variant editing is being updated for the new schema.")
+      )
     }
 
+  // TODO: Remove variant group concept - VariantV2 is already consolidated
   def editVariantGroupForm(groupKey: String): Action[AnyContent] =
     withPermission("variant.update").async { implicit request =>
-      variantRepository.getVariantsByGroupKey(groupKey).map { variants =>
-        if (variants.isEmpty) {
-          NotFound("Variant group not found")
-        } else {
-          val variantGroup = variantRepository.groupVariants(variants).head
-          // Use shared values from group for form
-          val formData = VariantFormData(
-            genbankContigId = variants.head.variant.genbankContigId,
-            position = variants.head.variant.position,
-            referenceAllele = variants.head.variant.referenceAllele,
-            alternateAllele = variants.head.variant.alternateAllele,
-            variantType = variants.head.variant.variantType,
-            rsId = variantGroup.rsId,
-            commonName = variantGroup.commonName
-          )
-          Ok(views.html.curator.variants.editGroupForm(groupKey, variantGroup, variantForm.fill(formData)))
-        }
-      }
+      Future.successful(
+        Redirect(routes.CuratorController.listVariants(None, 1, 20))
+          .flashing("warning" -> "Variant group editing is being updated for the new schema.")
+      )
     }
 
+  // TODO: Remove variant group concept - VariantV2 is already consolidated
   def updateVariantGroup(groupKey: String): Action[AnyContent] =
     withPermission("variant.update").async { implicit request =>
-      variantRepository.getVariantsByGroupKey(groupKey).flatMap { variants =>
-        if (variants.isEmpty) {
-          Future.successful(NotFound("Variant group not found"))
-        } else {
-          val variantGroup = variantRepository.groupVariants(variants).head
-          variantForm.bindFromRequest().fold(
-            formWithErrors => {
-              Future.successful(BadRequest(views.html.curator.variants.editGroupForm(groupKey, variantGroup, formWithErrors)))
-            },
-            data => {
-              // Update all variants in the group with the shared fields
-              val updateFutures = variants.map { vwc =>
-                val oldVariant = vwc.variant
-                val updatedVariant = oldVariant.copy(
-                  variantType = data.variantType,
-                  rsId = data.rsId,
-                  commonName = data.commonName
-                )
-                for {
-                  updated <- variantRepository.update(updatedVariant)
-                  _ <- if (updated) {
-                    auditService.logVariantUpdate(request.user.id.get, oldVariant, updatedVariant, Some(s"Updated via group edit ($groupKey)"))
-                  } else {
-                    Future.successful(())
-                  }
-                } yield updated
-              }
-
-              Future.sequence(updateFutures).map { results =>
-                if (results.forall(identity)) {
-                  Redirect(routes.CuratorController.listVariants(None, 1, 20))
-                    .flashing("success" -> s"Updated ${results.size} variants in group $groupKey")
-                } else {
-                  BadRequest(s"Failed to update some variants in group")
-                }
-              }
-            }
-          )
-        }
-      }
+      Future.successful(
+        Redirect(routes.CuratorController.listVariants(None, 1, 20))
+          .flashing("warning" -> "Variant group editing is being updated for the new schema.")
+      )
     }
 
   def deleteVariant(id: Int): Action[AnyContent] =
     withPermission("variant.delete").async { implicit request =>
-      variantRepository.findById(id).flatMap {
+      variantV2Repository.findById(id).flatMap {
         case Some(variant) =>
           for {
-            deleted <- variantRepository.delete(id)
+            deleted <- variantV2Repository.delete(id)
             _ <- if (deleted) {
               auditService.logVariantDelete(request.user.id.get, variant, Some("Deleted via curator interface"))
             } else {
@@ -716,76 +564,53 @@ class CuratorController @Inject()(
     withPermission("haplogroup.view").async { implicit request =>
       for {
         haplogroupOpt <- haplogroupRepository.findById(haplogroupId)
-        variantGroups <- query match {
-          case Some(q) if q.nonEmpty => variantRepository.searchGrouped(q, 20)
+        variants <- query match {
+          case Some(q) if q.nonEmpty => variantV2Repository.searchByName(q)
           case _ => Future.successful(Seq.empty)
         }
         existingVariantIds <- haplogroupVariantRepository.getVariantsByHaplogroup(haplogroupId).map(_.flatMap(_.variantId).toSet)
       } yield {
-        // Filter out groups where ALL variants are already associated
-        val availableGroups = variantGroups.filterNot { group =>
-          group.variantIds.forall(existingVariantIds.contains)
-        }
+        // Filter out variants that are already associated
+        val availableVariants = variants.filterNot(v => v.variantId.exists(existingVariantIds.contains))
 
         haplogroupOpt match {
           case Some(haplogroup) =>
-            Ok(views.html.curator.haplogroups.variantSearchResults(haplogroupId, haplogroup.name, query, availableGroups))
+            Ok(views.html.curator.haplogroups.variantSearchResults(haplogroupId, haplogroup.name, query, availableVariants))
           case None =>
             NotFound("Haplogroup not found")
         }
       }
     }
 
-  def addVariantGroupToHaplogroup(haplogroupId: Int, groupKey: String): Action[AnyContent] =
+  def addVariantToHaplogroup(haplogroupId: Int, variantId: Int): Action[AnyContent] =
     withPermission("haplogroup.update").async { implicit request =>
       for {
-        // Get all variants in the group
-        variantsInGroup <- variantRepository.getVariantsByGroupKey(groupKey)
-        existingVariantIds <- haplogroupVariantRepository.getVariantsByHaplogroup(haplogroupId).map(_.flatMap(_.variantId).toSet)
-
-        // Add each variant that isn't already associated
-        addedIds <- Future.traverse(variantsInGroup.filterNot(v => existingVariantIds.contains(v.variant.variantId.getOrElse(-1)))) { vwc =>
-          for {
-            hvId <- haplogroupVariantRepository.addVariantToHaplogroup(haplogroupId, vwc.variant.variantId.get)
-            _ <- auditService.logVariantAddedToHaplogroup(
-              request.user.email.getOrElse(request.user.id.map(_.toString).getOrElse("unknown")),
-              hvId,
-              Some(s"Added variant ${vwc.variant.variantId.get} (${groupKey}) to haplogroup $haplogroupId")
-            )
-          } yield hvId
-        }
-
+        hvId <- haplogroupVariantRepository.addVariantToHaplogroup(haplogroupId, variantId)
+        _ <- auditService.logVariantAddedToHaplogroup(
+          request.user.email.getOrElse(request.user.id.map(_.toString).getOrElse("unknown")),
+          hvId,
+          Some(s"Added variant $variantId to haplogroup $haplogroupId")
+        )
         // Fetch updated variants for display
         variants <- haplogroupVariantRepository.getHaplogroupVariants(haplogroupId)
-        variantsWithContig = variants.map { case (v, c) => VariantWithContig(v, c) }
-        variantGroups = variantRepository.groupVariants(variantsWithContig)
       } yield {
-        Ok(views.html.curator.haplogroups.variantsPanel(haplogroupId, variantGroups))
+        Ok(views.html.curator.haplogroups.variantsPanel(haplogroupId, variants))
           .withHeaders("HX-Trigger" -> "variantAdded")
       }
     }
 
-  def removeVariantGroupFromHaplogroup(haplogroupId: Int, groupKey: String): Action[AnyContent] =
+  def removeVariantFromHaplogroup(haplogroupId: Int, variantId: Int): Action[AnyContent] =
     withPermission("haplogroup.update").async { implicit request =>
       for {
-        // Get all variants in the group
-        variantsInGroup <- variantRepository.getVariantsByGroupKey(groupKey)
-
-        // Remove each variant
-        removed <- Future.traverse(variantsInGroup.flatMap(_.variant.variantId)) { variantId =>
-          haplogroupVariantRepository.removeVariantFromHaplogroup(haplogroupId, variantId)
-        }
-
+        removed <- haplogroupVariantRepository.removeVariantFromHaplogroup(haplogroupId, variantId)
         // Fetch updated variants for display
         variants <- haplogroupVariantRepository.getHaplogroupVariants(haplogroupId)
-        variantsWithContig = variants.map { case (v, c) => VariantWithContig(v, c) }
-        variantGroups = variantRepository.groupVariants(variantsWithContig)
       } yield {
-        if (removed.sum > 0) {
-          Ok(views.html.curator.haplogroups.variantsPanel(haplogroupId, variantGroups))
+        if (removed > 0) {
+          Ok(views.html.curator.haplogroups.variantsPanel(haplogroupId, variants))
             .withHeaders("HX-Trigger" -> "variantRemoved")
         } else {
-          BadRequest("Failed to remove variant group")
+          BadRequest("Failed to remove variant")
         }
       }
     }
@@ -802,7 +627,7 @@ class CuratorController @Inject()(
   def splitBranchForm(parentId: Int): Action[AnyContent] =
     withPermission("haplogroup.update").async { implicit request =>
       treeRestructuringService.getSplitPreview(parentId).map { preview =>
-        Ok(views.html.curator.haplogroups.splitBranchForm(preview.parent, preview.variantGroups, preview.children, splitBranchForm))
+        Ok(views.html.curator.haplogroups.splitBranchForm(preview.parent, preview.variants, preview.children, splitBranchForm))
       }.recover {
         case e: IllegalArgumentException =>
           NotFound(e.getMessage)
@@ -815,7 +640,7 @@ class CuratorController @Inject()(
         splitBranchForm.bindFromRequest().fold(
           formWithErrors => {
             Future.successful(BadRequest(views.html.curator.haplogroups.splitBranchForm(
-              preview.parent, preview.variantGroups, preview.children, formWithErrors
+              preview.parent, preview.variants, preview.children, formWithErrors
             )))
           },
           data => {
@@ -835,7 +660,7 @@ class CuratorController @Inject()(
             treeRestructuringService.splitBranch(
               parentId,
               newHaplogroup,
-              data.variantGroupKeys,
+              data.variantIds,
               data.childIds,
               request.user.id.get
             ).map { newId =>
@@ -844,7 +669,7 @@ class CuratorController @Inject()(
             }.recover {
               case e: IllegalArgumentException =>
                 BadRequest(views.html.curator.haplogroups.splitBranchForm(
-                  preview.parent, preview.variantGroups, preview.children,
+                  preview.parent, preview.variants, preview.children,
                   splitBranchForm.fill(data).withGlobalError(e.getMessage)
                 ))
             }

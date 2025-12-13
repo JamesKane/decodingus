@@ -7,21 +7,29 @@ import htsjdk.samtools.util.Interval
 import htsjdk.variant.variantcontext.VariantContext
 import htsjdk.variant.vcf.VCFFileReader
 import jakarta.inject.{Inject, Singleton}
-import models.dal.domain.genomics.Variant
+import models.dal.domain.genomics.*
+import models.domain.genomics.{MutationType, NamingStatus, VariantV2}
 import play.api.Logger
-import repositories.{GenbankContigRepository, VariantRepository}
+import play.api.libs.json.Json
+import repositories.VariantV2Repository
 
 import java.io.File
 import scala.concurrent.{ExecutionContext, Future}
 import scala.jdk.CollectionConverters.*
-import scala.util.{Try, Success, Failure}
+import scala.util.{Failure, Success, Try}
 
+/**
+ * Service for ingesting Y-DNA variants from YBrowse VCF files.
+ *
+ * Creates consolidated VariantV2 records with JSONB coordinates for multiple
+ * reference genomes. Performs liftover to add coordinates for additional
+ * assemblies (hs1, GRCh37, etc.).
+ */
 @Singleton
 class YBrowseVariantIngestionService @Inject()(
-                                                variantRepository: VariantRepository,
-                                                genbankContigRepository: GenbankContigRepository,
-                                                genomicsConfig: GenomicsConfig
-                                              )(implicit ec: ExecutionContext) {
+  variantV2Repository: VariantV2Repository,
+  genomicsConfig: GenomicsConfig
+)(implicit ec: ExecutionContext) {
 
   private val logger = Logger(this.getClass)
 
@@ -40,7 +48,7 @@ class YBrowseVariantIngestionService @Inject()(
   /**
    * Ingests variants from a YBrowse VCF file.
    *
-   * @param vcfFile The VCF file to ingest.
+   * @param vcfFile      The VCF file to ingest.
    * @param sourceGenome The reference genome of the input VCF (default: "GRCh38").
    * @return A Future containing the number of variants ingested.
    */
@@ -68,18 +76,18 @@ class YBrowseVariantIngestionService @Inject()(
           None
       }
     }.toMap
-    
+
     val batchSize = 1000
-    
+
     processBatches(iterator, batchSize, liftovers, canonicalSource)
   }
 
   private def processBatches(
-                              iterator: Iterator[VariantContext],
-                              batchSize: Int,
-                              liftovers: Map[String, LiftOver],
-                              sourceGenome: String
-                            ): Future[Int] = {
+    iterator: Iterator[VariantContext],
+    batchSize: Int,
+    liftovers: Map[String, LiftOver],
+    sourceGenome: String
+  ): Future[Int] = {
 
     val progressInterval = 100 // Log progress every 100 batches (100k records)
 
@@ -113,10 +121,6 @@ class YBrowseVariantIngestionService @Inject()(
   /**
    * Safely takes a batch of records from the iterator, skipping malformed records.
    * HTSJDK may throw TribbleException for malformed VCF lines (e.g., duplicate alleles).
-   *
-   * @param iterator The VCF record iterator
-   * @param batchSize Maximum number of valid records to collect
-   * @return Tuple of (validRecords, skippedCount)
    */
   private def safelyTakeBatch(iterator: Iterator[VariantContext], batchSize: Int): (Seq[VariantContext], Int) = {
     val batch = scala.collection.mutable.ArrayBuffer[VariantContext]()
@@ -138,108 +142,122 @@ class YBrowseVariantIngestionService @Inject()(
     (batch.toSeq, skipped)
   }
 
-  private def processBatch(batch: Seq[VariantContext], liftovers: Map[String, LiftOver], sourceGenome: String): Future[Int] = {
-    // 1. Collect all contig names from batch
-    val contigNames = batch.map(_.getContig).distinct
-    // 2. Resolve Contig IDs for hg38 (source) and targets
+  private def processBatch(
+    batch: Seq[VariantContext],
+    liftovers: Map[String, LiftOver],
+    sourceGenome: String
+  ): Future[Int] = {
+    // Convert each VariantContext to a VariantV2 with JSONB coordinates
+    val variantsV2 = batch.flatMap { vc =>
+      createVariantV2FromContext(vc, sourceGenome, liftovers)
+    }
 
-    genbankContigRepository.findByCommonNames(contigNames).flatMap { contigs =>
-      // Map: (CommonName, Genome) -> ContigID
-      // Normalize genome names to canonical form using aliases (e.g., "GRCh38.p14" -> "GRCh38", "T2T-CHM13v2.0" -> "hs1")
-      val contigMap = contigs.flatMap { c =>
-        for {
-          cn <- c.commonName
-          rg <- c.referenceGenome
-        } yield {
-          // First try alias resolution, then fall back to stripping patch version
-          val normalizedGenome = genomicsConfig.referenceAliases.getOrElse(rg, rg.split("\\.").head)
-          (cn, normalizedGenome) -> c.id.get
-        }
-      }.toMap
-
-      // Debug: log contig mapping on first batch
-      if (contigMap.isEmpty && batch.nonEmpty) {
-        logger.warn(s"Contig mapping failed! Looking for: ${contigNames.mkString(", ")}. Found contigs: ${contigs.map(c => s"${c.commonName}/${c.referenceGenome}").mkString(", ")}")
-      }
-
-      // Separate source variants (get aliases) from lifted variants (no aliases)
-      val sourceVariants = batch.flatMap { vc =>
-        createVariantsForContext(vc, sourceGenome, contigMap)
-      }
-
-      val liftedVariants = batch.flatMap { vc =>
-        liftovers.flatMap { case (targetGenome, liftOver) =>
-          val interval = new Interval(vc.getContig, vc.getStart, vc.getEnd)
-          val lifted = liftOver.liftOver(interval)
-          if (lifted != null) {
-            val liftedVc = new htsjdk.variant.variantcontext.VariantContextBuilder(vc)
-              .chr(lifted.getContig)
-              .start(lifted.getStart)
-              .stop(lifted.getEnd)
-              .make()
-            // Clear the ID for lifted variants - they share the source variant's name
-            createVariantsForContext(liftedVc, targetGenome, contigMap).map(_.copy(commonName = None, rsId = None))
-          } else {
-            Seq.empty
-          }
-        }
-      }
-
-      // Debug: log if we're losing variants
-      if (sourceVariants.isEmpty && batch.nonEmpty) {
-        logger.warn(s"No variants to save from batch of ${batch.size} records! Source genome: $sourceGenome, contigMap keys: ${contigMap.keys.mkString(", ")}")
-      }
-
-      // Create source variants with aliases, lifted variants without
-      for {
-        sourceCount <- variantRepository.findOrCreateVariantsBatchWithAliases(sourceVariants, "ybrowse")
-        liftedCount <- if (liftedVariants.nonEmpty) variantRepository.findOrCreateVariantsBatchNoAliases(liftedVariants) else Future.successful(Seq.empty)
-      } yield sourceCount.size + liftedCount.size
+    if (variantsV2.isEmpty && batch.nonEmpty) {
+      logger.warn(s"No variants created from batch of ${batch.size} records!")
+      Future.successful(0)
+    } else {
+      // Use findOrCreate for each variant (coordinates in JSONB)
+      variantV2Repository.findOrCreateBatch(variantsV2).map(_.size)
     }
   }
 
-  private def createVariantsForContext(
-                                        vc: VariantContext,
-                                        genome: String,
-                                        contigMap: Map[(String, String), Int]
-                                      ): Seq[Variant] = {
-    // Resolve contig ID
-    // Try exact match or fallbacks (e.g. remove "chr")
-    val contigIdOpt = contigMap.get((vc.getContig, genome))
-      .orElse(contigMap.get((vc.getContig.stripPrefix("chr"), genome)))
+  /**
+   * Creates a VariantV2 from a VariantContext, including lifted coordinates.
+   *
+   * This consolidates what was previously N rows (one per reference) into
+   * a single VariantV2 with JSONB coordinates containing all assemblies.
+   */
+  private def createVariantV2FromContext(
+    vc: VariantContext,
+    sourceGenome: String,
+    liftovers: Map[String, LiftOver]
+  ): Seq[VariantV2] = {
+    // Handle multi-allelic variants - create one VariantV2 per alternate allele
+    vc.getAlternateAlleles.asScala.map { alt =>
+      // Parse variant identity from VCF ID column
+      val rawId = Option(vc.getID).filterNot(id => id == "." || id.isEmpty)
+      val rsId = rawId.filter(_.toLowerCase.startsWith("rs"))
+      // For Y-DNA, the ID column often contains the SNP name (e.g. M269)
+      val commonName = rawId
 
-    contigIdOpt match {
-      case Some(contigId) =>
-        vc.getAlternateAlleles.asScala.map { alt =>
-          val rawId = Option(vc.getID).filterNot(id => id == "." || id.isEmpty)
-          val rsId = rawId.filter(_.toLowerCase.startsWith("rs"))
-          // For Y-DNA, the ID column often contains the SNP name (e.g. M269), which is the common name.
-          val commonName = rawId
+      // Normalize the variant for source genome
+      val refSeq = referenceFastaFiles.get(sourceGenome)
+      val (normPos, normRef, normAlt) = normalizeVariant(
+        vc.getContig,
+        vc.getStart,
+        vc.getReference.getDisplayString,
+        alt.getDisplayString,
+        refSeq
+      )
 
-          // Normalize the variant (left-align INDELs)
-          val refSeq = referenceFastaFiles.get(genome)
-          val (normPos, normRef, normAlt) = normalizeVariant(
-            vc.getContig,
-            vc.getStart,
+      // Build source genome coordinates
+      val sourceCoords = Json.obj(
+        "contig" -> vc.getContig,
+        "position" -> normPos,
+        "ref" -> normRef,
+        "alt" -> normAlt
+      )
+
+      // Perform liftover to other reference genomes
+      val liftedCoords = liftovers.flatMap { case (targetGenome, liftOver) =>
+        val interval = new Interval(vc.getContig, vc.getStart, vc.getEnd)
+        val lifted = liftOver.liftOver(interval)
+
+        if (lifted != null) {
+          // Normalize for target genome
+          val targetRefSeq = referenceFastaFiles.get(targetGenome)
+          val (liftedPos, liftedRef, liftedAlt) = normalizeVariant(
+            lifted.getContig,
+            lifted.getStart,
             vc.getReference.getDisplayString,
             alt.getDisplayString,
-            refSeq
+            targetRefSeq
           )
 
-          Variant(
-            genbankContigId = contigId,
-            position = normPos,
-            referenceAllele = normRef,
-            alternateAllele = normAlt,
-            variantType = vc.getType.toString,
-            rsId = rsId,
-            commonName = commonName
-          )
-        }.toSeq
-      case None =>
-        // Logger.warn(s"Contig not found for ${vc.getContig} in $genome")
-        Seq.empty
-    }
+          Some(targetGenome -> Json.obj(
+            "contig" -> lifted.getContig,
+            "position" -> liftedPos,
+            "ref" -> liftedRef,
+            "alt" -> liftedAlt
+          ))
+        } else {
+          None
+        }
+      }
+
+      // Combine all coordinates into JSONB
+      val allCoordinates = (liftedCoords + (sourceGenome -> sourceCoords)).foldLeft(Json.obj()) {
+        case (acc, (genome, coords)) => acc + (genome -> coords)
+      }
+
+      // Build aliases JSONB
+      val commonNames = commonName.toSeq.flatMap(_.split(",").map(_.trim).filter(_.nonEmpty))
+      val aliasesJson = Json.obj(
+        "common_names" -> commonNames,
+        "rs_ids" -> rsId.toSeq,
+        "sources" -> Json.obj(
+          "ybrowse" -> commonNames
+        )
+      )
+
+      // Determine mutation type
+      val mutationType = vc.getType.toString match {
+        case "SNP" => MutationType.SNP
+        case "INDEL" | "MIXED" => MutationType.INDEL
+        case "MNP" => MutationType.MNP
+        case other =>
+          logger.debug(s"Unknown variant type: $other, defaulting to SNP")
+          MutationType.SNP
+      }
+
+      VariantV2(
+        canonicalName = commonName.map(_.split(",").head.trim),
+        mutationType = mutationType,
+        namingStatus = if (commonName.isDefined) NamingStatus.Named else NamingStatus.Unnamed,
+        aliases = aliasesJson,
+        coordinates = allCoordinates
+      )
+    }.toSeq
   }
 
   /**
@@ -249,13 +267,6 @@ class YBrowseVariantIngestionService @Inject()(
    * 1. Right-trim: Remove common suffix bases from ref and alt alleles
    * 2. Pad: If either allele becomes empty, prepend the preceding reference base
    * 3. Left-trim: Remove common prefix bases (keeping at least 1 base on each)
-   *
-   * @param contig The contig name for reference lookup
-   * @param pos The 1-based position
-   * @param ref The reference allele
-   * @param alt The alternate allele
-   * @param refSeq Optional reference sequence file for padding lookup
-   * @return A tuple of (normalizedPos, normalizedRef, normalizedAlt)
    */
   private def normalizeVariant(
     contig: String,
@@ -327,67 +338,58 @@ class YBrowseVariantIngestionService @Inject()(
   }
 
   /**
-   * Lifts a variant to all other supported reference genomes.
+   * Lifts a variant to all other supported reference genomes and adds coordinates.
    *
-   * @param sourceVariant The variant to lift (must have genbankContigId resolved)
-   * @param sourceContig The source contig information
-   * @return Future containing lifted variants for each target genome (may be empty if liftover fails)
+   * @param variantId    The variant to update with additional coordinates
+   * @param sourceGenome The source reference genome
+   * @return Future containing the number of coordinates added
    */
-  def liftoverVariant(sourceVariant: Variant, sourceContig: models.domain.genomics.GenbankContig): Future[Seq[Variant]] = {
-    val sourceGenome = sourceContig.referenceGenome.getOrElse("GRCh38")
-    val canonicalSource = genomicsConfig.resolveReferenceName(sourceGenome)
-    val sourceContigName = sourceContig.commonName.getOrElse(sourceContig.accession)
+  def addLiftedCoordinates(variantId: Int, sourceGenome: String): Future[Int] = {
+    variantV2Repository.findById(variantId).flatMap {
+      case Some(variant) =>
+        val sourceCoords = variant.getCoordinates(sourceGenome)
+        sourceCoords match {
+          case Some(coords) =>
+            val contig = (coords \ "contig").asOpt[String].getOrElse("")
+            val position = (coords \ "position").asOpt[Int].getOrElse(0)
+            val ref = (coords \ "ref").asOpt[String].getOrElse("")
+            val alt = (coords \ "alt").asOpt[String].getOrElse("")
 
-    // Get target genomes (all supported except source)
-    val targetGenomes = genomicsConfig.supportedReferences.filter(_ != canonicalSource)
+            val canonicalSource = genomicsConfig.resolveReferenceName(sourceGenome)
+            val targetGenomes = genomicsConfig.supportedReferences.filter(_ != canonicalSource)
 
-    // Load liftover chains for each target
-    val liftoverResults = targetGenomes.flatMap { targetGenome =>
-      genomicsConfig.getLiftoverChainFile(canonicalSource, targetGenome) match {
-        case Some(chainFile) if chainFile.exists() =>
-          val liftOver = new LiftOver(chainFile)
-          val interval = new Interval(sourceContigName, sourceVariant.position, sourceVariant.position)
-          val lifted = liftOver.liftOver(interval)
+            val liftedFutures = targetGenomes.flatMap { targetGenome =>
+              genomicsConfig.getLiftoverChainFile(canonicalSource, targetGenome) match {
+                case Some(chainFile) if chainFile.exists() =>
+                  val liftOver = new LiftOver(chainFile)
+                  val interval = new Interval(contig, position, position)
+                  val lifted = liftOver.liftOver(interval)
 
-          if (lifted != null) {
-            logger.info(s"Lifted ${sourceVariant.commonName.getOrElse("variant")} from $canonicalSource:$sourceContigName:${sourceVariant.position} to $targetGenome:${lifted.getContig}:${lifted.getStart}")
-            Some((targetGenome, lifted.getContig, lifted.getStart))
-          } else {
-            logger.warn(s"Failed to liftover ${sourceVariant.commonName.getOrElse("variant")} from $canonicalSource to $targetGenome")
-            None
-          }
-        case _ =>
-          logger.debug(s"No liftover chain available for $canonicalSource -> $targetGenome")
-          None
-      }
-    }
+                  if (lifted != null) {
+                    val liftedCoords = Json.obj(
+                      "contig" -> lifted.getContig,
+                      "position" -> lifted.getStart,
+                      "ref" -> ref,
+                      "alt" -> alt
+                    )
+                    Some(variantV2Repository.addCoordinates(variantId, targetGenome, liftedCoords))
+                  } else {
+                    None
+                  }
+                case _ => None
+              }
+            }
 
-    // Resolve contig IDs for lifted positions
-    val targetContigNames = liftoverResults.map(_._2).distinct
+            Future.sequence(liftedFutures).map(_.count(_ == true))
 
-    genbankContigRepository.findByCommonNames(targetContigNames).map { contigs =>
-      // Map: (CommonName, Genome) -> ContigID
-      val contigMap = contigs.flatMap { c =>
-        for {
-          cn <- c.commonName
-          rg <- c.referenceGenome
-        } yield (cn, rg) -> c.id.get
-      }.toMap
-
-      liftoverResults.flatMap { case (targetGenome, liftedContig, liftedPos) =>
-        // Try to find contig ID, handling chr prefix differences
-        val contigId = contigMap.get((liftedContig, targetGenome))
-          .orElse(contigMap.get((liftedContig.stripPrefix("chr"), targetGenome)))
-          .orElse(contigMap.get(("chr" + liftedContig, targetGenome)))
-
-        contigId.map { cid =>
-          sourceVariant.copy(
-            variantId = None,
-            genbankContigId = cid,
-            position = liftedPos
-          )
+          case None =>
+            logger.warn(s"Variant $variantId has no coordinates for $sourceGenome")
+            Future.successful(0)
         }
-      }
+
+      case None =>
+        logger.warn(s"Variant $variantId not found")
+        Future.successful(0)
     }
   }
 }
