@@ -9,12 +9,7 @@
                     <div class="card-body p-4">
                         <h2 class="text-center mb-4">@messages("auth.login.heading")</h2>
 
-                        @request.flash.get("error").map { msg =>
-                            <div class="alert alert-danger" role="alert">@msg</div>
-                        }
-                        @request.flash.get("success").map { msg =>
-                            <div class="alert alert-success" role="alert">@msg</div>
-                        }
+                        @views.html.fragments.flashMessages(request.flash)
 
                         <div class="alert alert-info mb-4" role="alert">
                             <small>

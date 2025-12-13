@@ -1,0 +1,32 @@
+@(currentPage: Int, totalPages: Int, linkGenerator: (Int, Int) => play.api.mvc.Call, pageSize: Int)(implicit messages: Messages)
+
+@if(totalPages > 1) {
+    <nav aria-label="Page navigation">
+        <ul class="pagination justify-content-center">
+            <li class="page-item @if(currentPage == 1) {disabled}">
+                <a class="page-link" href="@linkGenerator(1, pageSize)">@messages("pagination.first")</a>
+            </li>
+            <li class="page-item @if(currentPage == 1) {disabled}">
+                <a class="page-link" href="@linkGenerator(currentPage - 1, pageSize)">@messages("pagination.previous")</a>
+            </li>
+            @* Display a window of pages around the current page *@
+            @defining({
+                val startPage = Math.max(1, currentPage - 2)
+                val endPage = Math.min(totalPages, currentPage + 2)
+                (startPage to endPage).toSeq
+            }) { pagesToShow =>
+                @for(p <- pagesToShow) {
+                    <li class="page-item @if(p == currentPage) {active}">
+                        <a class="page-link" href="@linkGenerator(p, pageSize)">@p</a>
+                    </li>
+                }
+            }
+            <li class="page-item @if(currentPage == totalPages) {disabled}">
+                <a class="page-link" href="@linkGenerator(currentPage + 1, pageSize)">@messages("pagination.next")</a>
+            </li>
+            <li class="page-item @if(currentPage == totalPages) {disabled}">
+                <a class="page-link" href="@linkGenerator(totalPages, pageSize)">@messages("pagination.last")</a>
+            </li>
+        </ul>
+    </nav>
+}

@@ -1,0 +1,31 @@
+@(titleKey: String,
+  fragmentCall: Option[String] => play.api.mvc.Call,
+  fullPageCall: Option[String] => play.api.mvc.Call,
+  rootHaplogroup: Option[String],
+  searchPlaceholder: String,
+  searchInputTitle: String)(implicit webJarsUtil: org.webjars.play.WebJarsUtil, messages: Messages, request: RequestHeader)
+
+@main(messages(titleKey)) {
+    <main class="container-fluid">
+        <h1>@messages(titleKey)</h1>
+        
+        <div class="tree-controls">
+            <form class="search-form" hx-get="@fragmentCall(None)" hx-target="#tree-container" hx-push-url="@fullPageCall(None)">
+                <label for="haplogroup-search">@messages("tree.jumpTo")</label>
+                <input type="text"
+                id="haplogroup-search"
+                name="rootHaplogroup"
+                placeholder="@searchPlaceholder"
+                pattern="[A-Z0-9-]+"
+                title="@searchInputTitle">
+                <button type="submit">@messages("tree.go")</button>
+            </form>
+        </div>
+
+        <div id="tree-container"
+        hx-get="@fragmentCall(rootHaplogroup)"
+        hx-trigger="load">
+            <div class="loading">@messages("tree.loading")</div>
+        </div>
+    </main>
+}

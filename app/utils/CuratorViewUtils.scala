@@ -1,5 +1,7 @@
 package utils
 
+import models.domain.support.MessageStatus
+
 object CuratorViewUtils {
   def actionBadgeClass(action: String): String = {
     action match {
@@ -16,6 +18,15 @@ object CuratorViewUtils {
       case "remove" => "bg-danger"
       case "update" => "bg-warning text-dark"
       case _ => "bg-secondary"
+    }
+  }
+
+  def statusBadgeClass(status: MessageStatus): String = {
+    status match {
+      case MessageStatus.New => "bg-primary"
+      case MessageStatus.Read => "bg-info"
+      case MessageStatus.Replied => "bg-success"
+      case MessageStatus.Closed => "bg-secondary"
     }
   }
 }

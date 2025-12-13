@@ -39,27 +39,27 @@
     </ol>
 </nav>
 
-<div class="mb-3">
+<div class="d-flex justify-content-between align-items-center mb-3">
     <small class="text-muted">
-        <span class="me-4"><span style="display: inline-block;
-            width: 24px;
-            height: 24px;
-            background-color: #d4edda;
-            border: 2px solid #2e7d32;
-            border-radius: 3px;
-            vertical-align: middle;"></span> <strong>✓</strong> @messages("tree.legend.established")</span>
-        <span class="me-4"><span style="display: inline-block;
-            width: 24px;
-            height: 24px;
-            background-color: #ffeeba;
-            border: 2px dashed #e65100;
-            border-radius: 3px;
-            vertical-align: middle;"></span> <strong>★</strong> @messages("tree.legend.updated")</span>
+        <span class="me-4"><span class="legend-icon established"></span> <strong>✓</strong> @messages("tree.legend.established")</span>
+        <span class="me-4"><span class="legend-icon updated"></span> <strong>★</strong> @messages("tree.legend.updated")</span>
     </small>
+    @if(renderedTreeData.isDefined) {
+        <button class="btn btn-sm btn-outline-secondary" onclick="document.getElementById('phylogenetic-tree-root').scrollTo({top: 0, left: 0, behavior: 'smooth'})">
+            <i class="bi bi-arrows-move"></i> Center Root
+        </button>
+    }
 </div>
 
-<div id="tree-and-sidebar-container">
-    <div id="phylogenetic-tree-root">
+<div id="tree-and-sidebar-container" class="position-relative">
+    @* Loading Overlay *@
+    <div class="tree-loading-indicator">
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+    </div>
+
+    <div id="phylogenetic-tree-root" class="tree-scroll-container">
     @renderedTreeData.map { rtd =>
     <svg id="phylogenetic-tree-svg" width="@rtd.svgWidth" height="@rtd.svgHeight">
 
@@ -68,7 +68,13 @@
         }
 
         @for(node <- rtd.allNodes) {
-            <g class="node">
+            <g class="node"
+               tabindex="0"
+               role="button"
+               aria-label="@messages("tree.reRoot") @node.name"
+               onkeydown="if(event.key === 'Enter' || event.key === ' ') { htmx.trigger(this.querySelector('.node-rect'), 'click'); event.preventDefault(); }">
+                
+                @* Node Rectangle *@
                 <rect class="node-rect @if(node.isBackbone){node-established}else if(node.isRecentlyUpdated){node-recent}"
                 x="@(node.y - 75)"
                 y="@(node.x - 40)"
@@ -76,9 +82,13 @@
                 hx-get="@fragmentUrl(Option(node.name))"
                 hx-target="#tree-container"
                 hx-push-url="@fullPageUrl(Option(node.name))"
+                hx-indicator=".tree-loading-indicator"
+                data-bs-toggle="tooltip"
+                data-bs-placement="top"
+                title="@messages("tree.reRoot") @node.name"
                 style="fill: @node.fillColor; cursor: pointer;">
-                    <title>@node.name (@messages("tree.reRoot"))</title>
                 </rect>
+
                 @* Header bar *@
                 <rect class="node-header"
                 x="@(node.y - 75)"
@@ -86,6 +96,7 @@
                 width="150" height="22" rx="4" ry="4"
                 style="fill: @if(node.isBackbone){#2e7d32}else if(node.isRecentlyUpdated){#e65100}else{#555}; pointer-events: none;"/>
                 <rect x="@(node.y - 75)" y="@(node.x - 22)" width="150" height="4" style="fill: @if(node.isBackbone){#2e7d32}else if(node.isRecentlyUpdated){#e65100}else{#555}; pointer-events: none;"/>
+                
                 @* Name row with icon *@
                 <text class="node-name"
                 x="@(node.y)"
@@ -93,6 +104,7 @@
                 text-anchor="middle">
                 @if(node.isBackbone){✓ }@if(node.isRecentlyUpdated){★ }@node.name
                 </text>
+                
                 @* Variants row *@
                 <text class="node-variant-link"
                 x="@(node.y + 70)"
@@ -101,10 +113,12 @@
                 hx-get="@TreeController.getSnpDetailSidebar(node.name, hapType)"
                 hx-target="#snpDetailSidebarPlaceholder"
                 hx-swap="outerHTML"
-                hx-trigger="click">
+                hx-trigger="click"
+                data-bs-toggle="tooltip"
+                title="@messages("tree.clickToSeeVariants", node.variantsCount.getOrElse(0))">
                     @node.variantsCount.map(c => s"$c variants ▸").getOrElse("—")
-                    <title>@messages("tree.clickToSeeVariants", node.variantsCount.getOrElse(0))</title>
                 </text>
+                
                 @if(showBranchAgeEstimates) {
                     @* Formed row *@
                     <text class="node-detail node-date"
@@ -132,16 +146,27 @@
     <div id="snpDetailSidebarPlaceholder"></div>
 
 </div>
-<style>
 
-        #phylogenetic-tree-root {
+<script>
+    // Initialize tooltips for dynamically loaded content
+    (function() {
+        var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'))
+        var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
+            return new bootstrap.Tooltip(tooltipTriggerEl)
+        });
+    })();
+</script>
+
+<style>
+        .tree-scroll-container {
             width: 100%;
             max-height: calc(100vh - 200px);
             overflow: auto;
             border: 1px solid #ddd;
             background-color: #f0f0f0;
-
-            /* Add styles for scroll indicators */
+            border-radius: 4px;
+            
+            /* Scroll indicators */
             background-image: linear-gradient(to right, #f0f0f0, #f0f0f0),
             linear-gradient(to right, #f0f0f0, #f0f0f0),
             linear-gradient(to right, rgba(0, 0, 0, 0.25), rgba(255, 255, 255, 0)),
@@ -152,15 +177,44 @@
             background-attachment: local, local, scroll, scroll;
         }
 
+        /* Loading Indicator */
+        .tree-loading-indicator {
+            display: none;
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(255, 255, 255, 0.7);
+            z-index: 10;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .htmx-request .tree-loading-indicator {
+            display: flex;
+        }
 
         .node {
-            cursor: default;
+            cursor: pointer;
+            transition: opacity 0.2s;
+        }
+        
+        .node:focus {
+            outline: none;
+        }
+        
+        .node:focus .node-rect {
+            stroke: #007bff;
+            stroke-width: 3px;
+            filter: drop-shadow(0 0 5px rgba(0,123,255,0.5));
         }
 
         .node-rect {
             fill: #f8f8f8;
             stroke: #999;
             stroke-width: 1px;
+            transition: all 0.2s ease;
         }
 
         .node-rect.node-established {
@@ -173,35 +227,42 @@
             stroke-width: 2px;
             stroke-dasharray: 4 2;
         }
+        
+        .node:hover .node-rect {
+            filter: drop-shadow(0 4px 6px rgba(0,0,0,0.1));
+        }
 
         .node-header {
             pointer-events: none;
         }
 
         .node-name {
-            font-family: sans-serif;
+            font-family: system-ui, -apple-system, sans-serif;
             font-size: 12px;
             font-weight: bold;
             fill: white;
             pointer-events: none;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.3);
         }
 
         .node-detail {
-            font-family: sans-serif;
+            font-family: system-ui, -apple-system, sans-serif;
             font-size: 11px;
             fill: #333;
         }
 
         .node-variant-link {
-            font-family: sans-serif;
+            font-family: system-ui, -apple-system, sans-serif;
             font-size: 11px;
             fill: #0077b6;
             text-decoration: underline;
             cursor: pointer;
+            font-weight: 500;
         }
 
         .node-variant-link:hover {
             fill: #023e8a;
+            font-weight: bold;
         }
 
         .node-date {
@@ -217,5 +278,24 @@
 
         .breadcrumb-item + .breadcrumb-item::before {
             content: ">"
+        }
+        
+        /* Legend Icons */
+        .legend-icon {
+            display: inline-block;
+            width: 24px;
+            height: 24px;
+            border-radius: 3px;
+            vertical-align: middle;
+        }
+        
+        .legend-icon.established {
+            background-color: #d4edda;
+            border: 2px solid #2e7d32;
+        }
+        
+        .legend-icon.updated {
+            background-color: #ffeeba;
+            border: 2px dashed #e65100;
         }
 </style>

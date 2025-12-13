@@ -7,17 +7,7 @@
     <div class="container mt-4">
         <h1>@messages("publication.submit.title")</h1>
 
-        @request.flash.get("error").map { message =>
-            <div class="alert alert-danger">
-                @message
-            </div>
-        }
-
-        @request.flash.get("success").map { message =>
-            <div class="alert alert-success">
-                @message
-            </div>
-        }
+        @views.html.fragments.flashMessages(request.flash)
 
         @form(routes.PublicationController.submitPaper()) {
             @CSRF.formField

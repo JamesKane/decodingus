@@ -2,6 +2,7 @@
 @import models.domain.support.{ContactMessage, MessageReply, MessageStatus}
 @import models.domain.user.User
 @import controllers.ReplyFormData
+@import utils.CuratorViewUtils
 @(message: ContactMessage, replies: Seq[MessageReply], sender: Option[User], replyForm: Form[ReplyFormData])(implicit request: RequestHeader, messagesProvider: Messages, webJarsUtil: WebJarsUtil)
 
 @main(messagesProvider("support.admin.messageDetail.title")) {
@@ -12,19 +13,14 @@
             </a>
         </div>
 
-        @request.flash.get("success").map { msg =>
-            <div class="alert alert-success alert-dismissible fade show" role="alert">
-                @msg
-                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-            </div>
-        }
+        @views.html.fragments.flashMessages(request.flash)
 
         <div class="row">
             <div class="col-lg-8">
                 <div class="card mb-4">
                     <div class="card-header d-flex justify-content-between align-items-center">
                         <h5 class="mb-0">@message.subject</h5>
-                        <span class="badge @statusBadgeClass(message.status)">
+                        <span class="badge @CuratorViewUtils.statusBadgeClass(message.status)">
                             @messagesProvider(s"support.status.${message.status.value}")
                         </span>
                     </div>

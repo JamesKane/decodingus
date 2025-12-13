@@ -37,21 +37,12 @@
         </div>
         <div>
             <span class="text-muted me-2">@messages("publication.list.total", paginatedPublications.totalItems)</span>
-            @if(paginatedPublications.hasPreviousPage) {
-                <button class="btn btn-outline-secondary btn-sm"
-                hx-get="@controllers.routes.PublicationController.getAllPublicationsWithDetailsHtml(Some(paginatedPublications.currentPage - 1), Some(paginatedPublications.pageSize), searchQuery)"
-                hx-target="#publications-container" hx-swap="innerHTML">
-                    @messages("pagination.previous")
-                </button>
-            }
-            <span class="mx-2">@messages("pagination.pageOf", paginatedPublications.currentPage, paginatedPublications.totalPages)</span>
-            @if(paginatedPublications.hasNextPage) {
-                <button class="btn btn-outline-secondary btn-sm"
-                hx-get="@controllers.routes.PublicationController.getAllPublicationsWithDetailsHtml(Some(paginatedPublications.currentPage + 1), Some(paginatedPublications.pageSize), searchQuery)"
-                hx-target="#publications-container" hx-swap="innerHTML">
-                    @messages("pagination.next")
-                </button>
-            }
+            @views.html.fragments.htmlPagination(
+                currentPage = paginatedPublications.currentPage,
+                totalPages = paginatedPublications.totalPages,
+                pageSize = paginatedPublications.pageSize,
+                linkGenerator = (p, ps) => controllers.routes.PublicationController.getAllPublicationsWithDetailsHtml(Some(p), Some(ps), searchQuery)
+            )
         </div>
     </div>
 }
