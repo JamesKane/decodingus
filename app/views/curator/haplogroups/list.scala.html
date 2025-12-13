@@ -13,21 +13,14 @@
     <div class="container-fluid py-4">
         <div class="row">
             <div class="col-12">
-                <nav aria-label="breadcrumb">
-                    <ol class="breadcrumb">
-                        <li class="breadcrumb-item"><a href="@controllers.routes.CuratorController.dashboard">Curator</a></li>
-                        <li class="breadcrumb-item active">Haplogroups</li>
-                    </ol>
-                </nav>
+                @views.html.fragments.breadcrumbs(Seq(
+                    ("Curator", controllers.routes.CuratorController.dashboard),
+                    ("Haplogroups", controllers.routes.CuratorController.listHaplogroups(None, None, 1, 20))
+                ))
             </div>
         </div>
 
-        @request.flash.get("success").map { msg =>
-            <div class="alert alert-success alert-dismissible fade show" role="alert">
-                @msg
-                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-            </div>
-        }
+        @views.html.fragments.flashMessages(request.flash)
 
         <div class="row">
             <div class="col-lg-8">
@@ -41,23 +34,14 @@
                     <div class="card-body">
                         <div class="row g-3 mb-4">
                             <div class="col-md-6">
-                                <div class="input-group" id="search-box">
-                                    <span class="input-group-text">
-                                        <i class="bi bi-search search-icon"></i>
-                                        <span class="spinner-border spinner-border-sm search-indicator" role="status"></span>
-                                    </span>
-                                    <input type="text"
-                                        class="form-control"
-                                        id="haplogroup-search"
-                                        name="query"
-                                        value="@query.getOrElse("")"
-                                        placeholder="Search haplogroups..."
-                                        hx-get="@controllers.routes.CuratorController.haplogroupsFragment(None, hgType, 1, pageSize)"
-                                        hx-trigger="input changed delay:300ms"
-                                        hx-target="#haplogroups-table"
-                                        hx-indicator="#search-box"
-                                        autocomplete="off">
-                                </div>
+                                @views.html.fragments.searchInput(
+                                    id = "haplogroup-search",
+                                    name = "query",
+                                    value = query,
+                                    placeholder = "Search haplogroups...",
+                                    hxGet = controllers.routes.CuratorController.haplogroupsFragment(None, hgType, 1, pageSize),
+                                    hxTarget = "#haplogroups-table"
+                                )
                             </div>
                             <div class="col-md-4">
                                 <select class="form-select"

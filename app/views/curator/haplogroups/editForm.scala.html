@@ -6,13 +6,11 @@
     <div class="container-fluid py-3 px-4">
         <div class="row">
             <div class="col-12">
-                <nav aria-label="breadcrumb">
-                    <ol class="breadcrumb">
-                        <li class="breadcrumb-item"><a href="@controllers.routes.CuratorController.dashboard">Curator</a></li>
-                        <li class="breadcrumb-item"><a href="@controllers.routes.CuratorController.listHaplogroups(None, None, 1, 20)">Haplogroups</a></li>
-                        <li class="breadcrumb-item active">Edit</li>
-                    </ol>
-                </nav>
+                @views.html.fragments.breadcrumbs(Seq(
+                    ("Curator", controllers.routes.CuratorController.dashboard),
+                    ("Haplogroups", controllers.routes.CuratorController.listHaplogroups(None, None, 1, 20)),
+                    ("Edit", controllers.routes.CuratorController.editHaplogroupForm(id))
+                ))
             </div>
         </div>
 
@@ -23,6 +21,8 @@
                         <h6 class="mb-0"><i class="bi bi-pencil"></i> Edit Haplogroup</h6>
                     </div>
                     <div class="card-body py-3">
+                        @views.html.fragments.flashMessages(request.flash, Some(form))
+
                         @helper.form(controllers.routes.CuratorController.updateHaplogroup(id)) {
                             @helper.CSRF.formField
 

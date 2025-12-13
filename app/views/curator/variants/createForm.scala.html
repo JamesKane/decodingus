@@ -6,19 +6,19 @@
     <div class="container py-5">
         <div class="row justify-content-center">
             <div class="col-md-8">
-                <nav aria-label="breadcrumb">
-                    <ol class="breadcrumb">
-                        <li class="breadcrumb-item"><a href="@controllers.routes.CuratorController.dashboard">Curator</a></li>
-                        <li class="breadcrumb-item"><a href="@controllers.routes.CuratorController.listVariants(None, 1, 20)">Variants</a></li>
-                        <li class="breadcrumb-item active">Create</li>
-                    </ol>
-                </nav>
+                @views.html.fragments.breadcrumbs(Seq(
+                    ("Curator", controllers.routes.CuratorController.dashboard),
+                    ("Variants", controllers.routes.CuratorController.listVariants(None, 1, 20)),
+                    ("Create", controllers.routes.CuratorController.createVariantForm)
+                ))
 
                 <div class="card">
                     <div class="card-header">
                         <h5 class="mb-0"><i class="bi bi-plus-circle"></i> Create Variant</h5>
                     </div>
                     <div class="card-body">
+                        @views.html.fragments.flashMessages(request.flash, Some(form))
+
                         @helper.form(controllers.routes.CuratorController.createVariant) {
                             @helper.CSRF.formField
 

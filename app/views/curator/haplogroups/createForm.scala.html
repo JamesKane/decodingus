@@ -7,22 +7,18 @@
     <div class="container py-5">
         <div class="row justify-content-center">
             <div class="col-md-8">
-                <nav aria-label="breadcrumb">
-                    <ol class="breadcrumb">
-                        <li class="breadcrumb-item"><a href="@controllers.routes.CuratorController.dashboard">Curator</a></li>
-                        <li class="breadcrumb-item"><a href="@controllers.routes.CuratorController.listHaplogroups(None, None, 1, 20)">Haplogroups</a></li>
-                        <li class="breadcrumb-item active">Create</li>
-                    </ol>
-                </nav>
+                @views.html.fragments.breadcrumbs(Seq(
+                    ("Curator", controllers.routes.CuratorController.dashboard),
+                    ("Haplogroups", controllers.routes.CuratorController.listHaplogroups(None, None, 1, 20)),
+                    ("Create", controllers.routes.CuratorController.createHaplogroupForm)
+                ))
 
                 <div class="card">
                     <div class="card-header">
                         <h5 class="mb-0"><i class="bi bi-plus-circle"></i> Create Haplogroup</h5>
                     </div>
                     <div class="card-body">
-                        @form.globalError.map { error =>
-                            <div class="alert alert-danger">@error.message</div>
-                        }
+                        @views.html.fragments.flashMessages(request.flash, Some(form))
 
                         <div class="alert alert-info">
                             <strong><i class="bi bi-info-circle"></i> Creation Rules:</strong>
