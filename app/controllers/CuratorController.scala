@@ -3,12 +3,13 @@ package controllers
 import actions.{AuthenticatedAction, AuthenticatedRequest, PermissionAction}
 import jakarta.inject.{Inject, Singleton}
 import models.HaplogroupType
-import models.domain.genomics.VariantV2
+import models.domain.genomics.{MutationType, NamingStatus, PointVariantCoordinates, VariantAliases, VariantV2}
 import models.domain.haplogroups.Haplogroup
 import org.webjars.play.WebJarsUtil
 import play.api.Logging
 import play.api.data.Form
 import play.api.data.Forms.*
+import play.api.libs.json.Json
 import play.api.i18n.I18nSupport
 import play.api.mvc.*
 import repositories.{GenbankContigRepository, HaplogroupCoreRepository, HaplogroupVariantRepository, VariantV2Repository}
@@ -46,7 +47,8 @@ case class CreateHaplogroupFormData(
 )
 
 case class VariantFormData(
-    genbankContigId: Int,
+    refGenome: String,
+    contig: String,
     position: Int,
     referenceAllele: String,
     alternateAllele: String,
@@ -105,14 +107,15 @@ class CuratorController @Inject()(
 
   private val variantForm: Form[VariantFormData] = Form(
     mapping(
-      "genbankContigId" -> number,
+      "refGenome" -> nonEmptyText.verifying("Invalid reference genome", r => Seq("hs1", "GRCh38", "GRCh37").contains(r)),
+      "contig" -> nonEmptyText(1, 50),
       "position" -> number,
       "referenceAllele" -> nonEmptyText(1, 1000),
       "alternateAllele" -> nonEmptyText(1, 1000),
-      "variantType" -> nonEmptyText(1, 50),
+      "variantType" -> nonEmptyText.verifying("Invalid variant type", t => MutationType.fromString(t).isDefined),
       "rsId" -> optional(text(maxLength = 50)),
       "commonName" -> optional(text(maxLength = 100))
-    )(VariantFormData.apply)(v => Some((v.genbankContigId, v.position, v.referenceAllele, v.alternateAllele, v.variantType, v.rsId, v.commonName)))
+    )(VariantFormData.apply)(v => Some((v.refGenome, v.contig, v.position, v.referenceAllele, v.alternateAllele, v.variantType, v.rsId, v.commonName)))
   )
 
   private val splitBranchForm: Form[SplitBranchFormData] = Form(
@@ -466,58 +469,153 @@ class CuratorController @Inject()(
       }
     }
 
-  // TODO: Redesign variant creation for VariantV2 with JSONB coordinates
   def createVariantForm: Action[AnyContent] =
-    withPermission("variant.create").async { implicit request =>
-      Future.successful(
-        Redirect(routes.CuratorController.listVariants(None, 1, 20))
-          .flashing("warning" -> "Variant creation is being updated for the new schema. Use YBrowse ingestion for now.")
-      )
+    withPermission("variant.create") { implicit request =>
+      Ok(views.html.curator.variants.createForm(variantForm))
     }
 
-  // TODO: Redesign variant creation for VariantV2 with JSONB coordinates
   def createVariant: Action[AnyContent] =
     withPermission("variant.create").async { implicit request =>
-      Future.successful(
-        Redirect(routes.CuratorController.listVariants(None, 1, 20))
-          .flashing("warning" -> "Variant creation is being updated for the new schema.")
+      variantForm.bindFromRequest().fold(
+        formWithErrors => {
+          Future.successful(BadRequest(views.html.curator.variants.createForm(formWithErrors)))
+        },
+        data => {
+          val coordinates = Json.obj(
+            data.refGenome -> Json.toJson(PointVariantCoordinates(
+              contig = data.contig,
+              position = data.position,
+              ref = data.referenceAllele.toUpperCase,
+              alt = data.alternateAllele.toUpperCase
+            ))
+          )
+
+          val aliases = (data.commonName, data.rsId) match {
+            case (Some(name), Some(rs)) =>
+              Json.toJson(VariantAliases(commonNames = Seq(name), rsIds = Seq(rs)))
+            case (Some(name), None) =>
+              Json.toJson(VariantAliases(commonNames = Seq(name)))
+            case (None, Some(rs)) =>
+              Json.toJson(VariantAliases(rsIds = Seq(rs)))
+            case _ =>
+              Json.obj()
+          }
+
+          val variant = VariantV2(
+            canonicalName = data.commonName,
+            mutationType = MutationType.fromStringOrDefault(data.variantType),
+            namingStatus = if (data.commonName.isDefined) NamingStatus.Named else NamingStatus.Unnamed,
+            aliases = aliases,
+            coordinates = coordinates
+          )
+
+          for {
+            createdId <- variantV2Repository.create(variant)
+            createdVariant = variant.copy(variantId = Some(createdId))
+            _ <- auditService.logVariantCreate(request.user.id.get, createdVariant, Some("Created via curator interface"))
+          } yield {
+            Redirect(routes.CuratorController.listVariants(None, 1, 20))
+              .flashing("success" -> s"Variant ${createdVariant.displayName} created successfully")
+          }
+        }
       )
     }
 
-  // TODO: Redesign variant editing for VariantV2 with JSONB coordinates
   def editVariantForm(id: Int): Action[AnyContent] =
     withPermission("variant.update").async { implicit request =>
-      Future.successful(
-        Redirect(routes.CuratorController.listVariants(None, 1, 20))
-          .flashing("warning" -> "Variant editing is being updated for the new schema.")
-      )
+      variantV2Repository.findById(id).map {
+        case Some(variant) =>
+          // Get the primary reference genome coordinates (prefer hs1)
+          val refGenome = variant.availableReferences.find(_ == "hs1")
+            .orElse(variant.availableReferences.headOption)
+            .getOrElse("hs1")
+
+          val coords = variant.getCoordinates(refGenome)
+          val contig = coords.flatMap(c => (c \ "contig").asOpt[String]).getOrElse("")
+          val position = coords.flatMap(c => (c \ "position").asOpt[Int]).getOrElse(0)
+          val ref = coords.flatMap(c => (c \ "ref").asOpt[String]).getOrElse("")
+          val alt = coords.flatMap(c => (c \ "alt").asOpt[String]).getOrElse("")
+
+          val filledForm = variantForm.fill(VariantFormData(
+            refGenome = refGenome,
+            contig = contig,
+            position = position,
+            referenceAllele = ref,
+            alternateAllele = alt,
+            variantType = variant.mutationType.dbValue,
+            rsId = variant.rsIds.headOption,
+            commonName = variant.canonicalName
+          ))
+
+          Ok(views.html.curator.variants.editForm(id, filledForm, s"$refGenome:$contig"))
+
+        case None =>
+          NotFound("Variant not found")
+      }
     }
 
-  // TODO: Redesign variant editing for VariantV2 with JSONB coordinates
   def updateVariant(id: Int): Action[AnyContent] =
     withPermission("variant.update").async { implicit request =>
-      Future.successful(
-        Redirect(routes.CuratorController.listVariants(None, 1, 20))
-          .flashing("warning" -> "Variant editing is being updated for the new schema.")
+      variantForm.bindFromRequest().fold(
+        formWithErrors => {
+          Future.successful(BadRequest(views.html.curator.variants.editForm(id, formWithErrors, "")))
+        },
+        data => {
+          variantV2Repository.findById(id).flatMap {
+            case None =>
+              Future.successful(NotFound("Variant not found"))
+
+            case Some(existing) =>
+              // Update editable fields (metadata only - coordinates are immutable after creation)
+              val updatedAliases = (data.commonName, data.rsId) match {
+                case (Some(name), Some(rs)) =>
+                  Json.toJson(VariantAliases(commonNames = Seq(name), rsIds = Seq(rs)))
+                case (Some(name), None) =>
+                  Json.toJson(VariantAliases(commonNames = Seq(name)))
+                case (None, Some(rs)) =>
+                  Json.toJson(VariantAliases(rsIds = Seq(rs)))
+                case _ =>
+                  existing.aliases
+              }
+
+              val updated = existing.copy(
+                canonicalName = data.commonName.orElse(existing.canonicalName),
+                mutationType = MutationType.fromStringOrDefault(data.variantType),
+                namingStatus = if (data.commonName.isDefined) NamingStatus.Named else existing.namingStatus,
+                aliases = updatedAliases
+              )
+
+              for {
+                success <- variantV2Repository.update(updated)
+                _ <- if (success) {
+                  auditService.logVariantUpdate(request.user.id.get, existing, updated, Some("Updated via curator interface"))
+                } else {
+                  Future.successful(())
+                }
+              } yield {
+                if (success) {
+                  Redirect(routes.CuratorController.listVariants(None, 1, 20))
+                    .flashing("success" -> s"Variant ${updated.displayName} updated successfully")
+                } else {
+                  BadRequest("Failed to update variant")
+                }
+              }
+          }
+        }
       )
     }
 
-  // TODO: Remove variant group concept - VariantV2 is already consolidated
+  // Variant groups are obsolete - VariantV2 is already consolidated
   def editVariantGroupForm(groupKey: String): Action[AnyContent] =
-    withPermission("variant.update").async { implicit request =>
-      Future.successful(
-        Redirect(routes.CuratorController.listVariants(None, 1, 20))
-          .flashing("warning" -> "Variant group editing is being updated for the new schema.")
-      )
+    withPermission("variant.update") { implicit request =>
+      Redirect(routes.CuratorController.listVariants(Some(groupKey), 1, 20))
+        .flashing("info" -> "Variant groups have been replaced with consolidated variants. Edit each variant directly.")
     }
 
-  // TODO: Remove variant group concept - VariantV2 is already consolidated
   def updateVariantGroup(groupKey: String): Action[AnyContent] =
-    withPermission("variant.update").async { implicit request =>
-      Future.successful(
-        Redirect(routes.CuratorController.listVariants(None, 1, 20))
-          .flashing("warning" -> "Variant group editing is being updated for the new schema.")
-      )
+    withPermission("variant.update") { implicit request =>
+      Redirect(routes.CuratorController.listVariants(Some(groupKey), 1, 20))
+        .flashing("info" -> "Variant groups have been replaced with consolidated variants.")
     }
 
   def deleteVariant(id: Int): Action[AnyContent] =

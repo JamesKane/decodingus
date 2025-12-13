@@ -1,13 +1,6 @@
 @import org.webjars.play.WebJarsUtil
 @import controllers.VariantFormData
-@import models.domain.genomics.GenbankContig
-@(form: Form[VariantFormData], contigs: Seq[GenbankContig])(implicit request: RequestHeader, messages: Messages, webJarsUtil: WebJarsUtil)
-
-@contigLabel(c: GenbankContig) = @{
-    val refGenome = c.referenceGenome.getOrElse("Unknown")
-    val name = c.commonName.getOrElse(c.accession)
-    s"$refGenome:$name"
-}
+@(form: Form[VariantFormData])(implicit request: RequestHeader, messages: Messages, webJarsUtil: WebJarsUtil)
 
 @main("Create Variant") {
     <div class="container py-5">
@@ -31,24 +24,37 @@
 
                             <div class="row">
                                 <div class="col-md-6 mb-3">
-                                    <label for="genbankContigId" class="form-label">Reference Genome / Contig *</label>
-                                    <select class="form-select @if(form.error("genbankContigId").isDefined){is-invalid}"
-                                            id="genbankContigId"
-                                            name="genbankContigId"
+                                    <label for="refGenome" class="form-label">Reference Genome *</label>
+                                    <select class="form-select @if(form.error("refGenome").isDefined){is-invalid}"
+                                            id="refGenome"
+                                            name="refGenome"
                                             required>
-                                        <option value="">Select contig...</option>
-                                        @for(contig <- contigs) {
-                                            <option value="@contig.id.get"
-                                                    @if(form("genbankContigId").value.contains(contig.id.get.toString)){selected}>
-                                                @contigLabel(contig) (@contig.accession)
-                                            </option>
-                                        }
+                                        <option value="">Select genome...</option>
+                                        <option value="hs1" @if(form("refGenome").value.contains("hs1")){selected}>hs1 (T2T-CHM13)</option>
+                                        <option value="GRCh38" @if(form("refGenome").value.contains("GRCh38")){selected}>GRCh38</option>
+                                        <option value="GRCh37" @if(form("refGenome").value.contains("GRCh37")){selected}>GRCh37</option>
                                     </select>
-                                    @form.error("genbankContigId").map { error =>
+                                    @form.error("refGenome").map { error =>
                                         <div class="invalid-feedback">@error.message</div>
                                     }
                                 </div>
                                 <div class="col-md-6 mb-3">
+                                    <label for="contig" class="form-label">Contig *</label>
+                                    <input type="text"
+                                           class="form-control @if(form.error("contig").isDefined){is-invalid}"
+                                           id="contig"
+                                           name="contig"
+                                           value="@form("contig").value.getOrElse("chrY")"
+                                           placeholder="e.g., chrY"
+                                           required>
+                                    @form.error("contig").map { error =>
+                                        <div class="invalid-feedback">@error.message</div>
+                                    }
+                                </div>
+                            </div>
+
+                            <div class="row">
+                                <div class="col-md-4 mb-3">
                                     <label for="position" class="form-label">Position *</label>
                                     <input type="number"
                                            class="form-control @if(form.error("position").isDefined){is-invalid}"
@@ -60,10 +66,7 @@
                                         <div class="invalid-feedback">@error.message</div>
                                     }
                                 </div>
-                            </div>
-
-                            <div class="row">
-                                <div class="col-md-6 mb-3">
+                                <div class="col-md-4 mb-3">
                                     <label for="referenceAllele" class="form-label">Ancestral Allele *</label>
                                     <input type="text"
                                            class="form-control font-monospace @if(form.error("referenceAllele").isDefined){is-invalid}"
@@ -73,12 +76,12 @@
                                            style="text-transform: uppercase;"
                                            placeholder="e.g., A"
                                            required>
-                                    <div class="form-text">The allele present in the reference genome (ancestral state)</div>
+                                    <div class="form-text">Reference genome allele (ancestral)</div>
                                     @form.error("referenceAllele").map { error =>
                                         <div class="invalid-feedback">@error.message</div>
                                     }
                                 </div>
-                                <div class="col-md-6 mb-3">
+                                <div class="col-md-4 mb-3">
                                     <label for="alternateAllele" class="form-label">Derived Allele *</label>
                                     <input type="text"
                                            class="form-control font-monospace @if(form.error("alternateAllele").isDefined){is-invalid}"
@@ -88,7 +91,7 @@
                                            style="text-transform: uppercase;"
                                            placeholder="e.g., G"
                                            required>
-                                    <div class="form-text">The mutated allele that defines this variant (derived state)</div>
+                                    <div class="form-text">Mutated allele (derived)</div>
                                     @form.error("alternateAllele").map { error =>
                                         <div class="invalid-feedback">@error.message</div>
                                     }
@@ -102,25 +105,25 @@
                                         name="variantType"
                                         required>
                                     <option value="">Select...</option>
-                                    <option value="SNP" @if(form("variantType").value.contains("SNP")){selected}>SNP</option>
-                                    <option value="INDEL" @if(form("variantType").value.contains("INDEL")){selected}>INDEL</option>
-                                    <option value="MNP" @if(form("variantType").value.contains("MNP")){selected}>MNP</option>
+                                    <option value="SNP" @if(form("variantType").value.contains("SNP")){selected}>SNP - Single Nucleotide Polymorphism</option>
+                                    <option value="INDEL" @if(form("variantType").value.contains("INDEL")){selected}>INDEL - Insertion/Deletion</option>
+                                    <option value="MNP" @if(form("variantType").value.contains("MNP")){selected}>MNP - Multi-Nucleotide Polymorphism</option>
+                                    <option value="STR" @if(form("variantType").value.contains("STR")){selected}>STR - Short Tandem Repeat</option>
+                                    <option value="DEL" @if(form("variantType").value.contains("DEL")){selected}>DEL - Deletion</option>
+                                    <option value="DUP" @if(form("variantType").value.contains("DUP")){selected}>DUP - Duplication</option>
+                                    <option value="INS" @if(form("variantType").value.contains("INS")){selected}>INS - Insertion</option>
+                                    <option value="INV" @if(form("variantType").value.contains("INV")){selected}>INV - Inversion</option>
+                                    <option value="CNV" @if(form("variantType").value.contains("CNV")){selected}>CNV - Copy Number Variant</option>
                                 </select>
                                 @form.error("variantType").map { error =>
                                     <div class="invalid-feedback">@error.message</div>
                                 }
                             </div>
 
+                            <hr class="my-4">
+                            <h6 class="text-muted mb-3">Optional Identifiers</h6>
+
                             <div class="row">
-                                <div class="col-md-6 mb-3">
-                                    <label for="rsId" class="form-label">rsId</label>
-                                    <input type="text"
-                                           class="form-control"
-                                           id="rsId"
-                                           name="rsId"
-                                           value="@form("rsId").value.getOrElse("")"
-                                           placeholder="e.g., rs12345">
-                                </div>
                                 <div class="col-md-6 mb-3">
                                     <label for="commonName" class="form-label">Common Name</label>
                                     <input type="text"
@@ -129,6 +132,16 @@
                                            name="commonName"
                                            value="@form("commonName").value.getOrElse("")"
                                            placeholder="e.g., M269">
+                                    <div class="form-text">Becomes canonical name if provided</div>
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label for="rsId" class="form-label">rsId</label>
+                                    <input type="text"
+                                           class="form-control"
+                                           id="rsId"
+                                           name="rsId"
+                                           value="@form("rsId").value.getOrElse("")"
+                                           placeholder="e.g., rs12345">
                                 </div>
                             </div>
 
