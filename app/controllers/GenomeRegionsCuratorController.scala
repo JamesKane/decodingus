@@ -107,7 +107,7 @@ class GenomeRegionsCuratorController @Inject()(
         },
         formData => {
           // Resolve contig to get build name and common name
-          genbankContigRepository.getById(formData.genbankContigId).flatMap {
+          genbankContigRepository.findById(formData.genbankContigId).flatMap {
             case Some(contig) =>
               val build = contig.referenceGenome.getOrElse("unknown")
               val contigName = contig.commonName.getOrElse("unknown")
@@ -180,7 +180,7 @@ class GenomeRegionsCuratorController @Inject()(
           }
         },
         formData => {
-          genbankContigRepository.getById(formData.genbankContigId).flatMap {
+          genbankContigRepository.findById(formData.genbankContigId).flatMap {
             case Some(contig) =>
               val build = contig.referenceGenome.getOrElse("unknown")
               val contigName = contig.commonName.getOrElse("unknown")

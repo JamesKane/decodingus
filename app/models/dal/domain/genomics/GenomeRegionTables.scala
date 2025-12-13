@@ -27,10 +27,15 @@ class GenomeRegionTable(tag: Tag) extends Table[GenomeRegion](tag, "genome_regio
   def id = column[Int]("region_id", O.PrimaryKey, O.AutoInc) // Column name changed to region_id
   def regionType = column[String]("region_type")
   def name = column[Option[String]]("name")
-  def coordinates = column[Map[String, RegionCoordinate]]("coordinates")
+  def coordinates = column[JsValue]("coordinates")
   def properties = column[JsValue]("properties")
 
-  def * = (id.?, regionType, name, coordinates, properties).mapTo[GenomeRegion]
+  def * = (id.?, regionType, name, coordinates, properties).<> (
+    (t: (Option[Int], String, Option[String], JsValue, JsValue)) => GenomeRegion(
+      t._1, t._2, t._3, t._4.as[Map[String, RegionCoordinate]], t._5
+    ),
+    (r: GenomeRegion) => Some((r.id, r.regionType, r.name, play.api.libs.json.Json.toJson(r.coordinates), r.properties))
+  )
   
   // No Foreign Key to Contig anymore, as coordinates are embedded
 }

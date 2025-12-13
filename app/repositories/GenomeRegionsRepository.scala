@@ -5,6 +5,7 @@ import models.dal.MyPostgresProfile
 import models.dal.MyPostgresProfile.api.*
 import models.domain.genomics.{GenbankContig, GenomeRegion, GenomeRegionVersion}
 import play.api.db.slick.{DatabaseConfigProvider, HasDatabaseConfigProvider}
+import play.api.libs.json.Json
 
 import scala.concurrent.{ExecutionContext, Future}
 
@@ -88,7 +89,7 @@ class GenomeRegionsRepositoryImpl @Inject()(
   override def getRegionsForBuild(referenceGenome: String): Future[Seq[GenomeRegion]] = {
     // Select regions where coordinates -> buildName exists
     val query = genomeRegions
-      .filter(r => (r.coordinates +> referenceGenome).isDefined)
+      .filter(r => r.coordinates ?? referenceGenome)
       .result
     db.run(query)
   }
@@ -121,7 +122,7 @@ class GenomeRegionsRepositoryImpl @Inject()(
     }
 
     if (build.isDefined) {
-       query = query.filter(r => (r.coordinates +> build.get).isDefined)
+       query = query.filter(r => r.coordinates ?? build.get)
     }
 
     db.run(query.drop(offset).take(limit).result)
@@ -135,7 +136,7 @@ class GenomeRegionsRepositoryImpl @Inject()(
     }
 
     if (build.isDefined) {
-      query = query.filter(r => (r.coordinates +> build.get).isDefined)
+      query = query.filter(r => r.coordinates ?? build.get)
     }
 
     db.run(query.length.result)
@@ -148,7 +149,7 @@ class GenomeRegionsRepositoryImpl @Inject()(
   override def updateRegion(id: Int, region: GenomeRegion): Future[Boolean] = {
     val query = genomeRegions.filter(_.id === id).map(r =>
       (r.regionType, r.name, r.coordinates, r.properties)
-    ).update((region.regionType, region.name, region.coordinates, region.properties))
+    ).update((region.regionType, region.name, Json.toJson(region.coordinates), region.properties))
     db.run(query).map(_ > 0)
   }
 

@@ -10,7 +10,7 @@
                 <nav aria-label="breadcrumb">
                     <ol class="breadcrumb">
                         <li class="breadcrumb-item"><a href="@controllers.routes.CuratorController.dashboard">Curator</a></li>
-                        <li class="breadcrumb-item"><a href="@controllers.routes.GenomeRegionsCuratorController.listRegions(None, 1, 25)">Genome Regions</a></li>
+                        <li class="breadcrumb-item"><a href="@controllers.routes.GenomeRegionsCuratorController.listRegions(None, None, 1, 25)">Genome Regions</a></li>
                         <li class="breadcrumb-item active">Edit</li>
                     </ol>
                 </nav>
@@ -138,7 +138,7 @@
                                 <button type="submit" class="btn btn-primary">
                                     <i class="bi bi-check-circle"></i> Save Changes
                                 </button>
-                                <a href="@controllers.routes.GenomeRegionsCuratorController.listRegions(None, 1, 25)" class="btn btn-outline-secondary">
+                                <a href="@controllers.routes.GenomeRegionsCuratorController.listRegions(None, None, 1, 25)" class="btn btn-outline-secondary">
                                     Cancel
                                 </a>
                             </div>
