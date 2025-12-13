@@ -1,0 +1,54 @@
+@import models.domain.genomics.VariantV2
+@import utils.VariantViewUtils
+@(variant: VariantV2)(implicit messages: Messages)
+
+@defining(VariantViewUtils.refGenomes(variant)) { refs =>
+    @if(refs.size > 1) {
+        <div class="table-responsive">
+            <table class="table table-sm small">
+                <thead>
+                    <tr>
+                        <th>@messages("variants.detail.build")</th>
+                        <th>@messages("variants.detail.position")</th>
+                        <th>@messages("variants.detail.alleles")</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @for(refGenome <- refs) {
+                        @defining(VariantViewUtils.formatAllelesTuple(variant, refGenome)) { alleles =>
+                            <tr>
+                                <td>
+                                    <span class="badge @VariantViewUtils.buildBadgeClass(refGenome)">
+                                        @VariantViewUtils.shortRefGenome(refGenome)
+                                    </span>
+                                </td>
+                                <td><code>@VariantViewUtils.formatPosition(variant, refGenome)</code></td>
+                                <td>
+                                    <code>@alleles._1</code>
+                                    <i class="bi bi-arrow-right text-muted" style="font-size: 0.7rem;"></i>
+                                    <code>@alleles._2</code>
+                                </td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+    } else if(refs.nonEmpty) {
+        @defining(refs.head) { refGenome =>
+            @defining(VariantViewUtils.formatAllelesTuple(variant, refGenome)) { alleles =>
+                <div class="mb-3">
+                    <span class="badge @VariantViewUtils.buildBadgeClass(refGenome)">@VariantViewUtils.shortRefGenome(refGenome)</span>
+                    <code class="ms-2">@VariantViewUtils.formatPosition(variant, refGenome)</code>
+                    <span class="ms-2">
+                        <code>@alleles._1</code>
+                        <i class="bi bi-arrow-right text-muted" style="font-size: 0.7rem;"></i>
+                        <code>@alleles._2</code>
+                    </span>
+                </div>
+            }
+        }
+    } else {
+        <p class="text-muted small">@messages("variants.detail.noCoordinates")</p>
+    }
+}

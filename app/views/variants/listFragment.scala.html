@@ -1,22 +1,6 @@
 @import models.domain.genomics.VariantV2
-@import play.api.libs.json.JsObject
+@import utils.VariantViewUtils
 @(variants: Seq[VariantV2], query: Option[String], currentPage: Int, totalPages: Int, pageSize: Int, totalCount: Int)(implicit request: RequestHeader, messages: Messages)
-
-@* Helper to extract reference genomes from coordinates *@
-@refGenomes(v: VariantV2) = @{
-    v.coordinates.asOpt[Map[String, JsObject]].map(_.keys.toSeq.sorted).getOrElse(Seq.empty)
-}
-
-@* Helper to get alleles from primary reference (prefer hs1, then GRCh38) *@
-@primaryAlleles(v: VariantV2) = @{
-    val coords = v.coordinates.asOpt[Map[String, JsObject]].getOrElse(Map.empty)
-    val primary = coords.get("hs1").orElse(coords.get("GRCh38")).orElse(coords.headOption.map(_._2))
-    primary.map { c =>
-        val ref = (c \ "ref").asOpt[String].getOrElse("?")
-        val alt = (c \ "alt").asOpt[String].getOrElse("?")
-        (ref, alt)
-    }.getOrElse(("?", "?"))
-}
 
 @defining(java.text.NumberFormat.getIntegerInstance()) { nf =>
 <div class="d-flex justify-content-between align-items-center mb-2">
@@ -54,8 +38,8 @@
             </thead>
             <tbody>
                 @for(variant <- variants) {
-                    @defining(primaryAlleles(variant)) { alleles =>
-                        @defining(refGenomes(variant)) { refs =>
+                    @defining(VariantViewUtils.primaryAlleles(variant)) { alleles =>
+                        @defining(VariantViewUtils.refGenomes(variant)) { refs =>
                             <tr class="cursor-pointer"
                                 hx-get="@controllers.routes.VariantBrowserController.detailPanel(variant.variantId.get)"
                                 hx-target="#detail-panel"
@@ -75,8 +59,8 @@
                                 </td>
                                 <td>
                                     @for(refGenome <- refs) {
-                                        <span class="badge @buildBadgeClass(refGenome)" title="@refGenome">
-                                            @shortRefGenome(refGenome)
+                                        <span class="badge @VariantViewUtils.buildBadgeClass(refGenome)" title="@refGenome">
+                                            @VariantViewUtils.shortRefGenome(refGenome)
                                         </span>
                                     }
                                 </td>
@@ -88,54 +72,11 @@
         </table>
     </div>
 
-    @if(totalPages > 1) {
-        <nav>
-            <ul class="pagination justify-content-center">
-                <li class="page-item @if(currentPage <= 1){disabled}">
-                    <a class="page-link"
-                       hx-get="@controllers.routes.VariantBrowserController.listFragment(query, currentPage - 1, pageSize)"
-                       hx-target="#variants-table"
-                       hx-include="#variant-search">
-                        @messages("pagination.previous")
-                    </a>
-                </li>
-                @for(p <- Math.max(1, currentPage - 2) to Math.min(totalPages, currentPage + 2)) {
-                    <li class="page-item @if(p == currentPage){active}">
-                        <a class="page-link"
-                           hx-get="@controllers.routes.VariantBrowserController.listFragment(query, p, pageSize)"
-                           hx-target="#variants-table"
-                           hx-include="#variant-search">
-                            @p
-                        </a>
-                    </li>
-                }
-                <li class="page-item @if(currentPage >= totalPages){disabled}">
-                    <a class="page-link"
-                       hx-get="@controllers.routes.VariantBrowserController.listFragment(query, currentPage + 1, pageSize)"
-                       hx-target="#variants-table"
-                       hx-include="#variant-search">
-                        @messages("pagination.next")
-                    </a>
-                </li>
-            </ul>
-        </nav>
-    }
-}
-
-@buildBadgeClass(refGenome: String) = @{
-    refGenome match {
-        case "GRCh37" => "bg-warning text-dark"
-        case "GRCh38" => "bg-info"
-        case "hs1" => "bg-success"
-        case _ => "bg-secondary"
-    }
-}
-
-@shortRefGenome(refGenome: String) = @{
-    refGenome match {
-        case "GRCh37" => "GRCh37"
-        case "GRCh38" => "GRCh38"
-        case "hs1" => "T2T"
-        case other => other
-    }
+    @views.html.fragments.pagination(
+        currentPage,
+        totalPages,
+        p => controllers.routes.VariantBrowserController.listFragment(query, p, pageSize),
+        "#variants-table",
+        "#variant-search"
+    )
 }

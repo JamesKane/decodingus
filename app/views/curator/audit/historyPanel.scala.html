@@ -1,5 +1,6 @@
 @import models.domain.curator.AuditLogEntry
 @import play.api.libs.json.Json
+@import utils.CuratorViewUtils
 @(entityType: String, entityId: Int, history: Seq[AuditLogEntry])(implicit request: RequestHeader)
 
 <div class="card">
@@ -15,7 +16,7 @@
                 @for(entry <- history) {
                     <div class="timeline-item mb-4 pb-4 border-bottom">
                         <div class="d-flex justify-content-between align-items-start mb-2">
-                            <span class="badge @actionBadgeClass(entry.action)">@entry.action</span>
+                            <span class="badge @CuratorViewUtils.actionBadgeClass(entry.action)">@entry.action</span>
                             <small class="text-muted">@entry.createdAt.toLocalDate @entry.createdAt.toLocalTime.toString.take(5)</small>
                         </div>
 
@@ -76,12 +77,3 @@
         </div>
     </div>
 </div>
-
-@actionBadgeClass(action: String) = @{
-    action match {
-        case "create" => "bg-success"
-        case "update" => "bg-warning text-dark"
-        case "delete" => "bg-danger"
-        case _ => "bg-secondary"
-    }
-}

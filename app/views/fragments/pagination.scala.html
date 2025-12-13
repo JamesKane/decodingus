@@ -1,0 +1,34 @@
+@(currentPage: Int, totalPages: Int, pageCall: Int => play.api.mvc.Call, target: String, include: String)(implicit messages: Messages)
+
+@if(totalPages > 1) {
+    <nav>
+        <ul class="pagination justify-content-center">
+            <li class="page-item @if(currentPage <= 1){disabled}">
+                <a class="page-link"
+                   hx-get="@pageCall(currentPage - 1)"
+                   hx-target="@target"
+                   hx-include="@include">
+                    @messages("pagination.previous")
+                </a>
+            </li>
+            @for(p <- Math.max(1, currentPage - 2) to Math.min(totalPages, currentPage + 2)) {
+                <li class="page-item @if(p == currentPage){active}">
+                    <a class="page-link"
+                       hx-get="@pageCall(p)"
+                       hx-target="@target"
+                       hx-include="@include">
+                        @p
+                    </a>
+                </li>
+            }
+            <li class="page-item @if(currentPage >= totalPages){disabled}">
+                <a class="page-link"
+                   hx-get="@pageCall(currentPage + 1)"
+                   hx-target="@target"
+                   hx-include="@include">
+                    @messages("pagination.next")
+                </a>
+            </li>
+        </ul>
+    </nav>
+}

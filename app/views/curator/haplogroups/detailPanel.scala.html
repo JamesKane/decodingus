@@ -1,6 +1,7 @@
 @import models.domain.haplogroups.Haplogroup
 @import models.domain.genomics.VariantV2
 @import models.domain.curator.AuditLogEntry
+@import utils.CuratorViewUtils
 @(haplogroup: Haplogroup, parentOpt: Option[Haplogroup], children: Seq[Haplogroup], variants: Seq[VariantV2], history: Seq[AuditLogEntry])(implicit request: RequestHeader)
 
 <div class="card">
@@ -186,7 +187,7 @@
             <ul class="list-group list-group-flush small">
                 @for(entry <- history.take(5)) {
                     <li class="list-group-item px-0">
-                        <span class="badge @actionBadgeClass(entry.action) me-1">@entry.action</span>
+                        <span class="badge @CuratorViewUtils.actionBadgeClass(entry.action) me-1">@entry.action</span>
                         @entry.createdAt.toLocalDate
                         @entry.comment.map { c => <br><small class="text-muted">@c</small> }
                     </li>
@@ -203,12 +204,3 @@
         }
     </div>
 </div>
-
-@actionBadgeClass(action: String) = @{
-    action match {
-        case "create" => "bg-success"
-        case "update" => "bg-warning text-dark"
-        case "delete" => "bg-danger"
-        case _ => "bg-secondary"
-    }
-}

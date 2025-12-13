@@ -2,46 +2,13 @@
 @import models.domain.haplogroups.Haplogroup
 @import models.domain.curator.AuditLogEntry
 @import play.api.libs.json.JsObject
-@(variant: VariantV2, haplogroups: Seq[Haplogroup], history: Seq[AuditLogEntry])(implicit request: RequestHeader)
-
-@* Helper to extract reference genomes from coordinates *@
-@refGenomes = @{
-    variant.coordinates.asOpt[Map[String, JsObject]].map(_.keys.toSeq.sorted).getOrElse(Seq.empty)
-}
-
-@* Helper to format position for a specific reference *@
-@formatPosition(refGenome: String) = @{
-    variant.getCoordinates(refGenome).map { coords =>
-        val contig = (coords \ "contig").asOpt[String].getOrElse("?")
-        val pos = (coords \ "position").asOpt[Int].getOrElse(0)
-        s"$contig:$pos"
-    }.getOrElse("-")
-}
-
-@* Helper to format alleles for a specific reference *@
-@formatAlleles(refGenome: String) = @{
-    variant.getCoordinates(refGenome).map { coords =>
-        val ref = (coords \ "ref").asOpt[String].getOrElse("?")
-        val alt = (coords \ "alt").asOpt[String].getOrElse("?")
-        s"$ref→$alt"
-    }.getOrElse("-")
-}
-
-@* Helper to get primary alleles (prefer hs1, then GRCh38) *@
-@primaryAlleles = @{
-    val coords = variant.coordinates.asOpt[Map[String, JsObject]].getOrElse(Map.empty)
-    val primary = coords.get("hs1").orElse(coords.get("GRCh38")).orElse(coords.headOption.map(_._2))
-    primary.map { c =>
-        val ref = (c \ "ref").asOpt[String].getOrElse("?")
-        val alt = (c \ "alt").asOpt[String].getOrElse("?")
-        (ref, alt)
-    }.getOrElse(("?", "?"))
-}
+@import utils.{CuratorViewUtils, VariantViewUtils}
+@(variant: VariantV2, haplogroups: Seq[Haplogroup], history: Seq[AuditLogEntry])(implicit request: RequestHeader, messages: Messages)
 
 <div class="card">
     <div class="card-header d-flex justify-content-between align-items-center">
         <h5 class="mb-0">@variant.displayName</h5>
-        <span class="badge bg-secondary">@variant.mutationType</span>
+        <span class="badge bg-secondary">@variant.mutationType.displayName</span>
     </div>
     <div class="card-body">
         <dl class="row mb-0">
@@ -57,7 +24,7 @@
                 } else { - }
             </dd>
 
-            @defining(primaryAlleles) { alleles =>
+            @defining(VariantViewUtils.primaryAlleles(variant)) { alleles =>
                 <dt class="col-sm-4">Ancestral</dt>
                 <dd class="col-sm-8"><code>@alleles._1</code></dd>
 
@@ -89,32 +56,7 @@
         <hr>
 
         <h6><i class="bi bi-collection"></i> Reference Builds</h6>
-        @if(refGenomes.isEmpty) {
-            <p class="text-muted small">No coordinates available.</p>
-        } else {
-            <div class="table-responsive">
-                <table class="table table-sm small">
-                    <thead>
-                        <tr>
-                            <th>Build</th>
-                            <th>Position</th>
-                            <th>Alleles</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @for(ref <- refGenomes) {
-                            <tr>
-                                <td>
-                                    <span class="badge @buildBadgeClass(ref)">@ref</span>
-                                </td>
-                                <td><code>@formatPosition(ref)</code></td>
-                                <td>@Html(formatAlleles(ref))</td>
-                            </tr>
-                        }
-                    </tbody>
-                </table>
-            </div>
-        }
+        @views.html.fragments.variant.referenceBuilds(variant)
 
         <hr>
 
@@ -164,7 +106,7 @@
             <ul class="list-group list-group-flush small">
                 @for(entry <- history.take(5)) {
                     <li class="list-group-item px-0">
-                        <span class="badge @actionBadgeClass(entry.action) me-1">@entry.action</span>
+                        <span class="badge @CuratorViewUtils.actionBadgeClass(entry.action) me-1">@entry.action</span>
                         @entry.createdAt.toLocalDate
                         @entry.comment.map { c => <br><small class="text-muted">@c</small> }
                     </li>
@@ -181,21 +123,3 @@
         }
     </div>
 </div>
-
-@buildBadgeClass(refGenome: String) = @{
-    refGenome match {
-        case "GRCh37" => "bg-warning text-dark"
-        case "GRCh38" => "bg-info"
-        case "hs1" => "bg-success"
-        case _ => "bg-secondary"
-    }
-}
-
-@actionBadgeClass(action: String) = @{
-    action match {
-        case "create" => "bg-success"
-        case "update" => "bg-warning text-dark"
-        case "delete" => "bg-danger"
-        case _ => "bg-secondary"
-    }
-}

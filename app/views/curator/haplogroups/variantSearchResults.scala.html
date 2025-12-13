@@ -1,29 +1,7 @@
 @import models.domain.genomics.VariantV2
 @import play.api.libs.json.JsObject
+@import utils.VariantViewUtils
 @(haplogroupId: Int, haplogroupName: String, query: Option[String], variants: Seq[VariantV2])(implicit request: RequestHeader)
-
-@* Helper to extract reference genomes from coordinates *@
-@refGenomes(v: VariantV2) = @{
-    v.coordinates.asOpt[Map[String, JsObject]].map(_.keys.toSeq.sorted).getOrElse(Seq.empty)
-}
-
-@* Helper to format position for a specific reference *@
-@formatPosition(v: VariantV2, refGenome: String) = @{
-    v.getCoordinates(refGenome).map { coords =>
-        val contig = (coords \ "contig").asOpt[String].getOrElse("?")
-        val pos = (coords \ "position").asOpt[Int].getOrElse(0)
-        s"$contig:$pos"
-    }.getOrElse("-")
-}
-
-@* Helper to format alleles for a specific reference *@
-@formatAlleles(v: VariantV2, refGenome: String) = @{
-    v.getCoordinates(refGenome).map { coords =>
-        val ref = (coords \ "ref").asOpt[String].getOrElse("?")
-        val alt = (coords \ "alt").asOpt[String].getOrElse("?")
-        s"$ref→$alt"
-    }.getOrElse("-")
-}
 
 <div class="mb-3">
     <label for="variantQuery" class="form-label">Search for variant by rsId, common name, or position</label>
@@ -49,7 +27,7 @@
     } else {
         <div class="list-group">
             @for(variant <- variants.take(10)) {
-                @defining(refGenomes(variant)) { refs =>
+                @defining(VariantViewUtils.refGenomes(variant)) { refs =>
                 <div class="list-group-item">
                     <div class="d-flex justify-content-between align-items-start">
                         <div class="flex-grow-1">
@@ -70,9 +48,9 @@
                     <div class="mt-2 ps-2">
                         @for(refGenome <- refs) {
                             <div class="text-muted small">
-                                <span class="badge @buildBadgeClass(refGenome) me-1" style="min-width: 55px;">@refGenome</span>
-                                <code>@formatPosition(variant, refGenome)</code>
-                                <span class="ms-1">@Html(formatAlleles(variant, refGenome))</span>
+                                <span class="badge @VariantViewUtils.buildBadgeClass(refGenome) me-1" style="min-width: 55px;">@refGenome</span>
+                                <code>@VariantViewUtils.formatPosition(variant, refGenome)</code>
+                                <span class="ms-1">@Html(VariantViewUtils.formatAlleles(variant, refGenome))</span>
                             </div>
                         }
                     </div>
@@ -90,13 +68,4 @@
     <div class="text-muted text-center py-3">
         Start typing to search for variants...
     </div>
-}
-
-@buildBadgeClass(refGenome: String) = @{
-    refGenome match {
-        case "GRCh37" => "bg-warning text-dark"
-        case "GRCh38" => "bg-info"
-        case "hs1" => "bg-success"
-        case _ => "bg-secondary"
-    }
 }
