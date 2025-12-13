@@ -260,6 +260,22 @@ class HaplogroupTreeService @Inject()(
   }
 
   /**
+   * Finds and retrieves haplogroup details with all associated genomic variants.
+   *
+   * This method fetches the haplogroup (including provenance) and its linked variants.
+   *
+   * @param haplogroupName The name of the haplogroup for which details are to be retrieved.
+   * @param haplogroupType The type of haplogroup (e.g., Y-DNA or mtDNA).
+   * @return A Future containing a tuple of (Option[Haplogroup], Seq[VariantDTO]).
+   */
+  def findHaplogroupWithVariants(haplogroupName: String, haplogroupType: HaplogroupType): Future[(Option[Haplogroup], Seq[VariantDTO])] = {
+    for {
+      haplogroup <- coreRepository.getHaplogroupByName(haplogroupName, haplogroupType)
+      variants <- findVariantsForHaplogroup(haplogroupName, haplogroupType)
+    } yield (haplogroup, variants)
+  }
+
+  /**
    * Finds and retrieves all genomic variants associated with a specified haplogroup.
    *
    * This method fetches the variants linked to a haplogroup identified by its name and type.

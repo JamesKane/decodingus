@@ -1,7 +1,8 @@
 @import controllers.routes.TreeController
 @import models.api.VariantDTO
+@import models.domain.haplogroups.HaplogroupProvenance
 
-@(haplogroupName: String, snps: Seq[VariantDTO])(implicit messages: Messages)
+@(haplogroupName: String, snps: Seq[VariantDTO], provenance: Option[HaplogroupProvenance] = None)(implicit messages: Messages)
 
 <div id="snpDetailSidebarPlaceholder" class="sidebar">
     <div class="sidebar-header">
@@ -11,6 +12,32 @@
                     &times;
         </button>
     </div>
+
+    @provenance.map { prov =>
+        <div class="provenance-card">
+            <div class="provenance-header">
+                <span class="provenance-label">Primary Credit</span>
+                <span class="provenance-source">@formatSourceName(prov.primaryCredit)</span>
+            </div>
+            @if(prov.nodeProvenance.size > 1) {
+                <div class="provenance-contributors">
+                    <span class="provenance-label-small">Also contributed by:</span>
+                    <span class="provenance-sources">
+                        @prov.nodeProvenance.filterNot(_ == prov.primaryCredit).map(formatSourceName).mkString(", ")
+                    </span>
+                </div>
+            }
+            @prov.lastMergedAt.map { timestamp =>
+                <div class="provenance-merge-info">
+                    <span class="provenance-label-small">Last updated:</span>
+                    <span class="provenance-timestamp">@timestamp.toLocalDate.toString</span>
+                    @prov.lastMergedFrom.map { source =>
+                        <span class="provenance-from">from @formatSourceName(source)</span>
+                    }
+                </div>
+            }
+        </div>
+    }
 
     @if(snps.isEmpty) {
         <p>@messages("sidebar.noVariants", haplogroupName)</p>
@@ -174,6 +201,65 @@
             color: #888;
             font-style: italic;
         }
+
+        .provenance-card {
+            background: linear-gradient(135deg, #e8f4fd 0%, #f0f7ff 100%);
+            border: 1px solid #b8d4e8;
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 15px;
+        }
+
+        .provenance-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .provenance-label {
+            font-size: 0.8em;
+            color: #666;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .provenance-source {
+            font-weight: 600;
+            color: #2c5282;
+            font-size: 1em;
+        }
+
+        .provenance-contributors {
+            font-size: 0.85em;
+            color: #555;
+            margin-bottom: 6px;
+        }
+
+        .provenance-label-small {
+            color: #888;
+            font-size: 0.85em;
+        }
+
+        .provenance-sources {
+            color: #4a5568;
+        }
+
+        .provenance-merge-info {
+            font-size: 0.8em;
+            color: #718096;
+            border-top: 1px solid #cbd5e0;
+            padding-top: 8px;
+            margin-top: 8px;
+        }
+
+        .provenance-timestamp {
+            color: #4a5568;
+        }
+
+        .provenance-from {
+            color: #718096;
+        }
 </style>
 
 @formatAliasType(aliasType: String) = @{
@@ -184,5 +270,15 @@
         case "yfull" => "YFull"
         case "ftdna" => "FTDNA"
         case other => other.replace("_", " ").capitalize
+    }
+}
+
+@formatSourceName(source: String) = @{
+    source.toLowerCase match {
+        case "isogg" | "backbone" => "ISOGG"
+        case "yfull" => "YFull"
+        case "ftdna" => "FTDNA"
+        case "ytree" => "ytree"
+        case other => other.replace("_", " ").split(" ").map(_.capitalize).mkString(" ")
     }
 }
