@@ -3,8 +3,9 @@ package services
 import config.GenomicsConfig
 import jakarta.inject.{Inject, Singleton}
 import models.api.genomics.*
-import models.domain.genomics.{GenomeRegion, GenbankContig}
+import models.domain.genomics.{GenbankContig, GenomeRegion}
 import play.api.cache.AsyncCacheApi
+import play.api.libs.json.{JsValue, Reads}
 import repositories.{FullBuildData, GenomeRegionsRepository}
 
 import java.security.MessageDigest
@@ -78,14 +79,24 @@ class GenomeRegionsService @Inject()(
    */
   private def buildResponse(canonicalName: String): Future[GenomeRegionsResponse] = {
     genomeRegionsRepository.getFullBuildData(canonicalName).map { data =>
+      
+      // Group regions by contig name for efficient lookup.
+      // We check for exact match or "chr"+name match to handle common naming conventions.
+      val regionsByContig = data.regions.flatMap { region =>
+        region.coordinates.get(canonicalName).map(coord => coord.contig -> region)
+      }.groupBy(_._1).map { case (k, v) => k -> v.map(_._2) }
+
       val chromosomeMap = data.contigs.flatMap { contig =>
         contig.commonName.map { chromName =>
-          val contigId = contig.id.getOrElse(0)
-          val regions = data.regions.getOrElse(contigId, Seq.empty)
-          val cytobands = data.cytobands.getOrElse(contigId, Seq.empty)
-          val markers = data.strMarkers.getOrElse(contigId, Seq.empty)
+          // Try to find regions for this contig using common variations
+          val relevantRegions = regionsByContig.getOrElse(chromName, Seq.empty) ++
+            regionsByContig.getOrElse("chr" + chromName, Seq.empty) ++
+            regionsByContig.getOrElse(chromName.replace("chr", ""), Seq.empty)
+          
+          // Deduplicate if needed (though mapping logic usually prevents duplicate keys in map unless source has duplicates)
+          val uniqueRegions = relevantRegions.distinctBy(_.id)
 
-          chromName -> buildChromosomeRegions(contig, regions, cytobands, markers)
+          chromName -> buildChromosomeRegions(contig, uniqueRegions, canonicalName)
         }
       }.toMap
 
@@ -104,58 +115,95 @@ class GenomeRegionsService @Inject()(
   private def buildChromosomeRegions(
     contig: GenbankContig,
     regions: Seq[GenomeRegion],
-    cytobands: Seq[models.domain.genomics.Cytoband],
-    markers: Seq[models.domain.genomics.StrMarker]
+    buildName: String
   ): ChromosomeRegionsDto = {
+    // Helper to convert to DTO with current build context
+    def toDto(r: GenomeRegion): Option[RegionDto] = toRegionDto(r, buildName)
+    
     // Extract specific region types
-    val centromere = regions.find(_.regionType == "Centromere").map(toRegionDto)
-    val telomereP = regions.find(_.regionType == "Telomere_P").map(toRegionDto)
-    val telomereQ = regions.find(_.regionType == "Telomere_Q").map(toRegionDto)
+    val centromere = regions.find(_.regionType == "Centromere").flatMap(toDto)
+    val telomereP = regions.find(_.regionType == "Telomere_P").flatMap(toDto)
+    val telomereQ = regions.find(_.regionType == "Telomere_Q").flatMap(toDto)
 
     val telomeres = if (telomereP.isDefined || telomereQ.isDefined) {
       Some(TelomeresDto(p = telomereP, q = telomereQ))
     } else None
 
+    // Cytobands
+    val cytobands = regions.filter(_.regionType == "Cytoband")
+      .flatMap(r => toCytobandDto(r, buildName))
+      .sortBy(_.start)
+
     // Build Y-chromosome specific regions if this is chrY
     val yRegions = if (contig.commonName.exists(name => name.toLowerCase.contains("chry") || name == "Y")) {
-      Some(buildYRegions(regions))
+      Some(buildYRegions(regions, buildName))
     } else None
 
     ChromosomeRegionsDto(
       length = contig.seqLength.toLong,
       centromere = centromere,
       telomeres = telomeres,
-      cytobands = cytobands.map(toCytobandDto),
+      cytobands = cytobands,
       regions = yRegions,
-      strMarkers = markers.map(toStrMarkerDto)
+      strMarkers = Seq.empty // STR markers handled by separate service/table now
     )
   }
 
   /**
    * Build Y-chromosome specific regions grouped by type.
    */
-  private def buildYRegions(regions: Seq[GenomeRegion]): YChromosomeRegionsDto = {
+  private def buildYRegions(regions: Seq[GenomeRegion], buildName: String): YChromosomeRegionsDto = {
+    def toDto(r: GenomeRegion) = toRegionDto(r, buildName)
+    def toNamedDto(r: GenomeRegion) = toNamedRegionDto(r, buildName)
+
     YChromosomeRegionsDto(
-      par1 = regions.find(_.regionType == "PAR1").map(toRegionDto),
-      par2 = regions.find(_.regionType == "PAR2").map(toRegionDto),
-      xtr = regions.filter(_.regionType == "XTR").map(toRegionDto),
-      ampliconic = regions.filter(_.regionType == "Ampliconic").map(toRegionDto),
-      palindromes = regions.filter(_.regionType == "Palindrome").map(toNamedRegionDto),
-      heterochromatin = regions.find(_.regionType == "Heterochromatin").map(toRegionDto),
-      xDegenerate = regions.filter(_.regionType == "XDegenerate").map(toRegionDto)
+      par1 = regions.find(_.regionType == "PAR1").flatMap(toDto),
+      par2 = regions.find(_.regionType == "PAR2").flatMap(toDto),
+      xtr = regions.filter(_.regionType == "XTR").flatMap(toDto),
+      ampliconic = regions.filter(_.regionType == "Ampliconic").flatMap(toDto),
+      palindromes = regions.filter(_.regionType == "Palindrome").flatMap(toNamedDto),
+      heterochromatin = regions.find(_.regionType == "Heterochromatin").flatMap(toDto),
+      xDegenerate = regions.filter(_.regionType == "XDegenerate").flatMap(toDto)
     )
   }
 
   // Domain to DTO conversions
-  private def toRegionDto(r: GenomeRegion): RegionDto =
-    RegionDto(r.startPos, r.endPos, Some(r.regionType), r.modifier.map(_.toDouble))
 
-  private def toNamedRegionDto(r: GenomeRegion): NamedRegionDto =
-    NamedRegionDto(r.name.getOrElse(""), r.startPos, r.endPos, r.regionType, r.modifier.map(_.toDouble))
+  private def getProperty[T](r: GenomeRegion, key: String)(implicit reads: Reads[T]): Option[T] = {
+    (r.properties \ key).asOpt[T]
+  }
 
-  private def toCytobandDto(c: models.domain.genomics.Cytoband): CytobandDto =
-    CytobandDto(c.name, c.startPos, c.endPos, c.stain)
+  private def toRegionDto(r: GenomeRegion, buildName: String): Option[RegionDto] = {
+    r.coordinates.get(buildName).map { coord =>
+      RegionDto(
+        start = coord.start,
+        end = coord.end,
+        `type` = Some(r.regionType),
+        modifier = getProperty[Double](r, "modifier")
+      )
+    }
+  }
 
-  private def toStrMarkerDto(s: models.domain.genomics.StrMarker): StrMarkerDto =
-    StrMarkerDto(s.name, s.startPos, s.endPos, s.period, s.verified, s.note)
+  private def toNamedRegionDto(r: GenomeRegion, buildName: String): Option[NamedRegionDto] = {
+    r.coordinates.get(buildName).map { coord =>
+      NamedRegionDto(
+        name = r.name.getOrElse(""),
+        start = coord.start,
+        end = coord.end,
+        `type` = r.regionType,
+        modifier = getProperty[Double](r, "modifier")
+      )
+    }
+  }
+
+  private def toCytobandDto(r: GenomeRegion, buildName: String): Option[CytobandDto] = {
+    r.coordinates.get(buildName).map { coord =>
+      CytobandDto(
+        name = r.name.getOrElse(""),
+        start = coord.start,
+        end = coord.end,
+        stain = getProperty[String](r, "stain").getOrElse("gneg")
+      )
+    }
+  }
 }

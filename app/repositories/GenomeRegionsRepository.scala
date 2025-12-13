@@ -3,14 +3,14 @@ package repositories
 import jakarta.inject.Inject
 import models.dal.MyPostgresProfile
 import models.dal.MyPostgresProfile.api.*
-import models.domain.genomics.{Cytoband, GenbankContig, GenomeRegion, GenomeRegionVersion, StrMarker}
+import models.domain.genomics.{GenbankContig, GenomeRegion, GenomeRegionVersion}
 import play.api.db.slick.{DatabaseConfigProvider, HasDatabaseConfigProvider}
 
 import scala.concurrent.{ExecutionContext, Future}
 
 /**
  * Repository interface for genome region data.
- * Provides access to structural annotations, cytobands, and STR markers.
+ * Provides access to structural annotations and cytobands (now unified).
  */
 trait GenomeRegionsRepository {
 
@@ -25,23 +25,12 @@ trait GenomeRegionsRepository {
   def getContigsForBuild(referenceGenome: String): Future[Seq[GenbankContig]]
 
   /**
-   * Get all structural regions for a specific contig.
+   * Get all regions (including cytobands) that have coordinates for the specified build.
    */
-  def getRegionsForContig(contigId: Int): Future[Seq[GenomeRegion]]
-
-  /**
-   * Get all cytobands for a specific contig.
-   */
-  def getCytobandsForContig(contigId: Int): Future[Seq[Cytoband]]
-
-  /**
-   * Get all STR markers for a specific contig.
-   */
-  def getStrMarkersForContig(contigId: Int): Future[Seq[StrMarker]]
+  def getRegionsForBuild(referenceGenome: String): Future[Seq[GenomeRegion]]
 
   /**
    * Get all data for a build in a single composed query.
-   * Returns contigs with their associated regions, cytobands, and STR markers.
    */
   def getFullBuildData(referenceGenome: String): Future[FullBuildData]
 
@@ -50,39 +39,17 @@ trait GenomeRegionsRepository {
   // ============================================================================
 
   def findRegionById(id: Int): Future[Option[GenomeRegion]]
-  def findRegionByIdWithContig(id: Int): Future[Option[(GenomeRegion, GenbankContig)]]
-  def findRegionsByBuild(referenceGenome: String, offset: Int, limit: Int): Future[Seq[(GenomeRegion, GenbankContig)]]
-  def countRegionsByBuild(referenceGenome: Option[String]): Future[Int]
+  
+  // Note: Pagination with JSONB filtering can be slow without specific indices.
+  // For the management API, we might iterate all or allow filtering by type.
+  def findRegions(regionType: Option[String], build: Option[String], offset: Int, limit: Int): Future[Seq[GenomeRegion]]
+  
+  def countRegions(regionType: Option[String], build: Option[String]): Future[Int]
+  
   def createRegion(region: GenomeRegion): Future[Int]
   def updateRegion(id: Int, region: GenomeRegion): Future[Boolean]
   def deleteRegion(id: Int): Future[Boolean]
   def bulkCreateRegions(regions: Seq[GenomeRegion]): Future[Seq[Int]]
-
-  // ============================================================================
-  // Cytoband CRUD operations
-  // ============================================================================
-
-  def findCytobandById(id: Int): Future[Option[Cytoband]]
-  def findCytobandByIdWithContig(id: Int): Future[Option[(Cytoband, GenbankContig)]]
-  def findCytobandsByBuild(referenceGenome: String, offset: Int, limit: Int): Future[Seq[(Cytoband, GenbankContig)]]
-  def countCytobandsByBuild(referenceGenome: Option[String]): Future[Int]
-  def createCytoband(cytoband: Cytoband): Future[Int]
-  def updateCytoband(id: Int, cytoband: Cytoband): Future[Boolean]
-  def deleteCytoband(id: Int): Future[Boolean]
-  def bulkCreateCytobands(cytobands: Seq[Cytoband]): Future[Seq[Int]]
-
-  // ============================================================================
-  // StrMarker CRUD operations
-  // ============================================================================
-
-  def findStrMarkerById(id: Int): Future[Option[StrMarker]]
-  def findStrMarkerByIdWithContig(id: Int): Future[Option[(StrMarker, GenbankContig)]]
-  def findStrMarkersByBuild(referenceGenome: String, offset: Int, limit: Int): Future[Seq[(StrMarker, GenbankContig)]]
-  def countStrMarkersByBuild(referenceGenome: Option[String]): Future[Int]
-  def createStrMarker(marker: StrMarker): Future[Int]
-  def updateStrMarker(id: Int, marker: StrMarker): Future[Boolean]
-  def deleteStrMarker(id: Int): Future[Boolean]
-  def bulkCreateStrMarkers(markers: Seq[StrMarker]): Future[Seq[Int]]
 }
 
 /**
@@ -91,9 +58,7 @@ trait GenomeRegionsRepository {
 case class FullBuildData(
   version: Option[GenomeRegionVersion],
   contigs: Seq[GenbankContig],
-  regions: Map[Int, Seq[GenomeRegion]], // contigId -> regions
-  cytobands: Map[Int, Seq[Cytoband]],   // contigId -> cytobands
-  strMarkers: Map[Int, Seq[StrMarker]]  // contigId -> markers
+  regions: Seq[GenomeRegion]
 )
 
 class GenomeRegionsRepositoryImpl @Inject()(
@@ -120,57 +85,23 @@ class GenomeRegionsRepositoryImpl @Inject()(
     db.run(query)
   }
 
-  override def getRegionsForContig(contigId: Int): Future[Seq[GenomeRegion]] = {
+  override def getRegionsForBuild(referenceGenome: String): Future[Seq[GenomeRegion]] = {
+    // Select regions where coordinates -> buildName exists
     val query = genomeRegions
-      .filter(_.genbankContigId === contigId)
-      .sortBy(_.startPos)
+      .filter(r => (r.coordinates +> referenceGenome).isDefined)
       .result
     db.run(query)
-  }
-
-  override def getCytobandsForContig(contigId: Int): Future[Seq[Cytoband]] = {
-    val query = cytobands
-      .filter(_.genbankContigId === contigId)
-      .sortBy(_.startPos)
-      .result
-    db.run(query)
-  }
-
-  // STR marker table was replaced in schema migration - stub for now
-  override def getStrMarkersForContig(contigId: Int): Future[Seq[StrMarker]] = {
-    Future.successful(Seq.empty)
   }
 
   override def getFullBuildData(referenceGenome: String): Future[FullBuildData] = {
     for {
       version <- getVersion(referenceGenome)
       contigs <- getContigsForBuild(referenceGenome)
-      contigIds = contigs.flatMap(_.id)
-
-      // Fetch all regions for the build's contigs
-      allRegions <- if (contigIds.nonEmpty) {
-        val query = genomeRegions
-          .filter(_.genbankContigId.inSet(contigIds))
-          .sortBy(r => (r.genbankContigId, r.startPos))
-          .result
-        db.run(query)
-      } else Future.successful(Seq.empty)
-
-      // Fetch all cytobands for the build's contigs
-      allCytobands <- if (contigIds.nonEmpty) {
-        val query = cytobands
-          .filter(_.genbankContigId.inSet(contigIds))
-          .sortBy(c => (c.genbankContigId, c.startPos))
-          .result
-        db.run(query)
-      } else Future.successful(Seq.empty)
-
+      regions <- getRegionsForBuild(referenceGenome)
     } yield FullBuildData(
       version = version,
       contigs = contigs,
-      regions = allRegions.groupBy(_.genbankContigId),
-      cytobands = allCytobands.groupBy(_.genbankContigId),
-      strMarkers = Map.empty  // STR marker table was replaced in schema migration
+      regions = regions
     )
   }
 
@@ -182,31 +113,31 @@ class GenomeRegionsRepositoryImpl @Inject()(
     db.run(genomeRegions.filter(_.id === id).result.headOption)
   }
 
-  override def findRegionByIdWithContig(id: Int): Future[Option[(GenomeRegion, GenbankContig)]] = {
-    val query = for {
-      region <- genomeRegions if region.id === id
-      contig <- genbankContigs if contig.genbankContigId === region.genbankContigId
-    } yield (region, contig)
-    db.run(query.result.headOption)
-  }
+  override def findRegions(regionType: Option[String], build: Option[String], offset: Int, limit: Int): Future[Seq[GenomeRegion]] = {
+    var query = genomeRegions.sortBy(_.id)
 
-  override def findRegionsByBuild(referenceGenome: String, offset: Int, limit: Int): Future[Seq[(GenomeRegion, GenbankContig)]] = {
-    val query = for {
-      region <- genomeRegions
-      contig <- genbankContigs if contig.genbankContigId === region.genbankContigId && contig.referenceGenome === referenceGenome
-    } yield (region, contig)
-    db.run(query.sortBy(_._1.startPos).drop(offset).take(limit).result)
-  }
-
-  override def countRegionsByBuild(referenceGenome: Option[String]): Future[Int] = {
-    val query = referenceGenome match {
-      case Some(ref) =>
-        for {
-          region <- genomeRegions
-          contig <- genbankContigs if contig.genbankContigId === region.genbankContigId && contig.referenceGenome === ref
-        } yield region
-      case None => genomeRegions
+    if (regionType.isDefined) {
+      query = query.filter(_.regionType === regionType.get)
     }
+
+    if (build.isDefined) {
+       query = query.filter(r => (r.coordinates +> build.get).isDefined)
+    }
+
+    db.run(query.drop(offset).take(limit).result)
+  }
+
+  override def countRegions(regionType: Option[String], build: Option[String]): Future[Int] = {
+    var query = genomeRegions.sortBy(_.id) // Sort irrelevant for count but type checks
+
+    if (regionType.isDefined) {
+      query = query.filter(_.regionType === regionType.get)
+    }
+
+    if (build.isDefined) {
+      query = query.filter(r => (r.coordinates +> build.get).isDefined)
+    }
+
     db.run(query.length.result)
   }
 
@@ -216,8 +147,8 @@ class GenomeRegionsRepositoryImpl @Inject()(
 
   override def updateRegion(id: Int, region: GenomeRegion): Future[Boolean] = {
     val query = genomeRegions.filter(_.id === id).map(r =>
-      (r.genbankContigId, r.regionType, r.name, r.startPos, r.endPos, r.modifier)
-    ).update((region.genbankContigId, region.regionType, region.name, region.startPos, region.endPos, region.modifier))
+      (r.regionType, r.name, r.coordinates, r.properties)
+    ).update((region.regionType, region.name, region.coordinates, region.properties))
     db.run(query).map(_ > 0)
   }
 
@@ -227,98 +158,5 @@ class GenomeRegionsRepositoryImpl @Inject()(
 
   override def bulkCreateRegions(regions: Seq[GenomeRegion]): Future[Seq[Int]] = {
     db.run((genomeRegions returning genomeRegions.map(_.id)) ++= regions)
-  }
-
-  // ============================================================================
-  // Cytoband CRUD implementations
-  // ============================================================================
-
-  override def findCytobandById(id: Int): Future[Option[Cytoband]] = {
-    db.run(cytobands.filter(_.id === id).result.headOption)
-  }
-
-  override def findCytobandByIdWithContig(id: Int): Future[Option[(Cytoband, GenbankContig)]] = {
-    val query = for {
-      cytoband <- cytobands if cytoband.id === id
-      contig <- genbankContigs if contig.genbankContigId === cytoband.genbankContigId
-    } yield (cytoband, contig)
-    db.run(query.result.headOption)
-  }
-
-  override def findCytobandsByBuild(referenceGenome: String, offset: Int, limit: Int): Future[Seq[(Cytoband, GenbankContig)]] = {
-    val query = for {
-      cytoband <- cytobands
-      contig <- genbankContigs if contig.genbankContigId === cytoband.genbankContigId && contig.referenceGenome === referenceGenome
-    } yield (cytoband, contig)
-    db.run(query.sortBy(_._1.startPos).drop(offset).take(limit).result)
-  }
-
-  override def countCytobandsByBuild(referenceGenome: Option[String]): Future[Int] = {
-    val query = referenceGenome match {
-      case Some(ref) =>
-        for {
-          cytoband <- cytobands
-          contig <- genbankContigs if contig.genbankContigId === cytoband.genbankContigId && contig.referenceGenome === ref
-        } yield cytoband
-      case None => cytobands
-    }
-    db.run(query.length.result)
-  }
-
-  override def createCytoband(cytoband: Cytoband): Future[Int] = {
-    db.run((cytobands returning cytobands.map(_.id)) += cytoband)
-  }
-
-  override def updateCytoband(id: Int, cytoband: Cytoband): Future[Boolean] = {
-    val query = cytobands.filter(_.id === id).map(c =>
-      (c.genbankContigId, c.name, c.startPos, c.endPos, c.stain)
-    ).update((cytoband.genbankContigId, cytoband.name, cytoband.startPos, cytoband.endPos, cytoband.stain))
-    db.run(query).map(_ > 0)
-  }
-
-  override def deleteCytoband(id: Int): Future[Boolean] = {
-    db.run(cytobands.filter(_.id === id).delete).map(_ > 0)
-  }
-
-  override def bulkCreateCytobands(cytobandList: Seq[Cytoband]): Future[Seq[Int]] = {
-    db.run((cytobands returning cytobands.map(_.id)) ++= cytobandList)
-  }
-
-  // ============================================================================
-  // StrMarker CRUD implementations
-  // NOTE: STR marker table was replaced with str_mutation_rate in schema migration.
-  // These methods are stubbed to maintain API compatibility.
-  // ============================================================================
-
-  override def findStrMarkerById(id: Int): Future[Option[StrMarker]] = {
-    Future.successful(None)
-  }
-
-  override def findStrMarkerByIdWithContig(id: Int): Future[Option[(StrMarker, GenbankContig)]] = {
-    Future.successful(None)
-  }
-
-  override def findStrMarkersByBuild(referenceGenome: String, offset: Int, limit: Int): Future[Seq[(StrMarker, GenbankContig)]] = {
-    Future.successful(Seq.empty)
-  }
-
-  override def countStrMarkersByBuild(referenceGenome: Option[String]): Future[Int] = {
-    Future.successful(0)
-  }
-
-  override def createStrMarker(marker: StrMarker): Future[Int] = {
-    Future.failed(new UnsupportedOperationException("STR marker table has been replaced with str_mutation_rate"))
-  }
-
-  override def updateStrMarker(id: Int, marker: StrMarker): Future[Boolean] = {
-    Future.successful(false)
-  }
-
-  override def deleteStrMarker(id: Int): Future[Boolean] = {
-    Future.successful(false)
-  }
-
-  override def bulkCreateStrMarkers(markers: Seq[StrMarker]): Future[Seq[Int]] = {
-    Future.failed(new UnsupportedOperationException("STR marker table has been replaced with str_mutation_rate"))
   }
 }

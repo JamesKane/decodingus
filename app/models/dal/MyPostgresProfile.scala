@@ -321,6 +321,12 @@ trait MyPostgresProfile extends ExPostgresProfile
     implicit val haplogroupProvenanceJsonbTypeMapper: JdbcType[HaplogroupProvenance] with BaseTypedType[HaplogroupProvenance] =
       MappedJdbcType.base[HaplogroupProvenance, JsValue](Json.toJson(_), _.as[HaplogroupProvenance])
 
+    // --- Genome Region JSONB Type Mappers ---
+    import models.domain.genomics.RegionCoordinate
+    
+    implicit val regionCoordinatesJsonbTypeMapper: JdbcType[Map[String, RegionCoordinate]] with BaseTypedType[Map[String, RegionCoordinate]] =
+      MappedJdbcType.base[Map[String, RegionCoordinate], JsValue](Json.toJson(_), _.as[Map[String, RegionCoordinate]])
+
     // Declare the name of an aggregate function:
     val ArrayAgg = new SqlAggregateFunction("array_agg")
 

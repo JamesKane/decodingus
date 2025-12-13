@@ -21,7 +21,7 @@
         @if(build.nonEmpty) {
             No genome regions found for @build.get.
         } else {
-            Select a build to view genome regions.
+            No genome regions found.
         }
     </div>
 } else {
@@ -38,13 +38,15 @@
             </thead>
             <tbody>
                 @for(region <- regions) {
+                    @defining(build.flatMap(b => region.coordinates.get(b)).orElse(region.coordinates.headOption.map(_._2))) { displayCoord =>
+                    @defining(build.orElse(region.coordinates.headOption.map(_._1))) { displayBuild =>
                     <tr class="cursor-pointer"
                         hx-get="@controllers.routes.GenomeRegionsCuratorController.regionDetailPanel(region.id)"
                         hx-target="#detail-panel"
                         hx-swap="innerHTML"
                         style="cursor: pointer;">
                         <td>
-                            <strong>@region.contigName.getOrElse("Unknown")</strong>
+                            <strong>@displayCoord.map(_.contig).getOrElse("?")</strong>
                         </td>
                         <td>
                             <span class="badge bg-secondary">@region.regionType</span>
@@ -53,15 +55,19 @@
                             @region.name.getOrElse("-")
                         </td>
                         <td>
-                            <code>@{java.text.NumberFormat.getIntegerInstance().format(region.startPos)}</code> -
-                            <code>@{java.text.NumberFormat.getIntegerInstance().format(region.endPos)}</code>
+                            @displayCoord.map { c =>
+                                <code>@{java.text.NumberFormat.getIntegerInstance().format(c.start)}</code> -
+                                <code>@{java.text.NumberFormat.getIntegerInstance().format(c.end)}</code>
+                            }.getOrElse("-")
                         </td>
                         <td>
-                            <span class="badge @buildBadgeClass(region.referenceGenome.getOrElse(""))">
-                                @region.referenceGenome.getOrElse("Unknown")
-                            </span>
+                            @displayBuild.map { b =>
+                                <span class="badge @buildBadgeClass(b)">@b</span>
+                            }.getOrElse("-")
                         </td>
                     </tr>
+                    }
+                    }
                 }
             </tbody>
         </table>
@@ -72,7 +78,7 @@
             <ul class="pagination justify-content-center">
                 <li class="page-item @if(currentPage <= 1){disabled}">
                     <a class="page-link"
-                       hx-get="@controllers.routes.GenomeRegionsCuratorController.regionsFragment(build, currentPage - 1, pageSize)"
+                       hx-get="@controllers.routes.GenomeRegionsCuratorController.regionsFragment(None, build, currentPage - 1, pageSize)"
                        hx-target="#regions-table"
                        hx-include="#build-filter">
                         Previous
@@ -81,7 +87,7 @@
                 @for(p <- Math.max(1, currentPage - 2) to Math.min(totalPages, currentPage + 2)) {
                     <li class="page-item @if(p == currentPage){active}">
                         <a class="page-link"
-                           hx-get="@controllers.routes.GenomeRegionsCuratorController.regionsFragment(build, p, pageSize)"
+                           hx-get="@controllers.routes.GenomeRegionsCuratorController.regionsFragment(None, build, p, pageSize)"
                            hx-target="#regions-table"
                            hx-include="#build-filter">
                             @p
@@ -90,7 +96,7 @@
                 }
                 <li class="page-item @if(currentPage >= totalPages){disabled}">
                     <a class="page-link"
-                       hx-get="@controllers.routes.GenomeRegionsCuratorController.regionsFragment(build, currentPage + 1, pageSize)"
+                       hx-get="@controllers.routes.GenomeRegionsCuratorController.regionsFragment(None, build, currentPage + 1, pageSize)"
                        hx-target="#regions-table"
                        hx-include="#build-filter">
                         Next

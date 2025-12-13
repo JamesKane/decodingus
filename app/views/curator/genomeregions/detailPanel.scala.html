@@ -22,18 +22,6 @@
             <dt class="col-sm-4">ID</dt>
             <dd class="col-sm-8">@region.id</dd>
 
-            <dt class="col-sm-4">Chromosome</dt>
-            <dd class="col-sm-8">
-                <strong>@region.contigName.getOrElse("Unknown")</strong>
-            </dd>
-
-            <dt class="col-sm-4">Build</dt>
-            <dd class="col-sm-8">
-                <span class="badge @buildBadgeClass(region.referenceGenome.getOrElse(""))">
-                    @region.referenceGenome.getOrElse("Unknown")
-                </span>
-            </dd>
-
             <dt class="col-sm-4">Type</dt>
             <dd class="col-sm-8">
                 <span class="badge bg-secondary">@region.regionType</span>
@@ -44,34 +32,31 @@
                 <dd class="col-sm-8">@name</dd>
             }
 
-            <dt class="col-sm-4">Start Position</dt>
-            <dd class="col-sm-8">
-                <code>@{java.text.NumberFormat.getIntegerInstance().format(region.startPos)}</code>
-            </dd>
+            @if(region.coordinates.nonEmpty) {
+                <dt class="col-12 mt-2 mb-1">Coordinates</dt>
+                @for((build, coord) <- region.coordinates) {
+                    <dt class="col-sm-4 text-muted fw-normal ps-4">@build</dt>
+                    <dd class="col-sm-8">
+                        <strong>@coord.contig</strong>:
+                        <code>@{java.text.NumberFormat.getIntegerInstance().format(coord.start)}</code> - 
+                        <code>@{java.text.NumberFormat.getIntegerInstance().format(coord.end)}</code>
+                        <small class="text-muted">(@{java.text.NumberFormat.getIntegerInstance().format(coord.end - coord.start)} bp)</small>
+                    </dd>
+                }
+            } else {
+                 <dt class="col-sm-4">Coordinates</dt>
+                 <dd class="col-sm-8 text-muted">No coordinates defined</dd>
+            }
 
-            <dt class="col-sm-4">End Position</dt>
-            <dd class="col-sm-8">
-                <code>@{java.text.NumberFormat.getIntegerInstance().format(region.endPos)}</code>
-            </dd>
-
-            <dt class="col-sm-4">Length</dt>
-            <dd class="col-sm-8">
-                <code>@{java.text.NumberFormat.getIntegerInstance().format(region.endPos - region.startPos)}</code> bp
-            </dd>
-
-            @region.modifier.map { mod =>
+            @if((region.properties \ "modifier").asOpt[BigDecimal].isDefined) {
                 <dt class="col-sm-4">Modifier</dt>
-                <dd class="col-sm-8">@mod</dd>
+                <dd class="col-sm-8">@{(region.properties \ "modifier").as[BigDecimal]}</dd>
+            }
+            
+            @if((region.properties \ "stain").asOpt[String].isDefined) {
+                <dt class="col-sm-4">Stain</dt>
+                <dd class="col-sm-8">@{(region.properties \ "stain").as[String]}</dd>
             }
         </dl>
     </div>
 </div>
-
-@buildBadgeClass(refGenome: String) = @{
-    refGenome match {
-        case "GRCh37" => "bg-warning text-dark"
-        case "GRCh38" => "bg-info"
-        case "hs1" => "bg-success"
-        case _ => "bg-secondary"
-    }
-}

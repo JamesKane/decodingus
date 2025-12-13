@@ -1,23 +1,38 @@
 package models.domain.genomics
 
+import play.api.libs.json.{Format, JsValue, Json}
+
 /**
- * Represents a structural region within a chromosome, such as centromeres, telomeres,
- * pseudoautosomal regions (PAR), X-transposed regions (XTR), ampliconic regions, etc.
+ * Coordinate information for a specific reference genome build.
+ */
+case class RegionCoordinate(
+  contig: String,
+  start: Long,
+  end: Long
+)
+
+object RegionCoordinate {
+  implicit val format: Format[RegionCoordinate] = Json.format[RegionCoordinate]
+}
+
+/**
+ * Represents a structural region within a chromosome (or a cytoband).
+ * Supports multi-reference coordinates.
  *
- * @param id              Optional unique identifier for the genome region.
- * @param genbankContigId The ID of the associated GenBank contig (chromosome).
- * @param regionType      The type of region (e.g., "Centromere", "Telomere_P", "PAR1", "XTR").
- * @param name            Optional name for named regions (e.g., "P1" for palindrome 1).
- * @param startPos        Start position (1-based, inclusive).
- * @param endPos          End position (1-based, inclusive).
- * @param modifier        Optional quality modifier (0.1-1.0) indicating confidence in variant calls within this region.
+ * @param id          Optional unique identifier (region_id).
+ * @param regionType  The type of region (e.g., "Centromere", "Cytoband", "PAR1").
+ * @param name        Optional name (e.g., "p11.32" for cytobands, "P1" for palindromes).
+ * @param coordinates Map of BuildName -> Coordinate (e.g., "GRCh38" -> {contig: "chrY", start: ...}).
+ * @param properties  Additional properties as JSON (e.g., {"stain": "gpos75", "modifier": 0.5}).
  */
 case class GenomeRegion(
   id: Option[Int] = None,
-  genbankContigId: Int,
   regionType: String,
   name: Option[String],
-  startPos: Long,
-  endPos: Long,
-  modifier: Option[BigDecimal]
+  coordinates: Map[String, RegionCoordinate],
+  properties: JsValue
 )
+
+object GenomeRegion {
+  implicit val format: Format[GenomeRegion] = Json.format[GenomeRegion]
+}

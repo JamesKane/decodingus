@@ -96,7 +96,6 @@ object DatabaseSchema {
       // Genome regions API tables
       val genomeRegions = TableQuery[GenomeRegionTable]
       val genomeRegionVersions = TableQuery[GenomeRegionVersionTable]
-      val cytobands = TableQuery[CytobandTable]
     }
 
     object haplogroups {

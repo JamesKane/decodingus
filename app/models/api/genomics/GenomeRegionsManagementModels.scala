@@ -1,22 +1,30 @@
 package models.api.genomics
 
-import play.api.libs.json.{Json, OFormat, Reads}
+import play.api.libs.json.{JsValue, Json, OFormat}
 
 /**
  * API DTOs for Genome Regions Management (CRUD operations).
  */
+
+case class RegionCoordinateDto(
+  contig: String,
+  start: Long,
+  end: Long
+)
+
+object RegionCoordinateDto {
+  implicit val format: OFormat[RegionCoordinateDto] = Json.format[RegionCoordinateDto]
+}
 
 // ============================================================================
 // Request DTOs
 // ============================================================================
 
 case class CreateGenomeRegionRequest(
-  genbankContigId: Int,
   regionType: String,
   name: Option[String] = None,
-  startPos: Long,
-  endPos: Long,
-  modifier: Option[BigDecimal] = None
+  coordinates: Map[String, RegionCoordinateDto],
+  properties: Option[JsValue] = None
 )
 
 object CreateGenomeRegionRequest {
@@ -26,63 +34,12 @@ object CreateGenomeRegionRequest {
 case class UpdateGenomeRegionRequest(
   regionType: Option[String] = None,
   name: Option[String] = None,
-  startPos: Option[Long] = None,
-  endPos: Option[Long] = None,
-  modifier: Option[BigDecimal] = None
+  coordinates: Option[Map[String, RegionCoordinateDto]] = None,
+  properties: Option[JsValue] = None
 )
 
 object UpdateGenomeRegionRequest {
   implicit val format: OFormat[UpdateGenomeRegionRequest] = Json.format[UpdateGenomeRegionRequest]
-}
-
-case class CreateCytobandRequest(
-  genbankContigId: Int,
-  name: String,
-  startPos: Long,
-  endPos: Long,
-  stain: String
-)
-
-object CreateCytobandRequest {
-  implicit val format: OFormat[CreateCytobandRequest] = Json.format[CreateCytobandRequest]
-}
-
-case class UpdateCytobandRequest(
-  name: Option[String] = None,
-  startPos: Option[Long] = None,
-  endPos: Option[Long] = None,
-  stain: Option[String] = None
-)
-
-object UpdateCytobandRequest {
-  implicit val format: OFormat[UpdateCytobandRequest] = Json.format[UpdateCytobandRequest]
-}
-
-case class CreateStrMarkerRequest(
-  genbankContigId: Int,
-  name: String,
-  startPos: Long,
-  endPos: Long,
-  period: Int,
-  verified: Boolean = false,
-  note: Option[String] = None
-)
-
-object CreateStrMarkerRequest {
-  implicit val format: OFormat[CreateStrMarkerRequest] = Json.format[CreateStrMarkerRequest]
-}
-
-case class UpdateStrMarkerRequest(
-  name: Option[String] = None,
-  startPos: Option[Long] = None,
-  endPos: Option[Long] = None,
-  period: Option[Int] = None,
-  verified: Option[Boolean] = None,
-  note: Option[String] = None
-)
-
-object UpdateStrMarkerRequest {
-  implicit val format: OFormat[UpdateStrMarkerRequest] = Json.format[UpdateStrMarkerRequest]
 }
 
 // ============================================================================
@@ -95,68 +52,20 @@ object BulkCreateGenomeRegionsRequest {
   implicit val format: OFormat[BulkCreateGenomeRegionsRequest] = Json.format[BulkCreateGenomeRegionsRequest]
 }
 
-case class BulkCreateCytobandsRequest(cytobands: Seq[CreateCytobandRequest])
-
-object BulkCreateCytobandsRequest {
-  implicit val format: OFormat[BulkCreateCytobandsRequest] = Json.format[BulkCreateCytobandsRequest]
-}
-
-case class BulkCreateStrMarkersRequest(markers: Seq[CreateStrMarkerRequest])
-
-object BulkCreateStrMarkersRequest {
-  implicit val format: OFormat[BulkCreateStrMarkersRequest] = Json.format[BulkCreateStrMarkersRequest]
-}
-
 // ============================================================================
-// Response DTOs (with additional contig info)
+// Response DTOs
 // ============================================================================
 
 case class GenomeRegionDetailDto(
   id: Int,
-  genbankContigId: Int,
-  contigName: Option[String],
-  referenceGenome: Option[String],
   regionType: String,
   name: Option[String],
-  startPos: Long,
-  endPos: Long,
-  modifier: Option[BigDecimal]
+  coordinates: Map[String, RegionCoordinateDto],
+  properties: JsValue
 )
 
 object GenomeRegionDetailDto {
   implicit val format: OFormat[GenomeRegionDetailDto] = Json.format[GenomeRegionDetailDto]
-}
-
-case class CytobandDetailDto(
-  id: Int,
-  genbankContigId: Int,
-  contigName: Option[String],
-  referenceGenome: Option[String],
-  name: String,
-  startPos: Long,
-  endPos: Long,
-  stain: String
-)
-
-object CytobandDetailDto {
-  implicit val format: OFormat[CytobandDetailDto] = Json.format[CytobandDetailDto]
-}
-
-case class StrMarkerDetailDto(
-  id: Int,
-  genbankContigId: Int,
-  contigName: Option[String],
-  referenceGenome: Option[String],
-  name: String,
-  startPos: Long,
-  endPos: Long,
-  period: Int,
-  verified: Boolean,
-  note: Option[String]
-)
-
-object StrMarkerDetailDto {
-  implicit val format: OFormat[StrMarkerDetailDto] = Json.format[StrMarkerDetailDto]
 }
 
 // ============================================================================
@@ -172,28 +81,6 @@ case class GenomeRegionListResponse(
 
 object GenomeRegionListResponse {
   implicit val format: OFormat[GenomeRegionListResponse] = Json.format[GenomeRegionListResponse]
-}
-
-case class CytobandListResponse(
-  cytobands: Seq[CytobandDetailDto],
-  total: Int,
-  page: Int,
-  pageSize: Int
-)
-
-object CytobandListResponse {
-  implicit val format: OFormat[CytobandListResponse] = Json.format[CytobandListResponse]
-}
-
-case class StrMarkerListResponse(
-  markers: Seq[StrMarkerDetailDto],
-  total: Int,
-  page: Int,
-  pageSize: Int
-)
-
-object StrMarkerListResponse {
-  implicit val format: OFormat[StrMarkerListResponse] = Json.format[StrMarkerListResponse]
 }
 
 // ============================================================================

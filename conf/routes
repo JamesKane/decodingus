@@ -163,28 +163,12 @@ GET           /api/v1/genome-regions/:build                                     
 # Genome Regions API Management (X-API-Key secured)
 # =============================================
 # Genome Regions
-GET           /api/v1/manage/genome-regions                                                      controllers.GenomeRegionsApiManagementController.listRegions(build: Option[String])
+GET           /api/v1/manage/genome-regions                                                      controllers.GenomeRegionsApiManagementController.listRegions(regionType: Option[String], build: Option[String], page: Int ?= 1, pageSize: Int ?= 25)
 GET           /api/v1/manage/genome-regions/:id                                                  controllers.GenomeRegionsApiManagementController.getRegion(id: Int)
 POST          /api/v1/manage/genome-regions                                                      controllers.GenomeRegionsApiManagementController.createRegion()
 PUT           /api/v1/manage/genome-regions/:id                                                  controllers.GenomeRegionsApiManagementController.updateRegion(id: Int)
 DELETE        /api/v1/manage/genome-regions/:id                                                  controllers.GenomeRegionsApiManagementController.deleteRegion(id: Int)
 POST          /api/v1/manage/genome-regions/bulk                                                 controllers.GenomeRegionsApiManagementController.bulkCreateRegions()
-
-# Cytobands
-GET           /api/v1/manage/cytobands                                                           controllers.GenomeRegionsApiManagementController.listCytobands(build: Option[String])
-GET           /api/v1/manage/cytobands/:id                                                       controllers.GenomeRegionsApiManagementController.getCytoband(id: Int)
-POST          /api/v1/manage/cytobands                                                           controllers.GenomeRegionsApiManagementController.createCytoband()
-PUT           /api/v1/manage/cytobands/:id                                                       controllers.GenomeRegionsApiManagementController.updateCytoband(id: Int)
-DELETE        /api/v1/manage/cytobands/:id                                                       controllers.GenomeRegionsApiManagementController.deleteCytoband(id: Int)
-POST          /api/v1/manage/cytobands/bulk                                                      controllers.GenomeRegionsApiManagementController.bulkCreateCytobands()
-
-# STR Markers
-GET           /api/v1/manage/str-markers                                                         controllers.GenomeRegionsApiManagementController.listStrMarkers(build: Option[String])
-GET           /api/v1/manage/str-markers/:id                                                     controllers.GenomeRegionsApiManagementController.getStrMarker(id: Int)
-POST          /api/v1/manage/str-markers                                                         controllers.GenomeRegionsApiManagementController.createStrMarker()
-PUT           /api/v1/manage/str-markers/:id                                                     controllers.GenomeRegionsApiManagementController.updateStrMarker(id: Int)
-DELETE        /api/v1/manage/str-markers/:id                                                     controllers.GenomeRegionsApiManagementController.deleteStrMarker(id: Int)
-POST          /api/v1/manage/str-markers/bulk                                                    controllers.GenomeRegionsApiManagementController.bulkCreateStrMarkers()
 
 # =============================================
 # Haplogroup Tree Merge API (X-API-Key secured)
@@ -242,34 +226,14 @@ GET           /curator/audit/:entityType/:entityId                              
 # Curator - Genome Regions (session auth + permissions)
 # =============================================
 # Genome Regions
-GET           /curator/genome-regions                                                            controllers.GenomeRegionsCuratorController.listRegions(build: Option[String], page: Int ?= 1, pageSize: Int ?= 25)
-GET           /curator/genome-regions/fragment                                                   controllers.GenomeRegionsCuratorController.regionsFragment(build: Option[String], page: Int ?= 1, pageSize: Int ?= 25)
+GET           /curator/genome-regions                                                            controllers.GenomeRegionsCuratorController.listRegions(regionType: Option[String], build: Option[String], page: Int ?= 1, pageSize: Int ?= 25)
+GET           /curator/genome-regions/fragment                                                   controllers.GenomeRegionsCuratorController.regionsFragment(regionType: Option[String], build: Option[String], page: Int ?= 1, pageSize: Int ?= 25)
 GET           /curator/genome-regions/:id/detail                                                 controllers.GenomeRegionsCuratorController.regionDetailPanel(id: Int)
 GET           /curator/genome-regions/new                                                        controllers.GenomeRegionsCuratorController.createRegionForm
 POST          /curator/genome-regions                                                            controllers.GenomeRegionsCuratorController.createRegion
 GET           /curator/genome-regions/:id/edit                                                   controllers.GenomeRegionsCuratorController.editRegionForm(id: Int)
 POST          /curator/genome-regions/:id                                                        controllers.GenomeRegionsCuratorController.updateRegion(id: Int)
 DELETE        /curator/genome-regions/:id                                                        controllers.GenomeRegionsCuratorController.deleteRegion(id: Int)
-
-# Cytobands
-GET           /curator/cytobands                                                                 controllers.GenomeRegionsCuratorController.listCytobands(build: Option[String], page: Int ?= 1, pageSize: Int ?= 25)
-GET           /curator/cytobands/fragment                                                        controllers.GenomeRegionsCuratorController.cytobandsFragment(build: Option[String], page: Int ?= 1, pageSize: Int ?= 25)
-GET           /curator/cytobands/:id/detail                                                      controllers.GenomeRegionsCuratorController.cytobandDetailPanel(id: Int)
-GET           /curator/cytobands/new                                                             controllers.GenomeRegionsCuratorController.createCytobandForm
-POST          /curator/cytobands                                                                 controllers.GenomeRegionsCuratorController.createCytoband
-GET           /curator/cytobands/:id/edit                                                        controllers.GenomeRegionsCuratorController.editCytobandForm(id: Int)
-POST          /curator/cytobands/:id                                                             controllers.GenomeRegionsCuratorController.updateCytoband(id: Int)
-DELETE        /curator/cytobands/:id                                                             controllers.GenomeRegionsCuratorController.deleteCytoband(id: Int)
-
-# STR Markers
-GET           /curator/str-markers                                                               controllers.GenomeRegionsCuratorController.listStrMarkers(build: Option[String], page: Int ?= 1, pageSize: Int ?= 25)
-GET           /curator/str-markers/fragment                                                      controllers.GenomeRegionsCuratorController.strMarkersFragment(build: Option[String], page: Int ?= 1, pageSize: Int ?= 25)
-GET           /curator/str-markers/:id/detail                                                    controllers.GenomeRegionsCuratorController.strMarkerDetailPanel(id: Int)
-GET           /curator/str-markers/new                                                           controllers.GenomeRegionsCuratorController.createStrMarkerForm
-POST          /curator/str-markers                                                               controllers.GenomeRegionsCuratorController.createStrMarker
-GET           /curator/str-markers/:id/edit                                                      controllers.GenomeRegionsCuratorController.editStrMarkerForm(id: Int)
-POST          /curator/str-markers/:id                                                           controllers.GenomeRegionsCuratorController.updateStrMarker(id: Int)
-DELETE        /curator/str-markers/:id                                                           controllers.GenomeRegionsCuratorController.deleteStrMarker(id: Int)
 
 # --- API Routes (Handled by Tapir, including Swagger UI) ---
 POST          /api/registerPDS                                                                   controllers.PDSRegistrationController.registerPDS()
