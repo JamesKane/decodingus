@@ -135,9 +135,9 @@ class YBrowseVariantIngestionService @Inject()(
           variantV2Repository.upsertBatch(variantsToProcess).flatMap { resultIds =>
             val batchCount = resultIds.size
             val newTotal = accumulatedCount + batchCount
-            if (newTotal % 1000 == 0) { // Log every 1000 now that it should be faster
+/*            if (newTotal % 1000 == 0) { // Log every 1000 now that it should be faster
                logger.info(s"Processed $newTotal variants from GFF...")
-            }
+            }*/
             processNextBatch(newTotal)
           }
         }
@@ -217,10 +217,13 @@ class YBrowseVariantIngestionService @Inject()(
     val contig = primary("seqid")
     val start = primary("start").toInt
     // GFF attributes for alleles
-    val ref = primary.getOrElse("allele_anc", "")
-    val alt = primary.getOrElse("allele_der", "")
+    val ref = primary.getOrElse("allele_anc", primary.getOrElse("ref_allele", primary.getOrElse("reference_allele", "")))
+    val alt = primary.getOrElse("allele_der", primary.getOrElse("alt_allele", primary.getOrElse("derived_allele", "")))
     
-    if (ref.isEmpty || alt.isEmpty) return None // Skip if alleles missing
+    if (ref.isEmpty || alt.isEmpty) {
+      if (Math.random() < 0.001) logger.warn(s"Missing alleles for GFF record (sampling): $primary")
+      return None // Skip if alleles missing
+    }
 
     // Normalize
     val refSeq = referenceFastaFiles.get(sourceGenome)
