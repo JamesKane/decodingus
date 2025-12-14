@@ -18,6 +18,7 @@ import scala.concurrent.{ExecutionContext, Future}
 import scala.jdk.CollectionConverters.*
 import scala.io.Source
 import scala.util.{Failure, Success, Try, Using}
+import scala.collection.AbstractIterator
 
 /**
  * Service for ingesting Y-DNA variants from YBrowse VCF and GFF files.
@@ -330,11 +331,18 @@ class YBrowseVariantIngestionService @Inject()(
     val derived = primary.get("count_derived").map(_.toInt).getOrElse(0)
     
     // External Placements (Haplogroups)
-    val placements = Json.obj(
+    val rawPlacements = Json.obj(
       "ycc" -> primary.get("ycc_haplogroup"),
       "isogg" -> primary.get("isogg_haplogroup"),
       "yfull" -> primary.get("yfull_node") // User clarified this is a haplogroup placement
-    ).filterNot(_._2.exists(v => v == "." || v == "not listed" || v == "unknown"))
+    )
+    
+    val placements = JsObject(rawPlacements.fields.filterNot { case (_, v) =>
+      v match {
+        case play.api.libs.json.JsString(s) => s == "." || s == "not listed" || s == "unknown"
+        case _ => false
+      }
+    })
 
     val evidence = Json.obj(
       "yseq_tested" -> tested,

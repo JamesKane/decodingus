@@ -258,45 +258,37 @@ class VariantV2RepositoryImpl @Inject()(
     val rsIds = (variant.aliases \ "rs_ids").asOpt[Seq[String]].getOrElse(Seq.empty)
     val allNames = (canonical ++ commonNames ++ rsIds).distinct
 
-    if (!hasCoords && allNames.isEmpty) {
+    // Create Postgres Array Literal safely: {"name1","name2"}
+    // Escape quotes in names by doubling them (SQL standard) or backslash depending on driver, 
+    // but typically standard array literal format uses double quotes for elements.
+    // Simple approach: map each name to quoted string, join with comma, wrap in braces.
+    val namesArrayStr = "{" + allNames.map(s => "\"" + s.replace("\"", "\\\"") + "\"").mkString(",") + "}"
+    val hasNames = allNames.nonEmpty
+
+    if (!hasCoords && !hasNames) {
       return Future.successful(Seq.empty)
     }
 
     // 3. Build Query
-    // Note: We use string interpolation for identifiers, but bind parameters for values
-    val coordClause = if (hasCoords) {
-      sql"""
-        (
-          coordinates->$refGenome->>'contig' = $contig
-          AND (coordinates->$refGenome->>'position')::int = $pos
-          -- Optional: check ref/alt for stricter matching?
-          -- AND coordinates->$refGenome->>'ref' = $ref
-          -- AND coordinates->$refGenome->>'alt' = $alt
-        )
-      """
-    } else sql"FALSE"
-
-    val nameClause = if (allNames.nonEmpty) {
-      // Create a PostgreSQL array from the names list
-      val namesArray = "{" + allNames.mkString(",") + "}"
-      sql"""
-        (
-          canonical_name = ANY($allNames)
+    // We pass boolean flags to enable/disable clauses in the WHERE
+    // We pass the array string and cast to text[]
+    val query = sql"""
+      SELECT * FROM variant_v2
+      WHERE (
+        ($hasCoords AND coordinates->$refGenome->>'contig' = $contig AND (coordinates->$refGenome->>'position')::int = $pos)
+        OR
+        ($hasNames AND (
+          canonical_name = ANY($namesArrayStr::text[])
           OR EXISTS (
             SELECT 1 FROM jsonb_array_elements_text(aliases->'common_names') n 
-            WHERE n = ANY($allNames)
+            WHERE n = ANY($namesArrayStr::text[])
           )
           OR EXISTS (
             SELECT 1 FROM jsonb_array_elements_text(aliases->'rs_ids') r 
-            WHERE r = ANY($allNames)
+            WHERE r = ANY($namesArrayStr::text[])
           )
-        )
-      """
-    } else sql"FALSE"
-
-    val query = sql"""
-      SELECT * FROM variant_v2
-      WHERE ($coordClause OR $nameClause)
+        ))
+      )
     """.as[VariantV2](variantV2GetResult)
 
     db.run(query)
