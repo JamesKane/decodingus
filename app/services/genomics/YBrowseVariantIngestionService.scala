@@ -8,18 +8,19 @@ import htsjdk.variant.variantcontext.VariantContext
 import htsjdk.variant.vcf.VCFFileReader
 import jakarta.inject.{Inject, Singleton}
 import models.dal.domain.genomics.*
-import models.domain.genomics.{MutationType, NamingStatus, VariantV2}
+import models.domain.genomics.{MutationType, NamingStatus, VariantAliases, VariantV2}
 import play.api.Logger
-import play.api.libs.json.Json
+import play.api.libs.json.{JsObject, Json}
 import repositories.VariantV2Repository
 
 import java.io.File
 import scala.concurrent.{ExecutionContext, Future}
 import scala.jdk.CollectionConverters.*
-import scala.util.{Failure, Success, Try}
+import scala.io.Source
+import scala.util.{Failure, Success, Try, Using}
 
 /**
- * Service for ingesting Y-DNA variants from YBrowse VCF files.
+ * Service for ingesting Y-DNA variants from YBrowse VCF and GFF files.
  *
  * Creates consolidated VariantV2 records with JSONB coordinates for multiple
  * reference genomes. Performs liftover to add coordinates for additional
@@ -43,6 +44,325 @@ class YBrowseVariantIngestionService @Inject()(
         logger.warn(s"Reference FASTA file for $genome not found at ${fastaFile.getPath}. Normalization might be incomplete.")
         None
       }
+  }
+
+  /**
+   * Ingests variants from a YBrowse GFF3 file.
+   * Groups adjacent records with same coordinates to handle aliases.
+   *
+   * @param gffFile      The GFF3 file to ingest.
+   * @param sourceGenome The reference genome of the input GFF (default: "GRCh38").
+   * @return A Future containing the number of variants ingested.
+   */
+  def ingestGff(gffFile: File, sourceGenome: String = "GRCh38"): Future[Int] = {
+    logger.info(s"Starting GFF ingestion from ${gffFile.getPath} ($sourceGenome)")
+    
+    val canonicalSource = genomicsConfig.resolveReferenceName(sourceGenome)
+    val targetGenomes = genomicsConfig.supportedReferences.filter(_ != canonicalSource)
+    
+    // Load liftovers
+    val liftovers: Map[String, LiftOver] = targetGenomes.flatMap { target =>
+      genomicsConfig.getLiftoverChainFile(canonicalSource, target).flatMap { file =>
+        if (file.exists()) Some(target -> new LiftOver(file)) else None
+      }
+    }.toMap
+
+    val batchSize = 1000
+    
+    // Process file in chunks
+    // Grouping by coordinates requires a buffered approach since lines are sequential
+    Future {
+      Using.resource(Source.fromFile(gffFile)) { source =>
+        val lines = source.getLines().filterNot(_.startsWith("#"))
+        
+        // Custom grouping iterator that groups adjacent lines with same Chr/Pos/Ref/Alt
+        val groupedIterator = new AbstractIterator[Seq[Map[String, String]]] {
+          private var buffer: Option[Map[String, String]] = None
+          
+          override def hasNext: Boolean = buffer.isDefined || lines.hasNext
+          
+          override def next(): Seq[Map[String, String]] = {
+            if (!hasNext) throw new NoSuchElementException("next on empty iterator")
+            
+            val currentGroup = scala.collection.mutable.ArrayBuffer[Map[String, String]]()
+            
+            // Initialize with buffer or next line
+            val first = buffer.getOrElse(parseGffLine(lines.next()))
+            buffer = None // Clear buffer
+            
+            if (first.isEmpty) return next() // Skip malformed/empty lines
+            
+            currentGroup += first
+            
+            // Key to identify the group (Chr, Start, End)
+            // Note: We use Start/End as proxy for position. Ref/Alt are in attributes, harder to peek.
+            // GFF for SNPs usually has Start == End.
+            val groupKey = (first("seqid"), first("start"), first("end"))
+            
+            // Peek ahead
+            var keepingGoing = true
+            while (keepingGoing && lines.hasNext) {
+              val nextLine = parseGffLine(lines.next())
+              if (nextLine.nonEmpty) {
+                val nextKey = (nextLine("seqid"), nextLine("start"), nextLine("end"))
+                if (nextKey == groupKey) {
+                  currentGroup += nextLine
+                } else {
+                  buffer = Some(nextLine)
+                  keepingGoing = false
+                }
+              }
+            }
+            
+            currentGroup.toSeq
+          }
+        }
+
+        // Process groups in batches
+        var count = 0
+        var batch = scala.collection.mutable.ArrayBuffer[VariantV2]()
+        
+        groupedIterator.foreach { group =>
+          createVariantV2FromGffGroup(group, sourceGenome, liftovers).foreach(batch += _)
+          
+          if (batch.size >= batchSize) {
+            // Process batch sequentially with smart upsert
+            // Note: Await is used here to keep the ingestion flow simple and backpressure the file reading
+            val futures = batch.map(smartUpsertVariant)
+            val batchCount = concurrent.Await.result(Future.sequence(futures), scala.concurrent.duration.Duration.Inf).sum
+            count += batchCount
+            logger.info(s"Processed $count variants from GFF...")
+            batch.clear()
+          }
+        }
+        
+        // Final batch
+        if (batch.nonEmpty) {
+          val futures = batch.map(smartUpsertVariant)
+          val batchCount = concurrent.Await.result(Future.sequence(futures), scala.concurrent.duration.Duration.Inf).sum
+          count += batchCount
+        }
+        
+        logger.info(s"GFF ingestion complete. Total variants: $count")
+        count
+      }
+    }
+  }
+
+  /**
+   * Smart Upsert: Matches existing variant by Coordinates OR Name/Alias.
+   * Merges data if found, Creates if not.
+   */
+  private def smartUpsertVariant(incoming: VariantV2): Future[Int] = {
+    variantV2Repository.findMatches(incoming).flatMap { matches =>
+      if (matches.isEmpty) {
+        // No match -> Create
+        variantV2Repository.create(incoming)
+      } else {
+        // Match found -> Merge and Update
+        // If multiple matches, we pick the first one (merging duplicates is a separate maintenance task)
+        val existing = matches.head
+        
+        // 1. Merge Aliases
+        val mergedAliases = mergeAliases(existing.aliases, incoming.aliases)
+        
+        // 2. Merge Coordinates
+        val mergedCoordinates = (existing.coordinates.as[JsObject] ++ incoming.coordinates.as[JsObject])
+        
+        // 3. Merge Evidence
+        val mergedEvidence = (existing.evidence.as[JsObject] ++ incoming.evidence.as[JsObject])
+        
+        // 4. Merge Primers
+        val mergedPrimers = (existing.primers.as[JsObject] ++ incoming.primers.as[JsObject])
+        
+        // 5. Update Canonical Name (if existing is unnamed and incoming is named)
+        val (newCanonical, newStatus) = if (existing.namingStatus == NamingStatus.Unnamed && incoming.namingStatus == NamingStatus.Named) {
+          (incoming.canonicalName, NamingStatus.Named)
+        } else {
+          (existing.canonicalName, existing.namingStatus)
+        }
+        
+        val updated = existing.copy(
+          canonicalName = newCanonical,
+          namingStatus = newStatus,
+          aliases = mergedAliases,
+          coordinates = mergedCoordinates,
+          evidence = mergedEvidence,
+          primers = mergedPrimers,
+          notes = existing.notes.orElse(incoming.notes),
+          updatedAt = java.time.Instant.now()
+        )
+        
+        variantV2Repository.update(updated).map(_ => 1) // Return 1 to count as "processed"
+      }
+    }
+  }
+
+  private def mergeAliases(existing: play.api.libs.json.JsValue, incoming: play.api.libs.json.JsValue): play.api.libs.json.JsValue = {
+    import play.api.libs.json.*
+    
+    val eCommon = (existing \ "common_names").asOpt[Seq[String]].getOrElse(Seq.empty)
+    val iCommon = (incoming \ "common_names").asOpt[Seq[String]].getOrElse(Seq.empty)
+    val mergedCommon = (eCommon ++ iCommon).distinct
+    
+    val eRs = (existing \ "rs_ids").asOpt[Seq[String]].getOrElse(Seq.empty)
+    val iRs = (incoming \ "rs_ids").asOpt[Seq[String]].getOrElse(Seq.empty)
+    val mergedRs = (eRs ++ iRs).distinct
+    
+    // Deep merge sources is harder, simple merge for now
+    val eSources = (existing \ "sources").asOpt[JsObject].getOrElse(Json.obj())
+    val iSources = (incoming \ "sources").asOpt[JsObject].getOrElse(Json.obj())
+    // For source arrays, we really should merge the arrays, but standard ++ overwrites keys.
+    // A robust merge would iterate keys.
+    // Let's do a slightly better merge for sources
+    val mergedSources = iSources.fields.foldLeft(eSources) { case (acc, (key, newVal)) =>
+      val oldVal = (acc \ key).asOpt[Seq[String]].getOrElse(Seq.empty)
+      val nextVal = newVal.asOpt[Seq[String]].getOrElse(Seq.empty)
+      acc + (key -> Json.toJson((oldVal ++ nextVal).distinct))
+    }
+    
+    Json.obj(
+      "common_names" -> mergedCommon,
+      "rs_ids" -> mergedRs,
+      "sources" -> mergedSources
+    )
+  }
+
+  private def parseGffLine(line: String): Map[String, String] = {
+    val cols = line.split("\t")
+    if (cols.length < 9) return Map.empty
+    
+    val attributes = cols(8).split(";").map { kv =>
+      val parts = kv.split("=", 2)
+      if (parts.length == 2) parts(0) -> parts(1) else "" -> ""
+    }.toMap.filter(_._1.nonEmpty)
+    
+    Map(
+      "seqid" -> cols(0),
+      "source" -> cols(1),
+      "type" -> cols(2),
+      "start" -> cols(3),
+      "end" -> cols(4),
+      "score" -> cols(5),
+      "strand" -> cols(6),
+      "phase" -> cols(7)
+    ) ++ attributes
+  }
+
+  private def createVariantV2FromGffGroup(
+    group: Seq[Map[String, String]], 
+    sourceGenome: String,
+    liftovers: Map[String, LiftOver]
+  ): Option[VariantV2] = {
+    // First record determines canonical info
+    val primary = group.head
+    val name = primary.getOrElse("Name", primary.getOrElse("ID", "Unknown"))
+    
+    // Parse coordinates
+    val contig = primary("seqid")
+    val start = primary("start").toInt
+    // GFF attributes for alleles
+    val ref = primary.getOrElse("allele_anc", "")
+    val alt = primary.getOrElse("allele_der", "")
+    
+    if (ref.isEmpty || alt.isEmpty) return None // Skip if alleles missing
+
+    // Normalize
+    val refSeq = referenceFastaFiles.get(sourceGenome)
+    val (normPos, normRef, normAlt) = normalizeVariant(
+      contig, start, ref, alt, refSeq
+    )
+
+    // Build coordinates JSONB
+    val sourceCoords = Json.obj(
+      "contig" -> contig,
+      "position" -> normPos,
+      "ref" -> normRef,
+      "alt" -> normAlt
+    )
+
+    // Lift over
+    val liftedCoords = liftovers.flatMap { case (targetGenome, liftOver) =>
+      val interval = new Interval(contig, start, primary("end").toInt)
+      val lifted = liftOver.liftOver(interval)
+      
+      if (lifted != null) {
+        val targetRefSeq = referenceFastaFiles.get(targetGenome)
+        // Note: We use original ref/alt for normalization on target, 
+        // assuming alleles translate directly (which is true for homology map).
+        // A more robust way would be to fetch ref from target fasta.
+        val (lPos, lRef, lAlt) = normalizeVariant(
+          lifted.getContig, lifted.getStart, ref, alt, targetRefSeq
+        )
+        
+        Some(targetGenome -> Json.obj(
+          "contig" -> lifted.getContig,
+          "position" -> lPos,
+          "ref" -> lRef,
+          "alt" -> lAlt
+        ))
+      } else None
+    }
+
+    val allCoordinates = (liftedCoords + (sourceGenome -> sourceCoords)).foldLeft(Json.obj()) {
+      case (acc, (genome, coords)) => acc + (genome -> coords)
+    }
+
+    // Collect Metadata
+    val commonNames = group.flatMap(_.get("Name")).distinct
+    val rsIds = group.flatMap(_.get("Name")).filter(_.startsWith("rs")).distinct // Naive check
+    val ybrowseIds = group.flatMap(_.get("ID")).distinct
+    
+    // Sources map: source -> [names]
+    // Use 'ref' attribute from GFF as source attribution
+    val sourceMap = group.groupBy(_.getOrElse("ref", "ybrowse")).map { case (src, records) =>
+      src -> records.flatMap(_.get("Name")).distinct
+    }
+
+    val aliases = Json.obj(
+      "common_names" -> commonNames,
+      "rs_ids" -> rsIds,
+      "sources" -> (Json.toJsObject(sourceMap) + ("ybrowse_id" -> Json.toJson(ybrowseIds)))
+    )
+
+    // Evidence
+    val tested = primary.get("count_tested").map(_.toInt).getOrElse(0)
+    val derived = primary.get("count_derived").map(_.toInt).getOrElse(0)
+    
+    // External Placements (Haplogroups)
+    val placements = Json.obj(
+      "ycc" -> primary.get("ycc_haplogroup"),
+      "isogg" -> primary.get("isogg_haplogroup"),
+      "yfull" -> primary.get("yfull_node") // User clarified this is a haplogroup placement
+    ).filterNot(_._2.exists(v => v == "." || v == "not listed" || v == "unknown"))
+
+    val evidence = Json.obj(
+      "yseq_tested" -> tested,
+      "yseq_derived" -> derived,
+      "external_placements" -> placements
+    )
+
+    // Primers
+    val primers = if (primary.contains("primer_f")) {
+      Json.obj(
+        "yseq_f" -> primary.getOrElse("primer_f", ""),
+        "yseq_r" -> primary.getOrElse("primer_r", "")
+      )
+    } else Json.obj()
+
+    // Notes
+    val notes = primary.get("comment").filter(_ != ".")
+
+    Some(VariantV2(
+      canonicalName = Some(name),
+      mutationType = MutationType.SNP, // GFF type 'point'/'snp' usually implies SNP
+      namingStatus = NamingStatus.Named,
+      aliases = aliases,
+      coordinates = allCoordinates,
+      evidence = evidence,
+      primers = primers,
+      notes = notes
+    ))
   }
 
   /**

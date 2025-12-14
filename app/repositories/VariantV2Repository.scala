@@ -208,6 +208,12 @@ trait VariantV2Repository {
    * Atomically generates the name and creates the variant.
    */
   def createWithDuName(variant: VariantV2): Future[VariantV2]
+
+  /**
+   * Find variants that match the given variant by Coordinates OR Name/Alias.
+   * Used for smart ingestion/deduplication.
+   */
+  def findMatches(variant: VariantV2): Future[Seq[VariantV2]]
 }
 
 class VariantV2RepositoryImpl @Inject()(
@@ -220,6 +226,84 @@ class VariantV2RepositoryImpl @Inject()(
   import slick.jdbc.JdbcType
 
   private val variantsV2 = TableQuery[VariantV2Table]
+  
+  // ... (existing mappers)
+
+  // === Basic Lookups ===
+  
+  // ... (existing implementation)
+
+  // === Smart Lookup ===
+
+  override def findMatches(variant: VariantV2): Future[Seq[VariantV2]] = {
+    // 1. Extract Search Coordinates (prefer GRCh38, then hs1)
+    val refGenome = if (variant.hasCoordinates("GRCh38")) "GRCh38" else "hs1"
+    val coordsOpt = variant.getCoordinates(refGenome)
+    
+    val (hasCoords, contig, pos, ref, alt) = coordsOpt match {
+      case Some(c) =>
+        (
+          true,
+          (c \ "contig").asOpt[String].getOrElse(""),
+          (c \ "position").asOpt[Int].getOrElse(0),
+          (c \ "ref").asOpt[String].getOrElse(""),
+          (c \ "alt").asOpt[String].getOrElse("")
+        )
+      case None => (false, "", 0, "", "")
+    }
+
+    // 2. Extract Search Names
+    val canonical = variant.canonicalName.toSeq
+    val commonNames = (variant.aliases \ "common_names").asOpt[Seq[String]].getOrElse(Seq.empty)
+    val rsIds = (variant.aliases \ "rs_ids").asOpt[Seq[String]].getOrElse(Seq.empty)
+    val allNames = (canonical ++ commonNames ++ rsIds).distinct
+
+    if (!hasCoords && allNames.isEmpty) {
+      return Future.successful(Seq.empty)
+    }
+
+    // 3. Build Query
+    // Note: We use string interpolation for identifiers, but bind parameters for values
+    val coordClause = if (hasCoords) {
+      sql"""
+        (
+          coordinates->$refGenome->>'contig' = $contig
+          AND (coordinates->$refGenome->>'position')::int = $pos
+          -- Optional: check ref/alt for stricter matching?
+          -- AND coordinates->$refGenome->>'ref' = $ref
+          -- AND coordinates->$refGenome->>'alt' = $alt
+        )
+      """
+    } else sql"FALSE"
+
+    val nameClause = if (allNames.nonEmpty) {
+      // Create a PostgreSQL array from the names list
+      val namesArray = "{" + allNames.mkString(",") + "}"
+      sql"""
+        (
+          canonical_name = ANY($allNames)
+          OR EXISTS (
+            SELECT 1 FROM jsonb_array_elements_text(aliases->'common_names') n 
+            WHERE n = ANY($allNames)
+          )
+          OR EXISTS (
+            SELECT 1 FROM jsonb_array_elements_text(aliases->'rs_ids') r 
+            WHERE r = ANY($allNames)
+          )
+        )
+      """
+    } else sql"FALSE"
+
+    val query = sql"""
+      SELECT * FROM variant_v2
+      WHERE ($coordClause OR $nameClause)
+    """.as[VariantV2](variantV2GetResult)
+
+    db.run(query)
+  }
+
+  // ... (rest of implementation)
+
 
   // MappedColumnType for MutationType enum (needed for Slick queries)
   implicit val mutationTypeMapper: JdbcType[MutationType] with BaseTypedType[MutationType] =
