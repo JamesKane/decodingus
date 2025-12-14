@@ -3,13 +3,14 @@
   fullPageCall: Option[String] => play.api.mvc.Call,
   rootHaplogroup: Option[String],
   searchPlaceholder: String,
-  searchInputTitle: String)(implicit webJarsUtil: org.webjars.play.WebJarsUtil, messages: Messages, request: RequestHeader)
+  searchInputTitle: String,
+  showBlockLayout: Boolean = false)(implicit webJarsUtil: org.webjars.play.WebJarsUtil, messages: Messages, request: RequestHeader)
 
 @main(messages(titleKey)) {
     <main class="container-fluid">
         <h1>@messages(titleKey)</h1>
         
-        <div class="tree-controls">
+        <div class="tree-controls d-flex justify-content-between align-items-center mb-3">
             <form class="search-form" hx-get="@fragmentCall(None)" hx-target="#tree-container" hx-push-url="@fullPageCall(None)">
                 <label for="haplogroup-search">@messages("tree.jumpTo")</label>
                 <input type="text"
@@ -20,7 +21,19 @@
                 title="@searchInputTitle">
                 <button type="submit">@messages("tree.go")</button>
             </form>
+
+            <div class="form-check form-switch ms-3">
+                <input class="form-check-input" type="checkbox" id="blockLayoutToggle" @if(showBlockLayout){checked} onchange="toggleBlockLayout(this)">
+                <label class="form-check-label" for="blockLayoutToggle">@messages("tree.blockLayout")</label>
+            </div>
         </div>
+
+        <script>
+            function toggleBlockLayout(checkbox) {
+                document.cookie = "showBlockLayout=" + checkbox.checked + "; path=/; max-age=31536000";
+                location.reload();
+            }
+        </script>
 
         <div id="tree-container"
         hx-get="@fragmentCall(rootHaplogroup)"

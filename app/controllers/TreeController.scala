@@ -52,6 +52,11 @@ class TreeController @Inject()(val controllerComponents: MessagesControllerCompo
 
   private val YConfig = TreeConfig(Y, "Y")
   private val MTConfig = TreeConfig(MT, "L")
+  private val BLOCK_LAYOUT_COOKIE = "showBlockLayout"
+
+  private def shouldShowBlockLayout(request: RequestHeader): Boolean = {
+    request.cookies.get(BLOCK_LAYOUT_COOKIE).map(_.value.toBoolean).getOrElse(featureFlags.showBlockLayout)
+  }
 
   /**
    * Renders the Y-DNA tree page.
@@ -65,7 +70,7 @@ class TreeController @Inject()(val controllerComponents: MessagesControllerCompo
    * @return an action that renders the Y-DNA tree page as an HTML response
    */
   def ytree(rootHaplogroup: Option[String]): Action[AnyContent] = Action { implicit request =>
-    Ok(views.html.ytree(rootHaplogroup))
+    Ok(views.html.ytree(rootHaplogroup, shouldShowBlockLayout(request)))
   }
 
   /**
@@ -80,7 +85,7 @@ class TreeController @Inject()(val controllerComponents: MessagesControllerCompo
    * @return an action that renders the MT-DNA tree page as an HTML response
    */
   def mtree(rootHaplogroup: Option[String]): Action[AnyContent] = Action { implicit request =>
-    Ok(views.html.mtree(rootHaplogroup))
+    Ok(views.html.mtree(rootHaplogroup, shouldShowBlockLayout(request)))
   }
 
   /**
@@ -188,8 +193,11 @@ class TreeController @Inject()(val controllerComponents: MessagesControllerCompo
                                   config: TreeConfig,
                                   cacheKey: String
                                 )(using request: Request[AnyContent]): Future[Result] = {
-    cache.getOrElseUpdate(cacheKey, 24.hours) {
-      buildTreeFragment(rootHaplogroup, config)
+    val useBlockLayout = shouldShowBlockLayout(request)
+    val effectiveCacheKey = s"$cacheKey-block:$useBlockLayout"
+    
+    cache.getOrElseUpdate(effectiveCacheKey, 24.hours) {
+      buildTreeFragment(rootHaplogroup, config, useBlockLayout)
     }
   }
 
@@ -198,17 +206,22 @@ class TreeController @Inject()(val controllerComponents: MessagesControllerCompo
    */
   private def buildTreeFragment(
                                  rootHaplogroup: Option[String],
-                                 config: TreeConfig
+                                 config: TreeConfig,
+                                 showBlockLayout: Boolean
                                )(using request: Request[AnyContent]): Future[Result] = {
     val haplogroupName = rootHaplogroup.getOrElse(config.defaultRoot)
     val isAbsoluteTopRootView = haplogroupName == config.defaultRoot
 
     treeService.buildTreeResponse(haplogroupName, config.haplogroupType, FragmentRoute)
       .map { treeDto =>
-        val treeViewModel: Option[TreeViewModel] = treeDto.subclade.flatMap { _ =>
-          services.TreeLayoutService.layoutTree(treeDto, isAbsoluteTopRootView)
+        if (showBlockLayout) {
+          Ok(views.html.fragments.blockTree(treeDto, config.haplogroupType, request.uri))
+        } else {
+          val treeViewModel: Option[TreeViewModel] = treeDto.subclade.flatMap { _ =>
+            services.TreeLayoutService.layoutTree(treeDto, isAbsoluteTopRootView)
+          }
+          Ok(views.html.fragments.haplogroup(treeDto, config.haplogroupType, treeViewModel, request.uri, featureFlags.showBranchAgeEstimates))
         }
-        Ok(views.html.fragments.haplogroup(treeDto, config.haplogroupType, treeViewModel, request.uri, featureFlags.showBranchAgeEstimates))
       }
       .recover {
         case _: IllegalArgumentException =>

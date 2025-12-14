@@ -1,5 +1,5 @@
 @import org.webjars.play.WebJarsUtil
-@(rootHaplogroup: Option[String])(implicit webJarsUtil: WebJarsUtil, messages: Messages, request: RequestHeader)
+@(rootHaplogroup: Option[String], showBlockLayout: Boolean = false)(implicit webJarsUtil: WebJarsUtil, messages: Messages, request: RequestHeader)
 
 @views.html.fragments.treeView(
     titleKey = "nav.ytree",
@@ -7,5 +7,6 @@
     fullPageCall = controllers.routes.TreeController.ytree,
     rootHaplogroup = rootHaplogroup,
     searchPlaceholder = "e.g. R1b",
-    searchInputTitle = "Enter a valid Y-DNA haplogroup"
+    searchInputTitle = "Enter a valid Y-DNA haplogroup",
+    showBlockLayout = showBlockLayout
 )

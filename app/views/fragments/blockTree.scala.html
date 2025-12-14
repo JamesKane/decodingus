@@ -1,0 +1,290 @@
+@import models.api.{TreeDTO, TreeNodeDTO}
+@import models.HaplogroupType
+@import models.HaplogroupType.{MT, Y}
+@import controllers.routes.TreeController
+
+@(tree: TreeDTO, hapType: HaplogroupType, currentUrl: String)(implicit messages: Messages)
+
+@fullPageUrl(haplogroup: Option[String]) = @{
+    hapType match {
+        case Y => TreeController.ytree(haplogroup)
+        case MT => TreeController.mtree(haplogroup)
+    }
+}
+
+@fragmentUrl(haplogroup: Option[String]) = @{
+    hapType match {
+        case Y => TreeController.yTreeFragment(haplogroup)
+        case MT => TreeController.mTreeFragment(haplogroup)
+    }
+}
+
+<nav aria-label="breadcrumb" itemscope itemtype="https://schema.org/BreadcrumbList">
+    <ol class="breadcrumb">
+        @for((crumb, index) <- tree.crumbs.zipWithIndex) {
+            <li class="breadcrumb-item" itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
+                <a href="@fullPageUrl(Some(crumb.label))" itemprop="item" hx-get="@crumb.url" hx-target="#tree-container" hx-push-url="@fullPageUrl(Some(crumb.label))">
+                    <span itemprop="name">@crumb.label</span>
+                </a>
+                <meta itemprop="position" content="${index + 1}"/>
+            </li>
+        }
+        <li class="breadcrumb-item active" aria-current="page" itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
+            <a href="@currentUrl" itemprop="item">
+                <span itemprop="name">@tree.name</span>
+            </a>
+            <meta itemprop="position" content="${tree.crumbs.size + 1}"/>
+        </li>
+    </ol>
+</nav>
+
+@* Recursive Node Renderer *@
+@renderNode(node: TreeNodeDTO) = {
+    <div class="tree-node-wrapper">
+        <div class="node-box"
+             hx-get="@fragmentUrl(Option(node.name))"
+             hx-target="#tree-container"
+             hx-push-url="@fullPageUrl(Option(node.name))"
+             hx-indicator=".tree-loading-indicator"
+             style="background-color: @if(node.isBackbone){rgb(230,213,188)}else{white}; border-color: @if(node.isBackbone){rgb(217,192,155)}else{#ccc};">
+            
+            <div class="node-title" title="@node.name">
+                @if(node.isBackbone){<span style="color:green">✓</span>} @node.name
+            </div>
+            
+            @if(node.variants.nonEmpty) {
+                <div class="node-variants">
+                    @for(variant <- node.variants.take(5)) {
+                        <div class="variant-item" title="@variant">@variant</div>
+                    }
+                    @if(node.variants.size > 5) {
+                        <div class="variant-more">+ @(node.variants.size - 5) more</div>
+                    }
+                </div>
+            }
+        </div>
+
+        @if(node.children.nonEmpty) {
+            <div class="node-children-container">
+                <div class="vertical-connector"></div>
+                <div class="children-row">
+                    @for(child <- node.children) {
+                        @renderNode(child)
+                    }
+                </div>
+            </div>
+        }
+    </div>
+}
+
+<div id="tree-and-sidebar-container" class="position-relative block-layout-container">
+    @* Loading Overlay *@
+    <div class="tree-loading-indicator">
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+    </div>
+
+    <div class="block-tree-scroll-container">
+        @tree.subclade.map { root =>
+            <div class="tree-root-display">
+                @renderNode(root)
+            </div>
+        }.getOrElse {
+            <div class="alert alert-warning">@messages("tree.noData")</div>
+        }
+    </div>
+    
+    <div id="snpDetailSidebarPlaceholder"></div>
+</div>
+
+<style>
+    .block-layout-container {
+        font-family: system-ui, -apple-system, sans-serif;
+    }
+
+    .block-tree-scroll-container {
+        overflow-x: auto;
+        padding: 20px;
+        background-color: #f8f9fa;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        min-height: 400px;
+    }
+
+    .tree-root-display {
+        display: flex;
+        justify-content: center;
+        width: max-content;
+        margin: 0 auto;
+    }
+
+    .tree-node-wrapper {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        margin: 0 10px;
+    }
+
+    .node-box {
+        width: 160px;
+        min-height: 60px;
+        padding: 8px;
+        border: 2px solid;
+        border-radius: 4px;
+        cursor: pointer;
+        transition: all 0.2s;
+        text-align: center;
+        z-index: 2;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    }
+
+    .node-box:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        filter: brightness(0.95);
+    }
+
+    .node-title {
+        font-weight: bold;
+        font-size: 1.1em;
+        margin-bottom: 4px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .node-variants {
+        font-size: 0.85em;
+        color: #555;
+    }
+    
+    .variant-item {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    
+    .variant-more {
+        font-style: italic;
+        color: #777;
+    }
+
+    .node-children-container {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+    }
+
+    .vertical-connector {
+        width: 2px;
+        height: 20px;
+        background-color: #999;
+    }
+
+    .children-row {
+        display: flex;
+        flex-direction: row;
+        align-items: flex-start;
+        padding-top: 20px; /* Space for the horizontal line */
+        position: relative;
+    }
+
+    /* 
+       Drawing the horizontal connector line.
+       We want a line that spans from the center of the first child to the center of the last child.
+       A common CSS trick for tree connectors involves pseudo-elements on the children wrappers.
+    */
+    
+    .children-row::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 50%;
+        width: 2px;
+        height: 20px;
+        background-color: #999;
+        /* This connects the parent's vertical connector to the horizontal bar */
+    }
+
+    /* Individual child connectors */
+    .tree-node-wrapper::before {
+        content: "";
+        position: absolute;
+        top: -20px; /* Connects up to the horizontal line */
+        left: 50%;
+        width: 2px;
+        height: 20px;
+        background-color: #999;
+    }
+    
+    /* Horizontal bar for all children except single child case */
+    /* This is hard to do perfectly with just flexbox without known widths or complex calc.
+       Alternative approach: Put the top border on the children.
+    */
+    
+    .tree-node-wrapper {
+        position: relative;
+    }
+
+    /* Top vertical line for every node (except root of this subtree call, handled by parent) */
+    /* Actually the recursive structure puts 'node-children-container' inside the parent. */
+    
+    /* Let's try a simpler connector strategy common in CSS trees */
+    .children-row > .tree-node-wrapper::before {
+        content: '';
+        position: absolute;
+        top: -20px; /* move up to the gap */
+        left: 50%;
+        border-left: 2px solid #999;
+        height: 20px;
+        width: 0;
+    }
+    
+    .children-row > .tree-node-wrapper::after {
+        content: '';
+        position: absolute;
+        top: -20px;
+        width: 100%;
+        border-top: 2px solid #999;
+    }
+    
+    /* Left side of the line */
+    .children-row > .tree-node-wrapper:first-child::after {
+        left: 50%;
+        width: 50%;
+    }
+    
+    /* Right side of the line */
+    .children-row > .tree-node-wrapper:last-child::after {
+        left: 0;
+        width: 50%;
+    }
+    
+    /* If there is only one child, we don't need the horizontal bar, just the vertical one */
+    .children-row > .tree-node-wrapper:only-child::after {
+        display: none;
+    }
+    .children-row > .tree-node-wrapper:only-child::before {
+        height: 20px; /* full height connector */
+    }
+
+
+    /* Loading Indicator Style (copied from original) */
+    .tree-loading-indicator {
+        display: none;
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(255, 255, 255, 0.7);
+        z-index: 100;
+        justify-content: center;
+        align-items: center;
+    }
+
+    .htmx-request .tree-loading-indicator {
+        display: flex;
+    }
+</style>
