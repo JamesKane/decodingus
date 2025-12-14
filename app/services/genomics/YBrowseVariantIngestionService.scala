@@ -133,11 +133,14 @@ class YBrowseVariantIngestionService @Inject()(
           val variantsToProcess = batchGroups.flatMap(group => createVariantV2FromGffGroup(group, sourceGenome, liftovers)).toSeq
           
           variantV2Repository.upsertBatch(variantsToProcess).flatMap { resultIds =>
-            val batchCount = resultIds.size
+            // Log the number of records *processed* in this batch, not just newly created/updated.
+            // resultIds.size is the number of variants that were actually inserted or updated.
+            // variantsToProcess.size is the total number of items from the GFF batch.
+            val batchCount = variantsToProcess.size // Number of GFF records processed in this iteration
             val newTotal = accumulatedCount + batchCount
-/*            if (newTotal % 1000 == 0) { // Log every 1000 now that it should be faster
-               logger.info(s"Processed $newTotal variants from GFF...")
-            }*/
+            if (newTotal % 100000 == 0) { // Log every 1000 records processed
+               logger.info(s"Processed $newTotal GFF records...")
+            }
             processNextBatch(newTotal)
           }
         }
