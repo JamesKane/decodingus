@@ -5,12 +5,7 @@
     <div class="container py-5">
         <h1 class="mb-4"><i class="bi bi-tree"></i> Curator Dashboard</h1>
 
-        @request.flash.get("success").map { msg =>
-            <div class="alert alert-success alert-dismissible fade show" role="alert">
-                @msg
-                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-            </div>
-        }
+        @views.html.fragments.flashMessages(request.flash)
 
         <div class="row g-4 mb-5">
             <div class="col-md-4">

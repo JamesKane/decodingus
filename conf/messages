@@ -179,6 +179,7 @@ tree.loading = Loading haplogroup tree...
 tree.jumpTo = Jump to haplogroup:
 tree.go = Go
 tree.reRoot = Click to re-root
+tree.verticalCladogram = Vertical Cladogram
 tree.clickToSeeVariants = Click to see {0} defining Variants(s)
 
 # Sidebar
@@ -312,6 +313,7 @@ variants.detail.commonName = Common Name
 variants.detail.ancestral = Ancestral
 variants.detail.derived = Derived
 variants.detail.type = Type
+variants.detail.status = Naming Status
 variants.detail.altNames = Alternative Names
 variants.detail.source = Source
 variants.detail.refBuilds = Reference Builds

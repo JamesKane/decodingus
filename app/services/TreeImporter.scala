@@ -2,9 +2,10 @@ package services
 
 import models.*
 import models.api.{TreeDTO, TreeNodeDTO, VariantDTO}
-import models.dal.domain.genomics.Variant
+import models.domain.genomics.{MutationType, NamingStatus, VariantV2}
 import models.domain.haplogroups.{Haplogroup, HaplogroupRelationship, HaplogroupVariantMetadata, RelationshipRevisionMetadata}
 import play.api.Logging
+import play.api.libs.json.Json
 import repositories.*
 
 import java.time.LocalDateTime
@@ -13,67 +14,41 @@ import scala.concurrent.{ExecutionContext, Future}
 
 /**
  * Configuration class for tree import settings.
- *
- * This class represents the configurable parameters used during the process of
- * importing tree data. These parameters include information about the author of
- * the import, the source of the data, and confidence levels for the imported data.
- *
- * @param initialAuthor           The identifier for the author of the import. Defaults to "system".
- * @param source                  The source of the imported tree data. Defaults to "initial_import".
- * @param defaultConfidenceLevel  The confidence level to assign to non-backbone data during import. Defaults to "MEDIUM".
- * @param backboneConfidenceLevel The confidence level to assign to backbone data during import. Defaults to "HIGH".
  */
 case class TreeImportSettings(
-                               initialAuthor: String = "system",
-                               source: String = "initial_import",
-                               defaultConfidenceLevel: String = "MEDIUM",
-                               backboneConfidenceLevel: String = "HIGH"
-                             )
-
+  initialAuthor: String = "system",
+  source: String = "initial_import",
+  defaultConfidenceLevel: String = "MEDIUM",
+  backboneConfidenceLevel: String = "HIGH"
+)
 
 /**
  * Class responsible for importing and processing phylogenetic tree data into the system,
  * including haplogroup information, relationships, and variant associations.
- *
- * @constructor Creates a new instance of TreeImporter with the required repositories and configuration.
- * @param haplogroupRevisionRepository         Repository for managing haplogroup and revision data.
- * @param haplogroupRelationshipRepository     Repository for managing haplogroup relationships.
- * @param haplogroupVariantRepository          Repository for managing haplogroup-variant associations.
- * @param haplogroupVariantMetadataRepository  Repository for managing metadata for haplogroup-variant revisions.
- * @param haplogroupRevisionMetadataRepository Repository for managing metadata for haplogroup revisions.
- * @param genbankContigRepository              Repository for accessing GenBank contig data.
- * @param variantRepository                    Repository for managing variant data.
- * @param config                               Configuration related to tree importing, such as source and confidence levels.
- * @param ec                                   Implicit execution context for managing asynchronous computations.
  */
 class TreeImporter @Inject()(
-                              haplogroupRevisionRepository: HaplogroupRevisionRepository,
-                              haplogroupRelationshipRepository: HaplogroupRelationshipRepository,
-                              haplogroupVariantRepository: HaplogroupVariantRepository,
-                              haplogroupVariantMetadataRepository: HaplogroupVariantMetadataRepository,
-                              haplogroupRevisionMetadataRepository: HaplogroupRevisionMetadataRepository,
-                              genbankContigRepository: GenbankContigRepository,
-                              variantRepository: VariantRepository
-                            )(implicit ec: ExecutionContext) extends Logging {
+  haplogroupRevisionRepository: HaplogroupRevisionRepository,
+  haplogroupRelationshipRepository: HaplogroupRelationshipRepository,
+  haplogroupVariantRepository: HaplogroupVariantRepository,
+  haplogroupVariantMetadataRepository: HaplogroupVariantMetadataRepository,
+  haplogroupRevisionMetadataRepository: HaplogroupRevisionMetadataRepository,
+  genbankContigRepository: GenbankContigRepository,
+  variantV2Repository: VariantV2Repository
+)(implicit ec: ExecutionContext) extends Logging {
   private val defaultSettings = TreeImportSettings()
-
 
   /**
    * Imports a tree structure into the system by recursively processing its nodes,
    * creating haplogroups, relationships, and variants.
-   *
-   * @param tree           The tree structure to be imported, represented as a `TreeDTO`.
-   * @param haplogroupType The type of haplogroup classification to apply (e.g., paternal or maternal lineage).
-   * @return A `Future` that completes when the tree has been successfully imported, or fails in case of an error.
    */
   def importTree(tree: TreeDTO, haplogroupType: HaplogroupType)(implicit settings: TreeImportSettings = defaultSettings): Future[Unit] = {
     val timestamp = LocalDateTime.now()
 
     def processNode(
-                     node: TreeNodeDTO,
-                     parentId: Option[Int] = None,
-                     depth: Int = 0
-                   ): Future[Int] = {
+      node: TreeNodeDTO,
+      parentId: Option[Int] = None,
+      depth: Int = 0
+    ): Future[Int] = {
       for {
         // 1. Create the haplogroup
         haplogroupId <- createHaplogroup(node, haplogroupType, timestamp)
@@ -102,59 +77,42 @@ class TreeImporter @Inject()(
   }
 
   /**
-   * Creates a new haplogroup entry based on the provided tree node and its attributes.
-   *
-   * This method constructs a Haplogroup entity using the data from the given TreeNodeDTO,
-   * including its name, backbone flag, and the specified haplogroup type. It also assigns
-   * a confidence level and validity timestamps. The constructed haplogroup is then passed
-   * to the repository to create a new revision, which is persisted to the database.
-   *
-   * @param node           The TreeNodeDTO representing the hierarchical structure and metadata for the haplogroup.
-   * @param haplogroupType The type of haplogroup classification, e.g., paternal (Y) or maternal (MT).
-   * @param timestamp      The timestamp indicating the creation or validity start time for the haplogroup.
-   * @return A Future containing the unique integer identifier of the newly created haplogroup revision.
+   * Creates a haplogroup entity with associated revision metadata.
    */
   private def createHaplogroup(
-                                node: TreeNodeDTO,
-                                haplogroupType: HaplogroupType,
-                                timestamp: LocalDateTime
-                              )(implicit settings: TreeImportSettings): Future[Int] = {
+    node: TreeNodeDTO,
+    haplogroupType: HaplogroupType,
+    timestamp: LocalDateTime
+  )(implicit settings: TreeImportSettings): Future[Int] = {
+    logger.debug(s"Creating haplogroup: ${node.name}")
     val haplogroup = Haplogroup(
       id = None,
       name = node.name,
       lineage = None,
-      description = None,
+      description = None, // TreeNodeDTO doesn't have description
       haplogroupType = haplogroupType,
       revisionId = 1,
       source = settings.source,
-      confidenceLevel = if (node.isBackbone) settings.backboneConfidenceLevel else settings.defaultConfidenceLevel,
+      confidenceLevel = settings.defaultConfidenceLevel,
       validFrom = timestamp,
       validUntil = None
     )
 
-    logger.debug(s"Creating new haplogroup revision for ${node.name}")
-    haplogroupRevisionRepository.createNewRevision(haplogroup).map { id =>
-      logger.debug(s"Created haplogroup with ID: $id for ${node.name}")
-      id
-    }
+    val revisionComment = s"Created during tree import from source: ${settings.source}"
+
+    // Create the haplogroup revision
+    // Note: Haplogroup revision metadata is not currently tracked separately
+    haplogroupRevisionRepository.createNewRevision(haplogroup)
   }
 
-
   /**
-   * Creates a relationship between a parent haplogroup and a child haplogroup,
-   * with associated metadata for tracking revisions.
-   *
-   * @param parentId  The unique identifier of the parent haplogroup.
-   * @param childId   The unique identifier of the child haplogroup.
-   * @param timestamp The timestamp indicating when the relationship was created or became valid.
-   * @return A Future containing Unit, which completes when the relationship and its metadata
-   *         are successfully created, or fails with an exception if an error occurs.
+   * Creates a relationship between parent and child haplogroups.
    */
   private def createRelationship(
-                                  parentId: Int,
-                                  childId: Int,
-                                  timestamp: LocalDateTime
-                                )(implicit settings: TreeImportSettings): Future[Unit] = {
+    parentId: Int,
+    childId: Int,
+    timestamp: LocalDateTime
+  )(implicit settings: TreeImportSettings): Future[Unit] = {
     logger.debug(s"Creating relationship: parent=$parentId -> child=$childId")
     val relationship = HaplogroupRelationship(
       id = None,
@@ -185,71 +143,100 @@ class TreeImporter @Inject()(
   }
 
   /**
-   * Creates or retrieves genetic variants, associates them with a specific haplogroup,
-   * and stores the related metadata for tracking changes.
-   *
-   * @param variants     A sequence of `VariantDTO` instances representing the genomic variants to be processed.
-   * @param haplogroupId The unique identifier of the haplogroup to associate the variants with.
-   * @param timestamp    The timestamp indicating the moment of creation or update for the variants.
-   * @return A `Future` containing `Unit` that completes once all variants are processed and associated,
-   *         or fails with an exception if an error occurs during execution.
+   * Creates or retrieves genetic variants and associates them with a haplogroup.
+   * Now uses VariantV2 with JSONB coordinates.
    */
   private def createVariants(
-                              variants: Seq[VariantDTO],
-                              haplogroupId: Int,
-                              timestamp: LocalDateTime
-                            )(implicit settings: TreeImportSettings): Future[Unit] = {
+    variants: Seq[VariantDTO],
+    haplogroupId: Int,
+    timestamp: LocalDateTime
+  )(implicit settings: TreeImportSettings): Future[Unit] = {
     logger.debug(s"Starting to process ${variants.size} variants for haplogroup $haplogroupId")
 
-    // Convert DTOs to Variant entities
-    val variantEntities = variants.flatMap { v =>
-      v.coordinates.map { case (contigAccession, coord) =>
-        (contigAccession, Variant(
-          variantId = None,
-          genbankContigId = 0,
-          position = coord.start,
-          referenceAllele = coord.anc,
-          alternateAllele = coord.der,
-          variantType = v.variantType,
-          rsId = Some(v.name).filter(_.startsWith("rs")),
-          commonName = Some(v.name).filterNot(_.startsWith("rs"))
-        ))
+    // Process variants sequentially to avoid overwhelming the connection pool
+    variants.grouped(100).toSeq.foldLeft(Future.successful(())) { case (prevFuture, batch) =>
+      prevFuture.flatMap { _ =>
+        for {
+          // Create/find variants and get their IDs
+          variantIds <- Future.traverse(batch) { variantDto =>
+            createOrFindVariant(variantDto)
+          }
+          // Associate variants with haplogroup
+          _ <- Future.traverse(variantIds.flatten) { variantId =>
+            createVariantAssociation(haplogroupId, variantId, timestamp)
+          }
+        } yield ()
       }
     }
+  }
 
-    // Group by contig accession for efficient processing
-    val groupedVariants = variantEntities.groupBy(_._1)
+  /**
+   * Creates a new VariantV2 or finds an existing one.
+   */
+  private def createOrFindVariant(variantDto: VariantDTO): Future[Option[Int]] = {
+    // Build coordinates JSONB from DTO
+    val coordinatesJson = variantDto.coordinates.foldLeft(Json.obj()) { case (acc, (contigAccession, coord)) =>
+      // For now, use accession as the reference genome key
+      // In a real implementation, we'd map accession to reference genome name (GRCh38, hs1, etc.)
+      acc + (contigAccession -> Json.obj(
+        "contig" -> contigAccession,
+        "position" -> coord.start,
+        "ref" -> coord.anc,
+        "alt" -> coord.der
+      ))
+    }
 
-    // Process groups sequentially to avoid overwhelming the connection pool
-    groupedVariants.toSeq.foldLeft(Future.successful(())) { case (prevFuture, (contigAccession, variants)) =>
-      prevFuture.flatMap { _ =>
-        // Process each batch of 100 variants
-        variants.grouped(100).foldLeft(Future.successful(())) { case (batchFuture, batch) =>
-          batchFuture.flatMap { _ =>
-            for {
-              contig <- genbankContigRepository.findByAccession(contigAccession).flatMap {
-                case Some(c) => Future.successful(c)
-                case None => Future.failed(new RuntimeException(s"GenBank contig not found: $contigAccession"))
-              }
-              variantsWithContig = batch.map(_._2.copy(genbankContigId = contig.id.get))
-              variantIds <- variantRepository.findOrCreateVariantsBatch(variantsWithContig)
-              _ <- variantIds.foldLeft(Future.successful(())) { case (f, variantId) =>
-                f.flatMap(_ => createVariantAssociation(haplogroupId, variantId, timestamp).map(_ => ()))
-              }
-            } yield ()
+    // Determine canonical name and rsId
+    val isRsId = variantDto.name.startsWith("rs")
+    val canonicalName = if (isRsId) None else Some(variantDto.name)
+    val rsIds = if (isRsId) Seq(variantDto.name) else Seq.empty
+
+    // Build aliases JSONB
+    val aliasesJson = Json.obj(
+      "common_names" -> Seq.empty[String],
+      "rs_ids" -> rsIds,
+      "sources" -> Json.obj("import" -> Seq(variantDto.name))
+    )
+
+    val variant = VariantV2(
+      variantId = None,
+      canonicalName = canonicalName,
+      mutationType = MutationType.fromStringOrDefault(variantDto.variantType),
+      namingStatus = if (canonicalName.isDefined) NamingStatus.Named else NamingStatus.Unnamed,
+      aliases = aliasesJson,
+      coordinates = coordinatesJson,
+      definingHaplogroupId = None,
+      evidence = Json.obj(),
+      primers = Json.obj(),
+      notes = None
+    )
+
+    // Try to find existing variant by name, otherwise create
+    canonicalName match {
+      case Some(name) =>
+        variantV2Repository.findByCanonicalName(name).flatMap {
+          case Some(existing) => Future.successful(existing.variantId)
+          case None => variantV2Repository.create(variant).map(Some(_))
+        }
+      case None if rsIds.nonEmpty =>
+        variantV2Repository.findByAlias(rsIds.head).flatMap { existingVariants =>
+          existingVariants.headOption match {
+            case Some(existing) => Future.successful(existing.variantId)
+            case None => variantV2Repository.create(variant).map(Some(_))
           }
         }
-      }
+      case None =>
+        variantV2Repository.create(variant).map(Some(_))
     }
   }
 
   import scala.util.control.NonFatal
 
   private def createVariantAssociation(
-                                        haplogroupId: Int,
-                                        variantId: Int,
-                                        timestamp: LocalDateTime
-                                      )(implicit settings: TreeImportSettings): Future[Int] = {
+    haplogroupId: Int,
+    variantId: Int,
+    timestamp: LocalDateTime
+  )(implicit settings: TreeImportSettings): Future[Int] = {
     (for {
       // Create the haplogroup-variant association
       assocId <- haplogroupVariantRepository.addVariantToHaplogroup(haplogroupId, variantId)
@@ -272,5 +259,4 @@ class TreeImporter @Inject()(
         0
     }
   }
-
 }

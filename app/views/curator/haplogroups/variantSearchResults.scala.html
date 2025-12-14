@@ -1,5 +1,7 @@
-@import models.domain.genomics.VariantGroup
-@(haplogroupId: Int, haplogroupName: String, query: Option[String], variantGroups: Seq[VariantGroup])(implicit request: RequestHeader)
+@import models.domain.genomics.VariantV2
+@import play.api.libs.json.JsObject
+@import utils.VariantViewUtils
+@(haplogroupId: Int, haplogroupName: String, query: Option[String], variants: Seq[VariantV2])(implicit request: RequestHeader)
 
 <div class="mb-3">
     <label for="variantQuery" class="form-label">Search for variant by rsId, common name, or position</label>
@@ -14,49 +16,51 @@
            hx-target="#variant-search-content"
            hx-include="this"
            autocomplete="off">
-    <div class="form-text">Enter rsId (rs...) or common name to search. All reference builds will be added automatically.</div>
+    <div class="form-text">Enter rsId (rs...) or common name to search.</div>
 </div>
 
 @if(query.exists(_.nonEmpty)) {
-    @if(variantGroups.isEmpty) {
+    @if(variants.isEmpty) {
         <div class="alert alert-info">
             No matching variants found that aren't already associated with @haplogroupName.
         </div>
     } else {
         <div class="list-group">
-            @for(group <- variantGroups.take(10)) {
+            @for(variant <- variants.take(10)) {
+                @defining(VariantViewUtils.refGenomes(variant)) { refs =>
                 <div class="list-group-item">
                     <div class="d-flex justify-content-between align-items-start">
                         <div class="flex-grow-1">
-                            <strong>@group.displayName</strong>
-                            @group.rsId.filter(_ != group.displayName).map { rs =>
+                            <strong>@variant.displayName</strong>
+                            @variant.rsIds.headOption.filter(_ != variant.displayName).map { rs =>
                                 <span class="text-muted">(@rs)</span>
                             }
-                            <span class="badge bg-secondary ms-1">@group.buildCount build@if(group.buildCount != 1){s}</span>
+                            <span class="badge bg-secondary ms-1">@refs.size build@if(refs.size != 1){s}</span>
                         </div>
                         <button type="button"
                                 class="btn btn-success btn-sm"
-                                hx-post="@controllers.routes.CuratorController.addVariantGroupToHaplogroup(haplogroupId, group.groupKey)"
+                                hx-post="@controllers.routes.CuratorController.addVariantToHaplogroup(haplogroupId, variant.variantId.get)"
                                 hx-target="#variants-panel"
                                 hx-on::after-request="bootstrap.Modal.getInstance(document.getElementById('variantSearchModal')).hide()">
-                            <i class="bi bi-plus"></i> Add All
+                            <i class="bi bi-plus"></i> Add
                         </button>
                     </div>
                     <div class="mt-2 ps-2">
-                        @for(vwc <- group.variantsSorted) {
+                        @for(refGenome <- refs) {
                             <div class="text-muted small">
-                                <span class="badge bg-info me-1" style="min-width: 55px;">@vwc.shortReferenceGenome</span>
-                                <code>@vwc.formattedPosition</code>
-                                <span class="ms-1">@vwc.variant.referenceAllele&rarr;@vwc.variant.alternateAllele</span>
+                                <span class="badge @VariantViewUtils.buildBadgeClass(refGenome) me-1" style="min-width: 55px;">@refGenome</span>
+                                <code>@VariantViewUtils.formatPosition(variant, refGenome)</code>
+                                <span class="ms-1">@Html(VariantViewUtils.formatAlleles(variant, refGenome))</span>
                             </div>
                         }
                     </div>
                 </div>
+                }
             }
         </div>
-        @if(variantGroups.size > 10) {
+        @if(variants.size > 10) {
             <div class="text-muted small mt-2">
-                Showing first 10 of @variantGroups.size results. Refine your search for more specific results.
+                Showing first 10 of @variants.size results. Refine your search for more specific results.
             </div>
         }
     }

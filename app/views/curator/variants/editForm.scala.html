@@ -6,30 +6,35 @@
     <div class="container py-5">
         <div class="row justify-content-center">
             <div class="col-md-8">
-                <nav aria-label="breadcrumb">
-                    <ol class="breadcrumb">
-                        <li class="breadcrumb-item"><a href="@controllers.routes.CuratorController.dashboard">Curator</a></li>
-                        <li class="breadcrumb-item"><a href="@controllers.routes.CuratorController.listVariants(None, 1, 20)">Variants</a></li>
-                        <li class="breadcrumb-item active">Edit</li>
-                    </ol>
-                </nav>
+                @views.html.fragments.breadcrumbs(Seq(
+                    ("Curator", controllers.routes.CuratorController.dashboard),
+                    ("Variants", controllers.routes.CuratorController.listVariants(None, 1, 20)),
+                    ("Edit", controllers.routes.CuratorController.editVariantForm(id))
+                ))
 
                 <div class="card">
                     <div class="card-header">
                         <h5 class="mb-0"><i class="bi bi-pencil"></i> Edit Variant</h5>
                     </div>
                     <div class="card-body">
+                        @views.html.fragments.flashMessages(request.flash, Some(form))
+
                         @helper.form(controllers.routes.CuratorController.updateVariant(id)) {
                             @helper.CSRF.formField
 
+                            <div class="alert alert-info">
+                                <i class="bi bi-info-circle"></i> Genomic coordinates are immutable after creation. Only metadata fields can be edited.
+                            </div>
+
                             <div class="row">
                                 <div class="col-md-6 mb-3">
-                                    <label class="form-label">Contig</label>
+                                    <label class="form-label">Reference Genome / Contig</label>
                                     <input type="text"
                                            class="form-control"
                                            value="@contigDisplay"
                                            disabled>
-                                    <input type="hidden" name="genbankContigId" value="@form("genbankContigId").value.getOrElse("")">
+                                    <input type="hidden" name="refGenome" value="@form("refGenome").value.getOrElse("")">
+                                    <input type="hidden" name="contig" value="@form("contig").value.getOrElse("")">
                                 </div>
                                 <div class="col-md-6 mb-3">
                                     <label class="form-label">Position</label>
@@ -60,7 +65,8 @@
                                 </div>
                             </div>
 
-                            <small class="text-muted d-block mb-3">Genomic coordinates cannot be changed after creation</small>
+                            <hr class="my-4">
+                            <h6 class="text-muted mb-3">Editable Fields</h6>
 
                             <div class="mb-3">
                                 <label for="variantType" class="form-label">Variant Type *</label>
@@ -69,9 +75,15 @@
                                         name="variantType"
                                         required>
                                     <option value="">Select...</option>
-                                    <option value="SNP" @if(form("variantType").value.contains("SNP")){selected}>SNP</option>
-                                    <option value="INDEL" @if(form("variantType").value.contains("INDEL")){selected}>INDEL</option>
-                                    <option value="MNP" @if(form("variantType").value.contains("MNP")){selected}>MNP</option>
+                                    <option value="SNP" @if(form("variantType").value.contains("SNP")){selected}>SNP - Single Nucleotide Polymorphism</option>
+                                    <option value="INDEL" @if(form("variantType").value.contains("INDEL")){selected}>INDEL - Insertion/Deletion</option>
+                                    <option value="MNP" @if(form("variantType").value.contains("MNP")){selected}>MNP - Multi-Nucleotide Polymorphism</option>
+                                    <option value="STR" @if(form("variantType").value.contains("STR")){selected}>STR - Short Tandem Repeat</option>
+                                    <option value="DEL" @if(form("variantType").value.contains("DEL")){selected}>DEL - Deletion</option>
+                                    <option value="DUP" @if(form("variantType").value.contains("DUP")){selected}>DUP - Duplication</option>
+                                    <option value="INS" @if(form("variantType").value.contains("INS")){selected}>INS - Insertion</option>
+                                    <option value="INV" @if(form("variantType").value.contains("INV")){selected}>INV - Inversion</option>
+                                    <option value="CNV" @if(form("variantType").value.contains("CNV")){selected}>CNV - Copy Number Variant</option>
                                 </select>
                                 @form.error("variantType").map { error =>
                                     <div class="invalid-feedback">@error.message</div>
@@ -80,15 +92,6 @@
 
                             <div class="row">
                                 <div class="col-md-6 mb-3">
-                                    <label for="rsId" class="form-label">rsId</label>
-                                    <input type="text"
-                                           class="form-control"
-                                           id="rsId"
-                                           name="rsId"
-                                           value="@form("rsId").value.getOrElse("")"
-                                           placeholder="e.g., rs12345">
-                                </div>
-                                <div class="col-md-6 mb-3">
                                     <label for="commonName" class="form-label">Common Name</label>
                                     <input type="text"
                                            class="form-control"
@@ -96,6 +99,16 @@
                                            name="commonName"
                                            value="@form("commonName").value.getOrElse("")"
                                            placeholder="e.g., M269">
+                                    <div class="form-text">Becomes canonical name if provided</div>
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label for="rsId" class="form-label">rsId</label>
+                                    <input type="text"
+                                           class="form-control"
+                                           id="rsId"
+                                           name="rsId"
+                                           value="@form("rsId").value.getOrElse("")"
+                                           placeholder="e.g., rs12345">
                                 </div>
                             </div>
 

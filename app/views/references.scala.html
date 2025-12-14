@@ -45,32 +45,16 @@
 
         <div class="row mb-4">
             <div class="col-md-6">
-                <div class="input-group" id="search-box">
-                    <span class="input-group-text">
-                        <i class="bi bi-search search-icon"></i>
-                        <span class="spinner-border spinner-border-sm search-indicator" role="status">
-                            <span class="visually-hidden">@messages("generic.loading")</span>
-                        </span>
-                    </span>
-                    <input type="text"
-                    class="form-control"
-                    id="publication-search"
-                    name="query"
-                    placeholder="@messages("references.search.placeholder")"
-                    hx-get="@controllers.routes.PublicationController.getAllPublicationsWithDetailsHtml(Some(1), None, None)"
-                    hx-trigger="input changed delay:300ms, search"
-                    hx-target="#publications-container"
-                    hx-swap="innerHTML"
-                    hx-indicator="#search-box"
-                    autocomplete="off">
-                    <button class="btn btn-outline-secondary"
-                    type="button"
-                    id="clear-search"
-                    title="Clear search"
-                    onclick="clearSearch()">
-                        <i class="bi bi-x-lg"></i>
-                    </button>
-                </div>
+                @views.html.fragments.searchInput(
+                    id = "publication-search",
+                    name = "query",
+                    value = None,
+                    placeholder = messages("references.search.placeholder"),
+                    hxGet = controllers.routes.PublicationController.getAllPublicationsWithDetailsHtml(Some(1), None, None),
+                    hxTarget = "#publications-container",
+                    hxIndicator = "#search-box",
+                    hxTrigger = "input changed delay:300ms, search"
+                )
                 <small class="text-muted">
                     @messages("references.search.help")</small>
             </div>
@@ -84,12 +68,4 @@
             </div>
         </div>
     </main>
-
-    <script>
-            function clearSearch() {
-                const searchInput = document.getElementById('publication-search');
-                searchInput.value = '';
-                htmx.trigger(searchInput, 'search');
-            }
-    </script>
 }

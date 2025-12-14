@@ -1,27 +1,13 @@
-@import org.webjars.play.WebJarsUtil
-@(rootHaplogroup: Option[String])(implicit webJarsUtil: WebJarsUtil, messages: Messages, request: RequestHeader)
+@(rootHaplogroup: Option[String], showVerticalTree: Boolean = false)(implicit webJarsUtil: org.webjars.play.WebJarsUtil, messages: Messages, request: RequestHeader)
 
-@main(messages("nav.mtree")) {
-    <main class="container-fluid">
-        <h1>@messages("nav.mtree")</h1>
-        <div id="tree-container"
-        hx-get="@routes.TreeController.mTreeFragment(rootHaplogroup)"
-        hx-trigger="load">
-            <div class="loading">@messages("tree.loading")</div>
-        </div>
+@import controllers.routes.TreeController
 
-        <div class="tree-controls">
-            <form class="search-form" hx-get="@routes.TreeController.mTreeFragment(None)" hx-target="#tree-container" hx-push-url="@routes.TreeController.mtree(None)">
-                <label for="haplogroup-search">@messages("tree.jumpTo")</label>
-                <input type="text"
-                id="haplogroup-search"
-                name="rootHaplogroup"
-                placeholder="e.g. H1"
-                pattern="[A-Z0-9-]+"
-                title="Enter a valid MT-DNA haplogroup">
-                <button type="submit">@messages("tree.go")</button>
-            </form>
-        </div>
-
-    </main>
-}
+@fragments.treeView(
+    titleKey = "nav.mtree",
+    fragmentCall = TreeController.mTreeFragment,
+    fullPageCall = TreeController.mtree,
+    rootHaplogroup = rootHaplogroup,
+    searchPlaceholder = "e.g. H, U5b...",
+    searchInputTitle = "Enter a haplogroup name (e.g. H, U5)",
+    showVerticalTree = showVerticalTree
+)

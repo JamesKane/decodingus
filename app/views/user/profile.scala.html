@@ -11,12 +11,7 @@
                         <h4 class="mb-0">@messages("profile.heading")</h4>
                     </div>
                     <div class="card-body p-4">
-                        @request.flash.get("success").map { msg =>
-                            <div class="alert alert-success alert-dismissible fade show" role="alert">
-                                @msg
-                                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-                            </div>
-                        }
+                        @views.html.fragments.flashMessages(request.flash)
 
                         <div class="mb-4">
                             <h6 class="text-muted">@messages("profile.accountDetails")</h6>

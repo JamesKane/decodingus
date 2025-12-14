@@ -1,42 +1,62 @@
-@import models.domain.genomics.{VariantWithContig, VariantGroup}
-@import models.dal.domain.genomics.VariantAlias
+@import models.domain.genomics.{NamingStatus, VariantV2}
 @import models.domain.haplogroups.Haplogroup
 @import models.domain.curator.AuditLogEntry
-@(vwc: VariantWithContig, variantGroup: Option[VariantGroup], aliases: Seq[VariantAlias], haplogroups: Seq[Haplogroup], history: Seq[AuditLogEntry])(implicit request: RequestHeader)
+@import play.api.libs.json.JsObject
+@import utils.{CuratorViewUtils, VariantViewUtils}
+@(variant: VariantV2, haplogroups: Seq[Haplogroup], history: Seq[AuditLogEntry])(implicit request: RequestHeader, messages: Messages)
 
 <div class="card">
     <div class="card-header d-flex justify-content-between align-items-center">
-        <h5 class="mb-0">@vwc.variant.rsId.orElse(vwc.variant.commonName).getOrElse(s"Variant ${vwc.variant.variantId.get}")</h5>
-        <span class="badge bg-secondary">@vwc.variant.variantType</span>
+        <h5 class="mb-0">@variant.displayName</h5>
+        <span class="badge bg-secondary">@variant.mutationType.displayName</span>
     </div>
     <div class="card-body">
         <dl class="row mb-0">
-            <dt class="col-sm-4">rsId</dt>
-            <dd class="col-sm-8">@vwc.variant.rsId.getOrElse("-")</dd>
+            <dt class="col-sm-4">Canonical Name</dt>
+            <dd class="col-sm-8">@variant.canonicalName.getOrElse("-")</dd>
 
-            <dt class="col-sm-4">Common Name</dt>
-            <dd class="col-sm-8">@vwc.variant.commonName.getOrElse("-")</dd>
+            <dt class="col-sm-4">rsIds</dt>
+            <dd class="col-sm-8">
+                @if(variant.rsIds.nonEmpty) {
+                    @for(rsId <- variant.rsIds) {
+                        <span class="badge bg-light text-dark border me-1">@rsId</span>
+                    }
+                } else { - }
+            </dd>
 
-            <dt class="col-sm-4">Ancestral</dt>
-            <dd class="col-sm-8"><code>@vwc.variant.referenceAllele</code></dd>
+            @defining(VariantViewUtils.primaryAlleles(variant)) { alleles =>
+                <dt class="col-sm-4">Ancestral</dt>
+                <dd class="col-sm-8"><code>@alleles._1</code></dd>
 
-            <dt class="col-sm-4">Derived</dt>
-            <dd class="col-sm-8"><code>@vwc.variant.alternateAllele</code></dd>
+                <dt class="col-sm-4">Derived</dt>
+                <dd class="col-sm-8"><code>@alleles._2</code></dd>
+            }
 
             <dt class="col-sm-4">Type</dt>
-            <dd class="col-sm-8">@vwc.variant.variantType</dd>
+            <dd class="col-sm-8">@variant.mutationType.displayName</dd>
+
+            <dt class="col-sm-4">Naming Status</dt>
+            <dd class="col-sm-8">
+                <span class="badge @if(variant.namingStatus == NamingStatus.Named){bg-success}else if(variant.namingStatus == NamingStatus.PendingReview){bg-warning text-dark}else{bg-secondary}">
+                    @variant.namingStatus.displayName
+                </span>
+            </dd>
         </dl>
 
-        @if(aliases.nonEmpty) {
+        @if(variant.commonNames.nonEmpty) {
             <hr>
             <h6><i class="bi bi-tags"></i> Alternative Names</h6>
-            @views.html.components.variantAliases(aliases)
+            <div class="mb-2">
+                @for(name <- variant.commonNames) {
+                    <span class="badge bg-light text-dark border me-1">@name</span>
+                }
+            </div>
         }
 
         <hr>
 
         <h6><i class="bi bi-collection"></i> Reference Builds</h6>
-        @views.html.components.variantBuilds(vwc, variantGroup)
+        @views.html.fragments.variant.referenceBuilds(variant)
 
         <hr>
 
@@ -59,27 +79,23 @@
             </div>
         }
 
+        @variant.notes.map { notes =>
+            <hr>
+            <h6><i class="bi bi-sticky"></i> Notes</h6>
+            <p class="small">@notes</p>
+        }
+
         <hr>
 
         <div class="d-flex gap-2">
-            @variantGroup match {
-                case Some(group) if group.variants.size > 1 => {
-                    <a href="@controllers.routes.CuratorController.editVariantGroupForm(group.groupKey)"
-                       class="btn btn-primary btn-sm">
-                        <i class="bi bi-pencil"></i> Edit Group (@group.variants.size builds)
-                    </a>
-                }
-                case _ => {
-                    <a href="@controllers.routes.CuratorController.editVariantForm(vwc.variant.variantId.get)"
-                       class="btn btn-primary btn-sm">
-                        <i class="bi bi-pencil"></i> Edit
-                    </a>
-                }
-            }
+            <a href="@controllers.routes.CuratorController.editVariantForm(variant.variantId.get)"
+               class="btn btn-primary btn-sm">
+                <i class="bi bi-pencil"></i> Edit
+            </a>
             <button type="button"
                     class="btn btn-danger btn-sm"
-                    hx-delete="@controllers.routes.CuratorController.deleteVariant(vwc.variant.variantId.get)"
-                    hx-confirm="Are you sure you want to delete this variant? @variantGroup.filter(_.variants.size > 1).map(g => s"This will only delete the ${vwc.shortReferenceGenome} build.").getOrElse("")">
+                    hx-delete="@controllers.routes.CuratorController.deleteVariant(variant.variantId.get)"
+                    hx-confirm="Are you sure you want to delete this variant?">
                 <i class="bi bi-trash"></i> Delete
             </button>
         </div>
@@ -90,7 +106,7 @@
             <ul class="list-group list-group-flush small">
                 @for(entry <- history.take(5)) {
                     <li class="list-group-item px-0">
-                        <span class="badge @actionBadgeClass(entry.action) me-1">@entry.action</span>
+                        <span class="badge @CuratorViewUtils.actionBadgeClass(entry.action) me-1">@entry.action</span>
                         @entry.createdAt.toLocalDate
                         @entry.comment.map { c => <br><small class="text-muted">@c</small> }
                     </li>
@@ -99,7 +115,7 @@
             @if(history.size > 5) {
                 <a href="#"
                    class="small"
-                   hx-get="@controllers.routes.CuratorController.auditHistory("variant", vwc.variant.variantId.get)"
+                   hx-get="@controllers.routes.CuratorController.auditHistory("variant", variant.variantId.get)"
                    hx-target="#detail-panel">
                     View all history...
                 </a>
@@ -107,12 +123,3 @@
         }
     </div>
 </div>
-
-@actionBadgeClass(action: String) = @{
-    action match {
-        case "create" => "bg-success"
-        case "update" => "bg-warning text-dark"
-        case "delete" => "bg-danger"
-        case _ => "bg-secondary"
-    }
-}

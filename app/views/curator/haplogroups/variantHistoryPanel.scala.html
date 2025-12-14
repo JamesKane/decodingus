@@ -1,4 +1,5 @@
 @import models.domain.haplogroups.HaplogroupVariantMetadata
+@import utils.CuratorViewUtils
 @(haplogroupVariantId: Int, history: Seq[HaplogroupVariantMetadata])(implicit request: RequestHeader)
 
 <div class="card">
@@ -14,7 +15,7 @@
                     <li class="list-group-item">
                         <div class="d-flex justify-content-between align-items-start">
                             <div>
-                                <span class="badge @changeTypeBadgeClass(entry.change_type) me-1">@entry.change_type</span>
+                                <span class="badge @CuratorViewUtils.changeTypeBadgeClass(entry.change_type) me-1">@entry.change_type</span>
                                 <strong>Revision @entry.revision_id</strong>
                             </div>
                             <small class="text-muted">@entry.timestamp.toLocalDate</small>
@@ -31,12 +32,3 @@
         }
     </div>
 </div>
-
-@changeTypeBadgeClass(changeType: String) = @{
-    changeType match {
-        case "add" => "bg-success"
-        case "remove" => "bg-danger"
-        case "update" => "bg-warning text-dark"
-        case _ => "bg-secondary"
-    }
-}

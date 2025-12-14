@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Decoding Us - Scheduled Maintenance</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #e8e8e8;
+        }
+        .container {
+            text-align: center;
+            padding: 2rem;
+            max-width: 600px;
+        }
+        .icon {
+            font-size: 4rem;
+            margin-bottom: 1.5rem;
+        }
+        h1 {
+            font-size: 2rem;
+            margin-bottom: 1rem;
+            color: #fff;
+        }
+        .subtitle {
+            font-size: 1.1rem;
+            color: #a0a0a0;
+            margin-bottom: 2rem;
+            line-height: 1.6;
+        }
+        .status-box {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+        }
+        .status-box h2 {
+            font-size: 1rem;
+            color: #4da6ff;
+            margin-bottom: 0.5rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        .status-box p {
+            color: #c0c0c0;
+            font-size: 0.95rem;
+        }
+        .progress-bar {
+            width: 100%;
+            height: 4px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 2px;
+            margin-top: 1rem;
+            overflow: hidden;
+        }
+        .progress-bar-inner {
+            height: 100%;
+            width: 30%;
+            background: linear-gradient(90deg, #4da6ff, #00d4aa);
+            border-radius: 2px;
+            animation: progress 2s ease-in-out infinite;
+        }
+        @keyframes progress {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(400%); }
+        }
+        .footer {
+            margin-top: 2rem;
+            font-size: 0.85rem;
+            color: #666;
+        }
+        .footer a {
+            color: #4da6ff;
+            text-decoration: none;
+        }
+        .dna-icon {
+            display: inline-block;
+            animation: rotate 4s linear infinite;
+        }
+        @keyframes rotate {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="icon">
+            <span class="dna-icon">&#x1F9EC;</span>
+        </div>
+        <h1>Scheduled Maintenance</h1>
+        <p class="subtitle">
+            We're upgrading our database to serve you better.<br>
+            This process typically takes 15-30 minutes.
+        </p>
+
+        <div class="status-box">
+            <h2>What's Happening</h2>
+            <p>We're consolidating our variant data schema to improve search performance and support additional reference genomes.</p>
+            <div class="progress-bar">
+                <div class="progress-bar-inner"></div>
+            </div>
+        </div>
+
+        <div class="status-box">
+            <h2>When We'll Be Back</h2>
+            <p>We expect to be back online shortly. Please check back soon.</p>
+        </div>
+
+        <div class="footer">
+            <p>Questions? Contact us at <a href="mailto:support@decodingus.com">support@decodingus.com</a></p>
+        </div>
+    </div>
+</body>
+</html>

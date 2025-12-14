@@ -22,8 +22,8 @@ class GenomicsConfig @Inject()(config: Configuration) {
   }
 
   // YBrowse configuration
-  val ybrowseVcfUrl: String = genomicsConfig.get[String]("ybrowse.vcf_url")
-  val ybrowseVcfStoragePath: File = new File(genomicsConfig.get[String]("ybrowse.vcf_storage_path"))
+  val ybrowseGffUrl: String = genomicsConfig.get[String]("ybrowse.gff_url")
+  val ybrowseGffStoragePath: File = new File(genomicsConfig.get[String]("ybrowse.gff_storage_path"))
 
   /**
    * Retrieves the path to a liftover chain file for a given source and target genome.

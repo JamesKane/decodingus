@@ -1,5 +1,6 @@
 @import org.webjars.play.WebJarsUtil
 @import models.domain.support.{ContactMessage, MessageStatus}
+@import utils.CuratorViewUtils
 @(messages: Seq[ContactMessage])(implicit request: RequestHeader, messagesProvider: Messages, webJarsUtil: WebJarsUtil)
 
 @main(messagesProvider("support.myMessages.title")) {
@@ -13,7 +14,10 @@
                     </a>
                 </div>
 
+                @views.html.fragments.flashMessages(request.flash)
+
                 @if(messages.isEmpty) {
+                    <div class="alert alert-info">
                     <div class="alert alert-info">
                         @messagesProvider("support.myMessages.empty")
                     </div>

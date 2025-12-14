@@ -17,4 +17,9 @@ class FeatureFlags @Inject()(config: Configuration) {
    * Disabled by default until age data is populated.
    */
   val showBranchAgeEstimates: Boolean = featuresConfig.getOptional[Boolean]("tree.showBranchAgeEstimates").getOrElse(false)
+
+  /**
+   * Show the alternative "Block Layout" (ytree.net style) for the tree.
+   */
+  val showVerticalTree: Boolean = featuresConfig.getOptional[Boolean]("tree.showVerticalTree").getOrElse(false)
 }

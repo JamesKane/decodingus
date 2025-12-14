@@ -14,28 +14,14 @@
     <div class="container-fluid py-4">
         <div class="row">
             <div class="col-12">
-                <nav aria-label="breadcrumb">
-                    <ol class="breadcrumb">
-                        <li class="breadcrumb-item"><a href="@controllers.routes.CuratorController.dashboard">Curator</a></li>
-                        <li class="breadcrumb-item active">Genome Regions</li>
-                    </ol>
-                </nav>
+                @views.html.fragments.breadcrumbs(Seq(
+                    ("Curator", controllers.routes.CuratorController.dashboard),
+                    ("Genome Regions", controllers.routes.GenomeRegionsCuratorController.listRegions(None, None, 1, 25))
+                ))
             </div>
         </div>
 
-        @request.flash.get("success").map { msg =>
-            <div class="alert alert-success alert-dismissible fade show" role="alert">
-                @msg
-                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-            </div>
-        }
-
-        @request.flash.get("error").map { msg =>
-            <div class="alert alert-danger alert-dismissible fade show" role="alert">
-                @msg
-                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-            </div>
-        }
+        @views.html.fragments.flashMessages(request.flash)
 
         <div class="row">
             <div class="col-lg-8">
@@ -57,7 +43,7 @@
                                     <select class="form-select"
                                             id="build-filter"
                                             name="build"
-                                            hx-get="@controllers.routes.GenomeRegionsCuratorController.regionsFragment(None, 1, pageSize)"
+                                            hx-get="@controllers.routes.GenomeRegionsCuratorController.regionsFragment(None, None, 1, pageSize)"
                                             hx-trigger="change"
                                             hx-target="#regions-table"
                                             hx-indicator="#filter-box">

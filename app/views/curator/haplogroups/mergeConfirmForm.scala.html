@@ -64,19 +64,19 @@
 
                         <div class="mb-3">
                             <strong><i class="bi bi-code-square"></i> Variants:</strong>
-                            @if(preview.allVariantGroups.nonEmpty) {
-                                <span class="badge bg-info">@preview.uniqueVariantGroups.size of @preview.allVariantGroups.size group(s) will be added</span>
+                            @if(preview.allVariants.nonEmpty) {
+                                <span class="badge bg-info">@preview.uniqueVariants.size of @preview.allVariants.size variant(s) will be added</span>
                                 <ul class="list-unstyled ps-3 mt-2">
-                                    @for(group <- preview.allVariantGroups) {
+                                    @for(variant <- preview.allVariants) {
                                         <li>
-                                            @if(preview.uniqueVariantGroups.exists(_.groupKey == group.groupKey)) {
+                                            @if(preview.uniqueVariants.exists(_.variantId == variant.variantId)) {
                                                 <i class="bi bi-arrow-up-circle text-success"></i>
                                             } else {
                                                 <i class="bi bi-dash-circle text-muted"></i>
                                                 <span class="text-muted">(already on parent)</span>
                                             }
-                                            <strong>@group.displayName</strong>
-                                            <span class="badge bg-secondary">@group.buildCount build@if(group.buildCount != 1){s}</span>
+                                            <strong>@variant.displayName</strong>
+                                            <span class="badge bg-secondary">@variant.mutationType</span>
                                         </li>
                                     }
                                 </ul>

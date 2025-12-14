@@ -1,0 +1,13 @@
+@(crumbs: Seq[(String, play.api.mvc.Call)])
+
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb">
+        @for(((label, url), index) <- crumbs.zipWithIndex) {
+            @if(index == crumbs.size - 1) {
+                <li class="breadcrumb-item active" aria-current="page">@label</li>
+            } else {
+                <li class="breadcrumb-item"><a href="@url">@label</a></li>
+            }
+        }
+    </ol>
+</nav>

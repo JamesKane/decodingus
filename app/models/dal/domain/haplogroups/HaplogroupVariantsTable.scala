@@ -1,7 +1,7 @@
 package models.dal.domain.haplogroups
 
 import models.dal.MyPostgresProfile.api.*
-import models.dal.domain.genomics.{Variant, VariantsTable}
+import models.dal.domain.genomics.VariantV2Table
 import models.domain.haplogroups.{Haplogroup, HaplogroupVariant}
 
 /**
@@ -41,8 +41,8 @@ class HaplogroupVariantsTable(tag: Tag) extends Table[HaplogroupVariant](tag, So
 
   def haplogroupFK = foreignKey("haplogroup_fk", haplogroupId, TableQuery[HaplogroupsTable])(_.haplogroupId, onDelete = ForeignKeyAction.Cascade)
 
-  // Explicitly specify the schema for VariantsTable which is in the public schema
-  def variantFK = foreignKey("variant_fk", variantId, TableQuery[VariantsTable])(_.variantId, onDelete = ForeignKeyAction.Cascade)
+  // Foreign key to variant_v2 table
+  def variantFK = foreignKey("variant_fk", variantId, TableQuery[VariantV2Table])(_.variantId, onDelete = ForeignKeyAction.Cascade)
 
   def uniqueHaplogroupVariant = index("unique_haplogroup_variant", (haplogroupId, variantId), unique = true)
 }

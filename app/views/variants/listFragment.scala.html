@@ -1,5 +1,6 @@
-@import models.domain.genomics.VariantGroup
-@(variantGroups: Seq[VariantGroup], query: Option[String], currentPage: Int, totalPages: Int, pageSize: Int, totalCount: Int)(implicit request: RequestHeader, messages: Messages)
+@import models.domain.genomics.VariantV2
+@import utils.VariantViewUtils
+@(variants: Seq[VariantV2], query: Option[String], currentPage: Int, totalPages: Int, pageSize: Int, totalCount: Int)(implicit request: RequestHeader, messages: Messages)
 
 @defining(java.text.NumberFormat.getIntegerInstance()) { nf =>
 <div class="d-flex justify-content-between align-items-center mb-2">
@@ -16,7 +17,7 @@
 </div>
 }
 
-@if(variantGroups.isEmpty) {
+@if(variants.isEmpty) {
     <div class="alert alert-info">
         @if(query.exists(_.trim.nonEmpty)) {
             @messages("variants.browser.noResults", query.get)
@@ -36,33 +37,30 @@
                 </tr>
             </thead>
             <tbody>
-                @for(group <- variantGroups) {
-                    @defining(group.variantsSorted.headOption) { firstOpt =>
-                        @firstOpt.map { first =>
+                @for(variant <- variants) {
+                    @defining(VariantViewUtils.primaryAlleles(variant)) { alleles =>
+                        @defining(VariantViewUtils.refGenomes(variant)) { refs =>
                             <tr class="cursor-pointer"
-                                hx-get="@controllers.routes.VariantBrowserController.detailPanel(first.variant.variantId.get)"
+                                hx-get="@controllers.routes.VariantBrowserController.detailPanel(variant.variantId.get)"
                                 hx-target="#detail-panel"
                                 hx-swap="innerHTML"
                                 style="cursor: pointer;">
                                 <td>
-                                    <strong>@group.displayName</strong>
-                                    @group.rsId.filter(_ => group.commonName.isDefined).map { rsId =>
+                                    <strong>@variant.displayName</strong>
+                                    @variant.rsIds.headOption.filter(_ != variant.canonicalName.getOrElse("")).map { rsId =>
                                         <br><small class="text-muted">@rsId</small>
                                     }
                                 </td>
                                 <td>
-                                    <code>@first.variant.referenceAllele</code><i class="bi bi-arrow-right text-muted mx-1" style="font-size: 0.6rem;"></i><code>@first.variant.alternateAllele</code>
-                                    @if(group.variants.size > 1 && group.variantsSorted.exists(v => v.variant.referenceAllele != first.variant.referenceAllele)) {
-                                        <i class="bi bi-arrow-left-right text-warning ms-1" title="@messages("variants.browser.strandDiffers")"></i>
-                                    }
+                                    <code>@alleles._1</code><i class="bi bi-arrow-right text-muted mx-1" style="font-size: 0.6rem;"></i><code>@alleles._2</code>
                                 </td>
                                 <td>
-                                    <span class="badge bg-secondary">@first.variant.variantType</span>
+                                    <span class="badge bg-secondary">@variant.mutationType.displayName</span>
                                 </td>
                                 <td>
-                                    @for(vwc <- group.variantsSorted) {
-                                        <span class="badge @buildBadgeClass(vwc.shortReferenceGenome)" title="@vwc.formattedPosition: @vwc.variant.referenceAllele→@vwc.variant.alternateAllele">
-                                            @vwc.shortReferenceGenome
+                                    @for(refGenome <- refs) {
+                                        <span class="badge @VariantViewUtils.buildBadgeClass(refGenome)" title="@refGenome">
+                                            @VariantViewUtils.shortRefGenome(refGenome)
                                         </span>
                                     }
                                 </td>
@@ -74,45 +72,11 @@
         </table>
     </div>
 
-    @if(totalPages > 1) {
-        <nav>
-            <ul class="pagination justify-content-center">
-                <li class="page-item @if(currentPage <= 1){disabled}">
-                    <a class="page-link"
-                       hx-get="@controllers.routes.VariantBrowserController.listFragment(query, currentPage - 1, pageSize)"
-                       hx-target="#variants-table"
-                       hx-include="#variant-search">
-                        @messages("pagination.previous")
-                    </a>
-                </li>
-                @for(p <- Math.max(1, currentPage - 2) to Math.min(totalPages, currentPage + 2)) {
-                    <li class="page-item @if(p == currentPage){active}">
-                        <a class="page-link"
-                           hx-get="@controllers.routes.VariantBrowserController.listFragment(query, p, pageSize)"
-                           hx-target="#variants-table"
-                           hx-include="#variant-search">
-                            @p
-                        </a>
-                    </li>
-                }
-                <li class="page-item @if(currentPage >= totalPages){disabled}">
-                    <a class="page-link"
-                       hx-get="@controllers.routes.VariantBrowserController.listFragment(query, currentPage + 1, pageSize)"
-                       hx-target="#variants-table"
-                       hx-include="#variant-search">
-                        @messages("pagination.next")
-                    </a>
-                </li>
-            </ul>
-        </nav>
-    }
-}
-
-@buildBadgeClass(refGenome: String) = @{
-    refGenome match {
-        case "GRCh37" => "bg-warning text-dark"
-        case "GRCh38" => "bg-info"
-        case "hs1" => "bg-success"
-        case _ => "bg-secondary"
-    }
+    @views.html.fragments.pagination(
+        currentPage,
+        totalPages,
+        p => controllers.routes.VariantBrowserController.listFragment(query, p, pageSize),
+        "#variants-table",
+        "#variant-search"
+    )
 }

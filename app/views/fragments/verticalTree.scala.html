@@ -1,0 +1,269 @@
+@import models.api.{TreeDTO}
+@import models.HaplogroupType
+@import models.HaplogroupType.{MT, Y}
+@import models.view.TreeViewModel
+@import controllers.routes.TreeController
+
+@(tree: TreeDTO, hapType: HaplogroupType, renderedTreeData: Option[TreeViewModel], currentUrl: String)(implicit messages: Messages)
+
+@fullPageUrl(haplogroup: Option[String]) = @{
+    hapType match {
+        case Y => TreeController.ytree(haplogroup)
+        case MT => TreeController.mtree(haplogroup)
+    }
+}
+
+@fragmentUrl(haplogroup: Option[String]) = @{
+    hapType match {
+        case Y => TreeController.yTreeFragment(haplogroup)
+        case MT => TreeController.mTreeFragment(haplogroup)
+    }
+}
+
+<nav aria-label="breadcrumb" itemscope itemtype="https://schema.org/BreadcrumbList">
+    <ol class="breadcrumb">
+        @for((crumb, index) <- tree.crumbs.zipWithIndex) {
+            <li class="breadcrumb-item" itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
+                <a href="@fullPageUrl(Some(crumb.label))" itemprop="item" hx-get="@crumb.url" hx-target="#tree-container" hx-push-url="@fullPageUrl(Some(crumb.label))">
+                    <span itemprop="name">@crumb.label</span>
+                </a>
+                <meta itemprop="position" content="${index + 1}"/>
+            </li>
+        }
+        <li class="breadcrumb-item active" aria-current="page" itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
+            <a href="@currentUrl" itemprop="item">
+                <span itemprop="name">@tree.name</span>
+            </a>
+            <meta itemprop="position" content="${tree.crumbs.size + 1}"/>
+        </li>
+    </ol>
+</nav>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <small class="text-muted">
+        <span class="me-4"><span class="legend-icon established"></span> <strong>✓</strong> @messages("tree.legend.established")</span>
+        <span class="me-4"><span class="legend-icon updated"></span> <strong>★</strong> @messages("tree.legend.updated")</span>
+    </small>
+</div>
+
+<div id="tree-and-sidebar-container" class="position-relative vertical-tree-container">
+    @* Loading Overlay *@
+    <div class="tree-loading-indicator">
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+    </div>
+
+    <div class="vertical-tree-scroll-container">
+        @renderedTreeData.map { rtd =>
+            <svg id="vertical-tree-svg" width="@rtd.svgWidth" height="@rtd.svgHeight">
+                @for(link <- rtd.allLinks) {
+                    <path class="link" d="@link.pathData"></path>
+                }
+
+                @for(node <- rtd.allNodes) {
+                    <g class="node"
+                       tabindex="0"
+                       role="button"
+                       aria-label="@messages("tree.reRoot") @node.name"
+                       onclick="htmx.trigger(this.querySelector('.node-rect'), 'click')">
+                        
+                        @* Node Box *@
+                        @* Note: In Vertical layout, node.x is horizontal, node.y is vertical *@
+                        <rect class="node-rect @if(node.isBackbone){node-established}else if(node.isRecentlyUpdated){node-recent}"
+                              x="@(node.x - 75)"
+                              y="@(node.y - 40)"
+                              width="150" height="80" rx="4" ry="4"
+                              hx-get="@fragmentUrl(Option(node.name))"
+                              hx-target="#tree-container"
+                              hx-push-url="@fullPageUrl(Option(node.name))"
+                              hx-indicator=".tree-loading-indicator"
+                              data-bs-toggle="tooltip"
+                              data-bs-placement="top"
+                              title="@messages("tree.reRoot") @node.name"
+                              style="fill: @node.fillColor; cursor: pointer;">
+                        </rect>
+
+                        @* Header bar *@
+                        <rect class="node-header"
+                              x="@(node.x - 75)"
+                              y="@(node.y - 40)"
+                              width="150" height="22" rx="4" ry="4"
+                              style="fill: @if(node.isBackbone){#2e7d32}else if(node.isRecentlyUpdated){#e65100}else{#555}; pointer-events: none;"/>
+                        <rect x="@(node.x - 75)" y="@(node.y - 22)" width="150" height="4"
+                              style="fill: @if(node.isBackbone){#2e7d32}else if(node.isRecentlyUpdated){#e65100}else{#555}; pointer-events: none;"/>
+                        
+                        @* Node Name *@
+                        <text class="node-name"
+                              x="@(node.x)"
+                              y="@(node.y - 25)"
+                              text-anchor="middle">
+                            @if(node.isBackbone){✓ }@if(node.isRecentlyUpdated){★ }@node.name
+                        </text>
+
+                        @* Variant Count Badge *@
+                        <rect x="@(node.x - 65)" y="@(node.y - 10)" width="130" height="20" rx="10" ry="10"
+                              style="fill: @if(node.variantsCount.getOrElse(0) > 0){#e9ecef}else{#f8f9fa}; stroke: #dee2e6; pointer-events: none;"/>
+                        
+                        <text class="node-variant-count"
+                              x="@(node.x)"
+                              y="@(node.y + 4)"
+                              text-anchor="middle">
+                            @node.variantsCount.getOrElse(0) variants
+                        </text>
+                        
+                        @* View Variants Link *@
+                        @if(node.variantsCount.getOrElse(0) > 0) {
+                             <text class="node-action"
+                                  x="@(node.x)"
+                                  y="@(node.y + 25)"
+                                  text-anchor="middle"
+                                  hx-get="@TreeController.getSnpDetailSidebar(node.name, hapType)"
+                                  hx-target="#snpDetailSidebarPlaceholder"
+                                  hx-swap="outerHTML"
+                                  onclick="event.stopPropagation()">
+                                View Details ▸
+                            </text>
+                        }
+                    </g>
+                }
+            </svg>
+        }.getOrElse {
+            <div class="alert alert-warning">@messages("tree.noData")</div>
+        }
+    </div>
+    
+    <div id="snpDetailSidebarPlaceholder"></div>
+</div>
+
+<script>
+    // Initialize tooltips for dynamically loaded content
+    (function() {
+        var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'))
+        var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
+            return new bootstrap.Tooltip(tooltipTriggerEl)
+        });
+    })();
+</script>
+
+<style>
+    .vertical-tree-container {
+        font-family: system-ui, -apple-system, sans-serif;
+    }
+
+    .vertical-tree-scroll-container {
+        overflow: auto;
+        padding: 20px;
+        background-color: #f8f9fa;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        min-height: 400px;
+        text-align: center;
+        /* Scroll indicators */
+        background-image: linear-gradient(to bottom, #f8f9fa, #f8f9fa),
+            linear-gradient(to bottom, #f8f9fa, #f8f9fa),
+            linear-gradient(to top, rgba(0, 0, 0, 0.1), rgba(0, 0, 0, 0)),
+            linear-gradient(to bottom, rgba(0, 0, 0, 0.1), rgba(0, 0, 0, 0));
+        background-position: top center, bottom center, top center, bottom center;
+        background-repeat: no-repeat;
+        background-size: 100% 20px, 100% 20px, 100% 10px, 100% 10px;
+        background-attachment: local, local, scroll, scroll;
+    }
+
+    .link {
+        fill: none;
+        stroke: #999;
+        stroke-width: 2px;
+    }
+
+    .node {
+        cursor: pointer;
+        transition: opacity 0.2s;
+    }
+
+    .node:hover .node-rect {
+        filter: drop-shadow(0 4px 6px rgba(0,0,0,0.1));
+        stroke: #666;
+    }
+
+    .node-rect {
+        fill: white;
+        stroke: #ccc;
+        stroke-width: 1px;
+        transition: all 0.2s ease;
+    }
+
+    .node-rect.node-established {
+        stroke: #2e7d32;
+        stroke-width: 2px;
+    }
+
+    .node-rect.node-recent {
+        stroke: #e65100;
+        stroke-width: 2px;
+        stroke-dasharray: 4 2;
+    }
+
+    .node-name {
+        font-weight: bold;
+        font-size: 12px;
+        fill: white;
+        pointer-events: none;
+        text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+    }
+    
+    .node-variant-count {
+        font-size: 11px;
+        fill: #555;
+        pointer-events: none;
+    }
+
+    .node-action {
+        font-size: 11px;
+        fill: #0d6efd;
+        text-decoration: underline;
+        cursor: pointer;
+    }
+    
+    .node-action:hover {
+        fill: #0a58ca;
+        font-weight: bold;
+    }
+
+    /* Legend Icons */
+    .legend-icon {
+        display: inline-block;
+        width: 24px;
+        height: 24px;
+        border-radius: 3px;
+        vertical-align: middle;
+    }
+    
+    .legend-icon.established {
+        background-color: #d4edda;
+        border: 2px solid #2e7d32;
+    }
+    
+    .legend-icon.updated {
+        background-color: #ffeeba;
+        border: 2px dashed #e65100;
+    }
+
+    /* Loading Indicator */
+    .tree-loading-indicator {
+        display: none;
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(255, 255, 255, 0.7);
+        z-index: 100;
+        justify-content: center;
+        align-items: center;
+    }
+
+    .htmx-request .tree-loading-indicator {
+        display: flex;
+    }
+</style>

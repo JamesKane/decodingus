@@ -10,21 +10,7 @@
     <div class="container py-4">
         <h1 class="mb-4">@messages("publicationCandidates.heading")</h1>
 
-        @request.flash.get("success").map { message =>
-            <div class="alert alert-success alert-dismissible fade show" role="alert">
-                <i class="bi bi-check-circle-fill me-2"></i>
-                @message
-                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-            </div>
-        }
-
-        @request.flash.get("error").map { message =>
-            <div class="alert alert-danger alert-dismissible fade show" role="alert">
-                <i class="bi bi-exclamation-triangle-fill me-2"></i>
-                @message
-                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-            </div>
-        }
+        @views.html.fragments.flashMessages(request.flash)
 
         @if(candidates.isEmpty) {
             <div class="alert alert-info" role="alert">
@@ -84,34 +70,12 @@
             </div>
 
             @* Pagination *@
-            @defining({
-                val totalPages = (totalCandidates + pageSize - 1) / pageSize
-                val startPage = Math.max(1, currentPage - 2)
-                val endPage = Math.min(totalPages, currentPage + 2)
-                (totalPages, startPage, endPage)
-            }) { case (totalPages, startPage, endPage) =>
-            <nav aria-label="Page navigation">
-                <ul class="pagination justify-content-center">
-                    <li class="page-item @if(currentPage == 1) {disabled}">
-                        <a class="page-link" href="@controllers.routes.PublicationCandidateController.listCandidates(1, pageSize)">@messages("pagination.first")</a>
-                    </li>
-                    <li class="page-item @if(currentPage == 1) {disabled}">
-                        <a class="page-link" href="@controllers.routes.PublicationCandidateController.listCandidates(currentPage - 1, pageSize)">@messages("pagination.previous")</a>
-                    </li>
-                    @for(p <- startPage to endPage) {
-                        <li class="page-item @if(p == currentPage) {active}">
-                            <a class="page-link" href="@controllers.routes.PublicationCandidateController.listCandidates(p, pageSize)">@p</a>
-                        </li>
-                    }
-                    <li class="page-item @if(currentPage == totalPages) {disabled}">
-                        <a class="page-link" href="@controllers.routes.PublicationCandidateController.listCandidates(currentPage + 1, pageSize)">@messages("pagination.next")</a>
-                    </li>
-                    <li class="page-item @if(currentPage == totalPages) {disabled}">
-                        <a class="page-link" href="@controllers.routes.PublicationCandidateController.listCandidates(totalPages, pageSize)">@messages("pagination.last")</a>
-                    </li>
-                </ul>
-            </nav>
-            }
+            @views.html.fragments.htmlPagination(
+                currentPage = currentPage,
+                totalPages = (totalCandidates + pageSize - 1) / pageSize,
+                pageSize = pageSize,
+                linkGenerator = (p, ps) => controllers.routes.PublicationCandidateController.listCandidates(p, ps)
+            )
         }
     </div>
 }

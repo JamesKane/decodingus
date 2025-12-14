@@ -1,0 +1,39 @@
+@(
+    id: String,
+    name: String,
+    value: Option[String],
+    placeholder: String,
+    hxGet: play.api.mvc.Call,
+    hxTarget: String,
+    hxIndicator: String = "",
+    hxTrigger: String = "input changed delay:300ms, search"
+)(implicit messages: Messages)
+
+<div class="input-group" id="@{id}-box">
+    <span class="input-group-text">
+        <i class="bi bi-search search-icon"></i>
+        <span class="spinner-border spinner-border-sm search-indicator" role="status">
+            <span class="visually-hidden">@messages("generic.loading")</span>
+        </span>
+    </span>
+    <input type="text"
+           class="form-control"
+           id="@id"
+           name="@name"
+           value="@value.getOrElse("")"
+           placeholder="@placeholder"
+           hx-get="@hxGet"
+           hx-trigger="@hxTrigger"
+           hx-target="@hxTarget"
+           hx-indicator="@if(hxIndicator.isEmpty) { ##@{id}-box } else { @hxIndicator }"
+           autocomplete="off">
+    @if(value.exists(_.nonEmpty)) {
+        <button class="btn btn-outline-secondary"
+                type="button"
+                id="@{id}-clear"
+                title="@messages("generic.clear")"
+                onclick="document.getElementById('@id').value = ''; htmx.trigger('#@id', 'search');">
+            <i class="bi bi-x-lg"></i>
+        </button>
+    }
+</div>

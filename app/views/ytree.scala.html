@@ -1,26 +1,13 @@
-@import org.webjars.play.WebJarsUtil
-@(rootHaplogroup: Option[String])(implicit webJarsUtil: WebJarsUtil, messages: Messages, request: RequestHeader)
+@(rootHaplogroup: Option[String], showVerticalTree: Boolean = false)(implicit webJarsUtil: org.webjars.play.WebJarsUtil, messages: Messages, request: RequestHeader)
 
-@main(messages("nav.ytree")) {
-    <main class="container-fluid">
-        <h1>@messages("nav.ytree")</h1>
-        <div id="tree-container"
-        hx-get="@routes.TreeController.yTreeFragment(rootHaplogroup)"
-        hx-trigger="load">
-            <div class="loading">@messages("tree.loading")</div>
-        </div>
+@import controllers.routes.TreeController
 
-        <div class="tree-controls">
-            <form class="search-form" hx-get="@routes.TreeController.yTreeFragment(None)" hx-target="#tree-container" hx-push-url="@routes.TreeController.ytree(None)">
-                <label for="haplogroup-search">@messages("tree.jumpTo")</label>
-                <input type="text"
-                id="haplogroup-search"
-                name="rootHaplogroup"
-                placeholder="e.g. R1b"
-                pattern="[A-Z0-9-]+"
-                title="Enter a valid Y-DNA haplogroup">
-                <button type="submit">@messages("tree.go")</button>
-            </form>
-        </div>
-    </main>
-}
+@fragments.treeView(
+    titleKey = "nav.ytree",
+    fragmentCall = TreeController.yTreeFragment,
+    fullPageCall = TreeController.ytree,
+    rootHaplogroup = rootHaplogroup,
+    searchPlaceholder = "e.g. R-M269, I-M253...",
+    searchInputTitle = "Enter a haplogroup name (e.g. R-M269)",
+    showVerticalTree = showVerticalTree
+)

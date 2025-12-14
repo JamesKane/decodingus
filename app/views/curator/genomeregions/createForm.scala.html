@@ -7,13 +7,11 @@
     <div class="container py-4">
         <div class="row">
             <div class="col-12">
-                <nav aria-label="breadcrumb">
-                    <ol class="breadcrumb">
-                        <li class="breadcrumb-item"><a href="@controllers.routes.CuratorController.dashboard">Curator</a></li>
-                        <li class="breadcrumb-item"><a href="@controllers.routes.GenomeRegionsCuratorController.listRegions(None, 1, 25)">Genome Regions</a></li>
-                        <li class="breadcrumb-item active">Create</li>
-                    </ol>
-                </nav>
+                @views.html.fragments.breadcrumbs(Seq(
+                    ("Curator", controllers.routes.CuratorController.dashboard),
+                    ("Genome Regions", controllers.routes.GenomeRegionsCuratorController.listRegions(None, None, 1, 25)),
+                    ("Create", controllers.routes.GenomeRegionsCuratorController.createRegionForm)
+                ))
             </div>
         </div>
 
@@ -24,13 +22,7 @@
                         <h5 class="mb-0"><i class="bi bi-plus-circle"></i> Create Genome Region</h5>
                     </div>
                     <div class="card-body">
-                        @if(form.hasGlobalErrors) {
-                            <div class="alert alert-danger">
-                                @for(error <- form.globalErrors) {
-                                    @error.message
-                                }
-                            </div>
-                        }
+                        @views.html.fragments.flashMessages(request.flash, Some(form))
 
                         @helper.form(action = controllers.routes.GenomeRegionsCuratorController.createRegion, Symbol("class") -> "needs-validation") {
                             @helper.CSRF.formField
@@ -140,7 +132,7 @@
                                 <button type="submit" class="btn btn-primary">
                                     <i class="bi bi-check-circle"></i> Create Region
                                 </button>
-                                <a href="@controllers.routes.GenomeRegionsCuratorController.listRegions(None, 1, 25)" class="btn btn-outline-secondary">
+                                <a href="@controllers.routes.GenomeRegionsCuratorController.listRegions(None, None, 1, 25)" class="btn btn-outline-secondary">
                                     Cancel
                                 </a>
                             </div>

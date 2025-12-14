@@ -4,51 +4,37 @@ import jakarta.inject.Inject
 import models.HaplogroupType
 import models.HaplogroupType.{MT, Y}
 import models.api.*
-import models.dal.domain.genomics.{Variant, VariantAlias}
-import models.domain.genomics.GenbankContig
+import models.domain.genomics.VariantV2
 import models.domain.haplogroups.Haplogroup
 import play.api.Logging
+import play.api.libs.json.JsObject
 import play.api.mvc.Call
-import repositories.{HaplogroupCoreRepository, HaplogroupVariantRepository, VariantAliasRepository}
+import repositories.{HaplogroupCoreRepository, HaplogroupVariantRepository}
 
 import java.time.ZoneId
 import scala.concurrent.{ExecutionContext, Future}
 
 sealed trait RouteType
-
 case object ApiRoute extends RouteType
-
 case object FragmentRoute extends RouteType
 
 /**
  * Service for building and managing haplogroup trees, providing capabilities for constructing tree responses,
  * processing ancestral and descendant relationships, and querying haplogroups by variants.
- *
- * @constructor Creates a new instance of `HaplogroupTreeService`.
- * @param coreRepository    repository for accessing core haplogroup data
- * @param variantRepository repository for accessing variant-related haplogroup data
- * @param ec                implicit execution context for handling asynchronous operations
  */
 class HaplogroupTreeService @Inject()(
-                                       coreRepository: HaplogroupCoreRepository,
-                                       variantRepository: HaplogroupVariantRepository,
-                                       aliasRepository: VariantAliasRepository)(implicit ec: ExecutionContext)
-  extends Logging {
+  coreRepository: HaplogroupCoreRepository,
+  variantRepository: HaplogroupVariantRepository
+)(implicit ec: ExecutionContext) extends Logging {
 
   /**
    * Builds a TreeDTO representation for a specified haplogroup with related breadcrumbs and subtree.
-   *
-   * @param haplogroupName The name of the haplogroup to build the tree response for.
-   * @param haplogroupType The type of haplogroup (e.g., Y-DNA or mtDNA) being processed.
-   * @param routeType      The type of route to construct for breadcrumb navigation.
-   * @return A Future containing the constructed TreeDTO, representing the haplogroup tree structure
-   *         with breadcrumbs and an optional subtree.
-   * @throws IllegalArgumentException if the specified haplogroup is not found.
    */
-  def buildTreeResponse(haplogroupName: String, haplogroupType: HaplogroupType, routeType: RouteType): Future[TreeDTO] = {
+  def buildTreeResponse(haplogroupQuery: String, haplogroupType: HaplogroupType, routeType: RouteType): Future[TreeDTO] = {
     for {
-      rootHaplogroupOpt <- coreRepository.getHaplogroupByName(haplogroupName, haplogroupType)
-      rootHaplogroup = rootHaplogroupOpt.getOrElse(throw new IllegalArgumentException(s"Haplogroup $haplogroupName not found"))
+      resolvedHaplogroupName <- resolveHaplogroupByNameOrVariant(haplogroupQuery, haplogroupType)
+      rootHaplogroupOpt <- coreRepository.getHaplogroupByName(resolvedHaplogroupName, haplogroupType)
+      rootHaplogroup = rootHaplogroupOpt.getOrElse(throw new IllegalArgumentException(s"Haplogroup $resolvedHaplogroupName not found after variant lookup"))
 
       ancestors <- coreRepository.getAncestors(rootHaplogroup.id.get)
       crumbs = buildCrumbs(ancestors, haplogroupType, routeType)
@@ -65,15 +51,39 @@ class HaplogroupTreeService @Inject()(
     )
   }
 
-
   /**
-   * Returns the route for a given combination of haplogroup type and route type.
-   *
-   * @param name           The name of the haplogroup.
-   * @param haplogroupType The type of haplogroup, representing Y-DNA or mtDNA.
-   * @param routeType      The type of route, representing fragment or API endpoints.
-   * @return A `Call` object representing the constructed route for the specified parameters.
+   * Resolves a haplogroup name by either direct lookup or by finding a variant.
    */
+  private def resolveHaplogroupByNameOrVariant(query: String, haplogroupType: HaplogroupType): Future[String] = {
+    coreRepository.getHaplogroupByName(query, haplogroupType).flatMap {
+      case Some(haplogroup) => Future.successful(haplogroup.name)
+      case None =>
+        // Haplogroup not found by direct name, try searching by variant
+        logger.debug(s"Haplogroup '$query' not found by direct name. Attempting variant lookup.")
+        val normalizedQuery = normalizeVariantId(query)
+        variantRepository.findVariants(normalizedQuery).flatMap {
+          case variants if variants.nonEmpty =>
+            // Found variants, now find their defining haplogroups
+            val variantIds = variants.flatMap(_.variantId).map(_.toString)
+            Future.sequence(variantIds.map(vid => variantRepository.findHaplogroupsByDefiningVariant(vid, haplogroupType))).map {
+              haplogroupLists =>
+                val definingHaplogroups = haplogroupLists.flatten
+                definingHaplogroups.sortBy(_.validFrom).lastOption match {
+                  case Some(latestHaplogroup) =>
+                    logger.info(s"Resolved variant '$query' to haplogroup '${latestHaplogroup.name}'.")
+                    latestHaplogroup.name
+                  case None =>
+                    logger.warn(s"Variant '$query' found, but no defining haplogroups for type $haplogroupType.")
+                    throw new IllegalArgumentException(s"Haplogroup or variant '$query' not found")
+                }
+            }
+          case _ =>
+            logger.debug(s"Variant '$query' not found.")
+            Future.failed(new IllegalArgumentException(s"Haplogroup or variant '$query' not found"))
+        }
+    }
+  }
+
   private def getRoute(name: String, haplogroupType: HaplogroupType, routeType: RouteType): Call = {
     (haplogroupType, routeType) match {
       case (Y, FragmentRoute) => controllers.routes.TreeController.yTreeFragment(Some(name))
@@ -83,14 +93,6 @@ class HaplogroupTreeService @Inject()(
     }
   }
 
-  /**
-   * Constructs a list of breadcrumb DTOs based on the provided haplogroups, haplogroup type, and route type.
-   *
-   * @param haplogroups    A sequence of haplogroups used to generate breadcrumb data.
-   * @param haplogroupType The type of haplogroups (e.g., Y-DNA or mtDNA) to use in the breadcrumb context.
-   * @param routeType      The type of route (e.g., fragment or API endpoint) to create for breadcrumb navigation.
-   * @return A list of `CrumbDTO` objects representing the breadcrumbs for the provided parameters.
-   */
   private def buildCrumbs(haplogroups: Seq[Haplogroup], haplogroupType: HaplogroupType, routeType: RouteType): List[CrumbDTO] = {
     haplogroups.map { haplogroup =>
       CrumbDTO(
@@ -100,29 +102,14 @@ class HaplogroupTreeService @Inject()(
     }.toList
   }
 
-
   /**
-   * Recursively builds a `TreeNodeDTO` representation of a haplogroup and its subtree.
-   *
-   * This method constructs a tree structure for a given haplogroup by retrieving its associated variants and 
-   * processing its child haplogroups. The result is encapsulated in a `TreeNodeDTO` object, which contains
-   * information about the haplogroup name, variants, children, last update timestamp, and whether it belongs 
-   * to the backbone structure.
-   *
-   * @param haplogroup The `Haplogroup` object for which the subtree is being built. This contains metadata
-   *                   such as the haplogroup's name, lineage, and additional information.
-   * @return A `Future` containing the constructed `TreeNodeDTO`, which includes the haplogroup's metadata,
-   *         associated variants, and recursive child tree nodes.
+   * Recursively builds a TreeNodeDTO representation of a haplogroup and its subtree.
    */
   private def buildSubtree(haplogroup: Haplogroup): Future[TreeNodeDTO] = {
     for {
-      // Get variants for this haplogroup
+      // Get variants for this haplogroup (now returns Seq[VariantV2])
       variants <- variantRepository.getHaplogroupVariants(haplogroup.id.get)
-
-      // Fetch aliases for all variants in batch
-      variantIds = variants.flatMap(_._1.variantId)
-      aliasMap <- aliasRepository.findByVariantIds(variantIds)
-      variantDTOs = mapVariants(variants, aliasMap)
+      variantDTOs = mapVariants(variants)
 
       // Get and process children
       children <- coreRepository.getDirectChildren(haplogroup.id.get)
@@ -156,56 +143,75 @@ class HaplogroupTreeService @Inject()(
     )
   }
 
-  private def mapVariants(variants: Seq[(Variant, GenbankContig)], aliasMap: Map[Int, Seq[VariantAlias]] = Map.empty) = {
-    variants.map { case (variant, contig) =>
-      // Convert aliases to Map[String, Seq[String]] grouped by type
-      val aliases = variant.variantId
-        .flatMap(id => aliasMap.get(id))
-        .getOrElse(Seq.empty)
-        .groupBy(_.aliasType)
-        .map { case (aliasType, typeAliases) => aliasType -> typeAliases.map(_.aliasValue) }
+  /**
+   * Maps VariantV2 instances to VariantDTO.
+   * With VariantV2, aliases and coordinates are embedded in JSONB.
+   */
+  private def mapVariants(variants: Seq[VariantV2]): Seq[VariantDTO] = {
+    variants.map { variant =>
+      // Extract coordinates from JSONB
+      val coordinates = extractCoordinates(variant)
 
-      // Format coordinate key as "RefGenome CommonName" (e.g., "GRCh38 chrY")
-      val coordKey = formatCoordinateKey(contig)
+      // Extract aliases from JSONB
+      val aliases = extractAliases(variant)
 
       VariantDTO(
-        name = variant.commonName.getOrElse(s"${contig.commonName.getOrElse(contig.accession)}:${variant.position}"),
-        coordinates = Map(
-          coordKey -> GenomicCoordinate(
-            variant.position,
-            variant.position,
-            variant.referenceAllele,
-            variant.alternateAllele
-          )
-        ),
-        variantType = variant.variantType,
+        name = variant.displayName,
+        coordinates = coordinates,
+        variantType = variant.mutationType.dbValue,
         aliases = aliases
       )
     }
   }
 
-  private def formatCoordinateKey(contig: GenbankContig): String = {
-    val refGenome = contig.referenceGenome.map(shortRefGenome).getOrElse("Unknown")
-    val name = contig.commonName.getOrElse(contig.accession)
-    s"$name [$refGenome]"
+  /**
+   * Extract coordinates from VariantV2 JSONB into Map[String, GenomicCoordinate]
+   */
+  private def extractCoordinates(variant: VariantV2): Map[String, GenomicCoordinate] = {
+    variant.coordinates.asOpt[Map[String, JsObject]].map { coordsMap =>
+      coordsMap.flatMap { case (refGenome, coords) =>
+        for {
+          contig <- (coords \ "contig").asOpt[String]
+          position <- (coords \ "position").asOpt[Int]
+          ref <- (coords \ "ref").asOpt[String]
+          alt <- (coords \ "alt").asOpt[String]
+        } yield {
+          val coordKey = s"$contig [${shortRefGenome(refGenome)}]"
+          coordKey -> GenomicCoordinate(
+            start = position,
+            stop = position,
+            anc = ref,
+            der = alt
+          )
+        }
+      }
+    }.getOrElse(Map.empty)
+  }
+
+  /**
+   * Extract aliases from VariantV2 JSONB into Map[String, Seq[String]]
+   */
+  private def extractAliases(variant: VariantV2): Map[String, Seq[String]] = {
+    val aliases = variant.aliases
+    val rsIds = (aliases \ "rs_ids").asOpt[Seq[String]].getOrElse(Seq.empty)
+    val commonNames = (aliases \ "common_names").asOpt[Seq[String]].getOrElse(Seq.empty)
+
+    Map(
+      "rsId" -> rsIds,
+      "commonName" -> commonNames
+    ).filter(_._2.nonEmpty)
   }
 
   private def shortRefGenome(ref: String): String = ref match {
     case r if r.contains("GRCh37") || r.contains("hg19") => "b37"
     case r if r.contains("GRCh38") || r.contains("hg38") => "b38"
-    case r if r.contains("T2T") || r.contains("CHM13") || r.contains("hs1") => "hs1"
+    case r if r.contains("T2T") || r.contains("CHM13") || r == "hs1" => "hs1"
     case other => other
   }
 
   /**
    * Builds a TreeDTO representation by constructing a haplogroup tree structure
    * for the haplogroup(s) defined by the given genetic variant.
-   *
-   * @param variantId      The identifier of the genetic variant defining one or more haplogroups.
-   * @param haplogroupType The type of haplogroup (e.g., Y-DNA or mtDNA) to be processed.
-   * @param routeType      The type of route to construct for breadcrumb navigation in the tree.
-   * @return A Future containing an Option of TreeDTO. The Option will contain the TreeDTO if
-   *         a corresponding haplogroup is found; otherwise, it will be None.
    */
   def buildTreeFromVariant(variantId: String, haplogroupType: HaplogroupType, routeType: RouteType): Future[Option[TreeDTO]] = {
     for {
@@ -213,7 +219,6 @@ class HaplogroupTreeService @Inject()(
       haplogroups <- variantRepository.findHaplogroupsByDefiningVariant(variantId, haplogroupType)
 
       // If we found any haplogroups, build the tree from the most recent one
-      // (assuming more recent haplogroups are more specific/detailed)
       treeOpt <- haplogroups.sortBy(_.validFrom).lastOption match {
         case Some(haplogroup) => buildTreeResponse(haplogroup.name, haplogroupType, routeType).map(Some(_))
         case None => Future.successful(None)
@@ -224,12 +229,6 @@ class HaplogroupTreeService @Inject()(
   /**
    * Constructs a sequence of TreeDTO objects representing tree structures for all haplogroups
    * associated with a specific genetic variant.
-   *
-   * @param variantId      The identifier of the genetic variant used to find associated haplogroups.
-   * @param haplogroupType The type of haplogroup (e.g., Y-DNA or mtDNA) being processed.
-   * @param routeType      The type of route to construct for navigational purposes.
-   * @return A Future containing a sequence of TreeDTO objects, where each represents the tree structure
-   *         for a haplogroup associated with the provided variant.
    */
   def buildTreesFromVariant(variantId: String, haplogroupType: HaplogroupType, routeType: RouteType): Future[Seq[TreeDTO]] = {
     for {
@@ -261,12 +260,6 @@ class HaplogroupTreeService @Inject()(
 
   /**
    * Finds and retrieves haplogroup details with all associated genomic variants.
-   *
-   * This method fetches the haplogroup (including provenance) and its linked variants.
-   *
-   * @param haplogroupName The name of the haplogroup for which details are to be retrieved.
-   * @param haplogroupType The type of haplogroup (e.g., Y-DNA or mtDNA).
-   * @return A Future containing a tuple of (Option[Haplogroup], Seq[VariantDTO]).
    */
   def findHaplogroupWithVariants(haplogroupName: String, haplogroupType: HaplogroupType): Future[(Option[Haplogroup], Seq[VariantDTO])] = {
     for {
@@ -277,63 +270,18 @@ class HaplogroupTreeService @Inject()(
 
   /**
    * Finds and retrieves all genomic variants associated with a specified haplogroup.
-   *
-   * This method fetches the variants linked to a haplogroup identified by its name and type.
-   * It interacts with the core repository to locate the haplogroup and then queries the variant repository
-   * to obtain the list of associated variants, which are finally converted into `VariantDTO` objects.
-   *
-   * @param haplogroupName The name of the haplogroup for which variants are to be retrieved.
-   * @param haplogroupType The type of haplogroup (e.g., Y-DNA or mtDNA).
-   * @return A Future containing a sequence of `VariantDTO` objects representing the variants
-   *         associated with the specified haplogroup. If the haplogroup is not found, the sequence will be empty.
+   * Now uses VariantV2 with embedded aliases in JSONB.
    */
   def findVariantsForHaplogroup(haplogroupName: String, haplogroupType: HaplogroupType): Future[Seq[VariantDTO]] = {
-    val sortedVariantsFuture: Future[Seq[VariantDTO]] = for {
+    for {
       haplogroup <- coreRepository.getHaplogroupByName(haplogroupName, haplogroupType)
       variants <- variantRepository.getHaplogroupVariants(haplogroup.flatMap(_.id).getOrElse(0))
-      variantIds = variants.flatMap(_._1.variantId)
-      aliasMap <- aliasRepository.findByVariantIds(variantIds)
-    } yield TreeNodeDTO.sortVariants(mapVariants(variants, aliasMap))
-
-    sortedVariantsFuture.map { sortedVariants =>
-      val grouped = sortedVariants
-        .groupBy(dto => dto.name)
-        .map { case (k, locations) =>
-          val first = locations.head
-
-          // Combine the coordinates for all VariantDTOs in this group
-          val coordinates: Seq[Map[String, GenomicCoordinate]] = locations.map(dto => dto.coordinates)
-          val combined: Map[String, GenomicCoordinate] = coordinates.foldLeft(Map.empty[String, GenomicCoordinate]) {
-            case (acc, currentMap) => acc ++ currentMap
-          }
-
-          // Combine aliases from all VariantDTOs in this group
-          val combinedAliases: Map[String, Seq[String]] = locations
-            .flatMap(_.aliases.toSeq)
-            .groupBy(_._1)
-            .map { case (aliasType, pairs) => aliasType -> pairs.flatMap(_._2).distinct }
-
-          // Create a new VariantDTO for the combined result
-          VariantDTO(first.name, combined, first.variantType, combinedAliases)
-        }.toSeq
-
-      TreeNodeDTO.sortVariants(grouped)
+    } yield {
+      val variantDTOs = mapVariants(variants)
+      TreeNodeDTO.sortVariants(variantDTOs)
     }
   }
 
-  /**
-   * Normalizes the given variant identifier by formatting it consistently based on its structure.
-   *
-   * The method supports the following formats:
-   * - rsID (e.g., rs1234): Returned as-is, converted to lowercase.
-   * - chr:pos (e.g., Y:2728456): Returned in the same structure after conversion to lowercase.
-   * - chr:pos:ref:alt (e.g., Y:2728456:A:G): Returned in the same structure after conversion to lowercase.
-   *
-   * Any unrecognized format is returned unchanged after trimming and converting to lowercase.
-   *
-   * @param query The genetic variant identifier to be normalized. It may be in rsID, chr:pos, or chr:pos:ref:alt format.
-   * @return The normalized variant identifier, based on the recognized format.
-   */
   private def normalizeVariantId(query: String): String = {
     query.trim.toLowerCase match {
       case rsid if rsid.startsWith("rs") => rsid
@@ -349,12 +297,7 @@ class HaplogroupTreeService @Inject()(
   }
 
   /**
-   * Transforms a recursive tree structure of `TreeNodeDTO` into a flat sequence of `SubcladeDTO`
-   * suitable for API responses. This flattens the hierarchical data into a list where each subclade
-   * explicitly references its parent.
-   *
-   * @param root An `Option` containing the root `TreeNodeDTO` of the tree to be transformed.
-   * @return A `Seq` of `SubcladeDTO` representing the flattened tree structure.
+   * Transforms a recursive tree structure of TreeNodeDTO into a flat sequence of SubcladeDTO.
    */
   def mapApiResponse(root: Option[TreeNodeDTO]): Seq[SubcladeDTO] = {
     def map(node: TreeNodeDTO, parent: Option[TreeNodeDTO]): Seq[SubcladeDTO] = {

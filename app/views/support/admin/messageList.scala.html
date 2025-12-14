@@ -1,17 +1,13 @@
 @import org.webjars.play.WebJarsUtil
 @import models.domain.support.{ContactMessage, MessageStatus}
+@import utils.CuratorViewUtils
 @(messages: Seq[ContactMessage], statusFilter: Option[MessageStatus], currentPage: Int, totalPages: Int, pageSize: Int)(implicit request: RequestHeader, messagesProvider: Messages, webJarsUtil: WebJarsUtil)
 
 @main(messagesProvider("support.admin.title")) {
     <div class="container py-5">
         <h1 class="mb-4">@messagesProvider("support.admin.heading")</h1>
 
-        @request.flash.get("success").map { msg =>
-            <div class="alert alert-success alert-dismissible fade show" role="alert">
-                @msg
-                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-            </div>
-        }
+        @views.html.fragments.flashMessages(request.flash)
 
         <div class="card mb-4">
             <div class="card-body">
@@ -51,7 +47,7 @@
                         @for(msg <- messages) {
                             <tr class="@if(msg.status == MessageStatus.New) {table-primary}">
                                 <td>
-                                    <span class="badge @statusBadgeClass(msg.status)">
+                                    <span class="badge @CuratorViewUtils.statusBadgeClass(msg.status)">
                                         @messagesProvider(s"support.status.${msg.status.value}")
                                     </span>
                                 </td>
@@ -74,36 +70,12 @@
                 </table>
             </div>
 
-            @if(totalPages > 1) {
-                <nav>
-                    <ul class="pagination justify-content-center">
-                        <li class="page-item @if(currentPage <= 1) {disabled}">
-                            <a class="page-link" href="@controllers.routes.SupportAdminController.listMessages(statusFilter.map(_.value), currentPage - 1, pageSize)">
-                                @messagesProvider("pagination.previous")
-                            </a>
-                        </li>
-                        @for(p <- 1 to totalPages) {
-                            <li class="page-item @if(p == currentPage) {active}">
-                                <a class="page-link" href="@controllers.routes.SupportAdminController.listMessages(statusFilter.map(_.value), p, pageSize)">@p</a>
-                            </li>
-                        }
-                        <li class="page-item @if(currentPage >= totalPages) {disabled}">
-                            <a class="page-link" href="@controllers.routes.SupportAdminController.listMessages(statusFilter.map(_.value), currentPage + 1, pageSize)">
-                                @messagesProvider("pagination.next")
-                            </a>
-                        </li>
-                    </ul>
-                </nav>
-            }
+            @views.html.fragments.htmlPagination(
+                currentPage = currentPage,
+                totalPages = totalPages,
+                pageSize = pageSize,
+                linkGenerator = (p, ps) => controllers.routes.SupportAdminController.listMessages(statusFilter.map(_.value), p, ps)
+            )
         }
     </div>
-}
-
-@statusBadgeClass(status: MessageStatus) = @{
-    status match {
-        case MessageStatus.New => "bg-primary"
-        case MessageStatus.Read => "bg-info"
-        case MessageStatus.Replied => "bg-success"
-        case MessageStatus.Closed => "bg-secondary"
-    }
 }
