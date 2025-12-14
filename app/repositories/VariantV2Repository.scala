@@ -269,29 +269,32 @@ class VariantV2RepositoryImpl @Inject()(
       return Future.successful(Seq.empty)
     }
 
-    // 3. Build Query
-    // We pass boolean flags to enable/disable clauses in the WHERE
-    // We pass the array string and cast to text[]
-    val query = sql"""
-      SELECT * FROM variant_v2
-      WHERE (
-        ($hasCoords AND coordinates->$refGenome->>'contig' = $contig AND (coordinates->$refGenome->>'position')::int = $pos)
-        OR
-        ($hasNames AND (
-          canonical_name = ANY($namesArrayStr::text[])
-          OR EXISTS (
-            SELECT 1 FROM jsonb_array_elements_text(aliases->'common_names') n 
-            WHERE n = ANY($namesArrayStr::text[])
-          )
-          OR EXISTS (
-            SELECT 1 FROM jsonb_array_elements_text(aliases->'rs_ids') r 
-            WHERE r = ANY($namesArrayStr::text[])
-          )
-        ))
-      )
-    """.as[VariantV2](variantV2GetResult)
+    // 3. Build Queries - Split into two separate queries to optimize index usage
+    // Combining JSONB @> and standard indexes with OR often leads to Seq Scans.
+    
+    val coordFuture = if (hasCoords) {
+      val q = sql"""
+        SELECT * FROM variant_v2
+        WHERE coordinates @> jsonb_build_object($refGenome, jsonb_build_object('contig', $contig, 'position', $pos, 'ref', $ref, 'alt', $alt))
+      """.as[VariantV2](variantV2GetResult)
+      db.run(q)
+    } else Future.successful(Seq.empty)
 
-    db.run(query)
+    val nameFuture = if (hasNames) {
+      val q = sql"""
+        SELECT * FROM variant_v2
+        WHERE canonical_name = ANY($namesArrayStr::text[])
+           OR aliases->'common_names' ??| $namesArrayStr::text[]
+           OR aliases->'rs_ids' ??| $namesArrayStr::text[]
+      """.as[VariantV2](variantV2GetResult)
+      db.run(q)
+    } else Future.successful(Seq.empty)
+
+    // Combine results
+    for {
+      coords <- coordFuture
+      names <- nameFuture
+    } yield (coords ++ names).distinctBy(_.variantId)
   }
 
   // ... (rest of implementation)
