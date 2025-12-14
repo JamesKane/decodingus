@@ -68,85 +68,91 @@ class YBrowseVariantIngestionService @Inject()(
       }
     }.toMap
 
-    val batchSize = 1000
+    val batchSize = 100
+    val source = Source.fromFile(gffFile)
     
-    // Process file in chunks
-    // Grouping by coordinates requires a buffered approach since lines are sequential
-    Future {
-      Using.resource(Source.fromFile(gffFile)) { source =>
-        val lines = source.getLines().filterNot(_.startsWith("#"))
+    try {
+      val lines = source.getLines().filterNot(_.startsWith("#"))
+      
+      // Custom grouping iterator that groups adjacent lines with same Chr/Pos/Ref/Alt
+      val groupedIterator = new AbstractIterator[Seq[Map[String, String]]] {
+        private var buffer: Option[Map[String, String]] = None
         
-        // Custom grouping iterator that groups adjacent lines with same Chr/Pos/Ref/Alt
-        val groupedIterator = new AbstractIterator[Seq[Map[String, String]]] {
-          private var buffer: Option[Map[String, String]] = None
+        override def hasNext: Boolean = buffer.isDefined || lines.hasNext
+        
+        override def next(): Seq[Map[String, String]] = {
+          if (!hasNext) throw new NoSuchElementException("next on empty iterator")
           
-          override def hasNext: Boolean = buffer.isDefined || lines.hasNext
+          val currentGroup = scala.collection.mutable.ArrayBuffer[Map[String, String]]()
           
-          override def next(): Seq[Map[String, String]] = {
-            if (!hasNext) throw new NoSuchElementException("next on empty iterator")
-            
-            val currentGroup = scala.collection.mutable.ArrayBuffer[Map[String, String]]()
-            
-            // Initialize with buffer or next line
-            val first = buffer.getOrElse(parseGffLine(lines.next()))
-            buffer = None // Clear buffer
-            
-            if (first.isEmpty) return next() // Skip malformed/empty lines
-            
-            currentGroup += first
-            
-            // Key to identify the group (Chr, Start, End)
-            // Note: We use Start/End as proxy for position. Ref/Alt are in attributes, harder to peek.
-            // GFF for SNPs usually has Start == End.
-            val groupKey = (first("seqid"), first("start"), first("end"))
-            
-            // Peek ahead
-            var keepingGoing = true
-            while (keepingGoing && lines.hasNext) {
-              val nextLine = parseGffLine(lines.next())
-              if (nextLine.nonEmpty) {
-                val nextKey = (nextLine("seqid"), nextLine("start"), nextLine("end"))
-                if (nextKey == groupKey) {
-                  currentGroup += nextLine
-                } else {
-                  buffer = Some(nextLine)
-                  keepingGoing = false
-                }
+          // Initialize with buffer or next line
+          val first = buffer.getOrElse(parseGffLine(lines.next()))
+          buffer = None // Clear buffer
+          
+          if (first.isEmpty) return next() // Skip malformed/empty lines
+          
+          currentGroup += first
+          
+          // Key to identify the group (Chr, Start, End)
+          val groupKey = (first("seqid"), first("start"), first("end"))
+          
+          // Peek ahead
+          var keepingGoing = true
+          while (keepingGoing && lines.hasNext) {
+            val nextLine = parseGffLine(lines.next())
+            if (nextLine.nonEmpty) {
+              val nextKey = (nextLine("seqid"), nextLine("start"), nextLine("end"))
+              if (nextKey == groupKey) {
+                currentGroup += nextLine
+              } else {
+                buffer = Some(nextLine)
+                keepingGoing = false
               }
             }
-            
-            currentGroup.toSeq
           }
+          
+          currentGroup.toSeq
+        }
+      }
+
+      def processNextBatch(accumulatedCount: Int): Future[Int] = {
+        // Synchronously take a batch from the iterator to avoid blocking the thread later
+        // (Iterator access is fast, processing is slow)
+        val batchGroups = scala.collection.mutable.ArrayBuffer[Seq[Map[String, String]]]()
+        var taken = 0
+        while (taken < batchSize && groupedIterator.hasNext) {
+          batchGroups += groupedIterator.next()
+          taken += 1
         }
 
-        // Process groups in batches
-        var count = 0
-        var batch = scala.collection.mutable.ArrayBuffer[VariantV2]()
-        
-        groupedIterator.foreach { group =>
-          createVariantV2FromGffGroup(group, sourceGenome, liftovers).foreach(batch += _)
+        if (batchGroups.isEmpty) {
+          logger.info(s"GFF ingestion complete. Total variants: $accumulatedCount")
+          Future.successful(accumulatedCount)
+        } else {
+          // Process batch sequentially to be gentle on DB resources (Background Task)
+          val variantsBatch = batchGroups.flatMap(group => createVariantV2FromGffGroup(group, sourceGenome, liftovers)).toSeq
           
-          if (batch.size >= batchSize) {
-            // Process batch sequentially with smart upsert
-            // Note: Await is used here to keep the ingestion flow simple and backpressure the file reading
-            val futures = batch.map(smartUpsertVariant)
-            val batchCount = concurrent.Await.result(Future.sequence(futures), scala.concurrent.duration.Duration.Inf).sum
-            count += batchCount
-            logger.info(s"Processed $count variants from GFF...")
-            batch.clear()
+          variantsBatch.foldLeft(Future.successful(0)) { (accFuture, variant) =>
+            accFuture.flatMap { currentCount =>
+              smartUpsertVariant(variant).map(c => currentCount + c)
+            }
+          }.flatMap { batchCount =>
+            val newTotal = accumulatedCount + batchCount
+            if (newTotal % 100 == 0) { // Log more frequently since batches are smaller/slower
+               logger.info(s"Processed $newTotal variants from GFF...")
+            }
+            processNextBatch(newTotal)
           }
         }
-        
-        // Final batch
-        if (batch.nonEmpty) {
-          val futures = batch.map(smartUpsertVariant)
-          val batchCount = concurrent.Await.result(Future.sequence(futures), scala.concurrent.duration.Duration.Inf).sum
-          count += batchCount
-        }
-        
-        logger.info(s"GFF ingestion complete. Total variants: $count")
-        count
       }
+
+      processNextBatch(0).andThen { case _ => 
+        source.close() 
+      }
+    } catch {
+      case e: Exception =>
+        source.close()
+        Future.failed(e)
     }
   }
 

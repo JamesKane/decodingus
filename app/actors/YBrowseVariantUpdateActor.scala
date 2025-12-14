@@ -83,59 +83,65 @@ class YBrowseVariantUpdateActor @javax.inject.Inject()(
     val url = URI.create(genomicsConfig.ybrowseGffUrl).toURL
     val targetFile = genomicsConfig.ybrowseGffStoragePath
 
-    // Ensure parent directory exists
-    val parentDir = targetFile.getParentFile
-    if (parentDir != null && !parentDir.exists()) {
-      Files.createDirectories(parentDir.toPath)
-      logger.info(s"Created directory: ${parentDir.getAbsolutePath}")
-    }
-
-    // Download to a temp file first, then rename (atomic operation)
-    val tempFile = new java.io.File(targetFile.getAbsolutePath + ".tmp")
-
-    logger.info(s"Downloading GFF from ${genomicsConfig.ybrowseGffUrl} to ${tempFile.getAbsolutePath}")
-
-    val connection = url.openConnection().asInstanceOf[HttpURLConnection]
-    connection.setRequestMethod("GET")
-    connection.setConnectTimeout(30000) // 30 seconds
-    connection.setReadTimeout(300000)   // 5 minutes for large file
-
-    try {
-      val responseCode = connection.getResponseCode
-      if (responseCode != HttpURLConnection.HTTP_OK) {
-        throw new RuntimeException(s"HTTP request failed with status $responseCode")
+    // Check for fresh local file (cache for 24 hours)
+    val cacheDuration = 24 * 60 * 60 * 1000L // 24 hours in millis
+    if (targetFile.exists() && (System.currentTimeMillis() - targetFile.lastModified() < cacheDuration)) {
+      logger.info(s"Local GFF file is fresh (< 24 hours old), skipping download: ${targetFile.getAbsolutePath}")
+    } else {
+      // Ensure parent directory exists
+      val parentDir = targetFile.getParentFile
+      if (parentDir != null && !parentDir.exists()) {
+        Files.createDirectories(parentDir.toPath)
+        logger.info(s"Created directory: ${parentDir.getAbsolutePath}")
       }
 
-      val inputStream = new BufferedInputStream(connection.getInputStream)
-      val outputStream = new FileOutputStream(tempFile)
+      // Download to a temp file first, then rename (atomic operation)
+      val tempFile = new java.io.File(targetFile.getAbsolutePath + ".tmp")
+
+      logger.info(s"Downloading GFF from ${genomicsConfig.ybrowseGffUrl} to ${tempFile.getAbsolutePath}")
+
+      val connection = url.openConnection().asInstanceOf[HttpURLConnection]
+      connection.setRequestMethod("GET")
+      connection.setConnectTimeout(30000) // 30 seconds
+      connection.setReadTimeout(300000)   // 5 minutes for large file
 
       try {
-        val buffer = new Array[Byte](8192)
-        var bytesRead = 0
-        var totalBytes = 0L
-
-        while ({ bytesRead = inputStream.read(buffer); bytesRead != -1 }) {
-          outputStream.write(buffer, 0, bytesRead)
-          totalBytes += bytesRead
+        val responseCode = connection.getResponseCode
+        if (responseCode != HttpURLConnection.HTTP_OK) {
+          throw new RuntimeException(s"HTTP request failed with status $responseCode")
         }
 
-        logger.info(s"Downloaded $totalBytes bytes")
+        val inputStream = new BufferedInputStream(connection.getInputStream)
+        val outputStream = new FileOutputStream(tempFile)
+
+        try {
+          val buffer = new Array[Byte](8192)
+          var bytesRead = 0
+          var totalBytes = 0L
+
+          while ({ bytesRead = inputStream.read(buffer); bytesRead != -1 }) {
+            outputStream.write(buffer, 0, bytesRead)
+            totalBytes += bytesRead
+          }
+
+          logger.info(s"Downloaded $totalBytes bytes")
+        } finally {
+          inputStream.close()
+          outputStream.close()
+        }
+
+        // Atomic rename
+        if (targetFile.exists()) {
+          targetFile.delete()
+        }
+        if (!tempFile.renameTo(targetFile)) {
+          throw new RuntimeException(s"Failed to rename temp file to ${targetFile.getAbsolutePath}")
+        }
+
+        logger.info(s"GFF file saved to ${targetFile.getAbsolutePath}")
       } finally {
-        inputStream.close()
-        outputStream.close()
+        connection.disconnect()
       }
-
-      // Atomic rename
-      if (targetFile.exists()) {
-        targetFile.delete()
-      }
-      if (!tempFile.renameTo(targetFile)) {
-        throw new RuntimeException(s"Failed to rename temp file to ${targetFile.getAbsolutePath}")
-      }
-
-      logger.info(s"GFF file saved to ${targetFile.getAbsolutePath}")
-    } finally {
-      connection.disconnect()
     }
   }
 }
