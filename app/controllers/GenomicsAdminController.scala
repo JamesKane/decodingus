@@ -22,7 +22,8 @@ class GenomicsAdminController @Inject()(
   val controllerComponents: ControllerComponents,
   authService: AuthService,
   @Named("ybrowse-variant-update-actor") ybrowseUpdateActor: ActorRef,
-  hipstrService: services.genomics.HipStrReferenceIngestionService
+  hipstrService: services.genomics.HipStrReferenceIngestionService,
+  regionIngestionService: services.genomics.GenomeRegionIngestionService
 )(implicit ec: ExecutionContext, webJarsUtil: WebJarsUtil) extends BaseController with Logging with I18nSupport {
 
   implicit val timeout: Timeout = Timeout(10.minutes)
@@ -75,6 +76,23 @@ class GenomicsAdminController @Inject()(
       }
       
       Future.successful(Ok(Json.obj("message" -> "HipSTR update started")))
+    }
+  }
+
+  /**
+   * Trigger on-demand Genome Regions bootstrap.
+   */
+  def triggerRegionsBootstrap(): Action[AnyContent] = Action.async { implicit request =>
+    withAdminAuth(request) { adminUserId =>
+      logger.info(s"Admin $adminUserId triggered Genome Regions bootstrap")
+      
+      // Run in background
+      regionIngestionService.bootstrap().onComplete {
+        case scala.util.Success(_) => logger.info(s"Genome Regions bootstrap completed successfully")
+        case scala.util.Failure(e) => logger.error(s"Genome Regions bootstrap failed", e)
+      }
+      
+      Future.successful(Ok(Json.obj("message" -> "Regions bootstrap started")))
     }
   }
 

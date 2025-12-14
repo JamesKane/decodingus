@@ -113,7 +113,8 @@ class HipStrReferenceIngestionService @Inject()(
     val cols = line.split("\t")
     if (cols.length < 6) return None
 
-    val contig = cols(0)
+    val rawContig = cols(0)
+    val contig = if (rawContig.matches("^[0-9XY]+$")) s"chr$rawContig" else rawContig
     val start = cols(1).toLong + 1 // BED 0-based -> 1-based inclusive
     val end = cols(2).toLong
     val period = cols(3).toInt

@@ -103,7 +103,17 @@ class GenomeRegionIngestionService @Inject()(
     val start = cols(1).toLong + 1
     val end = cols(2).toLong
     
-    val name = if (cols.length > 3) Some(cols(3)) else None
+    val rawName = if (cols.length > 3) Some(cols(3)) else None
+    
+    // Uniqueness Fix: 
+    // Cytoband names (p11.1) are repeated per chromosome -> chr1_p11.1
+    // Repeats/Amplicons (IR3) can be repeated on same chromosome, and PAR1 starts at 0 on both X and Y.
+    // Use ${contig}_${n}_${start} to ensure global uniqueness.
+    val name = regionType match {
+      case "Cytoband" => rawName.map(n => s"${contig}_$n")
+      case "InvertedRepeat" | "Amplicon" | "Y_Region" | "CenSat" | "SequenceClass" => rawName.map(n => s"${contig}_${n}_$start")
+      case _ => rawName
+    }
     
     // Properties
     val props = regionType match {
