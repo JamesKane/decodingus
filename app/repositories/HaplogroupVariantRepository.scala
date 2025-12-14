@@ -124,7 +124,7 @@ class HaplogroupVariantRepositoryImpl @Inject()(
       // Search rs_ids in aliases
       val rsQuery = sql"""
         SELECT * FROM variant_v2
-        WHERE aliases->'rs_ids' ? $normalizedQuery
+        WHERE aliases->'rs_ids' ?? $normalizedQuery
       """.as[VariantV2]
       runQuery(rsQuery)
     } else if (normalizedQuery.contains(":")) {
@@ -167,7 +167,7 @@ class HaplogroupVariantRepositoryImpl @Inject()(
       val nameQuery = sql"""
         SELECT * FROM variant_v2
         WHERE UPPER(canonical_name) LIKE $searchPattern
-           OR aliases->'common_names' ? $normalizedQuery
+           OR aliases->'common_names' ?? $normalizedQuery
            OR EXISTS (
              SELECT 1 FROM jsonb_array_elements_text(aliases->'common_names') AS name
              WHERE UPPER(name) LIKE $searchPattern

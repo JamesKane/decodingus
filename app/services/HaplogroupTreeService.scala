@@ -30,10 +30,11 @@ class HaplogroupTreeService @Inject()(
   /**
    * Builds a TreeDTO representation for a specified haplogroup with related breadcrumbs and subtree.
    */
-  def buildTreeResponse(haplogroupName: String, haplogroupType: HaplogroupType, routeType: RouteType): Future[TreeDTO] = {
+  def buildTreeResponse(haplogroupQuery: String, haplogroupType: HaplogroupType, routeType: RouteType): Future[TreeDTO] = {
     for {
-      rootHaplogroupOpt <- coreRepository.getHaplogroupByName(haplogroupName, haplogroupType)
-      rootHaplogroup = rootHaplogroupOpt.getOrElse(throw new IllegalArgumentException(s"Haplogroup $haplogroupName not found"))
+      resolvedHaplogroupName <- resolveHaplogroupByNameOrVariant(haplogroupQuery, haplogroupType)
+      rootHaplogroupOpt <- coreRepository.getHaplogroupByName(resolvedHaplogroupName, haplogroupType)
+      rootHaplogroup = rootHaplogroupOpt.getOrElse(throw new IllegalArgumentException(s"Haplogroup $resolvedHaplogroupName not found after variant lookup"))
 
       ancestors <- coreRepository.getAncestors(rootHaplogroup.id.get)
       crumbs = buildCrumbs(ancestors, haplogroupType, routeType)
@@ -48,6 +49,39 @@ class HaplogroupTreeService @Inject()(
       crumbs = crumbs,
       subclade = Some(subtree)
     )
+  }
+
+  /**
+   * Resolves a haplogroup name by either direct lookup or by finding a variant.
+   */
+  private def resolveHaplogroupByNameOrVariant(query: String, haplogroupType: HaplogroupType): Future[String] = {
+    coreRepository.getHaplogroupByName(query, haplogroupType).flatMap {
+      case Some(haplogroup) => Future.successful(haplogroup.name)
+      case None =>
+        // Haplogroup not found by direct name, try searching by variant
+        logger.debug(s"Haplogroup '$query' not found by direct name. Attempting variant lookup.")
+        val normalizedQuery = normalizeVariantId(query)
+        variantRepository.findVariants(normalizedQuery).flatMap {
+          case variants if variants.nonEmpty =>
+            // Found variants, now find their defining haplogroups
+            val variantIds = variants.flatMap(_.variantId).map(_.toString)
+            Future.sequence(variantIds.map(vid => variantRepository.findHaplogroupsByDefiningVariant(vid, haplogroupType))).map {
+              haplogroupLists =>
+                val definingHaplogroups = haplogroupLists.flatten
+                definingHaplogroups.sortBy(_.validFrom).lastOption match {
+                  case Some(latestHaplogroup) =>
+                    logger.info(s"Resolved variant '$query' to haplogroup '${latestHaplogroup.name}'.")
+                    latestHaplogroup.name
+                  case None =>
+                    logger.warn(s"Variant '$query' found, but no defining haplogroups for type $haplogroupType.")
+                    throw new IllegalArgumentException(s"Haplogroup or variant '$query' not found")
+                }
+            }
+          case _ =>
+            logger.debug(s"Variant '$query' not found.")
+            Future.failed(new IllegalArgumentException(s"Haplogroup or variant '$query' not found"))
+        }
+    }
   }
 
   private def getRoute(name: String, haplogroupType: HaplogroupType, routeType: RouteType): Call = {
