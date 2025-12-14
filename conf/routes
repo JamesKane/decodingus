@@ -169,6 +169,7 @@ POST          /api/v1/manage/genome-regions                                     
 PUT           /api/v1/manage/genome-regions/:id                                                  controllers.GenomeRegionsApiManagementController.updateRegion(id: Int)
 DELETE        /api/v1/manage/genome-regions/:id                                                  controllers.GenomeRegionsApiManagementController.deleteRegion(id: Int)
 POST          /api/v1/manage/genome-regions/bulk                                                 controllers.GenomeRegionsApiManagementController.bulkCreateRegions()
+POST          /api/v1/manage/genome-regions/bootstrap                                            controllers.GenomeRegionsApiManagementController.bootstrap()
 
 # =============================================
 # Haplogroup Tree Merge API (X-API-Key secured)
