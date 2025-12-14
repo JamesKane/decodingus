@@ -1,12 +1,13 @@
-@import org.webjars.play.WebJarsUtil
-@(rootHaplogroup: Option[String], showBlockLayout: Boolean = false)(implicit webJarsUtil: WebJarsUtil, messages: Messages, request: RequestHeader)
+@(rootHaplogroup: Option[String], showVerticalTree: Boolean = false)(implicit webJarsUtil: org.webjars.play.WebJarsUtil, messages: Messages, request: RequestHeader)
 
-@views.html.fragments.treeView(
+@import controllers.routes.TreeController
+
+@fragments.treeView(
     titleKey = "nav.ytree",
-    fragmentCall = controllers.routes.TreeController.yTreeFragment,
-    fullPageCall = controllers.routes.TreeController.ytree,
+    fragmentCall = TreeController.yTreeFragment,
+    fullPageCall = TreeController.ytree,
     rootHaplogroup = rootHaplogroup,
-    searchPlaceholder = "e.g. R1b",
-    searchInputTitle = "Enter a valid Y-DNA haplogroup",
-    showBlockLayout = showBlockLayout
+    searchPlaceholder = "e.g. R-M269, I-M253...",
+    searchInputTitle = "Enter a haplogroup name (e.g. R-M269)",
+    showVerticalTree = showVerticalTree
 )

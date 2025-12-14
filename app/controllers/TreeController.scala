@@ -52,10 +52,10 @@ class TreeController @Inject()(val controllerComponents: MessagesControllerCompo
 
   private val YConfig = TreeConfig(Y, "Y")
   private val MTConfig = TreeConfig(MT, "L")
-  private val BLOCK_LAYOUT_COOKIE = "showBlockLayout"
+  private val VERTICAL_TREE_COOKIE = "showVerticalTree"
 
-  private def shouldShowBlockLayout(request: RequestHeader): Boolean = {
-    request.cookies.get(BLOCK_LAYOUT_COOKIE).map(_.value.toBoolean).getOrElse(featureFlags.showBlockLayout)
+  private def shouldShowVerticalTree(request: RequestHeader): Boolean = {
+    request.cookies.get(VERTICAL_TREE_COOKIE).map(_.value.toBoolean).getOrElse(featureFlags.showVerticalTree)
   }
 
   /**
@@ -70,7 +70,7 @@ class TreeController @Inject()(val controllerComponents: MessagesControllerCompo
    * @return an action that renders the Y-DNA tree page as an HTML response
    */
   def ytree(rootHaplogroup: Option[String]): Action[AnyContent] = Action { implicit request =>
-    Ok(views.html.ytree(rootHaplogroup, shouldShowBlockLayout(request)))
+    Ok(views.html.ytree(rootHaplogroup, shouldShowVerticalTree(request)))
   }
 
   /**
@@ -85,7 +85,7 @@ class TreeController @Inject()(val controllerComponents: MessagesControllerCompo
    * @return an action that renders the MT-DNA tree page as an HTML response
    */
   def mtree(rootHaplogroup: Option[String]): Action[AnyContent] = Action { implicit request =>
-    Ok(views.html.mtree(rootHaplogroup, shouldShowBlockLayout(request)))
+    Ok(views.html.mtree(rootHaplogroup, shouldShowVerticalTree(request)))
   }
 
   /**
@@ -193,11 +193,11 @@ class TreeController @Inject()(val controllerComponents: MessagesControllerCompo
                                   config: TreeConfig,
                                   cacheKey: String
                                 )(using request: Request[AnyContent]): Future[Result] = {
-    val useBlockLayout = shouldShowBlockLayout(request)
-    val effectiveCacheKey = s"$cacheKey-block:$useBlockLayout"
+    val useVerticalTree = shouldShowVerticalTree(request)
+    val effectiveCacheKey = s"$cacheKey-vertical:$useVerticalTree"
     
     cache.getOrElseUpdate(effectiveCacheKey, 24.hours) {
-      buildTreeFragment(rootHaplogroup, config, useBlockLayout)
+      buildTreeFragment(rootHaplogroup, config, useVerticalTree)
     }
   }
 
@@ -207,12 +207,12 @@ class TreeController @Inject()(val controllerComponents: MessagesControllerCompo
   private def buildTreeFragment(
                                  rootHaplogroup: Option[String],
                                  config: TreeConfig,
-                                 showBlockLayout: Boolean
+                                 showVerticalTree: Boolean
                                )(using request: Request[AnyContent]): Future[Result] = {
     val haplogroupName = rootHaplogroup.getOrElse(config.defaultRoot)
     val isAbsoluteTopRootView = haplogroupName == config.defaultRoot
     
-    val orientation = if (showBlockLayout) services.TreeOrientation.Vertical else services.TreeOrientation.Horizontal
+    val orientation = if (showVerticalTree) services.TreeOrientation.Vertical else services.TreeOrientation.Horizontal
 
     treeService.buildTreeResponse(haplogroupName, config.haplogroupType, FragmentRoute)
       .map { treeDto =>
@@ -220,8 +220,8 @@ class TreeController @Inject()(val controllerComponents: MessagesControllerCompo
           services.TreeLayoutService.layoutTree(treeDto, isAbsoluteTopRootView, orientation)
         }
         
-        if (showBlockLayout) {
-          Ok(views.html.fragments.blockTree(treeDto, config.haplogroupType, treeViewModel, request.uri))
+        if (showVerticalTree) {
+          Ok(views.html.fragments.verticalTree(treeDto, config.haplogroupType, treeViewModel, request.uri))
         } else {
           Ok(views.html.fragments.haplogroup(treeDto, config.haplogroupType, treeViewModel, request.uri, featureFlags.showBranchAgeEstimates))
         }
@@ -258,8 +258,8 @@ class TreeController @Inject()(val controllerComponents: MessagesControllerCompo
 
     val haplogroupName = rootHaplogroup.getOrElse(config.defaultRoot)
     val isAbsoluteTopRootView = haplogroupName == config.defaultRoot
-    val showBlockLayout = shouldShowBlockLayout(request)
-    val orientation = if (showBlockLayout) services.TreeOrientation.Vertical else services.TreeOrientation.Horizontal
+    val showVerticalTree = shouldShowVerticalTree(request)
+    val orientation = if (showVerticalTree) services.TreeOrientation.Vertical else services.TreeOrientation.Horizontal
 
     treeService.buildTreeResponse(haplogroupName, config.haplogroupType, routeType)
       .map { treeDto =>
@@ -273,8 +273,8 @@ class TreeController @Inject()(val controllerComponents: MessagesControllerCompo
               services.TreeLayoutService.layoutTree(treeDto, isAbsoluteTopRootView, orientation)
             }
             
-            if (showBlockLayout) {
-               Ok(views.html.fragments.blockTree(treeDto, config.haplogroupType, treeViewModel, request.uri))
+            if (showVerticalTree) {
+               Ok(views.html.fragments.verticalTree(treeDto, config.haplogroupType, treeViewModel, request.uri))
             } else {
                Ok(views.html.fragments.haplogroup(treeDto, config.haplogroupType, treeViewModel, request.uri, featureFlags.showBranchAgeEstimates))
             }

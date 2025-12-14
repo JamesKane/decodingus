@@ -21,5 +21,5 @@ class FeatureFlags @Inject()(config: Configuration) {
   /**
    * Show the alternative "Block Layout" (ytree.net style) for the tree.
    */
-  val showBlockLayout: Boolean = featuresConfig.getOptional[Boolean]("tree.showBlockLayout").getOrElse(false)
+  val showVerticalTree: Boolean = featuresConfig.getOptional[Boolean]("tree.showVerticalTree").getOrElse(false)
 }

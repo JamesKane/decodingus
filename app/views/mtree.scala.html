@@ -1,12 +1,13 @@
-@import org.webjars.play.WebJarsUtil
-@(rootHaplogroup: Option[String], showBlockLayout: Boolean = false)(implicit webJarsUtil: WebJarsUtil, messages: Messages, request: RequestHeader)
+@(rootHaplogroup: Option[String], showVerticalTree: Boolean = false)(implicit webJarsUtil: org.webjars.play.WebJarsUtil, messages: Messages, request: RequestHeader)
 
-@views.html.fragments.treeView(
+@import controllers.routes.TreeController
+
+@fragments.treeView(
     titleKey = "nav.mtree",
-    fragmentCall = controllers.routes.TreeController.mTreeFragment,
-    fullPageCall = controllers.routes.TreeController.mtree,
+    fragmentCall = TreeController.mTreeFragment,
+    fullPageCall = TreeController.mtree,
     rootHaplogroup = rootHaplogroup,
-    searchPlaceholder = "e.g. H1",
-    searchInputTitle = "Enter a valid MT-DNA haplogroup",
-    showBlockLayout = showBlockLayout
+    searchPlaceholder = "e.g. H, U5b...",
+    searchInputTitle = "Enter a haplogroup name (e.g. H, U5)",
+    showVerticalTree = showVerticalTree
 )

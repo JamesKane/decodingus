@@ -179,7 +179,7 @@ tree.loading = Loading haplogroup tree...
 tree.jumpTo = Jump to haplogroup:
 tree.go = Go
 tree.reRoot = Click to re-root
-tree.blockLayout = Block Layout
+tree.verticalCladogram = Vertical Cladogram
 tree.clickToSeeVariants = Click to see {0} defining Variants(s)
 
 # Sidebar

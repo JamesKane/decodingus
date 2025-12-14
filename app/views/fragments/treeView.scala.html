@@ -4,7 +4,7 @@
   rootHaplogroup: Option[String],
   searchPlaceholder: String,
   searchInputTitle: String,
-  showBlockLayout: Boolean = false)(implicit webJarsUtil: org.webjars.play.WebJarsUtil, messages: Messages, request: RequestHeader)
+  showVerticalTree: Boolean = false)(implicit webJarsUtil: org.webjars.play.WebJarsUtil, messages: Messages, request: RequestHeader)
 
 @main(messages(titleKey)) {
     <main class="container-fluid">
@@ -22,14 +22,14 @@
             </form>
 
             <div class="form-check form-switch ms-3">
-                <input class="form-check-input" type="checkbox" id="blockLayoutToggle" @if(showBlockLayout){checked} onchange="toggleBlockLayout(this)">
-                <label class="form-check-label" for="blockLayoutToggle">@messages("tree.blockLayout")</label>
+                <input class="form-check-input" type="checkbox" id="verticalTreeToggle" @if(showVerticalTree){checked} onchange="toggleVerticalTree(this)">
+                <label class="form-check-label" for="verticalTreeToggle">@messages("tree.verticalCladogram")</label>
             </div>
         </div>
 
         <script>
-            function toggleBlockLayout(checkbox) {
-                document.cookie = "showBlockLayout=" + checkbox.checked + "; path=/; max-age=31536000";
+            function toggleVerticalTree(checkbox) {
+                document.cookie = "showVerticalTree=" + checkbox.checked + "; path=/; max-age=31536000";
                 location.reload();
             }
         </script>
