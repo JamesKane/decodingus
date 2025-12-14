@@ -90,16 +90,14 @@ trait VariantV2Repository {
   def createBatch(variants: Seq[VariantV2]): Future[Seq[Int]]
 
   /**
-   * Find existing variant or create new one.
-   * Matches by canonical name (if present) or hs1 coordinates (for unnamed).
+   * Perform a batch upsert (INSERT or UPDATE) for a sequence of variants.
+   * Matches on either canonical name + defining haplogroup (for named variants)
+   * or hs1 coordinates (for unnamed variants).
+   *
+   * @param variants The variants to upsert.
+   * @return A Future containing the variant_ids of the inserted/updated rows.
    */
-  def findOrCreate(variant: VariantV2): Future[Int]
-
-  /**
-   * Find or create variants in batch.
-   * More efficient than individual findOrCreate calls.
-   */
-  def findOrCreateBatch(variants: Seq[VariantV2]): Future[Seq[Int]]
+  def upsertBatch(variants: Seq[VariantV2]): Future[Seq[Int]]
 
   // === JSONB Update Operations ===
 
@@ -208,12 +206,6 @@ trait VariantV2Repository {
    * Atomically generates the name and creates the variant.
    */
   def createWithDuName(variant: VariantV2): Future[VariantV2]
-
-  /**
-   * Find variants that match the given variant by Coordinates OR Name/Alias.
-   * Used for smart ingestion/deduplication.
-   */
-  def findMatches(variant: VariantV2): Future[Seq[VariantV2]]
 }
 
 class VariantV2RepositoryImpl @Inject()(
@@ -227,79 +219,6 @@ class VariantV2RepositoryImpl @Inject()(
 
   private val variantsV2 = TableQuery[VariantV2Table]
   
-  // ... (existing mappers)
-
-  // === Basic Lookups ===
-  
-  // ... (existing implementation)
-
-  // === Smart Lookup ===
-
-  override def findMatches(variant: VariantV2): Future[Seq[VariantV2]] = {
-    // 1. Extract Search Coordinates (prefer GRCh38, then hs1)
-    val refGenome = if (variant.hasCoordinates("GRCh38")) "GRCh38" else "hs1"
-    val coordsOpt = variant.getCoordinates(refGenome)
-    
-    val (hasCoords, contig, pos, ref, alt) = coordsOpt match {
-      case Some(c) =>
-        (
-          true,
-          (c \ "contig").asOpt[String].getOrElse(""),
-          (c \ "position").asOpt[Int].getOrElse(0),
-          (c \ "ref").asOpt[String].getOrElse(""),
-          (c \ "alt").asOpt[String].getOrElse("")
-        )
-      case None => (false, "", 0, "", "")
-    }
-
-    // 2. Extract Search Names
-    val canonical = variant.canonicalName.toSeq
-    val commonNames = (variant.aliases \ "common_names").asOpt[Seq[String]].getOrElse(Seq.empty)
-    val rsIds = (variant.aliases \ "rs_ids").asOpt[Seq[String]].getOrElse(Seq.empty)
-    val allNames = (canonical ++ commonNames ++ rsIds).distinct
-
-    // Create Postgres Array Literal safely: {"name1","name2"}
-    // Escape quotes in names by doubling them (SQL standard) or backslash depending on driver, 
-    // but typically standard array literal format uses double quotes for elements.
-    // Simple approach: map each name to quoted string, join with comma, wrap in braces.
-    val namesArrayStr = "{" + allNames.map(s => "\"" + s.replace("\"", "\\\"") + "\"").mkString(",") + "}"
-    val hasNames = allNames.nonEmpty
-
-    if (!hasCoords && !hasNames) {
-      return Future.successful(Seq.empty)
-    }
-
-    // 3. Build Queries - Split into two separate queries to optimize index usage
-    // Combining JSONB @> and standard indexes with OR often leads to Seq Scans.
-    
-    val coordFuture = if (hasCoords) {
-      val q = sql"""
-        SELECT * FROM variant_v2
-        WHERE coordinates @> jsonb_build_object($refGenome, jsonb_build_object('contig', $contig, 'position', $pos, 'ref', $ref, 'alt', $alt))
-      """.as[VariantV2](variantV2GetResult)
-      db.run(q)
-    } else Future.successful(Seq.empty)
-
-    val nameFuture = if (hasNames) {
-      val q = sql"""
-        SELECT * FROM variant_v2
-        WHERE canonical_name = ANY($namesArrayStr::text[])
-           OR aliases->'common_names' ??| $namesArrayStr::text[]
-           OR aliases->'rs_ids' ??| $namesArrayStr::text[]
-      """.as[VariantV2](variantV2GetResult)
-      db.run(q)
-    } else Future.successful(Seq.empty)
-
-    // Combine results
-    for {
-      coords <- coordFuture
-      names <- nameFuture
-    } yield (coords ++ names).distinctBy(_.variantId)
-  }
-
-  // ... (rest of implementation)
-
-
   // MappedColumnType for MutationType enum (needed for Slick queries)
   implicit val mutationTypeMapper: JdbcType[MutationType] with BaseTypedType[MutationType] =
     MappedColumnType.base[MutationType, String](
@@ -437,73 +356,122 @@ class VariantV2RepositoryImpl @Inject()(
     }
   }
 
-  override def findOrCreate(variant: VariantV2): Future[Int] = {
-    // For named variants: match by canonical name (and optionally defining haplogroup)
-    // For unnamed variants: match by hs1 coordinates
-    val findAction: DBIO[Option[Int]] = variant.canonicalName match {
-      case Some(name) =>
-        variant.definingHaplogroupId match {
-          case Some(hgId) =>
-            sql"""
-              SELECT variant_id FROM variant_v2
-              WHERE canonical_name = $name AND defining_haplogroup_id = $hgId
-              LIMIT 1
-            """.as[Int].headOption
-          case None =>
-            sql"""
-              SELECT variant_id FROM variant_v2
-              WHERE canonical_name = $name AND defining_haplogroup_id IS NULL
-              LIMIT 1
-            """.as[Int].headOption
-        }
-
-      case None =>
-        // Unnamed variant - find by hs1 coordinates
-        variant.getCoordinates("hs1") match {
-          case Some(coords) =>
-            val contig = (coords \ "contig").asOpt[String].getOrElse("")
-            val position = (coords \ "position").asOpt[Int].getOrElse(0)
-            val ref = (coords \ "ref").asOpt[String].getOrElse("")
-            val alt = (coords \ "alt").asOpt[String].getOrElse("")
-
-            sql"""
-              SELECT variant_id FROM variant_v2
-              WHERE canonical_name IS NULL
-                AND coordinates->'hs1'->>'contig' = $contig
-                AND (coordinates->'hs1'->>'position')::int = $position
-                AND coordinates->'hs1'->>'ref' = $ref
-                AND coordinates->'hs1'->>'alt' = $alt
-              LIMIT 1
-            """.as[Int].headOption
-
-          case None =>
-            DBIO.successful(None)
-        }
-    }
-
-    val action = findAction.flatMap {
-      case Some(existingId) => DBIO.successful(existingId)
-      case None =>
-        (variantsV2 returning variantsV2.map(_.variantId)) += variant
-    }.transactionally
-
-    db.run(action).recoverWith {
-      case e: PSQLException if e.getSQLState == "23505" =>
-        // Unique constraint violation - retry find
-        findOrCreate(variant)
-    }(ec)
-  }
-
-  override def findOrCreateBatch(variants: Seq[VariantV2]): Future[Seq[Int]] = {
+  override def upsertBatch(variants: Seq[VariantV2]): Future[Seq[Int]] = {
     if (variants.isEmpty) return Future.successful(Seq.empty)
 
-    // Process variants sequentially to handle conflicts properly
-    // For better performance on large batches, consider using ON CONFLICT
-    variants.foldLeft(Future.successful(Seq.empty[Int])) { (accFuture, variant) =>
-      accFuture.flatMap { acc =>
-        findOrCreate(variant).map(id => acc :+ id)
-      }
-    }
+    val (namedVariantsRaw, unnamedVariantsRaw) = variants.partition(_.canonicalName.isDefined)
+
+    // Deduplicate named variants by conflict key to avoid "ON CONFLICT DO UPDATE command cannot affect row a second time"
+    val namedVariants = namedVariantsRaw
+      .groupBy(v => (v.canonicalName, v.definingHaplogroupId))
+      .values
+      .map(_.head)
+      .toSeq
+
+    // Deduplicate unnamed variants by conflict key (hs1 coords)
+    val unnamedVariants = unnamedVariantsRaw
+      .groupBy(v => v.getCoordinates("hs1").toString) // Group by string representation of JSON for stable key
+      .values
+      .map(_.head)
+      .toSeq
+
+    // Helper to extract JSONB string for SQL
+    def toJsonb(jsValue: play.api.libs.json.JsValue): String = Json.stringify(jsValue)
+    
+    // Helper to safely get optional string or "NULL"
+    def optString(s: Option[String]): String = s.map(v => s"'$v'").getOrElse("NULL")
+    // Helper to safely get optional int or "NULL"
+    def optInt(i: Option[Int]): String = i.map(_.toString).getOrElse("NULL")
+
+    // === Named Variants Upsert ===
+    val namedUpsertAction = if (namedVariants.nonEmpty) {
+      val namedValues = namedVariants.map { v =>
+        val canonicalName = v.canonicalName.getOrElse(throw new IllegalArgumentException("Named variant must have a canonical name"))
+        val definingHaplogroupId = optInt(v.definingHaplogroupId)
+
+        val mutationType = v.mutationType.dbValue
+        val namingStatus = v.namingStatus.dbValue
+        val aliases = toJsonb(v.aliases)
+        val coordinates = toJsonb(v.coordinates)
+        val evidence = toJsonb(v.evidence)
+        val primers = toJsonb(v.primers)
+        val notes = optString(v.notes)
+        // Use epoch seconds for timestamps to simplify SQL injection
+        val createdAt = v.createdAt.getEpochSecond
+        val updatedAt = v.updatedAt.getEpochSecond
+        
+        s"(NEXTVAL('variant_v2_variant_id_seq'), '$canonicalName', '$mutationType', '$namingStatus', '$aliases', '$coordinates', $definingHaplogroupId, '$evidence', '$primers', $notes, TO_TIMESTAMP($createdAt), TO_TIMESTAMP($updatedAt))"
+      }.mkString(",")
+
+      sqlu"""
+        INSERT INTO variant_v2 (variant_id, canonical_name, mutation_type, naming_status, aliases, coordinates, defining_haplogroup_id, evidence, primers, notes, created_at, updated_at)
+        VALUES #$namedValues
+        ON CONFLICT (canonical_name, COALESCE(defining_haplogroup_id, -1)) WHERE canonical_name IS NOT NULL DO UPDATE SET
+          mutation_type = EXCLUDED.mutation_type,
+          -- Merge aliases, coordinates, evidence, primers
+          aliases = variant_v2.aliases || EXCLUDED.aliases,
+          coordinates = variant_v2.coordinates || EXCLUDED.coordinates,
+          evidence = variant_v2.evidence || EXCLUDED.evidence,
+          primers = variant_v2.primers || EXCLUDED.primers,
+          notes = COALESCE(variant_v2.notes, EXCLUDED.notes), -- Take excluded notes if current is null
+          naming_status = CASE
+                            WHEN variant_v2.naming_status = 'UNNAMED' AND EXCLUDED.naming_status = 'NAMED' THEN 'NAMED'
+                            ELSE variant_v2.naming_status
+                          END,
+          updated_at = NOW()
+        -- RETURNING variant_id -- slick sqlu returns count, not rows
+      """
+    } else DBIO.successful(0)
+
+    // === Unnamed Variants Upsert ===
+    val unnamedUpsertAction = if (unnamedVariants.nonEmpty) {
+      val unnamedValues = unnamedVariants.map { v =>
+        // Unnamed variants rely on hs1 coordinates for conflict
+        val hs1CoordsOpt = v.getCoordinates("hs1")
+        val (contig, position, ref, alt) = hs1CoordsOpt match {
+          case Some(c) =>
+            ((c \ "contig").asOpt[String].getOrElse(""), (c \ "position").asOpt[Int].getOrElse(0).toString, (c \ "ref").asOpt[String].getOrElse(""), (c \ "alt").asOpt[String].getOrElse(""))
+          case None => throw new IllegalArgumentException("Unnamed variant without hs1 coordinates cannot be upserted.")
+        }
+        
+        val mutationType = v.mutationType.dbValue
+        val namingStatus = v.namingStatus.dbValue
+        val aliases = toJsonb(v.aliases)
+        val coordinates = toJsonb(v.coordinates)
+        val evidence = toJsonb(v.evidence)
+        val primers = toJsonb(v.primers)
+        val notes = optString(v.notes)
+        val createdAt = v.createdAt.getEpochSecond
+        val updatedAt = v.updatedAt.getEpochSecond
+
+        // Note: canonical_name is NULL for unnamed variants. defining_haplogroup_id is NULL.
+        s"(NEXTVAL('variant_v2_variant_id_seq'), NULL, '$mutationType', '$namingStatus', '$aliases', '$coordinates', NULL, '$evidence', '$primers', $notes, TO_TIMESTAMP($createdAt), TO_TIMESTAMP($updatedAt))"
+      }.mkString(",")
+
+      sqlu"""
+        INSERT INTO variant_v2 (variant_id, canonical_name, mutation_type, naming_status, aliases, coordinates, defining_haplogroup_id, evidence, primers, notes, created_at, updated_at)
+        VALUES #$unnamedValues
+        ON CONFLICT (
+          (coordinates->'hs1'->>'contig'),
+          ((coordinates->'hs1'->>'position')::int),
+          (coordinates->'hs1'->>'ref'),
+          (coordinates->'hs1'->>'alt')
+        ) WHERE canonical_name IS NULL DO UPDATE SET
+          mutation_type = EXCLUDED.mutation_type,
+          aliases = variant_v2.aliases || EXCLUDED.aliases,
+          coordinates = variant_v2.coordinates || EXCLUDED.coordinates,
+          evidence = variant_v2.evidence || EXCLUDED.evidence,
+          primers = variant_v2.primers || EXCLUDED.primERS,
+          notes = COALESCE(variant_v2.notes, EXCLUDED.notes),
+          naming_status = EXCLUDED.naming_status, -- should still be unnamed
+          updated_at = NOW()
+        -- RETURNING variant_id -- slick sqlu returns count
+      """
+    } else DBIO.successful(0)
+
+    db.run(
+      DBIO.sequence(Seq(namedUpsertAction, unnamedUpsertAction)).map(_ => Seq.empty[Int]).transactionally
+    )
   }
 
   // === JSONB Update Operations ===

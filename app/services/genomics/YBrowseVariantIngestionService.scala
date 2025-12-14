@@ -129,16 +129,13 @@ class YBrowseVariantIngestionService @Inject()(
           logger.info(s"GFF ingestion complete. Total variants: $accumulatedCount")
           Future.successful(accumulatedCount)
         } else {
-          // Process batch sequentially to be gentle on DB resources (Background Task)
-          val variantsBatch = batchGroups.flatMap(group => createVariantV2FromGffGroup(group, sourceGenome, liftovers)).toSeq
+          // Process batch as a whole using optimized batch upsert
+          val variantsToProcess = batchGroups.flatMap(group => createVariantV2FromGffGroup(group, sourceGenome, liftovers)).toSeq
           
-          variantsBatch.foldLeft(Future.successful(0)) { (accFuture, variant) =>
-            accFuture.flatMap { currentCount =>
-              smartUpsertVariant(variant).map(c => currentCount + c)
-            }
-          }.flatMap { batchCount =>
+          variantV2Repository.upsertBatch(variantsToProcess).flatMap { resultIds =>
+            val batchCount = resultIds.size
             val newTotal = accumulatedCount + batchCount
-            if (newTotal % 100 == 0) { // Log more frequently since batches are smaller/slower
+            if (newTotal % 1000 == 0) { // Log every 1000 now that it should be faster
                logger.info(s"Processed $newTotal variants from GFF...")
             }
             processNextBatch(newTotal)
@@ -153,55 +150,6 @@ class YBrowseVariantIngestionService @Inject()(
       case e: Exception =>
         source.close()
         Future.failed(e)
-    }
-  }
-
-  /**
-   * Smart Upsert: Matches existing variant by Coordinates OR Name/Alias.
-   * Merges data if found, Creates if not.
-   */
-  private def smartUpsertVariant(incoming: VariantV2): Future[Int] = {
-    variantV2Repository.findMatches(incoming).flatMap { matches =>
-      if (matches.isEmpty) {
-        // No match -> Create
-        variantV2Repository.create(incoming)
-      } else {
-        // Match found -> Merge and Update
-        // If multiple matches, we pick the first one (merging duplicates is a separate maintenance task)
-        val existing = matches.head
-        
-        // 1. Merge Aliases
-        val mergedAliases = mergeAliases(existing.aliases, incoming.aliases)
-        
-        // 2. Merge Coordinates
-        val mergedCoordinates = (existing.coordinates.as[JsObject] ++ incoming.coordinates.as[JsObject])
-        
-        // 3. Merge Evidence
-        val mergedEvidence = (existing.evidence.as[JsObject] ++ incoming.evidence.as[JsObject])
-        
-        // 4. Merge Primers
-        val mergedPrimers = (existing.primers.as[JsObject] ++ incoming.primers.as[JsObject])
-        
-        // 5. Update Canonical Name (if existing is unnamed and incoming is named)
-        val (newCanonical, newStatus) = if (existing.namingStatus == NamingStatus.Unnamed && incoming.namingStatus == NamingStatus.Named) {
-          (incoming.canonicalName, NamingStatus.Named)
-        } else {
-          (existing.canonicalName, existing.namingStatus)
-        }
-        
-        val updated = existing.copy(
-          canonicalName = newCanonical,
-          namingStatus = newStatus,
-          aliases = mergedAliases,
-          coordinates = mergedCoordinates,
-          evidence = mergedEvidence,
-          primers = mergedPrimers,
-          notes = existing.notes.orElse(incoming.notes),
-          updatedAt = java.time.Instant.now()
-        )
-        
-        variantV2Repository.update(updated).map(_ => 1) // Return 1 to count as "processed"
-      }
     }
   }
 
