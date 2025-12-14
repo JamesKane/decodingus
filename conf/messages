@@ -313,6 +313,7 @@ variants.detail.commonName = Common Name
 variants.detail.ancestral = Ancestral
 variants.detail.derived = Derived
 variants.detail.type = Type
+variants.detail.status = Naming Status
 variants.detail.altNames = Alternative Names
 variants.detail.source = Source
 variants.detail.refBuilds = Reference Builds
