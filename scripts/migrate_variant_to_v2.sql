@@ -18,95 +18,76 @@
 BEGIN;
 
 -- =============================================================================
--- Step 1: Insert variants into variant_v2 (one row per unique name)
+-- Optimization: Create temporary index to speed up grouping and joining
+-- =============================================================================
+CREATE INDEX IF NOT EXISTS idx_tmp_variant_group_key ON variant (COALESCE(common_name, rs_id));
+
+-- =============================================================================
+-- Step 1: Insert variants into variant_v2 (Name + Coordinates in one pass)
 -- =============================================================================
 
 INSERT INTO variant_v2 (canonical_name, mutation_type, naming_status, aliases, coordinates)
 SELECT
-    group_key as canonical_name,
-    MAX(variant_type) as mutation_type,
-    CASE WHEN group_key IS NOT NULL THEN 'NAMED' ELSE 'UNNAMED' END as naming_status,
+    COALESCE(v.common_name, v.rs_id) as group_key,
+    MAX(v.variant_type) as mutation_type,
+    CASE WHEN COALESCE(v.common_name, v.rs_id) IS NOT NULL THEN 'NAMED' ELSE 'UNNAMED' END,
     '{}'::jsonb as aliases,
-    '{}'::jsonb as coordinates
-FROM (
-    SELECT
-        COALESCE(v.common_name, v.rs_id) as group_key,
-        v.variant_type
-    FROM variant v
-) grouped
-GROUP BY group_key
+    jsonb_object_agg(
+            COALESCE(gc.reference_genome, 'unknown'),
+            jsonb_build_object(
+                    'contig', COALESCE(gc.common_name, gc.accession),
+                    'position', v.position,
+                    'ref', v.reference_allele,
+                    'alt', v.alternate_allele
+            )
+    ) as coordinates
+FROM variant v
+JOIN genbank_contig gc ON v.genbank_contig_id = gc.genbank_contig_id
+GROUP BY COALESCE(v.common_name, v.rs_id)
 ON CONFLICT DO NOTHING;
 
 -- =============================================================================
--- Step 2: Add coordinates for each reference genome
+-- Step 2: Migrate aliases into JSONB structure
 -- =============================================================================
 
--- Update coordinates by merging all builds for each variant
-WITH coord_data AS (
+WITH raw_aliases AS (
+    -- Collect all aliases linked to any variant instance in the group
     SELECT
         COALESCE(v.common_name, v.rs_id) as group_key,
-        jsonb_object_agg(
-            gc.reference_genome,
-            jsonb_build_object(
-                'contig', COALESCE(gc.common_name, gc.accession),
-                'position', v.position,
-                'ref', v.reference_allele,
-                'alt', v.alternate_allele
-            )
-        ) as coords
+        va.alias_type,
+        va.alias_value,
+        va.source
     FROM variant v
-    JOIN genbank_contig gc ON v.genbank_contig_id = gc.genbank_contig_id
-    GROUP BY COALESCE(v.common_name, v.rs_id)
-)
-UPDATE variant_v2 v2
-SET coordinates = cd.coords
-FROM coord_data cd
-WHERE v2.canonical_name IS NOT DISTINCT FROM cd.group_key;
-
--- =============================================================================
--- Step 3: Migrate aliases into JSONB structure
--- =============================================================================
-
-WITH alias_data AS (
+    JOIN variant_alias va ON v.variant_id = va.variant_id
+),
+grouped_aliases AS (
+    -- Aggregate aliases by type for each variant group
     SELECT
-        COALESCE(v.common_name, v.rs_id) as group_key,
+        group_key,
         jsonb_build_object(
-            'common_names', COALESCE(
-                (SELECT jsonb_agg(DISTINCT va.alias_value)
-                 FROM variant_alias va
-                 JOIN variant v2 ON va.variant_id = v2.variant_id
-                 WHERE COALESCE(v2.common_name, v2.rs_id) IS NOT DISTINCT FROM COALESCE(v.common_name, v.rs_id)
-                   AND va.alias_type = 'common_name'),
-                '[]'::jsonb
-            ),
-            'rs_ids', COALESCE(
-                (SELECT jsonb_agg(DISTINCT va.alias_value)
-                 FROM variant_alias va
-                 JOIN variant v2 ON va.variant_id = v2.variant_id
-                 WHERE COALESCE(v2.common_name, v2.rs_id) IS NOT DISTINCT FROM COALESCE(v.common_name, v.rs_id)
-                   AND va.alias_type = 'rs_id'),
-                '[]'::jsonb
-            ),
-            'sources', COALESCE(
-                (SELECT jsonb_object_agg(source, names)
-                 FROM (
-                     SELECT va.source, jsonb_agg(DISTINCT va.alias_value) as names
-                     FROM variant_alias va
-                     JOIN variant v2 ON va.variant_id = v2.variant_id
-                     WHERE COALESCE(v2.common_name, v2.rs_id) IS NOT DISTINCT FROM COALESCE(v.common_name, v.rs_id)
-                       AND va.source IS NOT NULL
-                     GROUP BY va.source
-                 ) src),
-                '{}'::jsonb
-            )
-        ) as aliases
-    FROM variant v
-    GROUP BY COALESCE(v.common_name, v.rs_id)
+            'common_names', COALESCE(jsonb_agg(DISTINCT alias_value) FILTER (WHERE alias_type = 'common_name'), '[]'::jsonb),
+            'rs_ids',       COALESCE(jsonb_agg(DISTINCT alias_value) FILTER (WHERE alias_type = 'rs_id'), '[]'::jsonb),
+            'sources',      COALESCE(
+                                (
+                                    SELECT jsonb_object_agg(source, names)
+                                    FROM (
+                                             SELECT source, jsonb_agg(DISTINCT alias_value) as names
+                                             FROM raw_aliases ra2
+                                             WHERE ra2.group_key = ra1.group_key
+                                               AND source IS NOT NULL
+                                             GROUP BY source
+                                         ) src
+                                ),
+                                '{}'::jsonb
+                            )
+        ) as alias_json
+    FROM raw_aliases ra1
+    GROUP BY group_key
 )
 UPDATE variant_v2 v2
-SET aliases = ad.aliases
-FROM alias_data ad
-WHERE v2.canonical_name IS NOT DISTINCT FROM ad.group_key;
+SET aliases = ga.alias_json
+FROM grouped_aliases ga
+WHERE v2.canonical_name IS NOT DISTINCT FROM ga.group_key;
 
 -- =============================================================================
 -- Step 4: Update haplogroup_variant FK references
@@ -151,6 +132,8 @@ SELECT 'Orphaned haplogroup_variant rows:' as check_name, COUNT(*) as count
 FROM tree.haplogroup_variant hv
 LEFT JOIN variant_v2 v2 ON hv.variant_id = v2.variant_id
 WHERE v2.variant_id IS NULL;
+
+DROP INDEX IF EXISTS idx_tmp_variant_group_key;
 
 COMMIT;
 
