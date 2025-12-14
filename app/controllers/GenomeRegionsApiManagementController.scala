@@ -20,7 +20,8 @@ import scala.concurrent.{ExecutionContext, Future}
 class GenomeRegionsApiManagementController @Inject()(
   val controllerComponents: ControllerComponents,
   secureApi: ApiSecurityAction,
-  managementService: GenomeRegionsManagementService
+  managementService: GenomeRegionsManagementService,
+  ingestionService: services.genomics.GenomeRegionIngestionService
 )(implicit ec: ExecutionContext) extends BaseController {
 
   private val logger = Logger(this.getClass)
@@ -28,6 +29,13 @@ class GenomeRegionsApiManagementController @Inject()(
   // ============================================================================
   // GenomeRegion Endpoints
   // ============================================================================
+
+  def bootstrap(): Action[AnyContent] = secureApi.async { _ =>
+    logger.info("API: Bootstrapping genome regions from CHM13v2.0 sources")
+    ingestionService.bootstrap().map { _ =>
+      Ok(Json.obj("message" -> "Genome regions bootstrapping completed successfully"))
+    }
+  }
 
   def listRegions(regionType: Option[String], build: Option[String], page: Int = 1, pageSize: Int = 25): Action[AnyContent] = secureApi.async { _ =>
     managementService.listRegions(regionType, build, page, pageSize).map { response =>

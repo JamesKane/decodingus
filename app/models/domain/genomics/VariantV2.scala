@@ -32,6 +32,7 @@ case class VariantV2(
   evidence: JsValue = Json.obj(),
   primers: JsValue = Json.obj(),
   notes: Option[String] = None,
+  annotations: JsValue = Json.obj(),
   createdAt: Instant = Instant.now(),
   updatedAt: Instant = Instant.now()
 ) {
@@ -181,6 +182,7 @@ object VariantV2 {
       (__ \ "evidence").read[JsValue] and
       (__ \ "primers").read[JsValue] and
       (__ \ "notes").readNullable[String] and
+      (__ \ "annotations").read[JsValue] and
       (__ \ "createdAt").read[Instant] and
       (__ \ "updatedAt").read[Instant]
     )(VariantV2.apply)
@@ -196,11 +198,12 @@ object VariantV2 {
       (__ \ "evidence").write[JsValue] and
       (__ \ "primers").write[JsValue] and
       (__ \ "notes").writeNullable[String] and
+      (__ \ "annotations").write[JsValue] and
       (__ \ "createdAt").write[Instant] and
       (__ \ "updatedAt").write[Instant]
     )(v => (v.variantId, v.canonicalName, v.mutationType, v.namingStatus, v.aliases,
             v.coordinates, v.definingHaplogroupId, v.evidence, v.primers, v.notes,
-            v.createdAt, v.updatedAt))
+            v.annotations, v.createdAt, v.updatedAt))
 
     Format(reads, writes)
   }

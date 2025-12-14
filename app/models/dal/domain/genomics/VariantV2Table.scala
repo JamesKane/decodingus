@@ -58,6 +58,8 @@ class VariantV2Table(tag: Tag) extends Table[VariantV2](tag, Some("public"), "va
 
   def notes = column[Option[String]]("notes")
 
+  def annotations = column[JsValue]("annotations")
+
   def createdAt = column[Instant]("created_at")
 
   def updatedAt = column[Instant]("updated_at")
@@ -73,6 +75,7 @@ class VariantV2Table(tag: Tag) extends Table[VariantV2](tag, Some("public"), "va
     evidence,
     primers,
     notes,
+    annotations,
     createdAt,
     updatedAt
   ).mapTo[VariantV2]

@@ -116,6 +116,8 @@ POST          /api/private/publication-discovery/run                            
 GET           /admin/genomics                                                                    controllers.GenomicsAdminController.dashboard()
 +nocsrf
 POST          /api/private/genomics/ybrowse/update                                               controllers.GenomicsAdminController.triggerYBrowseUpdate()
++nocsrf
+POST          /api/private/genomics/hipstr/update                                                controllers.GenomicsAdminController.triggerHipStrUpdate()
 
 # Private Variant API
 POST          /api/private/variants/builds                                                       controllers.VariantApiController.bulkAddBuilds()
@@ -169,6 +171,8 @@ POST          /api/v1/manage/genome-regions                                     
 PUT           /api/v1/manage/genome-regions/:id                                                  controllers.GenomeRegionsApiManagementController.updateRegion(id: Int)
 DELETE        /api/v1/manage/genome-regions/:id                                                  controllers.GenomeRegionsApiManagementController.deleteRegion(id: Int)
 POST          /api/v1/manage/genome-regions/bulk                                                 controllers.GenomeRegionsApiManagementController.bulkCreateRegions()
++nocsrf
+POST          /api/v1/manage/genome-regions/bootstrap                                            controllers.GenomicsAdminController.triggerRegionsBootstrap()
 
 # =============================================
 # Haplogroup Tree Merge API (X-API-Key secured)
