@@ -1,9 +1,10 @@
-@import models.api.{TreeDTO, TreeNodeDTO}
+@import models.api.{TreeDTO}
 @import models.HaplogroupType
 @import models.HaplogroupType.{MT, Y}
+@import models.view.TreeViewModel
 @import controllers.routes.TreeController
 
-@(tree: TreeDTO, hapType: HaplogroupType, currentUrl: String)(implicit messages: Messages)
+@(tree: TreeDTO, hapType: HaplogroupType, renderedTreeData: Option[TreeViewModel], currentUrl: String)(implicit messages: Messages)
 
 @fullPageUrl(haplogroup: Option[String]) = @{
     hapType match {
@@ -38,44 +39,12 @@
     </ol>
 </nav>
 
-@* Recursive Node Renderer *@
-@renderNode(node: TreeNodeDTO) = {
-    <div class="tree-node-wrapper">
-        <div class="node-box"
-             hx-get="@fragmentUrl(Option(node.name))"
-             hx-target="#tree-container"
-             hx-push-url="@fullPageUrl(Option(node.name))"
-             hx-indicator=".tree-loading-indicator"
-             style="background-color: @if(node.isBackbone){rgb(230,213,188)}else{white}; border-color: @if(node.isBackbone){rgb(217,192,155)}else{#ccc};">
-            
-            <div class="node-title" title="@node.name">
-                @if(node.isBackbone){<span style="color:green">✓</span>} @node.name
-            </div>
-            
-            @if(node.variants.nonEmpty) {
-                <div class="node-variants">
-                    @for(variant <- node.variants.take(5)) {
-                        <div class="variant-item" title="@variant">@variant</div>
-                    }
-                    @if(node.variants.size > 5) {
-                        <div class="variant-more">+ @(node.variants.size - 5) more</div>
-                    }
-                </div>
-            }
-        </div>
-
-        @if(node.children.nonEmpty) {
-            <div class="node-children-container">
-                <div class="vertical-connector"></div>
-                <div class="children-row">
-                    @for(child <- node.children) {
-                        @renderNode(child)
-                    }
-                </div>
-            </div>
-        }
-    </div>
-}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <small class="text-muted">
+        <span class="me-4"><span class="legend-icon established"></span> <strong>✓</strong> @messages("tree.legend.established")</span>
+        <span class="me-4"><span class="legend-icon updated"></span> <strong>★</strong> @messages("tree.legend.updated")</span>
+    </small>
+</div>
 
 <div id="tree-and-sidebar-container" class="position-relative block-layout-container">
     @* Loading Overlay *@
@@ -86,10 +55,76 @@
     </div>
 
     <div class="block-tree-scroll-container">
-        @tree.subclade.map { root =>
-            <div class="tree-root-display">
-                @renderNode(root)
-            </div>
+        @renderedTreeData.map { rtd =>
+            <svg id="block-tree-svg" width="@rtd.svgWidth" height="@rtd.svgHeight">
+                @for(link <- rtd.allLinks) {
+                    <path class="link" d="@link.pathData"></path>
+                }
+
+                @for(node <- rtd.allNodes) {
+                    <g class="node"
+                       tabindex="0"
+                       role="button"
+                       aria-label="@messages("tree.reRoot") @node.name"
+                       onclick="htmx.trigger(this.querySelector('.node-rect'), 'click')">
+                        
+                        @* Node Box *@
+                        @* Note: In Vertical layout, node.x is horizontal, node.y is vertical *@
+                        <rect class="node-rect @if(node.isBackbone){node-established}else if(node.isRecentlyUpdated){node-recent}"
+                              x="@(node.x - 75)"
+                              y="@(node.y - 40)"
+                              width="150" height="80" rx="4" ry="4"
+                              hx-get="@fragmentUrl(Option(node.name))"
+                              hx-target="#tree-container"
+                              hx-push-url="@fullPageUrl(Option(node.name))"
+                              hx-indicator=".tree-loading-indicator"
+                              style="fill: @node.fillColor; cursor: pointer;">
+                        </rect>
+
+                        @* Header bar *@
+                        <rect class="node-header"
+                              x="@(node.x - 75)"
+                              y="@(node.y - 40)"
+                              width="150" height="22" rx="4" ry="4"
+                              style="fill: @if(node.isBackbone){#2e7d32}else if(node.isRecentlyUpdated){#e65100}else{#555}; pointer-events: none;"/>
+                        <rect x="@(node.x - 75)" y="@(node.y - 22)" width="150" height="4"
+                              style="fill: @if(node.isBackbone){#2e7d32}else if(node.isRecentlyUpdated){#e65100}else{#555}; pointer-events: none;"/>
+                        
+                        @* Node Name *@
+                        <text class="node-name"
+                              x="@(node.x)"
+                              y="@(node.y - 25)"
+                              text-anchor="middle">
+                            @if(node.isBackbone){✓ }@if(node.isRecentlyUpdated){★ }@node.name
+                        </text>
+
+                        @* Variant Count Badge *@
+                        <rect x="@(node.x - 65)" y="@(node.y - 10)" width="130" height="20" rx="10" ry="10"
+                              style="fill: @if(node.variantsCount.getOrElse(0) > 0){#e9ecef}else{#f8f9fa}; stroke: #dee2e6; pointer-events: none;"/>
+                        
+                        <text class="node-variant-count"
+                              x="@(node.x)"
+                              y="@(node.y + 4)"
+                              text-anchor="middle">
+                            @node.variantsCount.getOrElse(0) variants
+                        </text>
+                        
+                        @* View Variants Link *@
+                        @if(node.variantsCount.getOrElse(0) > 0) {
+                             <text class="node-action"
+                                  x="@(node.x)"
+                                  y="@(node.y + 25)"
+                                  text-anchor="middle"
+                                  hx-get="@TreeController.getSnpDetailSidebar(node.name, hapType)"
+                                  hx-target="#snpDetailSidebarPlaceholder"
+                                  hx-swap="outerHTML"
+                                  onclick="event.stopPropagation()">
+                                View Details ▸
+                            </text>
+                        }
+                    </g>
+                }
+            </svg>
         }.getOrElse {
             <div class="alert alert-warning">@messages("tree.noData")</div>
         }
@@ -104,173 +139,104 @@
     }
 
     .block-tree-scroll-container {
-        overflow-x: auto;
+        overflow: auto;
         padding: 20px;
         background-color: #f8f9fa;
         border: 1px solid #ddd;
         border-radius: 4px;
         min-height: 400px;
-    }
-
-    .tree-root-display {
-        display: flex;
-        justify-content: center;
-        width: max-content;
-        margin: 0 auto;
-    }
-
-    .tree-node-wrapper {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        margin: 0 10px;
-    }
-
-    .node-box {
-        width: 160px;
-        min-height: 60px;
-        padding: 8px;
-        border: 2px solid;
-        border-radius: 4px;
-        cursor: pointer;
-        transition: all 0.2s;
         text-align: center;
-        z-index: 2;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        /* Scroll indicators */
+        background-image: linear-gradient(to bottom, #f8f9fa, #f8f9fa),
+            linear-gradient(to bottom, #f8f9fa, #f8f9fa),
+            linear-gradient(to top, rgba(0, 0, 0, 0.1), rgba(0, 0, 0, 0)),
+            linear-gradient(to bottom, rgba(0, 0, 0, 0.1), rgba(0, 0, 0, 0));
+        background-position: top center, bottom center, top center, bottom center;
+        background-repeat: no-repeat;
+        background-size: 100% 20px, 100% 20px, 100% 10px, 100% 10px;
+        background-attachment: local, local, scroll, scroll;
     }
 
-    .node-box:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-        filter: brightness(0.95);
+    .link {
+        fill: none;
+        stroke: #999;
+        stroke-width: 2px;
     }
 
-    .node-title {
+    .node {
+        cursor: pointer;
+        transition: opacity 0.2s;
+    }
+
+    .node:hover .node-rect {
+        filter: drop-shadow(0 4px 6px rgba(0,0,0,0.1));
+        stroke: #666;
+    }
+
+    .node-rect {
+        fill: white;
+        stroke: #ccc;
+        stroke-width: 1px;
+        transition: all 0.2s ease;
+    }
+
+    .node-rect.node-established {
+        stroke: #2e7d32;
+        stroke-width: 2px;
+    }
+
+    .node-rect.node-recent {
+        stroke: #e65100;
+        stroke-width: 2px;
+        stroke-dasharray: 4 2;
+    }
+
+    .node-name {
         font-weight: bold;
-        font-size: 1.1em;
-        margin-bottom: 4px;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
+        font-size: 12px;
+        fill: white;
+        pointer-events: none;
+        text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+    }
+    
+    .node-variant-count {
+        font-size: 11px;
+        fill: #555;
+        pointer-events: none;
     }
 
-    .node-variants {
-        font-size: 0.85em;
-        color: #555;
+    .node-action {
+        font-size: 11px;
+        fill: #0d6efd;
+        text-decoration: underline;
+        cursor: pointer;
     }
     
-    .variant-item {
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
-    
-    .variant-more {
-        font-style: italic;
-        color: #777;
+    .node-action:hover {
+        fill: #0a58ca;
+        font-weight: bold;
     }
 
-    .node-children-container {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
+    /* Legend Icons */
+    .legend-icon {
+        display: inline-block;
+        width: 24px;
+        height: 24px;
+        border-radius: 3px;
+        vertical-align: middle;
+    }
+    
+    .legend-icon.established {
+        background-color: #d4edda;
+        border: 2px solid #2e7d32;
+    }
+    
+    .legend-icon.updated {
+        background-color: #ffeeba;
+        border: 2px dashed #e65100;
     }
 
-    .vertical-connector {
-        width: 2px;
-        height: 20px;
-        background-color: #999;
-    }
-
-    .children-row {
-        display: flex;
-        flex-direction: row;
-        align-items: flex-start;
-        padding-top: 20px; /* Space for the horizontal line */
-        position: relative;
-    }
-
-    /* 
-       Drawing the horizontal connector line.
-       We want a line that spans from the center of the first child to the center of the last child.
-       A common CSS trick for tree connectors involves pseudo-elements on the children wrappers.
-    */
-    
-    .children-row::before {
-        content: "";
-        position: absolute;
-        top: 0;
-        left: 50%;
-        width: 2px;
-        height: 20px;
-        background-color: #999;
-        /* This connects the parent's vertical connector to the horizontal bar */
-    }
-
-    /* Individual child connectors */
-    .tree-node-wrapper::before {
-        content: "";
-        position: absolute;
-        top: -20px; /* Connects up to the horizontal line */
-        left: 50%;
-        width: 2px;
-        height: 20px;
-        background-color: #999;
-    }
-    
-    /* Horizontal bar for all children except single child case */
-    /* This is hard to do perfectly with just flexbox without known widths or complex calc.
-       Alternative approach: Put the top border on the children.
-    */
-    
-    .tree-node-wrapper {
-        position: relative;
-    }
-
-    /* Top vertical line for every node (except root of this subtree call, handled by parent) */
-    /* Actually the recursive structure puts 'node-children-container' inside the parent. */
-    
-    /* Let's try a simpler connector strategy common in CSS trees */
-    .children-row > .tree-node-wrapper::before {
-        content: '';
-        position: absolute;
-        top: -20px; /* move up to the gap */
-        left: 50%;
-        border-left: 2px solid #999;
-        height: 20px;
-        width: 0;
-    }
-    
-    .children-row > .tree-node-wrapper::after {
-        content: '';
-        position: absolute;
-        top: -20px;
-        width: 100%;
-        border-top: 2px solid #999;
-    }
-    
-    /* Left side of the line */
-    .children-row > .tree-node-wrapper:first-child::after {
-        left: 50%;
-        width: 50%;
-    }
-    
-    /* Right side of the line */
-    .children-row > .tree-node-wrapper:last-child::after {
-        left: 0;
-        width: 50%;
-    }
-    
-    /* If there is only one child, we don't need the horizontal bar, just the vertical one */
-    .children-row > .tree-node-wrapper:only-child::after {
-        display: none;
-    }
-    .children-row > .tree-node-wrapper:only-child::before {
-        height: 20px; /* full height connector */
-    }
-
-
-    /* Loading Indicator Style (copied from original) */
+    /* Loading Indicator */
     .tree-loading-indicator {
         display: none;
         position: absolute;

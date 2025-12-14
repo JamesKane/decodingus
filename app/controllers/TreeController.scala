@@ -211,15 +211,18 @@ class TreeController @Inject()(val controllerComponents: MessagesControllerCompo
                                )(using request: Request[AnyContent]): Future[Result] = {
     val haplogroupName = rootHaplogroup.getOrElse(config.defaultRoot)
     val isAbsoluteTopRootView = haplogroupName == config.defaultRoot
+    
+    val orientation = if (showBlockLayout) services.TreeOrientation.Vertical else services.TreeOrientation.Horizontal
 
     treeService.buildTreeResponse(haplogroupName, config.haplogroupType, FragmentRoute)
       .map { treeDto =>
+        val treeViewModel: Option[TreeViewModel] = treeDto.subclade.flatMap { _ =>
+          services.TreeLayoutService.layoutTree(treeDto, isAbsoluteTopRootView, orientation)
+        }
+        
         if (showBlockLayout) {
-          Ok(views.html.fragments.blockTree(treeDto, config.haplogroupType, request.uri))
+          Ok(views.html.fragments.blockTree(treeDto, config.haplogroupType, treeViewModel, request.uri))
         } else {
-          val treeViewModel: Option[TreeViewModel] = treeDto.subclade.flatMap { _ =>
-            services.TreeLayoutService.layoutTree(treeDto, isAbsoluteTopRootView)
-          }
           Ok(views.html.fragments.haplogroup(treeDto, config.haplogroupType, treeViewModel, request.uri, featureFlags.showBranchAgeEstimates))
         }
       }
@@ -255,6 +258,8 @@ class TreeController @Inject()(val controllerComponents: MessagesControllerCompo
 
     val haplogroupName = rootHaplogroup.getOrElse(config.defaultRoot)
     val isAbsoluteTopRootView = haplogroupName == config.defaultRoot
+    val showBlockLayout = shouldShowBlockLayout(request)
+    val orientation = if (showBlockLayout) services.TreeOrientation.Vertical else services.TreeOrientation.Horizontal
 
     treeService.buildTreeResponse(haplogroupName, config.haplogroupType, routeType)
       .map { treeDto =>
@@ -265,10 +270,14 @@ class TreeController @Inject()(val controllerComponents: MessagesControllerCompo
             Ok(Json.toJson(apiBody))
           case FragmentRoute =>
             val treeViewModel: Option[TreeViewModel] = treeDto.subclade.flatMap { rootNodeDTO =>
-              services.TreeLayoutService.layoutTree(treeDto, isAbsoluteTopRootView)
+              services.TreeLayoutService.layoutTree(treeDto, isAbsoluteTopRootView, orientation)
             }
-
-            Ok(views.html.fragments.haplogroup(treeDto, config.haplogroupType, treeViewModel, request.uri, featureFlags.showBranchAgeEstimates))
+            
+            if (showBlockLayout) {
+               Ok(views.html.fragments.blockTree(treeDto, config.haplogroupType, treeViewModel, request.uri))
+            } else {
+               Ok(views.html.fragments.haplogroup(treeDto, config.haplogroupType, treeViewModel, request.uri, featureFlags.showBranchAgeEstimates))
+            }
         }
       }
       .recover {
