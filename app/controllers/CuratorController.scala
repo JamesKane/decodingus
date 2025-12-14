@@ -158,20 +158,8 @@ class CuratorController @Inject()(
   // === Haplogroups ===
 
   def listHaplogroups(query: Option[String], hgType: Option[String], page: Int, pageSize: Int): Action[AnyContent] =
-    withPermission("haplogroup.view").async { implicit request =>
-      val haplogroupType = hgType.flatMap(HaplogroupType.fromString)
-      val offset = (page - 1) * pageSize
-
-      for {
-        haplogroups <- query match {
-          case Some(q) if q.nonEmpty => haplogroupRepository.search(q, haplogroupType, pageSize, offset)
-          case _ => haplogroupRepository.search("", haplogroupType, pageSize, offset)
-        }
-        totalCount <- haplogroupRepository.count(query.filter(_.nonEmpty), haplogroupType)
-      } yield {
-        val totalPages = Math.max(1, (totalCount + pageSize - 1) / pageSize)
-        Ok(views.html.curator.haplogroups.list(haplogroups, query, hgType, page, totalPages, pageSize))
-      }
+    withPermission("haplogroup.view") { implicit request =>
+      Ok(views.html.curator.haplogroups.list(query, hgType, pageSize))
     }
 
   def haplogroupsFragment(query: Option[String], hgType: Option[String], page: Int, pageSize: Int): Action[AnyContent] =
@@ -432,14 +420,8 @@ class CuratorController @Inject()(
   // === Variants ===
 
   def listVariants(query: Option[String], page: Int, pageSize: Int): Action[AnyContent] =
-    withPermission("variant.view").async { implicit request =>
-      val offset = (page - 1) * pageSize
-      for {
-        (variants, totalCount) <- variantV2Repository.searchPaginated(query.getOrElse(""), offset, pageSize)
-      } yield {
-        val totalPages = Math.max(1, (totalCount + pageSize - 1) / pageSize)
-        Ok(views.html.curator.variants.list(variants, query, page, totalPages, pageSize, totalCount))
-      }
+    withPermission("variant.view") { implicit request =>
+      Ok(views.html.curator.variants.list(query, pageSize))
     }
 
   def variantsFragment(query: Option[String], page: Int, pageSize: Int): Action[AnyContent] =

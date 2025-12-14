@@ -1,6 +1,5 @@
 @import org.webjars.play.WebJarsUtil
-@import models.domain.genomics.VariantV2
-@(variants: Seq[VariantV2], query: Option[String], currentPage: Int, totalPages: Int, pageSize: Int, totalCount: Int)(implicit request: RequestHeader, messages: Messages, webJarsUtil: WebJarsUtil)
+@(query: Option[String], pageSize: Int)(implicit request: RequestHeader, messages: Messages, webJarsUtil: WebJarsUtil)
 
 @main("Curator - Variants") {
     <style>
@@ -45,8 +44,16 @@
                             </div>
                         </div>
 
-                        <div id="variants-table">
-                            @listFragment(variants, query, currentPage, totalPages, pageSize, totalCount)
+                        <div id="variants-table"
+                             hx-get="@controllers.routes.CuratorController.variantsFragment(query, 1, pageSize)"
+                             hx-trigger="load"
+                             hx-swap="innerHTML">
+                            <div class="text-center py-5">
+                                <div class="spinner-border text-primary" role="status">
+                                    <span class="visually-hidden">Loading...</span>
+                                </div>
+                                <p class="text-muted mt-2">Loading variants...</p>
+                            </div>
                         </div>
                     </div>
                 </div>

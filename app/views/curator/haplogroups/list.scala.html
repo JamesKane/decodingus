@@ -1,6 +1,5 @@
 @import org.webjars.play.WebJarsUtil
-@import models.domain.haplogroups.Haplogroup
-@(haplogroups: Seq[Haplogroup], query: Option[String], hgType: Option[String], currentPage: Int, totalPages: Int, pageSize: Int)(implicit request: RequestHeader, messages: Messages, webJarsUtil: WebJarsUtil)
+@(query: Option[String], hgType: Option[String], pageSize: Int)(implicit request: RequestHeader, messages: Messages, webJarsUtil: WebJarsUtil)
 
 @main("Curator - Haplogroups") {
     <style>
@@ -46,6 +45,7 @@
                             <div class="col-md-4">
                                 <select class="form-select"
                                     id="type-filter"
+                                    name="hgType"
                                     hx-get="@controllers.routes.CuratorController.haplogroupsFragment(query, None, 1, pageSize)"
                                     hx-trigger="change"
                                     hx-target="#haplogroups-table"
@@ -57,8 +57,16 @@
                             </div>
                         </div>
 
-                        <div id="haplogroups-table">
-                            @listFragment(haplogroups, query, hgType, currentPage, totalPages, pageSize)
+                        <div id="haplogroups-table"
+                             hx-get="@controllers.routes.CuratorController.haplogroupsFragment(query, hgType, 1, pageSize)"
+                             hx-trigger="load"
+                             hx-swap="innerHTML">
+                            <div class="text-center py-5">
+                                <div class="spinner-border text-primary" role="status">
+                                    <span class="visually-hidden">Loading...</span>
+                                </div>
+                                <p class="text-muted mt-2">Loading haplogroups...</p>
+                            </div>
                         </div>
                     </div>
                 </div>

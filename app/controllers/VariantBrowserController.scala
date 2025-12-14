@@ -35,15 +35,9 @@ class VariantBrowserController @Inject()(
   /**
    * Main variant browser page with search functionality.
    */
-  def index(query: Option[String], page: Int, pageSize: Int): Action[AnyContent] = Action.async {
+  def index(query: Option[String], page: Int, pageSize: Int): Action[AnyContent] = Action {
     implicit request: Request[AnyContent] =>
-      val offset = (page - 1) * pageSize
-      for {
-        (variants, totalCount) <- getCachedSearchResults(query.getOrElse(""), offset, pageSize)
-      } yield {
-        val totalPages = Math.max(1, (totalCount + pageSize - 1) / pageSize)
-        Ok(views.html.variants.browser(variants, query, page, totalPages, pageSize, totalCount))
-      }
+      Ok(views.html.variants.browser(query, page, pageSize))
   }
 
   /**
