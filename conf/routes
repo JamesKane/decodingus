@@ -116,6 +116,7 @@ POST          /api/private/publication-discovery/run                            
 GET           /admin/genomics                                                                    controllers.GenomicsAdminController.dashboard()
 +nocsrf
 POST          /api/private/genomics/ybrowse/update                                               controllers.GenomicsAdminController.triggerYBrowseUpdate()
+POST          /api/private/genomics/hipstr/update                                                controllers.GenomicsAdminController.triggerHipStrUpdate()
 
 # Private Variant API
 POST          /api/private/variants/builds                                                       controllers.VariantApiController.bulkAddBuilds()

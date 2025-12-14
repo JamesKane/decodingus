@@ -25,6 +25,10 @@ class GenomicsConfig @Inject()(config: Configuration) {
   val ybrowseGffUrl: String = genomicsConfig.get[String]("ybrowse.gff_url")
   val ybrowseGffStoragePath: File = new File(genomicsConfig.get[String]("ybrowse.gff_storage_path"))
 
+  // HipSTR configuration
+  val hipstrUrl: String = genomicsConfig.get[String]("hipstr.url")
+  val hipstrStoragePath: File = new File(genomicsConfig.get[String]("hipstr.storage_path"))
+
   /**
    * Retrieves the path to a liftover chain file for a given source and target genome.
    *
