@@ -1,7 +1,7 @@
 package models.dal.domain.genomics
 
 import models.dal.MyPostgresProfile.api.*
-import models.domain.genomics.{GenomeRegion, GenomeRegionVersion, RegionCoordinate, StrMarker}
+import models.domain.genomics.{GenomeRegion, GenomeRegionVersion, RegionCoordinate}
 import play.api.libs.json.JsValue
 import java.time.Instant
 
@@ -38,26 +38,4 @@ class GenomeRegionTable(tag: Tag) extends Table[GenomeRegion](tag, "genome_regio
   )
   
   // No Foreign Key to Contig anymore, as coordinates are embedded
-}
-
-/**
- * Slick table definition for str_marker table.
- * Stores STR marker positions for Y-DNA analysis.
- */
-class StrMarkerTable(tag: Tag) extends Table[StrMarker](tag, "str_marker") {
-  def id = column[Int]("id", O.PrimaryKey, O.AutoInc)
-  def genbankContigId = column[Int]("genbank_contig_id")
-  def name = column[String]("name")
-  def startPos = column[Long]("start_pos")
-  def endPos = column[Long]("end_pos")
-  def period = column[Int]("period")
-  def verified = column[Boolean]("verified")
-  def note = column[Option[String]]("note")
-
-  def * = (id.?, genbankContigId, name, startPos, endPos, period, verified, note).mapTo[StrMarker]
-
-  def genbankContigFk = foreignKey("str_marker_genbank_contig_fk", genbankContigId,
-    TableQuery[GenbankContigsTable])(_.genbankContigId, onDelete = ForeignKeyAction.Cascade)
-
-  def idxContig = index("idx_str_marker_contig", genbankContigId)
 }
