@@ -90,6 +90,14 @@ trait HaplogroupVariantMetadataRepository {
    *         revision chain of the specified variant starting from the specified revision.
    */
   def getVariantRevisionChain(variantId: Int, revisionId: Int): Future[Seq[HaplogroupVariantMetadata]]
+
+  /**
+   * Retrieves the latest revision ID for a given haplogroup variant ID.
+   *
+   * @param haplogroupVariantId The unique identifier of the haplogroup variant.
+   * @return A Future containing an Option with the latest revision ID, or None if no revisions exist.
+   */
+  def getLatestRevisionId(haplogroupVariantId: Int): Future[Option[Int]]
 }
 
 class HaplogroupVariantMetadataRepositoryImpl @Inject()(
@@ -198,5 +206,15 @@ class HaplogroupVariantMetadataRepositoryImpl @Inject()(
     }
 
     runQuery(recursiveChain(revisionId))
+  }
+
+  override def getLatestRevisionId(haplogroupVariantId: Int): Future[Option[Int]] = {
+    val query = haplogroupVariantMetadata
+      .filter(_.haplogroup_variant_id === haplogroupVariantId)
+      .map(_.revision_id)
+      .max
+      .result
+
+    runQuery(query)
   }
 }

@@ -337,30 +337,36 @@ class HaplogroupTreeMergeService @Inject()(
 
       // Create HaplogroupVariantMetadata for added variants
       _ <- Future.traverse(addedVariantIds) { hgVariantId =>
-        val metadata = HaplogroupVariantMetadata(
-          haplogroup_variant_id = hgVariantId,
-          revision_id = 1,
-          author = context.sourceName,
-          timestamp = context.timestamp,
-          comment = s"Variant added to existing haplogroup ${existing.name}",
-          change_type = "create",
-          previous_revision_id = None
-        )
-        haplogroupVariantMetadataRepository.addVariantRevisionMetadata(metadata)
+        haplogroupVariantMetadataRepository.getLatestRevisionId(hgVariantId).flatMap { latestRevisionIdOpt =>
+          val newRevisionId = latestRevisionIdOpt.map(_ + 1).getOrElse(1)
+          val metadata = HaplogroupVariantMetadata(
+            haplogroup_variant_id = hgVariantId,
+            revision_id = newRevisionId,
+            author = context.sourceName,
+            timestamp = context.timestamp,
+            comment = s"Variant added to existing haplogroup ${existing.name}",
+            change_type = "create",
+            previous_revision_id = latestRevisionIdOpt
+          )
+          haplogroupVariantMetadataRepository.addVariantRevisionMetadata(metadata)
+        }
       }
 
-      // Create HaplogroupVariantMetadata for removed variants (need to get their haplogroup_variant_id first)
+      // Create HaplogroupVariantMetadata for removed variants
       _ <- Future.traverse(removedVariantIds) { hgVariantId =>
-        val metadata = HaplogroupVariantMetadata(
-          haplogroup_variant_id = hgVariantId,
-          revision_id = 1,
-          author = context.sourceName,
-          timestamp = context.timestamp,
-          comment = s"Variant removed from existing haplogroup ${existing.name}",
-          change_type = "delete",
-          previous_revision_id = None
-        )
-        haplogroupVariantMetadataRepository.addVariantRevisionMetadata(metadata) // Should probably be a remove metadata
+        haplogroupVariantMetadataRepository.getLatestRevisionId(hgVariantId).flatMap { latestRevisionIdOpt =>
+          val newRevisionId = latestRevisionIdOpt.map(_ + 1).getOrElse(1)
+          val metadata = HaplogroupVariantMetadata(
+            haplogroup_variant_id = hgVariantId,
+            revision_id = newRevisionId,
+            author = context.sourceName,
+            timestamp = context.timestamp,
+            comment = s"Variant removed from existing haplogroup ${existing.name}",
+            change_type = "delete",
+            previous_revision_id = latestRevisionIdOpt
+          )
+          haplogroupVariantMetadataRepository.addVariantRevisionMetadata(metadata)
+        }
       }
 
 
@@ -467,16 +473,19 @@ class HaplogroupTreeMergeService @Inject()(
 
       // Create HaplogroupVariantMetadata for each newly associated variant
       _ <- Future.traverse(haplogroupVariantIds) { hgVariantId =>
-        val metadata = HaplogroupVariantMetadata(
-          haplogroup_variant_id = hgVariantId,
-          revision_id = 1,
-          author = context.sourceName,
-          timestamp = context.timestamp,
-          comment = s"Initial creation of variant association for haplogroup ${node.name}",
-          change_type = "create",
-          previous_revision_id = None
-        )
-        haplogroupVariantMetadataRepository.addVariantRevisionMetadata(metadata)
+        haplogroupVariantMetadataRepository.getLatestRevisionId(hgVariantId).flatMap { latestRevisionIdOpt =>
+          val newRevisionId = latestRevisionIdOpt.map(_ + 1).getOrElse(1)
+          val metadata = HaplogroupVariantMetadata(
+            haplogroup_variant_id = hgVariantId,
+            revision_id = newRevisionId,
+            author = context.sourceName,
+            timestamp = context.timestamp,
+            comment = s"Initial creation of variant association for haplogroup ${node.name}",
+            change_type = "create",
+            previous_revision_id = latestRevisionIdOpt
+          )
+          haplogroupVariantMetadataRepository.addVariantRevisionMetadata(metadata)
+        }
       }
 
       // Update statistics
