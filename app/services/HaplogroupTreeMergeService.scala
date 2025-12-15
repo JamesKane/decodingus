@@ -107,13 +107,21 @@ class HaplogroupTreeMergeService @Inject()(
           throw new IllegalArgumentException(s"Anchor haplogroup '${request.anchorHaplogroupName}' not found")
         )
 
+        // Load context: Get all descendants of the anchor
+        descendants <- getDescendantsRecursive(anchor.id.get)
+        
+        // Build scoped index for the anchor and its descendants
+        subtreeScope = anchor +: descendants
+        subtreeIndex <- buildVariantIndexForScope(subtreeScope)
+
         result <- performMerge(
           haplogroupType = request.haplogroupType,
           anchorId = anchor.id,
           sourceTree = request.sourceTree,
           sourceName = request.sourceName,
           priorityConfig = request.priorityConfig.getOrElse(SourcePriorityConfig(List.empty)),
-          conflictStrategy = request.conflictStrategy.getOrElse(ConflictStrategy.HigherPriorityWins)
+          conflictStrategy = request.conflictStrategy.getOrElse(ConflictStrategy.HigherPriorityWins),
+          preloadedIndex = Some(subtreeIndex)
         )
       } yield result
     }
@@ -125,6 +133,9 @@ class HaplogroupTreeMergeService @Inject()(
   def previewMerge(request: MergePreviewRequest): Future[MergePreviewResponse] = {
     for {
       // Build variant-based index of existing haplogroups
+      // If we are previewing a subtree, we should ideally scope this too, but for now maintaining global index behavior for preview
+      // unless specifically requested to scope preview. 
+      // Optimization: For subtree preview, we could also scope, but let's stick to the requested changes for mergeSubtree first.
       existingIndex <- buildVariantIndex(request.haplogroupType)
 
       // Simulate the merge to collect statistics
@@ -140,6 +151,43 @@ class HaplogroupTreeMergeService @Inject()(
   // ============================================================================
   // Private Implementation
   // ============================================================================
+
+  /**
+   * Recursively fetch all descendants of a haplogroup.
+   */
+  private def getDescendantsRecursive(haplogroupId: Int): Future[Seq[Haplogroup]] = {
+    def fetch(currentId: Int): Future[Seq[Haplogroup]] = {
+      haplogroupRepository.getDirectChildren(currentId).flatMap { children =>
+        Future.sequence(children.map(child => fetch(child.id.get))).map { nested =>
+          children ++ nested.flatten
+        }
+      }
+    }
+    fetch(haplogroupId)
+  }
+
+  /**
+   * Build an index of existing haplogroups scoped to a specific list.
+   */
+  private def buildVariantIndexForScope(haplogroups: Seq[Haplogroup]): Future[VariantIndex] = {
+    val futures = haplogroups.map { hg =>
+      haplogroupVariantRepository.getHaplogroupVariants(hg.id.get).map { variants =>
+        (hg, variants.flatMap(_.canonicalName))
+      }
+    }
+
+    Future.sequence(futures).map { hgsWithVariants =>
+      val variantToHaplogroup = hgsWithVariants.flatMap { case (hg, variantNames) =>
+        variantNames.map(v => v.toUpperCase -> hg)
+      }.groupMap(_._1)(_._2)
+
+      val haplogroupByName = hgsWithVariants.map { case (hg, _) =>
+        hg.name.toUpperCase -> hg
+      }.toMap
+
+      VariantIndex(variantToHaplogroup, haplogroupByName)
+    }
+  }
 
   /**
    * Build an index of existing haplogroups by their variant names.
@@ -168,7 +216,8 @@ class HaplogroupTreeMergeService @Inject()(
     sourceTree: PhyloNodeInput,
     sourceName: String,
     priorityConfig: SourcePriorityConfig,
-    conflictStrategy: ConflictStrategy
+    conflictStrategy: ConflictStrategy,
+    preloadedIndex: Option[VariantIndex] = None
   ): Future[TreeMergeResponse] = {
     val now = LocalDateTime.now()
     val context = MergeContext(
@@ -180,8 +229,11 @@ class HaplogroupTreeMergeService @Inject()(
     )
 
     for {
-      // Build variant-based index
-      existingIndex <- buildVariantIndex(haplogroupType)
+      // Use preloaded index if available, otherwise build global index
+      existingIndex <- preloadedIndex match {
+        case Some(idx) => Future.successful(idx)
+        case None => buildVariantIndex(haplogroupType)
+      }
 
       // Perform recursive merge
       result <- mergeNode(

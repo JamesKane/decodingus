@@ -375,6 +375,12 @@ class HaplogroupTreeMergeServiceSpec extends PlaySpec with MockitoSugar with Sca
         .thenReturn(Future.successful(true))
       when(mockVariantV2Repository.searchByName(anyString()))
         .thenReturn(Future.successful(Seq.empty))
+      
+      // Mocks for context loading
+      when(mockHaplogroupRepo.getDirectChildren(anyInt()))
+        .thenReturn(Future.successful(Seq.empty))
+      when(mockVariantRepo.getHaplogroupVariants(anyInt()))
+        .thenReturn(Future.successful(Seq.empty))
 
       val sourceTree = createPhyloNode(
         name = "R1b-L21",
