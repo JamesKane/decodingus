@@ -98,6 +98,13 @@ trait HaplogroupVariantMetadataRepository {
    * @return A Future containing an Option with the latest revision ID, or None if no revisions exist.
    */
   def getLatestRevisionId(haplogroupVariantId: Int): Future[Option[Int]]
+
+  def addNextVariantRevisionMetadata(
+    haplogroupVariantId: Int,
+    author: String,
+    comment: String,
+    changeType: String
+  ): Future[HaplogroupVariantMetadata]
 }
 
 class HaplogroupVariantMetadataRepositoryImpl @Inject()(
@@ -216,5 +223,39 @@ class HaplogroupVariantMetadataRepositoryImpl @Inject()(
       .result
 
     runQuery(query)
+  }
+
+  override def addNextVariantRevisionMetadata(
+    haplogroupVariantId: Int,
+    author: String,
+    comment: String,
+    changeType: String
+  ): Future[HaplogroupVariantMetadata] = {
+    val action = (for {
+      // Select the maximum revision_id for the given haplogroup_variant_id, and lock the table for update
+      // Using "forUpdate" to prevent race conditions during concurrent merges
+      latestRevisionIdOption <- haplogroupVariantMetadata
+        .filter(_.haplogroup_variant_id === haplogroupVariantId)
+        .map(_.revision_id)
+        .max
+        .result
+        .forUpdate // Pessimistic lock for the select
+
+      nextRevisionId = latestRevisionIdOption.map(_ + 1).getOrElse(1)
+      previousRevisionIdValue = latestRevisionIdOption // This is the actual previous_revision_id
+
+      newMetadata = HaplogroupVariantMetadata(
+        haplogroup_variant_id = haplogroupVariantId,
+        revision_id = nextRevisionId,
+        previous_revision_id = previousRevisionIdValue, // Use the fetched latestRevisionIdOption
+        author = author,
+        comment = comment,
+        timestamp = LocalDateTime.now(),
+        change_type = changeType
+      )
+      _ <- haplogroupVariantMetadata += newMetadata
+    } yield newMetadata).transactionally // Ensure the entire block runs as a single transaction
+
+    runQuery(action)
   }
 }
