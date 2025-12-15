@@ -357,6 +357,7 @@ class HaplogroupTreeMergeService @Inject()(
       provenance = Some(provenance)
     )
 
+    logger.info(s"Creating new haplogroup node: ${node.name} with parent ID: $parentId from source: ${context.sourceName}")
     for {
       // Create the haplogroup with parent relationship
       newId <- haplogroupRepository.createWithParent(newHaplogroup, parentId, context.sourceName)
