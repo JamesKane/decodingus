@@ -88,6 +88,14 @@ trait HaplogroupRevisionMetadataRepository {
    *         starting from the specified revision and including all subsequent revisions.
    */
   def getRevisionChain(relationshipId: Int, revisionId: Int): Future[Seq[RelationshipRevisionMetadata]]
+
+  /**
+   * Retrieves the latest revision ID for a given haplogroup relationship ID.
+   *
+   * @param haplogroupRelationshipId The unique identifier of the haplogroup relationship.
+   * @return A Future containing an Option with the latest revision ID, or None if no revisions exist.
+   */
+  def getLatestRevisionId(haplogroupRelationshipId: Int): Future[Option[Int]]
 }
 
 class HaplogroupRevisionMetadataRepositoryImpl @Inject()(
@@ -184,5 +192,15 @@ class HaplogroupRevisionMetadataRepositoryImpl @Inject()(
     }
 
     runQuery(recursiveChain(revisionId))
+  }
+
+  override def getLatestRevisionId(haplogroupRelationshipId: Int): Future[Option[Int]] = {
+    val query = relationshipRevisionMetadata
+      .filter(_.haplogroup_relationship_id === haplogroupRelationshipId)
+      .map(_.revisionId)
+      .max
+      .result
+
+    runQuery(query)
   }
 }

@@ -295,15 +295,17 @@ class HaplogroupTreeMergeService @Inject()(
           logger.info(s"Updating parent for haplogroup ${existing.name} from ${currentParent.name} to new parent ID $newPid from source: ${context.sourceName}")
           for {
             relId <- haplogroupRepository.updateParent(existing.id.get, newPid, context.sourceName)
+            latestRevisionIdOpt <- haplogroupRevisionMetadataRepository.getLatestRevisionId(relId)
+            newRevisionId = latestRevisionIdOpt.map(_ + 1).getOrElse(1)
             metadataId <- haplogroupRevisionMetadataRepository.addRelationshipRevisionMetadata(
               RelationshipRevisionMetadata(
                 haplogroup_relationship_id = relId,
-                revisionId = 1,
+                revisionId = newRevisionId,
                 author = context.sourceName,
                 timestamp = context.timestamp,
                 comment = s"Parent for ${existing.name} updated from ${currentParent.name} (ID: ${currentParent.id.get}) to ${node.name} (ID: $newPid) from source: ${context.sourceName}",
                 changeType = "update",
-                previousRevisionId = None
+                previousRevisionId = latestRevisionIdOpt
               )
             )
           } yield Some(metadataId)
@@ -311,15 +313,17 @@ class HaplogroupTreeMergeService @Inject()(
           logger.info(s"Adding parent for haplogroup ${existing.name} with new parent ID $newPid from source: ${context.sourceName}")
           for {
             relId <- haplogroupRepository.updateParent(existing.id.get, newPid, context.sourceName)
+            latestRevisionIdOpt <- haplogroupRevisionMetadataRepository.getLatestRevisionId(relId)
+            newRevisionId = latestRevisionIdOpt.map(_ + 1).getOrElse(1)
             metadataId <- haplogroupRevisionMetadataRepository.addRelationshipRevisionMetadata(
               RelationshipRevisionMetadata(
                 haplogroup_relationship_id = relId,
-                revisionId = 1,
+                revisionId = newRevisionId,
                 author = context.sourceName,
                 timestamp = context.timestamp,
                 comment = s"Parent for ${existing.name} added as ${node.name} (ID: $newPid) from source: ${context.sourceName}",
                 changeType = "create",
-                previousRevisionId = None
+                previousRevisionId = latestRevisionIdOpt
               )
             )
           } yield Some(metadataId)
@@ -455,16 +459,19 @@ class HaplogroupTreeMergeService @Inject()(
       // Create RelationshipRevisionMetadata if a parent relationship was created
       _ <- relationshipIdOpt match {
         case Some(relId) =>
-          val metadata = RelationshipRevisionMetadata(
-            haplogroup_relationship_id = relId,
-            revisionId = 1,
-            author = context.sourceName,
-            timestamp = context.timestamp,
-            comment = s"Initial creation of relationship for new haplogroup ${node.name}",
-            changeType = "create",
-            previousRevisionId = None
-          )
-          haplogroupRevisionMetadataRepository.addRelationshipRevisionMetadata(metadata)
+          haplogroupRevisionMetadataRepository.getLatestRevisionId(relId).flatMap { latestRevisionIdOpt =>
+            val newRevisionId = latestRevisionIdOpt.map(_ + 1).getOrElse(1)
+            val metadata = RelationshipRevisionMetadata(
+              haplogroup_relationship_id = relId,
+              revisionId = newRevisionId,
+              author = context.sourceName,
+              timestamp = context.timestamp,
+              comment = s"Initial creation of relationship for new haplogroup ${node.name}",
+              changeType = "create",
+              previousRevisionId = latestRevisionIdOpt
+            )
+            haplogroupRevisionMetadataRepository.addRelationshipRevisionMetadata(metadata)
+          }
         case None => Future.successful(0)
       }
 

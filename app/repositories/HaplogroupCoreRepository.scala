@@ -136,6 +136,14 @@ trait HaplogroupCoreRepository {
    * @return sequence of tuples: (haplogroup, list of variant names)
    */
   def getAllWithVariantNames(haplogroupType: HaplogroupType): Future[Seq[(Haplogroup, Seq[String])]]
+
+  /**
+   * Retrieves the latest revision ID for a given haplogroup relationship identified by its child haplogroup ID.
+   *
+   * @param childHaplogroupId The unique identifier of the child haplogroup.
+   * @return A Future containing an Option with the latest revision ID, or None if no relationships exist for the child.
+   */
+  def getLatestRelationshipRevisionId(childHaplogroupId: Int): Future[Option[Int]]
 }
 
 class HaplogroupCoreRepositoryImpl @Inject()(
@@ -370,56 +378,65 @@ class HaplogroupCoreRepositoryImpl @Inject()(
     import models.domain.haplogroups.HaplogroupRelationship
     val now = LocalDateTime.now()
 
-    val updateAction = for {
-      // Soft-delete the existing parent relationship
-      _ <- haplogroupRelationships
-        .filter(r => r.childHaplogroupId === childId && (r.validUntil.isEmpty || r.validUntil > now))
-        .map(_.validUntil)
-        .update(Some(now))
+    for {
+      // Get the latest revision ID for this child haplogroup
+      latestRevisionIdOpt <- getLatestRelationshipRevisionId(childId)
+      newRevisionId = latestRevisionIdOpt.map(_ + 1).getOrElse(1)
 
-      // Create new relationship to new parent and return its ID
-      newRelationshipId <- (haplogroupRelationships returning haplogroupRelationships.map(_.haplogroupRelationshipId)) += HaplogroupRelationship(
-        id = None,
-        childHaplogroupId = childId,
-        parentHaplogroupId = newParentId,
-        revisionId = 1,
-        validFrom = now,
-        validUntil = None,
-        source = source
-      )
+      newRelationshipId <- runTransactionally {
+        for {
+          // Soft-delete the existing parent relationship
+          _ <- haplogroupRelationships
+            .filter(r => r.childHaplogroupId === childId && (r.validUntil.isEmpty || r.validUntil > now))
+            .map(_.validUntil)
+            .update(Some(now))
+
+          // Create new relationship to new parent and return its ID
+          relId <- (haplogroupRelationships returning haplogroupRelationships.map(_.haplogroupRelationshipId)) += HaplogroupRelationship(
+            id = None,
+            childHaplogroupId = childId,
+            parentHaplogroupId = newParentId,
+            revisionId = newRevisionId,
+            validFrom = now,
+            validUntil = None,
+            source = source
+          )
+        } yield relId
+      }
     } yield newRelationshipId
-
-    runTransactionally(updateAction)
   }
 
   override def createWithParent(haplogroup: Haplogroup, parentId: Option[Int], source: String): Future[(Int, Option[Int])] = {
     import models.domain.haplogroups.HaplogroupRelationship
     val now = LocalDateTime.now()
 
-    val createAction = for {
-      // Create the haplogroup
-      newId <- (haplogroups returning haplogroups.map(_.haplogroupId)) += haplogroup
+    for {
+      // Create the haplogroup first
+      newId <- runQuery((haplogroups returning haplogroups.map(_.haplogroupId)) += haplogroup)
 
       // Create parent relationship if parentId provided
       relationshipIdValue <- parentId match {
         case Some(pid) =>
-          val newRelationship = HaplogroupRelationship(
-            id = None,
-            childHaplogroupId = newId,
-            parentHaplogroupId = pid,
-            revisionId = 1,
-            validFrom = now,
-            validUntil = None,
-            source = source
-          )
-          val insertAction = (haplogroupRelationships returning haplogroupRelationships.map(_.haplogroupRelationshipId)) += newRelationship
-          insertAction.map(Some(_))
+          for {
+            // Get the latest revision ID for this child haplogroup
+            latestRevisionIdOpt <- getLatestRelationshipRevisionId(newId)
+            newRevisionId = latestRevisionIdOpt.map(_ + 1).getOrElse(1)
+            newRelationshipId <- runQuery {
+              (haplogroupRelationships returning haplogroupRelationships.map(_.haplogroupRelationshipId)) += HaplogroupRelationship(
+                id = None,
+                childHaplogroupId = newId,
+                parentHaplogroupId = pid,
+                revisionId = newRevisionId,
+                validFrom = now,
+                validUntil = None,
+                source = source
+              )
+            }
+          } yield Some(newRelationshipId)
         case None =>
-          DBIO.successful(None)
+          Future.successful(None)
       }
     } yield (newId, relationshipIdValue)
-
-    runTransactionally(createAction)
   }
 
   override def findRoots(haplogroupType: HaplogroupType): Future[Seq[Haplogroup]] = {
@@ -469,5 +486,14 @@ class HaplogroupCoreRepositoryImpl @Inject()(
       }
       Future.sequence(futures)
     }
+  }
+
+  override def getLatestRelationshipRevisionId(childHaplogroupId: Int): Future[Option[Int]] = {
+    val query = haplogroupRelationships
+      .filter(_.childHaplogroupId === childHaplogroupId)
+      .map(_.revisionId)
+      .max
+      .result
+    runQuery(query)
   }
 }
