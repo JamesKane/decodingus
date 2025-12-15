@@ -6,6 +6,7 @@ import models.dal.MyPostgresProfile.api.*
 import models.dal.domain.genomics.*
 import models.domain.genomics.{MutationType, NamingStatus, VariantV2}
 import org.postgresql.util.PSQLException
+import play.api.Logging
 import play.api.db.slick.DatabaseConfigProvider
 import play.api.libs.json.{JsArray, JsObject, Json}
 import slick.jdbc.GetResult
@@ -109,7 +110,7 @@ class VariantV2RepositoryImpl @Inject()(
   dbConfigProvider: DatabaseConfigProvider
 )(implicit ec: ExecutionContext)
   extends BaseRepository(dbConfigProvider)
-    with VariantV2Repository {
+    with VariantV2Repository with Logging {
 
   import slick.ast.BaseTypedType
   import slick.jdbc.JdbcType
@@ -392,11 +393,10 @@ class VariantV2RepositoryImpl @Inject()(
             'strs', COALESCE(so.str_list, '[]'::jsonb)
           ),
           updated_at = NOW()
-      FROM variant_v2 v2
-      LEFT JOIN region_overlaps ro ON v2.variant_id = ro.variant_id
-      LEFT JOIN str_overlaps so ON v2.variant_id = so.variant_id
-      WHERE v.variant_id = v2.variant_id
-        AND (ro.variant_id IS NOT NULL OR so.variant_id IS NOT NULL)
+      FROM region_overlaps ro
+      LEFT JOIN str_overlaps so ON ro.variant_id = so.variant_id
+      WHERE v.variant_id = ro.variant_id
+        AND (ro.region_list IS NOT NULL OR so.str_list IS NOT NULL)
     """
     db.run(query)
   }
@@ -643,20 +643,34 @@ class VariantV2RepositoryImpl @Inject()(
   // === GetResult for raw SQL queries ===
 
   private val variantV2GetResult: GetResult[VariantV2] = GetResult { r =>
+    val variantId = r.nextIntOption() // 1
+    val canonicalName = r.nextStringOption() // 2
+    val mutationTypeStr = r.nextString() // 3
+    val namingStatusStr = r.nextString() // 4
+    val aliasesStr = r.nextString() // 5
+    val coordinatesStr = r.nextString() // 6
+    val definingHaplogroupId = r.nextIntOption() // 7
+    val evidenceStr = r.nextString() // 8
+    val primersStr = r.nextString() // 9
+    val notes = r.nextStringOption() // 10
+    val createdAt = r.nextTimestamp().toInstant // 11
+    val updatedAt = r.nextTimestamp().toInstant // 12
+    val annotationsStr = r.nextString() // 13
+    
     VariantV2(
-      variantId = Some(r.nextInt()),
-      canonicalName = r.nextStringOption(),
-      mutationType = MutationType.fromStringOrDefault(r.nextString()),
-      namingStatus = NamingStatus.fromStringOrDefault(r.nextString()),
-      aliases = Json.parse(r.nextString()),
-      coordinates = Json.parse(r.nextString()),
-      definingHaplogroupId = r.nextIntOption(),
-      evidence = Json.parse(r.nextString()),
-      primers = Json.parse(r.nextString()),
-      notes = r.nextStringOption(),
-      annotations = Json.parse(r.nextString()),
-      createdAt = r.nextTimestamp().toInstant,
-      updatedAt = r.nextTimestamp().toInstant
+      variantId = variantId,
+      canonicalName = canonicalName,
+      mutationType = MutationType.fromStringOrDefault(mutationTypeStr),
+      namingStatus = NamingStatus.fromStringOrDefault(namingStatusStr),
+      aliases = Json.parse(aliasesStr),
+      coordinates = Json.parse(coordinatesStr),
+      definingHaplogroupId = definingHaplogroupId,
+      evidence = Json.parse(evidenceStr),
+      primers = Json.parse(primersStr),
+      notes = notes,
+      annotations = Json.parse(annotationsStr),
+      createdAt = createdAt,
+      updatedAt = updatedAt
     )
   }
 }
