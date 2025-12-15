@@ -31,6 +31,14 @@ trait HaplogroupCoreRepository {
   def getAncestors(haplogroupId: Int): Future[Seq[Haplogroup]]
 
   /**
+   * Retrieves all descendant haplogroups of the specified haplogroup.
+   *
+   * @param haplogroupId the unique identifier of the haplogroup for which descendants are to be retrieved
+   * @return a Future containing a sequence of descendant Haplogroup objects
+   */
+  def getDescendants(haplogroupId: Int): Future[Seq[Haplogroup]]
+
+  /**
    * Retrieves the direct children of a given haplogroup by its unique identifier.
    *
    * @param haplogroupId the unique identifier of the haplogroup whose direct children are to be retrieved
@@ -219,6 +227,52 @@ class HaplogroupCoreRepositoryImpl @Inject()(
 
     db.run(recursiveQuery)
 
+  }
+
+  override def getDescendants(haplogroupId: Int): Future[Seq[Haplogroup]] = {
+    implicit val getHaplogroupResult: GetResult[Haplogroup] = GetResult(r =>
+      Haplogroup(
+        id = r.nextIntOption(),
+        name = r.nextString(),
+        lineage = r.nextStringOption(),
+        description = r.nextStringOption(),
+        haplogroupType = HaplogroupType.fromString(r.nextString()).getOrElse(throw new IllegalArgumentException("Invalid haplogroup type")),
+        revisionId = r.nextInt(),
+        source = r.nextString(),
+        confidenceLevel = r.nextString(),
+        validFrom = r.nextTimestampOption().map(_.toLocalDateTime).orNull,
+        validUntil = r.nextTimestampOption().map(_.toLocalDateTime)
+      )
+    )
+
+    // Define the recursive CTE query for descendants
+    val recursiveQuery = sql"""
+      WITH RECURSIVE descendant_tree AS (
+        -- Base case: immediate children
+        SELECT h.*, 1 as level
+        FROM tree.haplogroup_relationship hr
+        JOIN tree.haplogroup h ON h.haplogroup_id = hr.child_haplogroup_id
+        WHERE hr.parent_haplogroup_id = $haplogroupId
+          AND (hr.valid_until IS NULL OR hr.valid_until > NOW())
+          AND (h.valid_until IS NULL OR h.valid_until > NOW())
+
+        UNION
+
+        -- Recursive case: children of children
+        SELECT h.*, dt.level + 1
+        FROM tree.haplogroup_relationship hr
+        JOIN tree.haplogroup h ON h.haplogroup_id = hr.child_haplogroup_id
+        JOIN descendant_tree dt ON hr.parent_haplogroup_id = dt.haplogroup_id
+        WHERE (hr.valid_until IS NULL OR hr.valid_until > NOW())
+          AND (h.valid_until IS NULL OR h.valid_until > NOW())
+      )
+      SELECT
+        haplogroup_id, name, lineage, description, haplogroup_type,
+        revision_id, source, confidence_level, valid_from, valid_until
+      FROM descendant_tree
+    """.as[Haplogroup]
+
+    db.run(recursiveQuery)
   }
 
   override def getDirectChildren(haplogroupId: Int): Future[Seq[Haplogroup]] = {

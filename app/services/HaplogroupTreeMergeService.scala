@@ -164,32 +164,31 @@ class HaplogroupTreeMergeService @Inject()(
    * Recursively fetch all descendants of a haplogroup.
    */
   private def getDescendantsRecursive(haplogroupId: Int): Future[Seq[Haplogroup]] = {
-    def fetch(currentId: Int): Future[Seq[Haplogroup]] = {
-      haplogroupRepository.getDirectChildren(currentId).flatMap { children =>
-        Future.sequence(children.map(child => fetch(child.id.get))).map { nested =>
-          children ++ nested.flatten
-        }
-      }
-    }
-    fetch(haplogroupId)
+    haplogroupRepository.getDescendants(haplogroupId)
   }
 
   /**
    * Build an index of existing haplogroups scoped to a specific list.
    */
   private def buildVariantIndexForScope(haplogroups: Seq[Haplogroup]): Future[VariantIndex] = {
-    val futures = haplogroups.map { hg =>
-      haplogroupVariantRepository.getHaplogroupVariants(hg.id.get).map { variants =>
-        (hg, variants.flatMap(_.canonicalName))
+    val haplogroupIds = haplogroups.flatMap(_.id)
+    
+    // Bulk fetch variants for all haplogroups in the scope
+    haplogroupVariantRepository.getVariantsForHaplogroups(haplogroupIds).map { variants =>
+      // Group variants by haplogroup ID
+      val variantsByHaplogroupId = variants.groupMap(_._1)(_._2)
+      
+      // Associate haplogroups with their variant names
+      val hgsWithVariantNames = haplogroups.map { hg =>
+        val associatedVariants = variantsByHaplogroupId.getOrElse(hg.id.get, Seq.empty)
+        (hg, associatedVariants.flatMap(_.canonicalName))
       }
-    }
 
-    Future.sequence(futures).map { hgsWithVariants =>
-      val variantToHaplogroup = hgsWithVariants.flatMap { case (hg, variantNames) =>
+      val variantToHaplogroup = hgsWithVariantNames.flatMap { case (hg, variantNames) =>
         variantNames.map(v => v.toUpperCase -> hg)
       }.groupMap(_._1)(_._2)
 
-      val haplogroupByName = hgsWithVariants.map { case (hg, _) =>
+      val haplogroupByName = hgsWithVariantNames.map { case (hg, _) =>
         hg.name.toUpperCase -> hg
       }.toMap
 

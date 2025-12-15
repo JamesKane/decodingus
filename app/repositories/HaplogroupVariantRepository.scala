@@ -88,6 +88,14 @@ trait HaplogroupVariantRepository {
    * @return A Future containing a sequence of VariantV2 for the haplogroup
    */
   def getVariantsByHaplogroupName(haplogroupName: String): Future[Seq[VariantV2]]
+
+  /**
+   * Retrieves variants for multiple haplogroups in a single query.
+   *
+   * @param haplogroupIds The sequence of haplogroup IDs to retrieve variants for.
+   * @return A Future containing a sequence of (haplogroupId, VariantV2) tuples.
+   */
+  def getVariantsForHaplogroups(haplogroupIds: Seq[Int]): Future[Seq[(Int, VariantV2)]]
 }
 
 class HaplogroupVariantRepositoryImpl @Inject()(
@@ -278,6 +286,15 @@ class HaplogroupVariantRepositoryImpl @Inject()(
       hv <- haplogroupVariants if hv.haplogroupId === hg.haplogroupId
       v <- variantsV2 if v.variantId === hv.variantId
     } yield v
+
+    runQuery(query.result)
+  }
+
+  override def getVariantsForHaplogroups(haplogroupIds: Seq[Int]): Future[Seq[(Int, VariantV2)]] = {
+    val query = for {
+      hv <- haplogroupVariants if hv.haplogroupId.inSet(haplogroupIds)
+      v <- variantsV2 if v.variantId === hv.variantId
+    } yield (hv.haplogroupId, v)
 
     runQuery(query.result)
   }

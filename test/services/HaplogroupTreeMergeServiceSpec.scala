@@ -377,9 +377,9 @@ class HaplogroupTreeMergeServiceSpec extends PlaySpec with MockitoSugar with Sca
         .thenReturn(Future.successful(Seq.empty))
       
       // Mocks for context loading
-      when(mockHaplogroupRepo.getDirectChildren(anyInt()))
+      when(mockHaplogroupRepo.getDescendants(anyInt()))
         .thenReturn(Future.successful(Seq.empty))
-      when(mockVariantRepo.getHaplogroupVariants(anyInt()))
+      when(mockVariantRepo.getVariantsForHaplogroups(any[Seq[Int]]))
         .thenReturn(Future.successful(Seq.empty))
 
       val sourceTree = createPhyloNode(
