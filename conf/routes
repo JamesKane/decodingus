@@ -12,6 +12,7 @@ GET           /terms                                                            
 GET           /privacy                                                                           controllers.HomeController.privacy()
 GET           /faq                                                                               controllers.HomeController.faq()
 GET           /reputation                                                                        controllers.HomeController.reputation()
+GET           /how-to-submit-tree-data                                                           controllers.HomeController.howToSubmitTreeData()
 
 GET           /sitemap.xml                                                                       controllers.HomeController.sitemap()
 GET           /robots.txt                                                                        controllers.HomeController.robots()

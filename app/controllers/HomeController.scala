@@ -45,6 +45,13 @@ class HomeController @Inject()(val controllerComponents: ControllerComponents,
   }
 
   /**
+   * Renders the guide for submitting haplogroup tree data.
+   */
+  def howToSubmitTreeData(): Action[AnyContent] = Action { implicit request: Request[AnyContent] =>
+    Ok(views.html.content.howToSubmitTreeData())
+  }
+
+  /**
    * Renders the Cookie Usage Policy page.
    *
    * This action handles GET requests for the cookie usage policy of the application.

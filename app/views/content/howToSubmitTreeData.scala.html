@@ -1,0 +1,107 @@
+@import org.webjars.play.WebJarsUtil
+@(implicit messages: Messages, request: RequestHeader, webJarsUtil: WebJarsUtil)
+
+@main("Submitting Haplogroup Tree Data to DecodingUs") {
+    <div class="container my-5">
+        <h1>Submitting Haplogroup Tree Data to DecodingUs: A Guide for Researchers</h1>
+
+        <p>This guide explains how to format your haplogroup tree data for submission to DecodingUs and outlines the rules for how your contributions will be credited. Our system is designed to integrate research from various sources efficiently and fairly.</p>
+
+        <hr>
+
+        <h2>1. Understanding Your Tree Data</h2>
+        <p>When you submit your haplogroup tree, you're essentially providing a hierarchical structure of genetic lineages. Each "node" in this tree represents a haplogroup, and each haplogroup is defined by a set of genetic markers, called "variants."</p>
+
+        <h3>Key components of your tree data:</h3>
+        <ul>
+            <li><strong>Haplogroup Name:</strong> The common name for the haplogroup (e.g., "R1b-L21").</li>
+            <li><strong>Defining Variants:</strong> The specific genetic variants (SNPs) that define this haplogroup (e.g., "L21", "S145"). These are crucial for our system to accurately place your haplogroup in the global tree.</li>
+            <li><strong>Parent-Child Relationships:</strong> The hierarchical structure showing which haplogroups descend from others.</li>
+            <li><strong>Age Estimates (Optional):</strong> You can include estimated ages for when a haplogroup "formed" (formedYbp) or its "Time to Most Recent Common Ancestor" (tmrcaYbp), along with optional lower and upper bounds.</li>
+        </ul>
+
+        <h3>JSON Structure Example:</h3>
+        <div class="card shadow-sm mb-3">
+            <div class="card-body">
+                <pre><code class="language-json">
+[
+  {
+    "name": "R1b-L21",
+    "definingVariants": ["L21", "S145"],
+    "parent": "R1b",
+    "formedYbp": 4500,
+    "formedYbpLower": 4300,
+    "formedYbpUpper": 4700
+  },
+  {
+    "name": "R1b-DF13",
+    "definingVariants": ["DF13"],
+    "parent": "R1b-L21",
+    "tmrcaYbp": 4000
+  },
+  {
+    "name": "R1b-M222",
+    "definingVariants": ["M222"],
+    "parent": "R1b-DF13"
+  }
+]
+                </code></pre>
+            </div>
+        </div>
+
+        <hr>
+
+        <h2>2. How DecodingUs Matches Your Data (Variant-Based Matching)</h2>
+        <p>Our system uses a sophisticated matching algorithm that prioritizes <strong>genetic variants</strong> over haplogroup names. Why? Because different research organizations often use different naming conventions for the exact same haplogroup.</p>
+
+        <div class="example alert alert-info">
+            <p><strong>Example:</strong> "R-L21" (ytree.net), "R1b1a1a2a1a1" (ISOGG), and "R1b-L21" (DecodingUs) might all refer to the same haplogroup defined by the variant "L21."</p>
+        </div>
+
+        <p>By focusing on the defining variants, our system ensures your data is accurately integrated, regardless of the nomenclature you use.</p>
+
+        <hr>
+
+        <h2>3. Provenance: How Your Research Gets Credited</h2>
+        <p>DecodingUs values attributing research contributions fairly. We use a "multi-source provenance" system to track where every piece of information comes from.</p>
+
+        <h3>Core Principles of Credit Assignment:</h3>
+        <ul>
+            <li><strong>DecodingUs is the Baseline:</strong> Our existing internal tree serves as the foundation. Your contributions merge into this baseline.</li>
+            <li><strong>ISOGG's Foundational Role:</strong> For well-established parts of the tree, <a href="https://isogg.org/" target="_blank">ISOGG</a> (International Society of Genetic Genealogy) typically holds the "primary credit" for discovery. If an existing node already has ISOGG credit, it usually retains it.</li>
+            <li><strong>Credit for New Discoveries:</strong> This is where your research shines! When your submitted data introduces <strong>new discoveries</strong>, your organization (the "incoming source") will receive credit for them:
+                <ul>
+                    <li><strong>New Splits:</strong> If your data reveals a finer, more detailed structure within an existing branch (i.e., you introduce new intermediate haplogroups that break down a previously single haplogroup into multiple sub-branches), you will receive credit for these new "split" nodes.</li>
+                    <li><strong>New Terminal Branches:</strong> If your data adds new "leaf nodes" (the most recent, un-split haplogroups) that weren't present in our tree, you will receive credit for these new terminal branches.</li>
+                </ul>
+            </li>
+        </ul>
+        <p>This means ISOGG keeps credit for established structures, while you get credit for advancing the tree with new findings. Our system tracks all contributing sources for each haplogroup and variant association.</p>
+
+        <hr>
+
+        <h2>4. Resolving Disagreements (Conflict Resolution)</h2>
+        <p>Sometimes, different sources might provide conflicting information (e.g., different age estimates for the same haplogroup). To handle this, we use <strong>priority rules</strong>.</p>
+        <ul>
+            <li>We can configure a list of trusted sources in order of priority (e.g., ISOGG  higher than a specific research project).</li>
+            <li>When a conflict arises, the information from the higher-priority source will be used.</li>
+            <li>You can often specify your preferred priority settings when submitting data.</li>
+        </ul>
+
+        <hr>
+
+        <h2>5. Preview Your Changes (Dry Run)</h2>
+        <p>Before fully integrating your data, you can submit it in a "dry run" mode. This allows you to:</p>
+        <ul>
+            <li>See how your data would be merged into the existing tree.</li>
+            <li>Identify any potential conflicts.</li>
+            <li>Review the proposed credit assignments.</li>
+            <li>Understand the statistics of changes (e.g., how many new nodes would be created).</li>
+        </ul>
+        <p>This ensures you have full confidence in the integration before it becomes permanent.</p>
+
+        <hr>
+
+        <p>By understanding these principles, you can effectively prepare and submit your haplogroup tree research to DecodingUs, contributing to a more comprehensive and accurately attributed global phylogenetic tree.</p>
+    </div>
+}
