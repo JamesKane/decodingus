@@ -56,6 +56,14 @@ trait HaplogroupVariantRepository {
   def addVariantToHaplogroup(haplogroupId: Int, variantId: Int): Future[Int]
 
   /**
+   * Retrieves the `haplogroup_variant_id`s for a given haplogroup.
+   *
+   * @param haplogroupId The unique identifier of the haplogroup.
+   * @return A Future containing a sequence of `haplogroup_variant_id`s.
+   */
+  def getHaplogroupVariantIds(haplogroupId: Int): Future[Seq[Int]]
+
+  /**
    * Removes a specified variant from a given haplogroup.
    *
    * @param haplogroupId The unique identifier of the haplogroup from which the variant will be removed.
@@ -215,12 +223,19 @@ class HaplogroupVariantRepositoryImpl @Inject()(
   }
 
   override def addVariantToHaplogroup(haplogroupId: Int, variantId: Int): Future[Int] = {
-    val insertAction = sqlu"""
+    val insertAction = sql"""
       INSERT INTO tree.haplogroup_variant (haplogroup_id, variant_id)
       VALUES ($haplogroupId, $variantId)
-      ON CONFLICT (haplogroup_id, variant_id) DO NOTHING
-    """
+      ON CONFLICT (haplogroup_id, variant_id) DO UPDATE SET haplogroup_id = EXCLUDED.haplogroup_id -- No actual update needed, just to trigger RETURNING
+      RETURNING haplogroup_variant_id
+    """.as[Int].head
+
     runQuery(insertAction)
+  }
+
+  override def getHaplogroupVariantIds(haplogroupId: Int): Future[Seq[Int]] = {
+    val query = haplogroupVariants.filter(_.haplogroupId === haplogroupId).map(_.haplogroupVariantId)
+    runQuery(query.result)
   }
 
   def removeVariantFromHaplogroup(haplogroupId: Int, variantId: Int): Future[Int] = {

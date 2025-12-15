@@ -4,9 +4,9 @@ import jakarta.inject.{Inject, Singleton}
 import models.HaplogroupType
 import models.api.haplogroups.*
 import models.domain.genomics.VariantV2
-import models.domain.haplogroups.{Haplogroup, HaplogroupProvenance}
+import models.domain.haplogroups.{Haplogroup, HaplogroupProvenance, HaplogroupRelationship, RelationshipRevisionMetadata, HaplogroupVariantMetadata}
 import play.api.Logging
-import repositories.{HaplogroupCoreRepository, HaplogroupVariantRepository, VariantV2Repository}
+import repositories.{HaplogroupCoreRepository, HaplogroupVariantRepository, VariantV2Repository, HaplogroupRevisionMetadataRepository, HaplogroupVariantMetadataRepository}
 
 import java.time.LocalDateTime
 import scala.concurrent.{ExecutionContext, Future}
@@ -26,7 +26,9 @@ import scala.concurrent.{ExecutionContext, Future}
 class HaplogroupTreeMergeService @Inject()(
   haplogroupRepository: HaplogroupCoreRepository,
   haplogroupVariantRepository: HaplogroupVariantRepository,
-  variantV2Repository: VariantV2Repository
+  variantV2Repository: VariantV2Repository,
+  haplogroupRevisionMetadataRepository: HaplogroupRevisionMetadataRepository,
+  haplogroupVariantMetadataRepository: HaplogroupVariantMetadataRepository
 )(implicit ec: ExecutionContext) extends Logging {
 
   // ============================================================================
@@ -284,6 +286,84 @@ class HaplogroupTreeMergeService @Inject()(
     }
 
     for {
+      // Get the current parent of the existing haplogroup
+      currentParentOpt <- haplogroupRepository.getParent(existing.id.get)
+
+      // Update parent relationship if it has changed
+      relationshipMetadataIdOpt <- (parentId, currentParentOpt) match {
+        case (Some(newPid), Some(currentParent)) if newPid != currentParent.id.get =>
+          logger.info(s"Updating parent for haplogroup ${existing.name} from ${currentParent.name} to new parent ID $newPid from source: ${context.sourceName}")
+          for {
+            relId <- haplogroupRepository.updateParent(existing.id.get, newPid, context.sourceName)
+            metadataId <- haplogroupRevisionMetadataRepository.addRelationshipRevisionMetadata(
+              RelationshipRevisionMetadata(
+                haplogroup_relationship_id = relId,
+                revisionId = 1,
+                author = context.sourceName,
+                timestamp = context.timestamp,
+                comment = s"Parent for ${existing.name} updated from ${currentParent.name} (ID: ${currentParent.id.get}) to ${node.name} (ID: $newPid) from source: ${context.sourceName}",
+                changeType = "update",
+                previousRevisionId = None
+              )
+            )
+          } yield Some(metadataId)
+        case (Some(newPid), None) => // Existing node had no parent, now has one
+          logger.info(s"Adding parent for haplogroup ${existing.name} with new parent ID $newPid from source: ${context.sourceName}")
+          for {
+            relId <- haplogroupRepository.updateParent(existing.id.get, newPid, context.sourceName)
+            metadataId <- haplogroupRevisionMetadataRepository.addRelationshipRevisionMetadata(
+              RelationshipRevisionMetadata(
+                haplogroup_relationship_id = relId,
+                revisionId = 1,
+                author = context.sourceName,
+                timestamp = context.timestamp,
+                comment = s"Parent for ${existing.name} added as ${node.name} (ID: $newPid) from source: ${context.sourceName}",
+                changeType = "create",
+                previousRevisionId = None
+              )
+            )
+          } yield Some(metadataId)
+        case _ => Future.successful(None) // No change in parent or parentId is None
+      }
+      // Get existing haplogroup variant IDs before processing new ones
+      existingHaplogroupVariantIds <- haplogroupVariantRepository.getHaplogroupVariantIds(existing.id.get)
+
+      // Associate new variants (this will also add any new ones)
+      newlyAssociatedHaplogroupVariantIds <- associateVariants(existing.id.get, node.variants)
+
+      // Determine added and removed variants
+      addedVariantIds = newlyAssociatedHaplogroupVariantIds.diff(existingHaplogroupVariantIds)
+      removedVariantIds = existingHaplogroupVariantIds.diff(newlyAssociatedHaplogroupVariantIds)
+
+      // Create HaplogroupVariantMetadata for added variants
+      _ <- Future.traverse(addedVariantIds) { hgVariantId =>
+        val metadata = HaplogroupVariantMetadata(
+          haplogroup_variant_id = hgVariantId,
+          revision_id = 1,
+          author = context.sourceName,
+          timestamp = context.timestamp,
+          comment = s"Variant added to existing haplogroup ${existing.name}",
+          change_type = "create",
+          previous_revision_id = None
+        )
+        haplogroupVariantMetadataRepository.addVariantRevisionMetadata(metadata)
+      }
+
+      // Create HaplogroupVariantMetadata for removed variants (need to get their haplogroup_variant_id first)
+      _ <- Future.traverse(removedVariantIds) { hgVariantId =>
+        val metadata = HaplogroupVariantMetadata(
+          haplogroup_variant_id = hgVariantId,
+          revision_id = 1,
+          author = context.sourceName,
+          timestamp = context.timestamp,
+          comment = s"Variant removed from existing haplogroup ${existing.name}",
+          change_type = "delete",
+          previous_revision_id = None
+        )
+        haplogroupVariantMetadataRepository.addVariantRevisionMetadata(metadata) // Should probably be a remove metadata
+      }
+
+
       // Update provenance to track this merge
       _ <- updateProvenance(existing, node.variants, context)
 
@@ -298,12 +378,16 @@ class HaplogroupTreeMergeService @Inject()(
       updatedStats = if (shouldUpdate && conflicts.nonEmpty) {
         accumulator.statistics.copy(
           nodesProcessed = accumulator.statistics.nodesProcessed + 1,
-          nodesUpdated = accumulator.statistics.nodesUpdated + 1
+          nodesUpdated = accumulator.statistics.nodesUpdated + 1,
+          variantsAdded = accumulator.statistics.variantsAdded + addedVariantIds.size,
+          relationshipsCreated = relationshipMetadataIdOpt.map(_ => accumulator.statistics.relationshipsCreated + 1).getOrElse(accumulator.statistics.relationshipsCreated)
         )
       } else {
         accumulator.statistics.copy(
           nodesProcessed = accumulator.statistics.nodesProcessed + 1,
-          nodesUnchanged = accumulator.statistics.nodesUnchanged + 1
+          nodesUnchanged = accumulator.statistics.nodesUnchanged + 1,
+          variantsAdded = accumulator.statistics.variantsAdded + addedVariantIds.size,
+          relationshipsCreated = relationshipMetadataIdOpt.map(_ => accumulator.statistics.relationshipsCreated + 1).getOrElse(accumulator.statistics.relationshipsCreated)
         )
       }
 
@@ -360,16 +444,46 @@ class HaplogroupTreeMergeService @Inject()(
     logger.info(s"Creating new haplogroup node: ${node.name} with parent ID: $parentId from source: ${context.sourceName}")
     for {
       // Create the haplogroup with parent relationship
-      newId <- haplogroupRepository.createWithParent(newHaplogroup, parentId, context.sourceName)
+      (newId, relationshipIdOpt) <- haplogroupRepository.createWithParent(newHaplogroup, parentId, context.sourceName)
+
+      // Create RelationshipRevisionMetadata if a parent relationship was created
+      _ <- relationshipIdOpt match {
+        case Some(relId) =>
+          val metadata = RelationshipRevisionMetadata(
+            haplogroup_relationship_id = relId,
+            revisionId = 1,
+            author = context.sourceName,
+            timestamp = context.timestamp,
+            comment = s"Initial creation of relationship for new haplogroup ${node.name}",
+            changeType = "create",
+            previousRevisionId = None
+          )
+          haplogroupRevisionMetadataRepository.addRelationshipRevisionMetadata(metadata)
+        case None => Future.successful(0)
+      }
 
       // Associate variants with the new haplogroup
-      variantCount <- associateVariants(newId, node.variants)
+      haplogroupVariantIds <- associateVariants(newId, node.variants)
+
+      // Create HaplogroupVariantMetadata for each newly associated variant
+      _ <- Future.traverse(haplogroupVariantIds) { hgVariantId =>
+        val metadata = HaplogroupVariantMetadata(
+          haplogroup_variant_id = hgVariantId,
+          revision_id = 1,
+          author = context.sourceName,
+          timestamp = context.timestamp,
+          comment = s"Initial creation of variant association for haplogroup ${node.name}",
+          change_type = "create",
+          previous_revision_id = None
+        )
+        haplogroupVariantMetadataRepository.addVariantRevisionMetadata(metadata)
+      }
 
       // Update statistics
       updatedStats = accumulator.statistics.copy(
         nodesProcessed = accumulator.statistics.nodesProcessed + 1,
         nodesCreated = accumulator.statistics.nodesCreated + 1,
-        variantsAdded = accumulator.statistics.variantsAdded + variantCount,
+        variantsAdded = accumulator.statistics.variantsAdded + haplogroupVariantIds.size,
         relationshipsCreated = if (parentId.isDefined)
           accumulator.statistics.relationshipsCreated + 1
         else
@@ -487,33 +601,28 @@ class HaplogroupTreeMergeService @Inject()(
    * Associate variants with a haplogroup, finding or creating variants as needed.
    * Updated to use VariantV2Repository where aliases are stored in JSONB.
    */
-  private def associateVariants(haplogroupId: Int, variants: List[VariantInput]): Future[Int] = {
+  private def associateVariants(haplogroupId: Int, variants: List[VariantInput]): Future[Seq[Int]] = {
     if (variants.isEmpty) {
-      Future.successful(0)
+      Future.successful(Seq.empty)
     } else {
-      // For each variant, find existing variants by primary name and associate them,
-      // then add any aliases to the variant's JSONB aliases field
-      Future.traverse(variants) { variantInput =>
-        // First find variant by canonical name or alias
+      val futuresOfSeqInts: Seq[Future[Seq[Int]]] = variants.map { variantInput =>
         variantV2Repository.searchByName(variantInput.name).flatMap { foundVariants =>
-          // Associate all found variants with this haplogroup
-          val associateFutures = foundVariants.map { variant =>
+          val innerFutures: Seq[Future[Option[Int]]] = foundVariants.map { variant =>
             variant.variantId match {
               case Some(vid) =>
                 for {
-                  // Associate variant with haplogroup
-                  count <- haplogroupVariantRepository.addVariantToHaplogroup(haplogroupId, vid)
-                  // Add any aliases from the ISOGG data to the variant's JSONB aliases
+                  haplogroupVariantId <- haplogroupVariantRepository.addVariantToHaplogroup(haplogroupId, vid)
                   _ <- Future.traverse(variantInput.aliases) { alias =>
                     variantV2Repository.addAlias(vid, "common_name", alias).recover { case _ => false }
                   }
-                } yield count
-              case None => Future.successful(0)
+                } yield Some(haplogroupVariantId)
+              case None => Future.successful(None)
             }
           }
-          Future.sequence(associateFutures).map(_.sum)
+          Future.sequence(innerFutures).map(_.flatten) // Flatten Seq[Option[Int]] to Seq[Int]
         }
-      }.map(_.sum)
+      }
+      Future.sequence(futuresOfSeqInts).map(_.flatten) // Flatten Seq[Seq[Int]] to Seq[Int]
     }
   }
 

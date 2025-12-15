@@ -12,7 +12,7 @@ import org.scalatest.time.{Millis, Seconds, Span}
 import org.scalatestplus.mockito.MockitoSugar
 import org.scalatestplus.play.PlaySpec
 import play.api.libs.json.Json
-import repositories.{HaplogroupCoreRepository, HaplogroupVariantRepository, VariantV2Repository}
+import repositories.{HaplogroupCoreRepository, HaplogroupVariantRepository, VariantV2Repository, HaplogroupRevisionMetadataRepository, HaplogroupVariantMetadataRepository}
 
 import java.time.LocalDateTime
 import scala.concurrent.{ExecutionContext, Future}
@@ -26,6 +26,8 @@ class HaplogroupTreeMergeServiceSpec extends PlaySpec with MockitoSugar with Sca
   var mockHaplogroupRepo: HaplogroupCoreRepository = _
   var mockVariantRepo: HaplogroupVariantRepository = _
   var mockVariantV2Repository: VariantV2Repository = _
+  var mockHaplogroupRevisionMetadataRepo: HaplogroupRevisionMetadataRepository = _
+  var mockHaplogroupVariantMetadataRepo: HaplogroupVariantMetadataRepository = _
   var service: HaplogroupTreeMergeService = _
 
   // Test fixtures
@@ -67,11 +69,21 @@ class HaplogroupTreeMergeServiceSpec extends PlaySpec with MockitoSugar with Sca
     mockHaplogroupRepo = mock[HaplogroupCoreRepository]
     mockVariantRepo = mock[HaplogroupVariantRepository]
     mockVariantV2Repository = mock[VariantV2Repository]
+    mockHaplogroupRevisionMetadataRepo = mock[HaplogroupRevisionMetadataRepository]
+    mockHaplogroupVariantMetadataRepo = mock[HaplogroupVariantMetadataRepository]
     service = new HaplogroupTreeMergeService(
       mockHaplogroupRepo,
       mockVariantRepo,
-      mockVariantV2Repository
+      mockVariantV2Repository,
+      mockHaplogroupRevisionMetadataRepo,
+      mockHaplogroupVariantMetadataRepo
     )
+
+    // Default mock behaviors for new metadata repositories
+    when(mockHaplogroupRevisionMetadataRepo.addRelationshipRevisionMetadata(any()))
+      .thenReturn(Future.successful(1))
+    when(mockHaplogroupVariantMetadataRepo.addVariantRevisionMetadata(any()))
+      .thenReturn(Future.successful(1))
   }
 
   "HaplogroupTreeMergeService" should {
@@ -358,7 +370,7 @@ class HaplogroupTreeMergeServiceSpec extends PlaySpec with MockitoSugar with Sca
           (anchorHaplogroup, Seq("M269"))
         )))
       when(mockHaplogroupRepo.createWithParent(any[Haplogroup], any[Option[Int]], anyString()))
-        .thenReturn(Future.successful(101))
+        .thenReturn(Future.successful((101, None)))
       when(mockHaplogroupRepo.updateProvenance(anyInt(), any[HaplogroupProvenance]))
         .thenReturn(Future.successful(true))
       when(mockVariantV2Repository.searchByName(anyString()))

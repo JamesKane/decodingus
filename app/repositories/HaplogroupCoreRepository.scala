@@ -98,7 +98,7 @@ trait HaplogroupCoreRepository {
    * @param source the source attribution for the relationship change
    * @return true if successful
    */
-  def updateParent(childId: Int, newParentId: Int, source: String): Future[Boolean]
+  def updateParent(childId: Int, newParentId: Int, source: String): Future[Int]
 
   /**
    * Create a new haplogroup with an optional parent relationship.
@@ -108,8 +108,7 @@ trait HaplogroupCoreRepository {
    * @param source the source attribution for the relationship
    * @return the ID of the newly created haplogroup
    */
-  def createWithParent(haplogroup: Haplogroup, parentId: Option[Int], source: String): Future[Int]
-
+     def createWithParent(haplogroup: Haplogroup, parentId: Option[Int], source: String): Future[(Int, Option[Int])]
   /**
    * Find root haplogroups (those with no parent) for a given type.
    *
@@ -367,7 +366,7 @@ class HaplogroupCoreRepositoryImpl @Inject()(
 
   // === Tree Restructuring Methods Implementation ===
 
-  override def updateParent(childId: Int, newParentId: Int, source: String): Future[Boolean] = {
+  override def updateParent(childId: Int, newParentId: Int, source: String): Future[Int] = {
     import models.domain.haplogroups.HaplogroupRelationship
     val now = LocalDateTime.now()
 
@@ -378,8 +377,8 @@ class HaplogroupCoreRepositoryImpl @Inject()(
         .map(_.validUntil)
         .update(Some(now))
 
-      // Create new relationship to new parent
-      _ <- haplogroupRelationships += HaplogroupRelationship(
+      // Create new relationship to new parent and return its ID
+      newRelationshipId <- (haplogroupRelationships returning haplogroupRelationships.map(_.haplogroupRelationshipId)) += HaplogroupRelationship(
         id = None,
         childHaplogroupId = childId,
         parentHaplogroupId = newParentId,
@@ -388,12 +387,12 @@ class HaplogroupCoreRepositoryImpl @Inject()(
         validUntil = None,
         source = source
       )
-    } yield true
+    } yield newRelationshipId
 
     runTransactionally(updateAction)
   }
 
-  override def createWithParent(haplogroup: Haplogroup, parentId: Option[Int], source: String): Future[Int] = {
+  override def createWithParent(haplogroup: Haplogroup, parentId: Option[Int], source: String): Future[(Int, Option[Int])] = {
     import models.domain.haplogroups.HaplogroupRelationship
     val now = LocalDateTime.now()
 
@@ -402,9 +401,9 @@ class HaplogroupCoreRepositoryImpl @Inject()(
       newId <- (haplogroups returning haplogroups.map(_.haplogroupId)) += haplogroup
 
       // Create parent relationship if parentId provided
-      _ <- parentId match {
+      relationshipIdValue <- parentId match {
         case Some(pid) =>
-          haplogroupRelationships += HaplogroupRelationship(
+          val newRelationship = HaplogroupRelationship(
             id = None,
             childHaplogroupId = newId,
             parentHaplogroupId = pid,
@@ -413,10 +412,12 @@ class HaplogroupCoreRepositoryImpl @Inject()(
             validUntil = None,
             source = source
           )
+          val insertAction = (haplogroupRelationships returning haplogroupRelationships.map(_.haplogroupRelationshipId)) += newRelationship
+          insertAction.map(Some(_))
         case None =>
-          DBIO.successful(())
+          DBIO.successful(None)
       }
-    } yield newId
+    } yield (newId, relationshipIdValue)
 
     runTransactionally(createAction)
   }

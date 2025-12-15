@@ -50,7 +50,7 @@ class TreeRestructuringService @Inject()(
       }
 
       // Create the new subclade with parent as its parent
-      newId <- haplogroupRepository.createWithParent(newHaplogroup, Some(parentId), "split-operation")
+      (newId, _) <- haplogroupRepository.createWithParent(newHaplogroup, Some(parentId), "split-operation")
 
       // Move variants from parent to new child
       movedVariantCount <- moveVariants(parentId, newId, variantIds)

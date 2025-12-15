@@ -260,10 +260,10 @@ class CuratorController @Inject()(
                 // Create as NEW root above existing roots
                 for {
                   newId <- haplogroupRepository.createWithParent(haplogroup, None, "curator-create-above-root")
-                  createdHaplogroup = haplogroup.copy(id = Some(newId))
+                  createdHaplogroup = haplogroup.copy(id = Some(newId._1))
                   // Re-parent all existing roots to become children of the new root
                   _ <- Future.traverse(existingRoots.flatMap(_.id)) { oldRootId =>
-                    haplogroupRepository.updateParent(oldRootId, newId, "curator-create-above-root")
+                    haplogroupRepository.updateParent(oldRootId, newId._1, "curator-create-above-root")
                   }
                   _ <- auditService.logHaplogroupCreate(
                     request.user.id.get,
@@ -295,7 +295,7 @@ class CuratorController @Inject()(
                     // Create with parent (leaf)
                     for {
                       newId <- haplogroupRepository.createWithParent(haplogroup, Some(parentId), "curator-create")
-                      createdHaplogroup = haplogroup.copy(id = Some(newId))
+                      createdHaplogroup = haplogroup.copy(id = Some(newId._1))
                       _ <- auditService.logHaplogroupCreate(request.user.id.get, createdHaplogroup, Some("Created as leaf via curator interface"))
                     } yield {
                       Redirect(routes.CuratorController.listHaplogroups(None, None, 1, 20))
@@ -311,7 +311,7 @@ class CuratorController @Inject()(
                 // Create as new root (no existing roots for this type)
                 for {
                   newId <- haplogroupRepository.createWithParent(haplogroup, None, "curator-create")
-                  createdHaplogroup = haplogroup.copy(id = Some(newId))
+                  createdHaplogroup = haplogroup.copy(id = Some(newId._1))
                   _ <- auditService.logHaplogroupCreate(request.user.id.get, createdHaplogroup, Some("Created as root via curator interface"))
                 } yield {
                   Redirect(routes.CuratorController.listHaplogroups(None, None, 1, 20))
