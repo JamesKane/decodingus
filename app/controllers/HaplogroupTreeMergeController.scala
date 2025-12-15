@@ -8,7 +8,7 @@ import play.api.libs.json.Json
 import play.api.mvc.{Action, BaseController, ControllerComponents}
 import services.HaplogroupTreeMergeService
 
-import scala.concurrent.ExecutionContext
+import scala.concurrent.{ExecutionContext, Future}
 
 /**
  * API controller for haplogroup tree merge operations.
@@ -44,20 +44,22 @@ class HaplogroupTreeMergeController @Inject()(
       logger.info(s"API: Full tree merge for ${request.body.haplogroupType} from ${request.body.sourceName}" +
         (if (request.body.dryRun) " (dry run)" else ""))
 
-      mergeService.mergeFullTree(request.body).map { response =>
-        if (response.success) {
-          Ok(Json.toJson(response))
-        } else {
-          BadRequest(Json.toJson(response))
-        }
-      }.recover { case e: Exception =>
-        logger.error(s"Tree merge failed: ${e.getMessage}", e)
-        InternalServerError(Json.obj(
-          "success" -> false,
-          "message" -> "Merge operation failed",
-          "errors" -> List(e.getMessage)
-        ))
-      }
+      // Initiate the merge in the background
+      mergeService.mergeFullTree(request.body).onComplete {
+        case scala.util.Success(response) =>
+          logger.info(s"Background full tree merge completed for ${request.body.haplogroupType} with success: ${response.success}. Stats: ${response.statistics}")
+          if (!response.success) {
+            logger.error(s"Background full tree merge completed with errors for ${request.body.haplogroupType}: ${response.errors}")
+          }
+        case scala.util.Failure(e) =>
+          logger.error(s"Background full tree merge failed for ${request.body.haplogroupType}: ${e.getMessage}", e)
+      }(ec) // Ensure onComplete runs on the correct execution context
+
+      // Immediately return an Accepted response
+      Future.successful(Accepted(Json.obj(
+        "status" -> "Processing",
+        "message" -> s"Full tree merge for ${request.body.haplogroupType} initiated and is running in the background. Check logs for details."
+      )))
     }
 
   /**
@@ -78,28 +80,22 @@ class HaplogroupTreeMergeController @Inject()(
         s"for ${request.body.haplogroupType} from ${request.body.sourceName}" +
         (if (request.body.dryRun) " (dry run)" else ""))
 
-      mergeService.mergeSubtree(request.body).map { response =>
-        if (response.success) {
-          Ok(Json.toJson(response))
-        } else {
-          BadRequest(Json.toJson(response))
-        }
-      }.recover {
-        case e: IllegalArgumentException =>
-          logger.warn(s"Subtree merge validation failed: ${e.getMessage}")
-          BadRequest(Json.obj(
-            "success" -> false,
-            "message" -> e.getMessage,
-            "errors" -> List(e.getMessage)
-          ))
-        case e: Exception =>
-          logger.error(s"Subtree merge failed: ${e.getMessage}", e)
-          InternalServerError(Json.obj(
-            "success" -> false,
-            "message" -> "Merge operation failed",
-            "errors" -> List(e.getMessage)
-          ))
-      }
+      // Initiate the merge in the background
+      mergeService.mergeSubtree(request.body).onComplete {
+        case scala.util.Success(response) =>
+          logger.info(s"Background subtree merge completed for ${request.body.haplogroupType} under ${request.body.anchorHaplogroupName} with success: ${response.success}. Stats: ${response.statistics}")
+          if (!response.success) {
+            logger.error(s"Background subtree merge completed with errors for ${request.body.haplogroupType} under ${request.body.anchorHaplogroupName}: ${response.errors}")
+          }
+        case scala.util.Failure(e) =>
+          logger.error(s"Background subtree merge failed for ${request.body.haplogroupType} under ${request.body.anchorHaplogroupName}: ${e.getMessage}", e)
+      }(ec) // Ensure onComplete runs on the correct execution context
+
+      // Immediately return an Accepted response
+      Future.successful(Accepted(Json.obj(
+        "status" -> "Processing",
+        "message" -> s"Subtree merge for ${request.body.haplogroupType} under ${request.body.anchorHaplogroupName} initiated and is running in the background. Check logs for details."
+      )))
     }
 
   /**

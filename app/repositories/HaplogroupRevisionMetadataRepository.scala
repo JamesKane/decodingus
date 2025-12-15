@@ -96,6 +96,25 @@ trait HaplogroupRevisionMetadataRepository {
    * @return A Future containing an Option with the latest revision ID, or None if no revisions exist.
    */
   def getLatestRevisionId(haplogroupRelationshipId: Int): Future[Option[Int]]
+
+  /**
+   * Atomically generates the next revision ID for a haplogroup relationship and inserts new metadata.
+   * This method uses a pessimistic lock to prevent race conditions during concurrent updates.
+   *
+   * @param haplogroupRelationshipId The unique identifier of the haplogroup relationship.
+   * @param author                   The author of the revision.
+   * @param timestamp                The timestamp of the revision.
+   * @param comment                  A descriptive comment for the revision.
+   * @param changeType               The type of change (e.g., "CREATE", "UPDATE", "DELETE").
+   * @return A Future containing the newly created RelationshipRevisionMetadata object.
+   */
+  def addNextRelationshipRevisionMetadata(
+    haplogroupRelationshipId: Int,
+    author: String,
+    timestamp: LocalDateTime,
+    comment: String,
+    changeType: String
+  ): Future[RelationshipRevisionMetadata]
 }
 
 class HaplogroupRevisionMetadataRepositoryImpl @Inject()(
@@ -202,5 +221,40 @@ class HaplogroupRevisionMetadataRepositoryImpl @Inject()(
       .result
 
     runQuery(query)
+  }
+
+  override def addNextRelationshipRevisionMetadata(
+    haplogroupRelationshipId: Int,
+    author: String,
+    timestamp: LocalDateTime,
+    comment: String,
+    changeType: String
+  ): Future[RelationshipRevisionMetadata] = {
+    val action = (for {
+      latestRevisionIdOption <- relationshipRevisionMetadata
+        .filter(_.haplogroup_relationship_id === haplogroupRelationshipId)
+        .sortBy(_.revisionId.desc)
+        .take(1)
+        .forUpdate // Pessimistic lock
+        .map(_.revisionId)
+        .result
+        .headOption
+
+      nextRevisionId = latestRevisionIdOption.map(_ + 1).getOrElse(1)
+      previousRevisionIdValue = latestRevisionIdOption
+
+      newMetadata = RelationshipRevisionMetadata(
+        haplogroup_relationship_id = haplogroupRelationshipId,
+        revisionId = nextRevisionId,
+        previousRevisionId = previousRevisionIdValue,
+        author = author,
+        timestamp = timestamp,
+        comment = comment,
+        changeType = changeType
+      )
+      _ <- relationshipRevisionMetadata += newMetadata
+    } yield newMetadata).transactionally
+
+    runQuery(action)
   }
 }

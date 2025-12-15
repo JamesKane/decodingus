@@ -191,6 +191,7 @@ class HaplogroupTreeMergeService @Inject()(
         index = existingIndex,
         accumulator = MergeAccumulator.empty
       )
+      _ = logger.info(s"Haplogroup tree merge completed for source '${sourceName}' (${haplogroupType} tree) with statistics: ${result.statistics}, conflicts: ${result.conflicts.size}, splits: ${result.splits.size}, errors: ${result.errors.size}")
     } yield TreeMergeResponse(
       success = result.errors.isEmpty,
       message = if (result.errors.isEmpty) "Merge completed successfully" else "Merge completed with errors",
@@ -291,43 +292,29 @@ class HaplogroupTreeMergeService @Inject()(
 
       // Update parent relationship if it has changed
       relationshipMetadataIdOpt <- (parentId, currentParentOpt) match {
+        // Case 1: Existing haplogroup has a parent, and incoming tree proposes a different parent.
+        // For subtree merges, this is usually an unintended reparenting of a global node.
         case (Some(newPid), Some(currentParent)) if newPid != currentParent.id.get =>
-          logger.info(s"Updating parent for haplogroup ${existing.name} from ${currentParent.name} to new parent ID $newPid from source: ${context.sourceName}")
-          for {
-            relId <- haplogroupRepository.updateParent(existing.id.get, newPid, context.sourceName)
-            latestRevisionIdOpt <- haplogroupRevisionMetadataRepository.getLatestRevisionId(relId)
-            newRevisionId = latestRevisionIdOpt.map(_ + 1).getOrElse(1)
-            metadataId <- haplogroupRevisionMetadataRepository.addRelationshipRevisionMetadata(
-              RelationshipRevisionMetadata(
-                haplogroup_relationship_id = relId,
-                revisionId = newRevisionId,
-                author = context.sourceName,
-                timestamp = context.timestamp,
-                comment = s"Parent for ${existing.name} updated from ${currentParent.name} (ID: ${currentParent.id.get}) to ${node.name} (ID: $newPid) from source: ${context.sourceName}",
-                changeType = "update",
-                previousRevisionId = latestRevisionIdOpt
-              )
-            )
-          } yield Some(metadataId)
-        case (Some(newPid), None) => // Existing node had no parent, now has one
+          logger.warn(s"Subtree merge conflict: Incoming tree proposes reparenting existing haplogroup ${existing.name} (ID: ${existing.id.get}) from current parent ${currentParent.name} (ID: ${currentParent.id.get}) to new parent ID $newPid from source: ${context.sourceName}. This action will be skipped to preserve global tree structure.")
+          Future.successful(None) // Skip parent update
+
+        // Case 2: Existing haplogroup has no parent, and incoming tree proposes one. This is allowed.
+        case (Some(newPid), None) =>
           logger.info(s"Adding parent for haplogroup ${existing.name} with new parent ID $newPid from source: ${context.sourceName}")
           for {
             relId <- haplogroupRepository.updateParent(existing.id.get, newPid, context.sourceName)
-            latestRevisionIdOpt <- haplogroupRevisionMetadataRepository.getLatestRevisionId(relId)
-            newRevisionId = latestRevisionIdOpt.map(_ + 1).getOrElse(1)
-            metadataId <- haplogroupRevisionMetadataRepository.addRelationshipRevisionMetadata(
-              RelationshipRevisionMetadata(
-                haplogroup_relationship_id = relId,
-                revisionId = newRevisionId,
-                author = context.sourceName,
-                timestamp = context.timestamp,
-                comment = s"Parent for ${existing.name} added as ${node.name} (ID: $newPid) from source: ${context.sourceName}",
-                changeType = "create",
-                previousRevisionId = latestRevisionIdOpt
-              )
+            metadata <- haplogroupRevisionMetadataRepository.addNextRelationshipRevisionMetadata(
+              haplogroupRelationshipId = relId,
+              author = context.sourceName,
+              timestamp = context.timestamp,
+              comment = s"Parent for ${existing.name} added as ${node.name} (ID: $newPid) from source: ${context.sourceName}",
+              changeType = "create"
             )
-          } yield Some(metadataId)
-        case _ => Future.successful(None) // No change in parent or parentId is None
+          } yield Some(metadata.revisionId)
+
+        // Case 3: Parent is the same, or parentId is None (top of sourceTree), or currentParentOpt is Some(newPid) (i.e. already correct).
+        // No change needed.
+        case _ => Future.successful(None)
       }
       // Get existing haplogroup variant IDs before processing new ones
       existingHaplogroupVariantIds <- haplogroupVariantRepository.getHaplogroupVariantIds(existing.id.get)
@@ -445,19 +432,13 @@ class HaplogroupTreeMergeService @Inject()(
       // Create RelationshipRevisionMetadata if a parent relationship was created
       _ <- relationshipIdOpt match {
         case Some(relId) =>
-          haplogroupRevisionMetadataRepository.getLatestRevisionId(relId).flatMap { latestRevisionIdOpt =>
-            val newRevisionId = latestRevisionIdOpt.map(_ + 1).getOrElse(1)
-            val metadata = RelationshipRevisionMetadata(
-              haplogroup_relationship_id = relId,
-              revisionId = newRevisionId,
-              author = context.sourceName,
-              timestamp = context.timestamp,
-              comment = s"Initial creation of relationship for new haplogroup ${node.name}",
-              changeType = "create",
-              previousRevisionId = latestRevisionIdOpt
-            )
-            haplogroupRevisionMetadataRepository.addRelationshipRevisionMetadata(metadata)
-          }
+          haplogroupRevisionMetadataRepository.addNextRelationshipRevisionMetadata(
+            haplogroupRelationshipId = relId,
+            author = context.sourceName,
+            timestamp = context.timestamp,
+            comment = s"Initial creation of relationship for new haplogroup ${node.name}",
+            changeType = "create"
+          ).map(_ => 1)
         case None => Future.successful(0)
       }
 

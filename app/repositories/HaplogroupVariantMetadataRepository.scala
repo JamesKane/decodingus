@@ -236,10 +236,12 @@ class HaplogroupVariantMetadataRepositoryImpl @Inject()(
       // Using "forUpdate" to prevent race conditions during concurrent merges
       latestRevisionIdOption <- haplogroupVariantMetadata
         .filter(_.haplogroup_variant_id === haplogroupVariantId)
-        .map(_.revision_id)
-        .max
+        .sortBy(_.revision_id.desc) // Sort by revision_id descending
+        .take(1) // Take only the latest one
+        .forUpdate // Apply forUpdate to this subquery
+        .map(_.revision_id) // Map to get the revision_id
         .result
-        .forUpdate // Pessimistic lock for the select
+        .headOption // Get the single result
 
       nextRevisionId = latestRevisionIdOption.map(_ + 1).getOrElse(1)
       previousRevisionIdValue = latestRevisionIdOption // This is the actual previous_revision_id
