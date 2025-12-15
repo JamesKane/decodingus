@@ -114,9 +114,17 @@ class HaplogroupTreeMergeService @Inject()(
         subtreeScope = anchor +: descendants
         subtreeIndex <- buildVariantIndexForScope(subtreeScope)
 
+        // Check if the source tree root is the anchor itself
+        // If the source tree root matches the anchor, we should NOT pass the anchor ID as parent,
+        // because that would imply the anchor is a child of itself (reparenting conflict).
+        // Instead, passing None tells performMerge/mergeNode to treat it as a root update (no parent change).
+        rootMatch = findExistingMatch(request.sourceTree, subtreeIndex)
+        rootIsAnchor = rootMatch.exists(_.id == anchor.id)
+        effectiveAnchorId = if (rootIsAnchor) None else anchor.id
+
         result <- performMerge(
           haplogroupType = request.haplogroupType,
-          anchorId = anchor.id,
+          anchorId = effectiveAnchorId,
           sourceTree = request.sourceTree,
           sourceName = request.sourceName,
           priorityConfig = request.priorityConfig.getOrElse(SourcePriorityConfig(List.empty)),
