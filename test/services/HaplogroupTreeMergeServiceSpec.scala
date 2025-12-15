@@ -295,6 +295,44 @@ class HaplogroupTreeMergeServiceSpec extends PlaySpec with MockitoSugar with Sca
       }
     }
 
+    "update primary credit when incoming source has higher priority and existing is not ISOGG" in {
+      val existingProvenance = HaplogroupProvenance(primaryCredit = "DecodingUs", nodeProvenance = Set("DecodingUs"))
+      val existingHaplogroup = createHaplogroup(1, "R1b-L21", provenance = Some(existingProvenance))
+
+      when(mockHaplogroupRepo.getAllWithVariantNames(HaplogroupType.Y))
+        .thenReturn(Future.successful(Seq(
+          (existingHaplogroup, Seq("L21"))
+        )))
+      when(mockHaplogroupRepo.updateProvenance(anyInt(), any[HaplogroupProvenance]))
+        .thenReturn(Future.successful(true))
+      when(mockHaplogroupRepo.getParent(anyInt()))
+        .thenReturn(Future.successful(None))
+      when(mockVariantRepo.getHaplogroupVariantIds(anyInt()))
+        .thenReturn(Future.successful(Seq.empty))
+      when(mockVariantV2Repository.searchByName(anyString()))
+        .thenReturn(Future.successful(Seq.empty))
+
+      val sourceTree = createPhyloNode(
+        name = "R1b-L21",
+        variants = List("L21")
+      )
+
+      val request = TreeMergeRequest(
+        haplogroupType = HaplogroupType.Y,
+        sourceTree = sourceTree,
+        sourceName = "ISOGG",
+        priorityConfig = Some(SourcePriorityConfig(List("ISOGG", "DecodingUs"))), // ISOGG higher
+        dryRun = false
+      )
+
+      whenReady(service.mergeFullTree(request)) { result =>
+        result.success mustBe true
+        verify(mockHaplogroupRepo).updateProvenance(anyInt(), org.mockito.ArgumentMatchers.argThat { (p: HaplogroupProvenance) =>
+          p.primaryCredit == "ISOGG"
+        })
+      }
+    }
+
     // =========================================================================
     // Priority Configuration Tests
     // =========================================================================

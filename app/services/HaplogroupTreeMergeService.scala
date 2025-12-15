@@ -582,11 +582,22 @@ class HaplogroupTreeMergeService @Inject()(
       HaplogroupProvenance(primaryCredit = existing.source, nodeProvenance = Set(existing.source))
     )
 
-    // Preserve ISOGG credit
-    val primaryCredit = if (HaplogroupProvenance.shouldPreserveCredit(existingProvenance.primaryCredit)) {
-      existingProvenance.primaryCredit
+    // Determine primary credit based on priority and preservation rules
+    val currentCredit = existingProvenance.primaryCredit
+    val newSource = context.sourceName
+    
+    val primaryCredit = if (HaplogroupProvenance.shouldPreserveCredit(currentCredit)) {
+      currentCredit // Always preserve ISOGG (or other protected sources)
     } else {
-      existingProvenance.primaryCredit // Keep existing credit for non-ISOGG too
+      // Check priority: lower index = higher priority
+      val currentPriority = getPriority(currentCredit, context.priorityConfig)
+      val newPriority = getPriority(newSource, context.priorityConfig)
+
+      if (newPriority < currentPriority) {
+        newSource // Update to higher priority source
+      } else {
+        currentCredit // Keep existing
+      }
     }
 
     // Add new source to node provenance
