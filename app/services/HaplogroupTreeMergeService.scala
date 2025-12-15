@@ -663,7 +663,7 @@ class HaplogroupTreeMergeService @Inject()(
           Future.sequence(innerFutures).map(_.flatten) // Flatten Seq[Option[Int]] to Seq[Int]
         }
       }
-      Future.sequence(futuresOfSeqInts).map(_.flatten) // Flatten Seq[Seq[Int]] to Seq[Int]
+      Future.sequence(futuresOfSeqInts).map(_.flatten.distinct) // Flatten Seq[Seq[Int]] to Seq[Int] and distinct to avoid duplicate metadata entries
     }
   }
 
