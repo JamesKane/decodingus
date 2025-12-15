@@ -355,8 +355,13 @@ class HaplogroupTreeMergeService @Inject()(
         // Case 1: Existing haplogroup has a parent, and incoming tree proposes a different parent.
         // For subtree merges, this is usually an unintended reparenting of a global node.
         case (Some(newPid), Some(currentParent)) if newPid != currentParent.id.get =>
-          logger.warn(s"Subtree merge conflict: Incoming tree proposes reparenting existing haplogroup ${existing.name} (ID: ${existing.id.get}) from current parent ${currentParent.name} (ID: ${currentParent.id.get}) to new parent ID $newPid from source: ${context.sourceName}. This action will be skipped to preserve global tree structure.")
-          Future.successful(None) // Skip parent update
+          for {
+            newParentHaplogroupOpt <- haplogroupRepository.findById(newPid)
+            newParentName = newParentHaplogroupOpt.map(_.name).getOrElse(s"Unknown ($newPid)")
+          } yield {
+            logger.warn(s"Subtree merge conflict: Incoming tree proposes reparenting existing haplogroup ${existing.name} (ID: ${existing.id.get}) from current parent ${currentParent.name} (ID: ${currentParent.id.get}) to new parent '${newParentName}' (ID: $newPid) from source: ${context.sourceName}. This action will be skipped to preserve global tree structure.")
+            None // Still return None for the relationshipMetadataIdOpt
+          }
 
         // Case 2: Existing haplogroup has no parent, and incoming tree proposes one. This is allowed.
         case (Some(newPid), None) =>
