@@ -229,7 +229,8 @@ class HaplogroupTreeMergeService @Inject()(
           createdAt = context.timestamp
         )
       }
-      wipTreeRepository.createWipHaplogroupVariants(rows)
+      // Use upsert to handle cases where the same variant is added multiple times
+      wipTreeRepository.upsertWipHaplogroupVariants(rows)
     } else {
       haplogroupVariantRepository.bulkAddVariantsToHaplogroups(
         variantIds.map(vid => (haplogroupId, vid))
@@ -265,7 +266,9 @@ class HaplogroupTreeMergeService @Inject()(
         source = context.sourceName,
         createdAt = context.timestamp
       )
-      wipTreeRepository.createWipReparent(wipReparent).map(_ => ())
+      // Use upsert to handle cases where the same node is reparented multiple times
+      // (e.g., once by SUBTREE_LOOK_AHEAD and again by DEPTH_GRAFT)
+      wipTreeRepository.upsertWipReparent(wipReparent).map(_ => ())
     } else {
       haplogroupRepository.updateParent(haplogroupId, newParentId, context.sourceName).map(_ => ())
     }

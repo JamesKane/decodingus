@@ -91,6 +91,12 @@ trait WipTreeRepository {
   def createWipHaplogroupVariants(rows: Seq[WipHaplogroupVariantRow]): Future[Seq[Int]]
 
   /**
+   * Bulk insert WIP variant associations, ignoring duplicates.
+   * Filters out any variants that already exist for the same haplogroup/placeholder.
+   */
+  def upsertWipHaplogroupVariants(rows: Seq[WipHaplogroupVariantRow]): Future[Seq[Int]]
+
+  /**
    * Get all WIP variant associations for a change set.
    */
   def getWipVariantsForChangeSet(changeSetId: Int): Future[Seq[WipHaplogroupVariantRow]]
@@ -113,6 +119,14 @@ trait WipTreeRepository {
    * Create a new WIP reparent operation.
    */
   def createWipReparent(row: WipReparentRow): Future[Int]
+
+  /**
+   * Create or update a WIP reparent operation.
+   * If a reparent already exists for this haplogroup in this change set, update it.
+   * This handles cases where a node is reparented multiple times during a merge
+   * (e.g., once by SUBTREE_LOOK_AHEAD and again by DEPTH_GRAFT).
+   */
+  def upsertWipReparent(row: WipReparentRow): Future[Int]
 
   /**
    * Bulk insert WIP reparent operations.
@@ -258,6 +272,35 @@ class WipTreeRepositoryImpl @Inject()(
     }
   }
 
+  override def upsertWipHaplogroupVariants(rows: Seq[WipHaplogroupVariantRow]): Future[Seq[Int]] = {
+    if (rows.isEmpty) {
+      Future.successful(Seq.empty)
+    } else {
+      // Get the change set ID (all rows should have the same one)
+      val changeSetId = rows.head.changeSetId
+
+      // Get existing variants for this change set, then filter out duplicates
+      getWipVariantsForChangeSet(changeSetId).flatMap { existing =>
+        // Build a set of existing keys: (haplogroupId, placeholderId, variantId)
+        val existingKeys = existing.map { v =>
+          (v.haplogroupId, v.haplogroupPlaceholderId, v.variantId)
+        }.toSet
+
+        // Filter out rows that would be duplicates
+        val newRows = rows.filterNot { row =>
+          existingKeys.contains((row.haplogroupId, row.haplogroupPlaceholderId, row.variantId))
+        }
+
+        if (newRows.isEmpty) {
+          Future.successful(Seq.empty)
+        } else {
+          val query = (wipHaplogroupVariants returning wipHaplogroupVariants.map(_.id)) ++= newRows
+          runQuery(query)
+        }
+      }
+    }
+  }
+
   override def getWipVariantsForChangeSet(changeSetId: Int): Future[Seq[WipHaplogroupVariantRow]] = {
     val query = wipHaplogroupVariants
       .filter(_.changeSetId === changeSetId)
@@ -286,6 +329,22 @@ class WipTreeRepositoryImpl @Inject()(
   override def createWipReparent(row: WipReparentRow): Future[Int] = {
     val query = (wipReparents returning wipReparents.map(_.id)) += row
     runQuery(query)
+  }
+
+  override def upsertWipReparent(row: WipReparentRow): Future[Int] = {
+    // Check if a reparent already exists for this haplogroup in this change set
+    getWipReparent(row.changeSetId, row.haplogroupId).flatMap {
+      case Some(existing) =>
+        // Update the existing reparent with the new parent
+        val updateQuery = wipReparents
+          .filter(r => r.changeSetId === row.changeSetId && r.haplogroupId === row.haplogroupId)
+          .map(r => (r.newParentId, r.newParentPlaceholderId, r.source, r.createdAt))
+          .update((row.newParentId, row.newParentPlaceholderId, row.source, row.createdAt))
+        runQuery(updateQuery).map(_ => existing.id.getOrElse(0))
+      case None =>
+        // No existing reparent, create a new one
+        createWipReparent(row)
+    }
   }
 
   override def createWipReparents(rows: Seq[WipReparentRow]): Future[Seq[Int]] = {
