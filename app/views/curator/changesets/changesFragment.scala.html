@@ -1,0 +1,102 @@
+@import models.domain.haplogroups.{TreeChange, TreeChangeType}
+@import play.api.data.Form
+@(changeSetId: Int, changes: Seq[TreeChange], reviewForm: Form[_])(implicit request: RequestHeader, messages: Messages)
+
+@changeTypeBadge(t: TreeChangeType) = {
+    @t match {
+        case TreeChangeType.Create => {
+            <span class="badge bg-success">CREATE</span>
+        }
+        case TreeChangeType.Update => {
+            <span class="badge bg-info">UPDATE</span>
+        }
+        case TreeChangeType.Reparent => {
+            <span class="badge bg-warning text-dark">REPARENT</span>
+        }
+        case TreeChangeType.AddVariant => {
+            <span class="badge bg-primary">+VARIANT</span>
+        }
+        case TreeChangeType.RemoveVariant => {
+            <span class="badge bg-danger">-VARIANT</span>
+        }
+        case TreeChangeType.Delete => {
+            <span class="badge bg-danger">DELETE</span>
+        }
+    }
+}
+
+@if(changes.isEmpty) {
+    <div class="alert alert-success py-2">
+        <i class="bi bi-check-circle"></i> No pending changes to review.
+    </div>
+} else {
+    <div class="mb-2">
+        <small class="text-muted">@changes.size pending change(s) to review:</small>
+    </div>
+    <div class="list-group list-group-flush" style="max-height: 300px; overflow-y: auto;">
+        @for(change <- changes) {
+            <div class="list-group-item px-1 py-2" id="change-@change.id.get">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div class="flex-grow-1">
+                        @changeTypeBadge(change.changeType)
+                        <span class="ms-1">
+                            @change.changeType match {
+                                case TreeChangeType.Create => {
+                                    <strong>New node</strong>
+                                    @change.newParentId.map { p => under #@p }
+                                }
+                                case TreeChangeType.Reparent => {
+                                    <strong>Node #@change.haplogroupId.getOrElse("?")</strong>
+                                    @change.oldParentId.map { old => from #@old }
+                                    @change.newParentId.map { np => to #@np }
+                                }
+                                case TreeChangeType.AddVariant => {
+                                    Add variant #@change.variantId.getOrElse("?")
+                                    to node #@change.haplogroupId.getOrElse("?")
+                                }
+                                case TreeChangeType.Update => {
+                                    Update node #@change.haplogroupId.getOrElse("?")
+                                }
+                                case _ => {
+                                    @change.changeType on node #@change.haplogroupId.getOrElse("?")
+                                }
+                            }
+                        </span>
+                    </div>
+                </div>
+                <div class="mt-2 btn-group btn-group-sm">
+                    <form hx-post="@controllers.routes.TreeVersioningCuratorController.reviewChange(changeSetId, change.id.get)"
+                          hx-target="#change-@change.id.get"
+                          hx-swap="outerHTML"
+                          class="d-inline">
+                        @views.html.helper.CSRF.formField
+                        <input type="hidden" name="action" value="APPLIED">
+                        <button type="submit" class="btn btn-outline-success btn-sm" title="Approve">
+                            <i class="bi bi-check"></i>
+                        </button>
+                    </form>
+                    <form hx-post="@controllers.routes.TreeVersioningCuratorController.reviewChange(changeSetId, change.id.get)"
+                          hx-target="#change-@change.id.get"
+                          hx-swap="outerHTML"
+                          class="d-inline">
+                        @views.html.helper.CSRF.formField
+                        <input type="hidden" name="action" value="SKIPPED">
+                        <button type="submit" class="btn btn-outline-secondary btn-sm" title="Skip">
+                            <i class="bi bi-dash"></i>
+                        </button>
+                    </form>
+                    <form hx-post="@controllers.routes.TreeVersioningCuratorController.reviewChange(changeSetId, change.id.get)"
+                          hx-target="#change-@change.id.get"
+                          hx-swap="outerHTML"
+                          class="d-inline">
+                        @views.html.helper.CSRF.formField
+                        <input type="hidden" name="action" value="REVERTED">
+                        <button type="submit" class="btn btn-outline-danger btn-sm" title="Revert">
+                            <i class="bi bi-x"></i>
+                        </button>
+                    </form>
+                </div>
+            </div>
+        }
+    </div>
+}

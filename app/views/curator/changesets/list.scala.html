@@ -1,0 +1,99 @@
+@import org.webjars.play.WebJarsUtil
+@(hgType: Option[String], status: Option[String], pageSize: Int)(implicit request: RequestHeader, messages: Messages, webJarsUtil: WebJarsUtil)
+
+@main("Curator - Change Sets") {
+    <style>
+        .detail-panel { min-height: 400px; }
+        .status-badge-draft { background-color: #6c757d; }
+        .status-badge-ready { background-color: #0d6efd; }
+        .status-badge-review { background-color: #ffc107; color: #000; }
+        .status-badge-applied { background-color: #198754; }
+        .status-badge-discarded { background-color: #dc3545; }
+    </style>
+
+    <div class="container-fluid py-4">
+        <div class="row">
+            <div class="col-12">
+                @views.html.fragments.breadcrumbs(Seq(
+                    ("Curator", controllers.routes.CuratorController.dashboard),
+                    ("Change Sets", controllers.routes.TreeVersioningCuratorController.listChangeSets(None, None, 20))
+                ))
+            </div>
+        </div>
+
+        @views.html.fragments.flashMessages(request.flash)
+
+        <div class="row">
+            <div class="col-lg-7">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0"><i class="bi bi-git"></i> Change Sets</h5>
+                        <span class="text-muted small">Tree versioning for bulk merge operations</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="row g-3 mb-4">
+                            <div class="col-md-5">
+                                <select class="form-select"
+                                    id="type-filter"
+                                    name="hgType"
+                                    hx-get="@controllers.routes.TreeVersioningCuratorController.changeSetsFragment(None, status, 1, pageSize)"
+                                    hx-trigger="change"
+                                    hx-target="#changesets-table"
+                                    hx-include="#status-filter">
+                                    <option value="" @if(hgType.isEmpty){selected}>All Types</option>
+                                    <option value="Y" @if(hgType.contains("Y")){selected}>Y-DNA</option>
+                                    <option value="MT" @if(hgType.contains("MT")){selected}>mtDNA</option>
+                                </select>
+                            </div>
+                            <div class="col-md-5">
+                                <select class="form-select"
+                                    id="status-filter"
+                                    name="status"
+                                    hx-get="@controllers.routes.TreeVersioningCuratorController.changeSetsFragment(hgType, None, 1, pageSize)"
+                                    hx-trigger="change"
+                                    hx-target="#changesets-table"
+                                    hx-include="#type-filter">
+                                    <option value="" @if(status.isEmpty){selected}>All Statuses</option>
+                                    <option value="DRAFT" @if(status.contains("DRAFT")){selected}>Draft</option>
+                                    <option value="READY_FOR_REVIEW" @if(status.contains("READY_FOR_REVIEW")){selected}>Ready for Review</option>
+                                    <option value="UNDER_REVIEW" @if(status.contains("UNDER_REVIEW")){selected}>Under Review</option>
+                                    <option value="APPLIED" @if(status.contains("APPLIED")){selected}>Applied</option>
+                                    <option value="DISCARDED" @if(status.contains("DISCARDED")){selected}>Discarded</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div id="changesets-table"
+                             hx-get="@controllers.routes.TreeVersioningCuratorController.changeSetsFragment(hgType, status, 1, pageSize)"
+                             hx-trigger="load"
+                             hx-swap="innerHTML">
+                            <div class="text-center py-5">
+                                <div class="spinner-border text-primary" role="status">
+                                    <span class="visually-hidden">Loading...</span>
+                                </div>
+                                <p class="text-muted mt-2">Loading change sets...</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-lg-5">
+                <div id="detail-panel" class="detail-panel">
+                    <div class="card">
+                        <div class="card-body text-center text-muted py-5">
+                            <i class="bi bi-arrow-left-circle display-4"></i>
+                            <p class="mt-3">Select a change set to view details</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.body.addEventListener('changeSetUpdated', function() {
+            htmx.trigger('#changesets-table', 'load');
+        });
+    </script>
+}

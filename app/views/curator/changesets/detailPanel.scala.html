@@ -1,0 +1,202 @@
+@import models.domain.haplogroups.{ChangeSetDetails, ChangeSetStatus}
+@import play.api.data.Form
+@(details: ChangeSetDetails, discardForm: Form[_])(implicit request: RequestHeader, messages: Messages)
+
+@statusBadge(s: ChangeSetStatus) = {
+    @s match {
+        case ChangeSetStatus.Draft => {
+            <span class="badge status-badge-draft">Draft</span>
+        }
+        case ChangeSetStatus.ReadyForReview => {
+            <span class="badge status-badge-ready">Ready for Review</span>
+        }
+        case ChangeSetStatus.UnderReview => {
+            <span class="badge status-badge-review">Under Review</span>
+        }
+        case ChangeSetStatus.Applied => {
+            <span class="badge status-badge-applied">Applied</span>
+        }
+        case ChangeSetStatus.Discarded => {
+            <span class="badge status-badge-discarded">Discarded</span>
+        }
+    }
+}
+
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h6 class="mb-0">
+            <i class="bi bi-git"></i> @details.changeSet.name
+        </h6>
+        @statusBadge(details.changeSet.status)
+    </div>
+    <div class="card-body">
+        <div class="mb-3">
+            <small class="text-muted">Source</small>
+            <p class="mb-1"><strong>@details.changeSet.sourceName</strong></p>
+        </div>
+
+        @details.changeSet.description.map { desc =>
+            <div class="mb-3">
+                <small class="text-muted">Description</small>
+                <p class="mb-1">@desc</p>
+            </div>
+        }
+
+        <div class="row mb-3">
+            <div class="col-6">
+                <small class="text-muted">Type</small>
+                <p class="mb-1">
+                    <span class="badge @if(details.changeSet.haplogroupType.toString == "Y"){bg-primary}else{bg-success}">
+                        @details.changeSet.haplogroupType
+                    </span>
+                </p>
+            </div>
+            <div class="col-6">
+                <small class="text-muted">Created</small>
+                <p class="mb-1">@details.changeSet.createdAt.toLocalDate by @details.changeSet.createdBy</p>
+            </div>
+        </div>
+
+        <hr>
+
+        <h6><i class="bi bi-bar-chart"></i> Statistics</h6>
+        <div class="row g-2 mb-3">
+            <div class="col-4">
+                <div class="border rounded p-2 text-center">
+                    <div class="h4 mb-0 text-success">@details.changeSet.statistics.nodesCreated</div>
+                    <small class="text-muted">Created</small>
+                </div>
+            </div>
+            <div class="col-4">
+                <div class="border rounded p-2 text-center">
+                    <div class="h4 mb-0 text-primary">@details.changeSet.statistics.nodesUpdated</div>
+                    <small class="text-muted">Updated</small>
+                </div>
+            </div>
+            <div class="col-4">
+                <div class="border rounded p-2 text-center">
+                    <div class="h4 mb-0 text-info">@details.changeSet.statistics.relationshipsUpdated</div>
+                    <small class="text-muted">Reparented</small>
+                </div>
+            </div>
+        </div>
+
+        <div class="row g-2 mb-3">
+            <div class="col-6">
+                <small class="text-muted">Total Changes</small>
+                <p class="mb-0"><strong>@details.totalChanges</strong></p>
+            </div>
+            <div class="col-6">
+                <small class="text-muted">By Type</small>
+                <p class="mb-0 small">
+                    @details.changesByType.map { case (t, count) =>
+                        <span class="badge bg-secondary me-1">@t: @count</span>
+                    }
+                </p>
+            </div>
+        </div>
+
+        @details.changeSet.ambiguityReportPath.map { path =>
+            <div class="alert alert-warning py-2 mb-3">
+                <small><i class="bi bi-exclamation-triangle"></i> Ambiguity report available: @path.split("/").last</small>
+            </div>
+        }
+
+        <hr>
+
+        @* Action buttons based on status *@
+        @details.changeSet.status match {
+            case ChangeSetStatus.ReadyForReview => {
+                <div class="d-grid gap-2">
+                    <form action="@controllers.routes.TreeVersioningCuratorController.startReview(details.changeSet.id.get)" method="post">
+                        @views.html.helper.CSRF.formField
+                        <button type="submit" class="btn btn-primary w-100">
+                            <i class="bi bi-play-circle"></i> Start Review
+                        </button>
+                    </form>
+                    <button class="btn btn-outline-danger" type="button" data-bs-toggle="collapse" data-bs-target="#discardForm">
+                        <i class="bi bi-x-circle"></i> Discard
+                    </button>
+                </div>
+            }
+            case ChangeSetStatus.UnderReview => {
+                <div class="d-grid gap-2">
+                    <div id="pending-changes"
+                         hx-get="@controllers.routes.TreeVersioningCuratorController.pendingChangesFragment(details.changeSet.id.get, 10)"
+                         hx-trigger="load"
+                         hx-swap="innerHTML">
+                        <div class="text-center py-2">
+                            <div class="spinner-border spinner-border-sm" role="status"></div>
+                            <small class="ms-2">Loading pending changes...</small>
+                        </div>
+                    </div>
+
+                    <hr>
+
+                    <form action="@controllers.routes.TreeVersioningCuratorController.approveAllPending(details.changeSet.id.get)" method="post">
+                        @views.html.helper.CSRF.formField
+                        <button type="submit" class="btn btn-success w-100" onclick="return confirm('Approve all pending changes?')">
+                            <i class="bi bi-check-all"></i> Approve All Pending
+                        </button>
+                    </form>
+                    <form action="@controllers.routes.TreeVersioningCuratorController.applyChangeSet(details.changeSet.id.get)" method="post">
+                        @views.html.helper.CSRF.formField
+                        <button type="submit" class="btn btn-primary w-100" onclick="return confirm('Apply this change set to Production? This action cannot be undone.')">
+                            <i class="bi bi-arrow-up-circle"></i> Apply to Production
+                        </button>
+                    </form>
+                    <button class="btn btn-outline-danger" type="button" data-bs-toggle="collapse" data-bs-target="#discardForm">
+                        <i class="bi bi-x-circle"></i> Discard
+                    </button>
+                </div>
+            }
+            case ChangeSetStatus.Applied => {
+                <div class="alert alert-success py-2">
+                    <i class="bi bi-check-circle"></i> Applied on @details.changeSet.appliedAt.map(_.toLocalDate).getOrElse("N/A")
+                    @details.changeSet.appliedBy.map { by => <br><small>by @by</small> }
+                </div>
+            }
+            case ChangeSetStatus.Discarded => {
+                <div class="alert alert-secondary py-2">
+                    <i class="bi bi-x-circle"></i> Discarded on @details.changeSet.discardedAt.map(_.toLocalDate).getOrElse("N/A")
+                    @details.changeSet.discardedBy.map { by => <br><small>by @by</small> }
+                    @details.changeSet.discardReason.map { reason => <br><small class="text-muted">Reason: @reason</small> }
+                </div>
+            }
+            case _ => {
+                <div class="alert alert-info py-2">
+                    <i class="bi bi-hourglass"></i> Change set is in @details.changeSet.status status
+                </div>
+            }
+        }
+
+        @* Discard form (collapsed by default) *@
+        <div class="collapse mt-3" id="discardForm">
+            <form action="@controllers.routes.TreeVersioningCuratorController.discardChangeSet(details.changeSet.id.get)" method="post">
+                @views.html.helper.CSRF.formField
+                <div class="mb-2">
+                    <label class="form-label small">Reason for discarding (required)</label>
+                    <textarea name="reason" class="form-control" rows="2" minlength="10" required
+                              placeholder="Please explain why this change set is being discarded..."></textarea>
+                </div>
+                <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Are you sure you want to discard this change set?')">
+                    Confirm Discard
+                </button>
+            </form>
+        </div>
+
+        @* Comments section *@
+        @if(details.comments.nonEmpty) {
+            <hr>
+            <h6><i class="bi bi-chat-dots"></i> Comments (@details.comments.size)</h6>
+            <div class="list-group list-group-flush">
+                @for(comment <- details.comments.take(3)) {
+                    <div class="list-group-item px-0">
+                        <small class="text-muted">@comment.author on @comment.createdAt.toLocalDate</small>
+                        <p class="mb-0 small">@comment.content</p>
+                    </div>
+                }
+            </div>
+        }
+    </div>
+</div>

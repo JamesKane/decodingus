@@ -209,6 +209,17 @@ POST          /admin/publication-candidates/:id/reject                          
 # Curator Tools (requires TreeCurator or Admin role)
 GET           /curator                                                                           controllers.CuratorController.dashboard
 
+# Curator - Change Sets (Tree Versioning)
+GET           /curator/change-sets                                                               controllers.TreeVersioningCuratorController.listChangeSets(hgType: Option[String], status: Option[String], pageSize: Int ?= 20)
+GET           /curator/change-sets/fragment                                                      controllers.TreeVersioningCuratorController.changeSetsFragment(hgType: Option[String], status: Option[String], page: Int ?= 1, pageSize: Int ?= 20)
+GET           /curator/change-sets/:id/panel                                                     controllers.TreeVersioningCuratorController.changeSetDetailPanel(id: Int)
+GET           /curator/change-sets/:id/changes/pending                                           controllers.TreeVersioningCuratorController.pendingChangesFragment(id: Int, limit: Int ?= 50)
+POST          /curator/change-sets/:id/start-review                                              controllers.TreeVersioningCuratorController.startReview(id: Int)
+POST          /curator/change-sets/:id/apply                                                     controllers.TreeVersioningCuratorController.applyChangeSet(id: Int)
+POST          /curator/change-sets/:id/discard                                                   controllers.TreeVersioningCuratorController.discardChangeSet(id: Int)
+POST          /curator/change-sets/:id/approve-all                                               controllers.TreeVersioningCuratorController.approveAllPending(id: Int)
+POST          /curator/change-sets/:changeSetId/changes/:changeId/review                         controllers.TreeVersioningCuratorController.reviewChange(changeSetId: Int, changeId: Int)
+
 # Curator - Haplogroups
 GET           /curator/haplogroups                                                               controllers.CuratorController.listHaplogroups(query: Option[String], hgType: Option[String], page: Int ?= 1, pageSize: Int ?= 20)
 GET           /curator/haplogroups/fragment                                                      controllers.CuratorController.haplogroupsFragment(query: Option[String], hgType: Option[String], page: Int ?= 1, pageSize: Int ?= 20)

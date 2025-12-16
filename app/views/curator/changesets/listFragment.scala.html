@@ -1,0 +1,106 @@
+@import models.domain.haplogroups.{ChangeSetSummary, ChangeSetStatus}
+@(changeSets: Seq[ChangeSetSummary], hgType: Option[String], status: Option[String], currentPage: Int, totalPages: Int, pageSize: Int)(implicit request: RequestHeader)
+
+@statusBadge(s: ChangeSetStatus) = {
+    @s match {
+        case ChangeSetStatus.Draft => {
+            <span class="badge status-badge-draft">Draft</span>
+        }
+        case ChangeSetStatus.ReadyForReview => {
+            <span class="badge status-badge-ready">Ready for Review</span>
+        }
+        case ChangeSetStatus.UnderReview => {
+            <span class="badge status-badge-review">Under Review</span>
+        }
+        case ChangeSetStatus.Applied => {
+            <span class="badge status-badge-applied">Applied</span>
+        }
+        case ChangeSetStatus.Discarded => {
+            <span class="badge status-badge-discarded">Discarded</span>
+        }
+    }
+}
+
+@if(changeSets.isEmpty) {
+    <div class="alert alert-info">
+        <i class="bi bi-info-circle"></i> No change sets found matching your criteria.
+        <p class="mb-0 mt-2 small">Change sets are created automatically when tree merge operations are performed.</p>
+    </div>
+} else {
+    <div class="table-responsive">
+        <table class="table table-hover">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Type</th>
+                    <th>Status</th>
+                    <th>Changes</th>
+                    <th>Created</th>
+                </tr>
+            </thead>
+            <tbody>
+                @for(cs <- changeSets) {
+                    <tr class="cursor-pointer"
+                        hx-get="@controllers.routes.TreeVersioningCuratorController.changeSetDetailPanel(cs.id)"
+                        hx-target="#detail-panel"
+                        hx-swap="innerHTML"
+                        style="cursor: pointer;">
+                        <td>
+                            <strong>@cs.name</strong>
+                            <br><small class="text-muted">@cs.sourceName</small>
+                        </td>
+                        <td>
+                            <span class="badge @if(cs.haplogroupType.toString == "Y"){bg-primary}else{bg-success}">
+                                @cs.haplogroupType
+                            </span>
+                        </td>
+                        <td>@statusBadge(cs.status)</td>
+                        <td>
+                            <span title="Total changes">@cs.totalChanges</span>
+                            @if(cs.pendingChanges > 0) {
+                                <span class="badge bg-warning text-dark ms-1" title="Pending review">@cs.pendingChanges pending</span>
+                            }
+                        </td>
+                        <td>
+                            <small>@cs.createdAt.toLocalDate</small>
+                            <br><small class="text-muted">by @cs.createdBy</small>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    @if(totalPages > 1) {
+        <nav>
+            <ul class="pagination justify-content-center">
+                <li class="page-item @if(currentPage <= 1){disabled}">
+                    <a class="page-link"
+                       hx-get="@controllers.routes.TreeVersioningCuratorController.changeSetsFragment(hgType, status, currentPage - 1, pageSize)"
+                       hx-target="#changesets-table"
+                       hx-include="#type-filter, #status-filter">
+                        Previous
+                    </a>
+                </li>
+                @for(p <- Math.max(1, currentPage - 2) to Math.min(totalPages, currentPage + 2)) {
+                    <li class="page-item @if(p == currentPage){active}">
+                        <a class="page-link"
+                           hx-get="@controllers.routes.TreeVersioningCuratorController.changeSetsFragment(hgType, status, p, pageSize)"
+                           hx-target="#changesets-table"
+                           hx-include="#type-filter, #status-filter">
+                            @p
+                        </a>
+                    </li>
+                }
+                <li class="page-item @if(currentPage >= totalPages){disabled}">
+                    <a class="page-link"
+                       hx-get="@controllers.routes.TreeVersioningCuratorController.changeSetsFragment(hgType, status, currentPage + 1, pageSize)"
+                       hx-target="#changesets-table"
+                       hx-include="#type-filter, #status-filter">
+                        Next
+                    </a>
+                </li>
+            </ul>
+        </nav>
+    }
+}
