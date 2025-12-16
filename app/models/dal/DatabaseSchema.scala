@@ -104,6 +104,11 @@ object DatabaseSchema {
       val haplogroups = TableQuery[HaplogroupsTable]
       val haplogroupVariantMetadata = TableQuery[HaplogroupVariantMetadataTable]
       val haplogroupVariants = TableQuery[HaplogroupVariantsTable]
+
+      // Tree Versioning System (Production/WIP)
+      val changeSets = TableQuery[ChangeSetsTable]
+      val treeChanges = TableQuery[TreeChangesTable]
+      val changeSetComments = TableQuery[ChangeSetCommentsTable]
     }
 
     object pangenome {
