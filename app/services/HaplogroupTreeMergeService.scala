@@ -670,24 +670,31 @@ class HaplogroupTreeMergeService @Inject()(
     if (variants.isEmpty) {
       Future.successful(Seq.empty)
     } else {
-      val futuresOfSeqInts: Seq[Future[Seq[Int]]] = variants.map { variantInput =>
-        variantV2Repository.searchByName(variantInput.name).flatMap { foundVariants =>
-          val innerFutures: Seq[Future[Option[Int]]] = foundVariants.map { variant =>
-            variant.variantId match {
-              case Some(vid) =>
-                for {
-                  haplogroupVariantId <- haplogroupVariantRepository.addVariantToHaplogroup(haplogroupId, vid)
-                  _ <- Future.traverse(variantInput.aliases) { alias =>
-                    variantV2Repository.addAlias(vid, "common_name", alias).recover { case _ => false }
-                  }
-                } yield Some(haplogroupVariantId)
-              case None => Future.successful(None)
+      // Process variants in batches to avoid overwhelming the thread pool
+      val batchSize = 10
+      variants.grouped(batchSize).foldLeft(Future.successful(Seq.empty[Int])) { (accFuture, batch) =>
+        accFuture.flatMap { accIds =>
+          val batchFuture = Future.sequence(batch.map { variantInput =>
+            variantV2Repository.searchByName(variantInput.name).flatMap { foundVariants =>
+              val innerFutures: Seq[Future[Option[Int]]] = foundVariants.map { variant =>
+                variant.variantId match {
+                  case Some(vid) =>
+                    for {
+                      haplogroupVariantId <- haplogroupVariantRepository.addVariantToHaplogroup(haplogroupId, vid)
+                      _ <- Future.traverse(variantInput.aliases) { alias =>
+                        variantV2Repository.addAlias(vid, "common_name", alias).recover { case _ => false }
+                      }
+                    } yield Some(haplogroupVariantId)
+                  case None => Future.successful(None)
+                }
+              }
+              Future.sequence(innerFutures).map(_.flatten) // Flatten Seq[Option[Int]] to Seq[Int]
             }
-          }
-          Future.sequence(innerFutures).map(_.flatten) // Flatten Seq[Option[Int]] to Seq[Int]
+          })
+          
+          batchFuture.map(batchIds => accIds ++ batchIds.flatten)
         }
-      }
-      Future.sequence(futuresOfSeqInts).map(_.flatten.distinct) // Flatten Seq[Seq[Int]] to Seq[Int] and distinct to avoid duplicate metadata entries
+      }.map(_.distinct) // distinct to avoid duplicate metadata entries
     }
   }
 
