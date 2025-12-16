@@ -1,0 +1,8 @@
+@(credit: String, additionalCount: Int = 0, tooltip: Option[String] = None)
+<span class="badge @if(credit.equalsIgnoreCase("ISOGG")){bg-warning text-dark}else if(credit.equalsIgnoreCase("DecodingUs")){bg-primary}else{bg-secondary}"
+      @tooltip.map { t => title="@t" }>
+    @credit
+    @if(additionalCount > 0) {
+        <span class="badge bg-light text-dark ms-1">+@additionalCount</span>
+    }
+</span>

@@ -1,5 +1,5 @@
 @import models.api.genomics.GenomeRegionDetailDto
-@(regions: Seq[GenomeRegionDetailDto], build: Option[String], currentPage: Int, totalPages: Int, pageSize: Int, totalCount: Int)(implicit request: RequestHeader)
+@(regions: Seq[GenomeRegionDetailDto], build: Option[String], currentPage: Int, totalPages: Int, pageSize: Int, totalCount: Int)(implicit request: RequestHeader, messages: Messages)
 
 @defining(java.text.NumberFormat.getIntegerInstance()) { nf =>
 <div class="d-flex justify-content-between align-items-center mb-2">
@@ -73,38 +73,13 @@
         </table>
     </div>
 
-    @if(totalPages > 1) {
-        <nav>
-            <ul class="pagination justify-content-center">
-                <li class="page-item @if(currentPage <= 1){disabled}">
-                    <a class="page-link"
-                       hx-get="@controllers.routes.GenomeRegionsCuratorController.regionsFragment(None, build, currentPage - 1, pageSize)"
-                       hx-target="#regions-table"
-                       hx-include="#build-filter">
-                        Previous
-                    </a>
-                </li>
-                @for(p <- Math.max(1, currentPage - 2) to Math.min(totalPages, currentPage + 2)) {
-                    <li class="page-item @if(p == currentPage){active}">
-                        <a class="page-link"
-                           hx-get="@controllers.routes.GenomeRegionsCuratorController.regionsFragment(None, build, p, pageSize)"
-                           hx-target="#regions-table"
-                           hx-include="#build-filter">
-                            @p
-                        </a>
-                    </li>
-                }
-                <li class="page-item @if(currentPage >= totalPages){disabled}">
-                    <a class="page-link"
-                       hx-get="@controllers.routes.GenomeRegionsCuratorController.regionsFragment(None, build, currentPage + 1, pageSize)"
-                       hx-target="#regions-table"
-                       hx-include="#build-filter">
-                        Next
-                    </a>
-                </li>
-            </ul>
-        </nav>
-    }
+    @views.html.fragments.pagination(
+        currentPage,
+        totalPages,
+        (p: Int) => controllers.routes.GenomeRegionsCuratorController.regionsFragment(None, build, p, pageSize),
+        "#regions-table",
+        "#build-filter"
+    )
 }
 
 @buildBadgeClass(refGenome: String) = @{

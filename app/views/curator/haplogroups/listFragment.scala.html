@@ -1,5 +1,5 @@
 @import models.domain.haplogroups.Haplogroup
-@(haplogroups: Seq[Haplogroup], query: Option[String], hgType: Option[String], currentPage: Int, totalPages: Int, pageSize: Int)(implicit request: RequestHeader)
+@(haplogroups: Seq[Haplogroup], query: Option[String], hgType: Option[String], currentPage: Int, totalPages: Int, pageSize: Int)(implicit request: RequestHeader, messages: Messages)
 
 @if(haplogroups.isEmpty) {
     <div class="alert alert-info">No haplogroups found matching your criteria.</div>
@@ -24,20 +24,16 @@
                         style="cursor: pointer;">
                         <td><strong>@hg.name</strong></td>
                         <td>
-                            <span class="badge @if(hg.haplogroupType.toString == "Y"){bg-primary}else{bg-success}">
-                                @hg.haplogroupType
-                            </span>
+                            @views.html.fragments.badges.haplogroupType(hg.haplogroupType.toString)
                         </td>
                         <td>@hg.source</td>
                         <td>
                             @hg.provenance.map { prov =>
-                                <span class="badge @if(prov.primaryCredit.equalsIgnoreCase("ISOGG")){bg-warning text-dark}else if(prov.primaryCredit.equalsIgnoreCase("DecodingUs")){bg-primary}else{bg-secondary}"
-                                      title="Primary: @prov.primaryCredit, Contributors: @prov.nodeProvenance.mkString(", ")">
-                                    @prov.primaryCredit
-                                    @if(prov.nodeProvenance.size > 1) {
-                                        <span class="badge bg-light text-dark ms-1">+@(prov.nodeProvenance.size - 1)</span>
-                                    }
-                                </span>
+                                @views.html.fragments.badges.provenance(
+                                    prov.primaryCredit,
+                                    if(prov.nodeProvenance.size > 1) prov.nodeProvenance.size - 1 else 0,
+                                    Some(s"Primary: ${prov.primaryCredit}, Contributors: ${prov.nodeProvenance.mkString(", ")}")
+                                )
                             }.getOrElse {
                                 <span class="text-muted">-</span>
                             }
@@ -55,36 +51,11 @@
         </table>
     </div>
 
-    @if(totalPages > 1) {
-        <nav>
-            <ul class="pagination justify-content-center">
-                <li class="page-item @if(currentPage <= 1){disabled}">
-                    <a class="page-link"
-                       hx-get="@controllers.routes.CuratorController.haplogroupsFragment(query, hgType, currentPage - 1, pageSize)"
-                       hx-target="#haplogroups-table"
-                       hx-include="#haplogroup-search, #type-filter">
-                        Previous
-                    </a>
-                </li>
-                @for(p <- Math.max(1, currentPage - 2) to Math.min(totalPages, currentPage + 2)) {
-                    <li class="page-item @if(p == currentPage){active}">
-                        <a class="page-link"
-                           hx-get="@controllers.routes.CuratorController.haplogroupsFragment(query, hgType, p, pageSize)"
-                           hx-target="#haplogroups-table"
-                           hx-include="#haplogroup-search, #type-filter">
-                            @p
-                        </a>
-                    </li>
-                }
-                <li class="page-item @if(currentPage >= totalPages){disabled}">
-                    <a class="page-link"
-                       hx-get="@controllers.routes.CuratorController.haplogroupsFragment(query, hgType, currentPage + 1, pageSize)"
-                       hx-target="#haplogroups-table"
-                       hx-include="#haplogroup-search, #type-filter">
-                        Next
-                    </a>
-                </li>
-            </ul>
-        </nav>
-    }
+    @views.html.fragments.pagination(
+        currentPage,
+        totalPages,
+        (p: Int) => controllers.routes.CuratorController.haplogroupsFragment(query, hgType, p, pageSize),
+        "#haplogroups-table",
+        "#haplogroup-search, #type-filter"
+    )
 }

@@ -70,8 +70,8 @@ case class SplitBranchFormData(
 @Singleton
 class CuratorController @Inject()(
     val controllerComponents: ControllerComponents,
-    authenticatedAction: AuthenticatedAction,
-    permissionAction: PermissionAction,
+    protected val authenticatedAction: AuthenticatedAction,
+    protected val permissionAction: PermissionAction,
     haplogroupRepository: HaplogroupCoreRepository,
     variantV2Repository: VariantV2Repository,
     haplogroupVariantRepository: HaplogroupVariantRepository,
@@ -81,11 +81,7 @@ class CuratorController @Inject()(
     variantIngestionService: YBrowseVariantIngestionService,
     treeVersioningService: TreeVersioningService
 )(implicit ec: ExecutionContext, webJarsUtil: WebJarsUtil)
-    extends BaseController with I18nSupport with Logging {
-
-  // Permission-based action composition
-  private def withPermission(permission: String) =
-    authenticatedAction andThen permissionAction(permission)
+    extends BaseController with I18nSupport with Logging with BaseCuratorController {
 
   // Forms
   private val haplogroupForm: Form[HaplogroupFormData] = Form(

@@ -1,0 +1,22 @@
+@import models.domain.haplogroups.TreeChangeType
+@(changeType: TreeChangeType)
+@changeType match {
+    case TreeChangeType.Create => {
+        <span class="badge bg-success">CREATE</span>
+    }
+    case TreeChangeType.Update => {
+        <span class="badge bg-info">UPDATE</span>
+    }
+    case TreeChangeType.Reparent => {
+        <span class="badge bg-warning text-dark">REPARENT</span>
+    }
+    case TreeChangeType.AddVariant => {
+        <span class="badge bg-primary">+VARIANT</span>
+    }
+    case TreeChangeType.RemoveVariant => {
+        <span class="badge bg-danger">-VARIANT</span>
+    }
+    case TreeChangeType.Delete => {
+        <span class="badge bg-danger">DELETE</span>
+    }
+}

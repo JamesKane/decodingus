@@ -24,15 +24,11 @@ import scala.util.Using
 @Singleton
 class TreeVersioningCuratorController @Inject()(
     val controllerComponents: ControllerComponents,
-    authenticatedAction: AuthenticatedAction,
-    permissionAction: PermissionAction,
+    protected val authenticatedAction: AuthenticatedAction,
+    protected val permissionAction: PermissionAction,
     treeVersioningService: TreeVersioningService
 )(implicit ec: ExecutionContext, webJarsUtil: WebJarsUtil)
-    extends BaseController with I18nSupport with Logging {
-
-  // Permission-based action composition
-  private def withPermission(permission: String) =
-    authenticatedAction andThen permissionAction(permission)
+    extends BaseController with I18nSupport with Logging with BaseCuratorController {
 
   // Forms
   case class DiscardFormData(reason: String)
@@ -49,10 +45,6 @@ class TreeVersioningCuratorController @Inject()(
       "notes" -> optional(text(maxLength = 1000))
     )(ReviewChangeFormData.apply)(d => Some((d.action, d.notes)))
   )
-
-  // Helper to get curator ID from request
-  private def curatorId(request: AuthenticatedRequest[?]): String =
-    request.user.email.getOrElse(request.user.id.map(_.toString).getOrElse("unknown"))
 
   // ============================================================================
   // Change Set List

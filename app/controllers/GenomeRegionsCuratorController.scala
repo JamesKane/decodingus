@@ -34,17 +34,13 @@ case class GenomeRegionFormData(
 @Singleton
 class GenomeRegionsCuratorController @Inject()(
   val controllerComponents: ControllerComponents,
-  authenticatedAction: AuthenticatedAction,
-  permissionAction: PermissionAction,
+  protected val authenticatedAction: AuthenticatedAction,
+  protected val permissionAction: PermissionAction,
   managementService: GenomeRegionsManagementService,
   genbankContigRepository: GenbankContigRepository,
   genomicsConfig: GenomicsConfig
 )(implicit ec: ExecutionContext, webJarsUtil: WebJarsUtil)
-  extends BaseController with I18nSupport with Logging {
-
-  // Permission-based action composition
-  private def withPermission(permission: String) =
-    authenticatedAction andThen permissionAction(permission)
+  extends BaseController with I18nSupport with Logging with BaseCuratorController {
 
   // Forms
   private val genomeRegionForm: Form[GenomeRegionFormData] = Form(

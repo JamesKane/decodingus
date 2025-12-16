@@ -1,25 +1,5 @@
 @import models.domain.haplogroups.{ChangeSetSummary, ChangeSetStatus}
-@(changeSets: Seq[ChangeSetSummary], hgType: Option[String], status: Option[String], currentPage: Int, totalPages: Int, pageSize: Int)(implicit request: RequestHeader)
-
-@statusBadge(s: ChangeSetStatus) = {
-    @s match {
-        case ChangeSetStatus.Draft => {
-            <span class="badge status-badge-draft">Draft</span>
-        }
-        case ChangeSetStatus.ReadyForReview => {
-            <span class="badge status-badge-ready">Ready for Review</span>
-        }
-        case ChangeSetStatus.UnderReview => {
-            <span class="badge status-badge-review">Under Review</span>
-        }
-        case ChangeSetStatus.Applied => {
-            <span class="badge status-badge-applied">Applied</span>
-        }
-        case ChangeSetStatus.Discarded => {
-            <span class="badge status-badge-discarded">Discarded</span>
-        }
-    }
-}
+@(changeSets: Seq[ChangeSetSummary], hgType: Option[String], status: Option[String], currentPage: Int, totalPages: Int, pageSize: Int)(implicit request: RequestHeader, messages: Messages)
 
 @if(changeSets.isEmpty) {
     <div class="alert alert-info">
@@ -50,16 +30,12 @@
                             <br><small class="text-muted">@cs.sourceName</small>
                         </td>
                         <td>
-                            <span class="badge @if(cs.haplogroupType.toString == "Y"){bg-primary}else{bg-success}">
-                                @cs.haplogroupType
-                            </span>
+                            @views.html.fragments.badges.haplogroupType(cs.haplogroupType.toString)
                         </td>
-                        <td>@statusBadge(cs.status)</td>
+                        <td>@views.html.fragments.badges.changeSetStatus(cs.status)</td>
                         <td>
                             <span title="Total changes">@cs.totalChanges</span>
-                            @if(cs.pendingChanges > 0) {
-                                <span class="badge bg-warning text-dark ms-1" title="Pending review">@cs.pendingChanges pending</span>
-                            }
+                            @views.html.fragments.badges.pendingCount(cs.pendingChanges)
                         </td>
                         <td>
                             <small>@cs.createdAt.toLocalDate</small>
@@ -71,36 +47,11 @@
         </table>
     </div>
 
-    @if(totalPages > 1) {
-        <nav>
-            <ul class="pagination justify-content-center">
-                <li class="page-item @if(currentPage <= 1){disabled}">
-                    <a class="page-link"
-                       hx-get="@controllers.routes.TreeVersioningCuratorController.changeSetsFragment(hgType, status, currentPage - 1, pageSize)"
-                       hx-target="#changesets-table"
-                       hx-include="#type-filter, #status-filter">
-                        Previous
-                    </a>
-                </li>
-                @for(p <- Math.max(1, currentPage - 2) to Math.min(totalPages, currentPage + 2)) {
-                    <li class="page-item @if(p == currentPage){active}">
-                        <a class="page-link"
-                           hx-get="@controllers.routes.TreeVersioningCuratorController.changeSetsFragment(hgType, status, p, pageSize)"
-                           hx-target="#changesets-table"
-                           hx-include="#type-filter, #status-filter">
-                            @p
-                        </a>
-                    </li>
-                }
-                <li class="page-item @if(currentPage >= totalPages){disabled}">
-                    <a class="page-link"
-                       hx-get="@controllers.routes.TreeVersioningCuratorController.changeSetsFragment(hgType, status, currentPage + 1, pageSize)"
-                       hx-target="#changesets-table"
-                       hx-include="#type-filter, #status-filter">
-                        Next
-                    </a>
-                </li>
-            </ul>
-        </nav>
-    }
+    @views.html.fragments.pagination(
+        currentPage,
+        totalPages,
+        (p: Int) => controllers.routes.TreeVersioningCuratorController.changeSetsFragment(hgType, status, p, pageSize),
+        "#changesets-table",
+        "#type-filter, #status-filter"
+    )
 }

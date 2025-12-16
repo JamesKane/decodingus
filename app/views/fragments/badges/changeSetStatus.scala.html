@@ -1,0 +1,19 @@
+@import models.domain.haplogroups.ChangeSetStatus
+@(status: ChangeSetStatus)
+@status match {
+    case ChangeSetStatus.Draft => {
+        <span class="badge status-badge-draft">Draft</span>
+    }
+    case ChangeSetStatus.ReadyForReview => {
+        <span class="badge status-badge-ready">Ready for Review</span>
+    }
+    case ChangeSetStatus.UnderReview => {
+        <span class="badge status-badge-review">Under Review</span>
+    }
+    case ChangeSetStatus.Applied => {
+        <span class="badge status-badge-applied">Applied</span>
+    }
+    case ChangeSetStatus.Discarded => {
+        <span class="badge status-badge-discarded">Discarded</span>
+    }
+}

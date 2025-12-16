@@ -1,0 +1,16 @@
+@import models.domain.haplogroups.ChangeStatus
+@(status: ChangeStatus)
+@status match {
+    case ChangeStatus.Pending => {
+        <span class="badge bg-warning text-dark">Pending</span>
+    }
+    case ChangeStatus.Applied => {
+        <span class="badge bg-success">Applied</span>
+    }
+    case ChangeStatus.Reverted => {
+        <span class="badge bg-danger">Reverted</span>
+    }
+    case ChangeStatus.Skipped => {
+        <span class="badge bg-secondary">Skipped</span>
+    }
+}
