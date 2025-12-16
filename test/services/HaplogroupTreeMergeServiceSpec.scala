@@ -3,7 +3,7 @@ package services
 import models.HaplogroupType
 import models.api.haplogroups.*
 import models.domain.genomics.VariantV2
-import models.domain.haplogroups.{Haplogroup, HaplogroupProvenance}
+import models.domain.haplogroups.{Haplogroup, HaplogroupProvenance, RelationshipRevisionMetadata}
 import org.mockito.ArgumentMatchers.{any, anyInt, anyString}
 import org.mockito.Mockito.{never, reset, verify, when}
 import org.scalatest.BeforeAndAfterEach
@@ -757,6 +757,93 @@ class HaplogroupTreeMergeServiceSpec extends PlaySpec with MockitoSugar with Sca
         // Parent has 1 relationship (to anchor or none)
         // Child1 and Child2 each have 1 relationship to Parent
         result.statistics.relationshipsCreated mustBe 3
+      }
+    }
+
+    "allow reparenting of existing node when incoming source has priority" in {
+      // 1. Setup existing nodes: Root(1) -> Child(2)
+      val root = createHaplogroup(1, "Root", source = "LowPrioritySource")
+      val child = createHaplogroup(2, "Child", source = "LowPrioritySource")
+
+      // Mocks for existing state
+      when(mockHaplogroupRepo.getAllWithVariantNames(HaplogroupType.Y))
+        .thenReturn(Future.successful(Seq(
+          (root, Seq("RootVar")),
+          (child, Seq("ChildVar"))
+        )))
+
+      // Mock getParent for Child(2) -> Root(1)
+      when(mockHaplogroupRepo.getParent(2)).thenReturn(Future.successful(Some(root)))
+      // Mock getParent for Root(1) -> None
+      when(mockHaplogroupRepo.getParent(1)).thenReturn(Future.successful(None))
+
+      // Mock creation of NewParent. Assume it gets ID 3.
+      // NOTE: The mock needs to match the call arguments exactly or be generic.
+      // The service calls createWithParent with (node, parentId, source).
+      when(mockHaplogroupRepo.createWithParent(any[Haplogroup], any[Option[Int]], anyString()))
+        .thenAnswer { invocation =>
+          val hg = invocation.getArgument[Haplogroup](0)
+          if (hg.name == "NewParent") Future.successful((3, None))
+          else Future.successful((0, None)) // Should not happen for others in this test
+        }
+
+      when(mockHaplogroupRepo.updateParent(anyInt(), anyInt(), anyString()))
+        .thenReturn(Future.successful(1))
+
+      when(mockHaplogroupRepo.updateProvenance(anyInt(), any[HaplogroupProvenance]))
+        .thenReturn(Future.successful(true))
+        
+      // Ensure findById works for checking parent names in logging/conflict logic
+      when(mockHaplogroupRepo.findById(3)).thenReturn(Future.successful(Some(createHaplogroup(3, "NewParent"))))
+      when(mockHaplogroupRepo.findById(1)).thenReturn(Future.successful(Some(root)))
+
+      // Mock variant repository calls to avoid NPE
+      when(mockVariantRepo.getHaplogroupVariantIds(anyInt()))
+        .thenReturn(Future.successful(Seq.empty))
+      when(mockVariantV2Repository.searchByName(anyString()))
+        .thenReturn(Future.successful(Seq.empty))
+
+      when(mockHaplogroupRevisionMetadataRepo.addNextRelationshipRevisionMetadata(
+        anyInt(), anyString(), any(), anyString(), anyString()
+      )).thenReturn(Future.successful(
+        RelationshipRevisionMetadata(
+          haplogroup_relationship_id = 1,
+          revisionId = 1,
+          author = "test",
+          timestamp = LocalDateTime.now(),
+          comment = "comment",
+          changeType = "update",
+          previousRevisionId = None
+        )
+      ))
+
+      // Source Tree: Root -> NewParent -> Child
+      val sourceTree = createPhyloNode(
+        name = "Root",
+        variants = List("RootVar"),
+        children = List(
+          createPhyloNode(
+            name = "NewParent",
+            variants = List("NewParentVar"),
+            children = List(
+              createPhyloNode("Child", variants = List("ChildVar"))
+            )
+          )
+        )
+      )
+
+      val request = TreeMergeRequest(
+        haplogroupType = HaplogroupType.Y,
+        sourceTree = sourceTree,
+        sourceName = "HighPrioritySource",
+        priorityConfig = Some(SourcePriorityConfig(List("HighPrioritySource", "LowPrioritySource"))),
+        dryRun = false
+      )
+
+      whenReady(service.mergeFullTree(request)) { result =>
+        result.success mustBe true
+        // Verify Child (ID 2) was reparented to NewParent (ID 3)
+        verify(mockHaplogroupRepo).updateParent(2, 3, "HighPrioritySource")
       }
     }
   }
