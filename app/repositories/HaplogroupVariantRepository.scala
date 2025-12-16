@@ -96,6 +96,32 @@ trait HaplogroupVariantRepository {
    * @return A Future containing a sequence of (haplogroupId, VariantV2) tuples.
    */
   def getVariantsForHaplogroups(haplogroupIds: Seq[Int]): Future[Seq[(Int, VariantV2)]]
+
+  /**
+   * Bulk associate variants with haplogroups in a single operation.
+   * Uses ON CONFLICT to handle duplicates gracefully.
+   *
+   * @param associations Sequence of (haplogroupId, variantId) tuples
+   * @return A Future containing the sequence of haplogroup_variant_ids created or found
+   */
+  def bulkAddVariantsToHaplogroups(associations: Seq[(Int, Int)]): Future[Seq[Int]]
+
+  /**
+   * Bulk remove variant associations from a haplogroup.
+   *
+   * @param haplogroupId The haplogroup to remove variants from
+   * @param variantIds   The variant IDs to remove
+   * @return A Future containing the number of associations removed
+   */
+  def bulkRemoveVariantsFromHaplogroup(haplogroupId: Int, variantIds: Seq[Int]): Future[Int]
+
+  /**
+   * Gets the variant IDs (not haplogroup_variant_ids) for a haplogroup.
+   *
+   * @param haplogroupId The haplogroup ID
+   * @return A Future containing the sequence of variant IDs
+   */
+  def getVariantIdsForHaplogroup(haplogroupId: Int): Future[Seq[Int]]
 }
 
 class HaplogroupVariantRepositoryImpl @Inject()(
@@ -296,6 +322,40 @@ class HaplogroupVariantRepositoryImpl @Inject()(
       v <- variantsV2 if v.variantId === hv.variantId
     } yield (hv.haplogroupId, v)
 
+    runQuery(query.result)
+  }
+
+  override def bulkAddVariantsToHaplogroups(associations: Seq[(Int, Int)]): Future[Seq[Int]] = {
+    if (associations.isEmpty) return Future.successful(Seq.empty)
+
+    // Build values clause for bulk insert
+    val valuesClause = associations.map { case (hgId, varId) =>
+      s"($hgId, $varId)"
+    }.mkString(", ")
+
+    val insertQuery = sql"""
+      INSERT INTO tree.haplogroup_variant (haplogroup_id, variant_id)
+      VALUES #$valuesClause
+      ON CONFLICT (haplogroup_id, variant_id) DO UPDATE
+        SET haplogroup_id = EXCLUDED.haplogroup_id
+      RETURNING haplogroup_variant_id
+    """.as[Int]
+
+    runQuery(insertQuery)
+  }
+
+  override def bulkRemoveVariantsFromHaplogroup(haplogroupId: Int, variantIds: Seq[Int]): Future[Int] = {
+    if (variantIds.isEmpty) return Future.successful(0)
+
+    val query = haplogroupVariants
+      .filter(hv => hv.haplogroupId === haplogroupId && hv.variantId.inSet(variantIds))
+      .delete
+
+    runQuery(query)
+  }
+
+  override def getVariantIdsForHaplogroup(haplogroupId: Int): Future[Seq[Int]] = {
+    val query = haplogroupVariants.filter(_.haplogroupId === haplogroupId).map(_.variantId)
     runQuery(query.result)
   }
 }

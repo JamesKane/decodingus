@@ -98,6 +98,13 @@ trait VariantV2Repository {
   def streamAll(): Future[Seq[VariantV2]]
   def findByIds(ids: Seq[Int]): Future[Seq[VariantV2]]
 
+  /**
+   * Bulk search for variants by a list of names (canonical names or aliases).
+   * Returns a map from search name (uppercased) to matching variants.
+   * Much more efficient than individual searchByName calls for large batches.
+   */
+  def searchByNames(names: Seq[String]): Future[Map[String, Seq[VariantV2]]]
+
   // === DU Naming Authority ===
 
   def nextDuName(): Future[String]
@@ -624,6 +631,44 @@ class VariantV2RepositoryImpl @Inject()(
 
   override def streamAll(): Future[Seq[VariantV2]] = db.run(variantsV2.result)
   override def findByIds(ids: Seq[Int]): Future[Seq[VariantV2]] = if (ids.isEmpty) Future.successful(Seq.empty) else db.run(variantsV2.filter(_.variantId.inSet(ids)).result)
+
+  override def searchByNames(names: Seq[String]): Future[Map[String, Seq[VariantV2]]] = {
+    if (names.isEmpty) return Future.successful(Map.empty)
+
+    // Variant names are typically uppercase (M269, L21, etc.)
+    val searchNames = names.flatMap(n => Seq(n, n.toUpperCase)).distinct
+    val batchSize = 2000 // PostgreSQL handles IN/ANY efficiently up to several thousand
+
+    val batches = searchNames.grouped(batchSize).toSeq
+
+    // Process batches sequentially
+    batches.foldLeft(Future.successful(Map.empty[String, Seq[VariantV2]])) { (accFuture, batch) =>
+      accFuture.flatMap { acc =>
+        val namesArray = batch.map(n => s"'${n.replace("'", "''")}'").mkString(",")
+        val query = sql"""
+          SELECT variant_id, canonical_name, mutation_type, naming_status,
+                 aliases, coordinates, defining_haplogroup_id, evidence,
+                 primers, notes, created_at, updated_at, annotations
+          FROM variant_v2
+          WHERE canonical_name = ANY(ARRAY[#$namesArray])
+        """.as[VariantV2](variantV2GetResult)
+
+        db.run(query).map { variants =>
+          val batchResults = variants.flatMap { v =>
+            v.canonicalName.map(cn => cn.toUpperCase -> v)
+          }.groupMap(_._1)(_._2)
+
+          // Merge into accumulator
+          batchResults.foldLeft(acc) { case (map, (name, vars)) =>
+            map.updatedWith(name) {
+              case Some(existing) => Some(existing ++ vars)
+              case None => Some(vars)
+            }
+          }
+        }
+      }
+    }
+  }
 
   // === DU Naming Authority ===
 

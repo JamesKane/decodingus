@@ -152,6 +152,38 @@ trait HaplogroupCoreRepository {
    * @return A Future containing an Option with the latest revision ID, or None if no relationships exist for the child.
    */
   def getLatestRelationshipRevisionId(childHaplogroupId: Int): Future[Option[Int]]
+
+  // === Bulk Operations for Merge ===
+
+  /**
+   * Create multiple haplogroups in a single batch operation.
+   *
+   * @param haplogroups The haplogroups to create
+   * @return A Future containing a map from haplogroup name to newly assigned ID
+   */
+  def createBatch(haplogroups: Seq[Haplogroup]): Future[Map[String, Int]]
+
+  /**
+   * Create multiple parent-child relationships in a single batch operation.
+   *
+   * @param relationships Sequence of (childId, parentId, source) tuples
+   * @return A Future containing the sequence of created relationship IDs
+   */
+  def createRelationshipsBatch(relationships: Seq[(Int, Int, String)]): Future[Seq[Int]]
+
+  /**
+   * Update provenance for multiple haplogroups in a single batch.
+   *
+   * @param updates Sequence of (haplogroupId, provenance) tuples
+   * @return A Future containing the count of updated records
+   */
+  def updateProvenanceBatch(updates: Seq[(Int, HaplogroupProvenance)]): Future[Int]
+
+  /**
+   * Get all active parent-child relationships for a haplogroup type.
+   * Returns (childId, parentId) tuples for building in-memory tree.
+   */
+  def getAllRelationships(haplogroupType: HaplogroupType): Future[Seq[(Int, Int)]]
 }
 
 class HaplogroupCoreRepositoryImpl @Inject()(
@@ -549,5 +581,61 @@ class HaplogroupCoreRepositoryImpl @Inject()(
       .max
       .result
     runQuery(query)
+  }
+
+  // === Bulk Operations for Merge ===
+
+  override def createBatch(haplogroupsToCreate: Seq[Haplogroup]): Future[Map[String, Int]] = {
+    if (haplogroupsToCreate.isEmpty) return Future.successful(Map.empty)
+
+    runQuery(
+      (haplogroups returning haplogroups.map(h => (h.name, h.haplogroupId))) ++= haplogroupsToCreate
+    ).map(_.toMap)
+  }
+
+  override def createRelationshipsBatch(relationships: Seq[(Int, Int, String)]): Future[Seq[Int]] = {
+    if (relationships.isEmpty) return Future.successful(Seq.empty)
+
+    import models.domain.haplogroups.HaplogroupRelationship
+    val now = LocalDateTime.now()
+
+    val relationshipsToInsert = relationships.map { case (childId, parentId, source) =>
+      HaplogroupRelationship(
+        id = None,
+        childHaplogroupId = childId,
+        parentHaplogroupId = parentId,
+        revisionId = 1,
+        validFrom = now,
+        validUntil = None,
+        source = source
+      )
+    }
+
+    runQuery(
+      (haplogroupRelationships returning haplogroupRelationships.map(_.haplogroupRelationshipId)) ++= relationshipsToInsert
+    )
+  }
+
+  override def updateProvenanceBatch(updates: Seq[(Int, HaplogroupProvenance)]): Future[Int] = {
+    if (updates.isEmpty) return Future.successful(0)
+
+    // Use DBIO.sequence for batch updates
+    val updateActions = updates.map { case (id, provenance) =>
+      haplogroups
+        .filter(_.haplogroupId === id)
+        .map(_.provenance)
+        .update(Some(provenance))
+    }
+
+    runTransactionally(DBIO.sequence(updateActions)).map(_.sum)
+  }
+
+  override def getAllRelationships(haplogroupType: HaplogroupType): Future[Seq[(Int, Int)]] = {
+    val query = for {
+      rel <- activeRelationships
+      child <- activeHaplogroups if child.haplogroupId === rel.childHaplogroupId && child.haplogroupType === haplogroupType
+    } yield (rel.childHaplogroupId, rel.parentHaplogroupId)
+
+    runQuery(query.result)
   }
 }

@@ -529,6 +529,7 @@ class TreeMergeModelsSpec extends AnyFunSpec with Matchers {
           MergeConflict("Node1", "formedYbp", "4500", "4800", "will_update", "A", "B")
         ),
         splits = List.empty,
+        ambiguities = List.empty,
         newNodes = List("NewNode1", "NewNode2"),
         updatedNodes = List("UpdatedNode1"),
         unchangedNodes = List("UnchangedNode1", "UnchangedNode2")

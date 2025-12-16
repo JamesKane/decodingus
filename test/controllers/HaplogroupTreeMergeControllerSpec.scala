@@ -68,6 +68,7 @@ class HaplogroupTreeMergeControllerSpec extends PlaySpec
     statistics = MergeStatistics(10, 5, 3, 2, 20, 5, 4, 1, 0),
     conflicts = List.empty,
     splits = List.empty,
+    ambiguities = List.empty,
     newNodes = List("NewNode1", "NewNode2"),
     updatedNodes = List("UpdatedNode1"),
     unchangedNodes = List("UnchangedNode1")
@@ -328,6 +329,7 @@ class HaplogroupTreeMergeControllerSpec extends PlaySpec
           )
         ),
         splits = List.empty,
+        ambiguities = List.empty,
         newNodes = List.empty,
         updatedNodes = List("R1b-L21"),
         unchangedNodes = List.empty

@@ -213,6 +213,47 @@ object SplitOperation {
 }
 
 /**
+ * Records an ambiguous or inconsistent placement during merge.
+ *
+ * Phylogenetics often involves uncertain placement. This flag alerts human
+ * curators to branches where SNP data is contradictory, possibly due to:
+ *   - Sequencing errors in source data
+ *   - Recurrent mutations (homoplasy)
+ *   - Missing intermediate nodes
+ *   - Nomenclature mismatches between sources
+ *
+ * @param nodeName The node with ambiguous placement
+ * @param ambiguityType Classification of the ambiguity
+ * @param description Human-readable explanation
+ * @param sharedVariants Variants that matched (overlap)
+ * @param conflictingVariants Variants that conflict (present in one but not expected)
+ * @param candidateMatches Other nodes that could have been matches
+ * @param resolution How the algorithm resolved the ambiguity
+ * @param confidence Score from 0.0 (very uncertain) to 1.0 (confident)
+ */
+case class PlacementAmbiguity(
+  nodeName: String,
+  ambiguityType: String,
+  description: String,
+  sharedVariants: List[String] = List.empty,
+  conflictingVariants: List[String] = List.empty,
+  candidateMatches: List[String] = List.empty,
+  resolution: String,
+  confidence: Double
+)
+
+object PlacementAmbiguity {
+  implicit val format: OFormat[PlacementAmbiguity] = Json.format[PlacementAmbiguity]
+
+  // Ambiguity type constants
+  val PARTIAL_MATCH = "PARTIAL_MATCH"           // Some SNPs match, others don't
+  val MULTIPLE_CANDIDATES = "MULTIPLE_CANDIDATES" // Multiple nodes could be the match
+  val RECURRENT_SNP = "RECURRENT_SNP"           // SNP appears in multiple lineages
+  val ORPHAN_PLACEMENT = "ORPHAN_PLACEMENT"     // Node placed without strong variant evidence
+  val NAME_VARIANT_MISMATCH = "NAME_VARIANT_MISMATCH" // Name matches but variants differ
+}
+
+/**
  * Result of a merge operation.
  */
 case class TreeMergeResponse(
@@ -221,6 +262,7 @@ case class TreeMergeResponse(
   statistics: MergeStatistics,
   conflicts: List[MergeConflict] = List.empty,
   splits: List[SplitOperation] = List.empty,
+  ambiguities: List[PlacementAmbiguity] = List.empty,
   errors: List[String] = List.empty
 )
 
@@ -243,6 +285,7 @@ case class MergePreviewResponse(
   statistics: MergeStatistics,
   conflicts: List[MergeConflict],
   splits: List[SplitOperation],
+  ambiguities: List[PlacementAmbiguity],
   newNodes: List[String],
   updatedNodes: List[String],
   unchangedNodes: List[String]

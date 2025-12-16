@@ -311,6 +311,10 @@ class HaplogroupTreeMergeServiceSpec extends PlaySpec with MockitoSugar with Sca
         .thenReturn(Future.successful(Seq.empty))
       when(mockVariantV2Repository.searchByName(anyString()))
         .thenReturn(Future.successful(Seq.empty))
+      when(mockVariantV2Repository.searchByNames(any[Seq[String]]))
+        .thenReturn(Future.successful(Map.empty[String, Seq[VariantV2]]))
+      when(mockHaplogroupRepo.getAllRelationships(HaplogroupType.Y))
+        .thenReturn(Future.successful(Seq.empty))
 
       val sourceTree = createPhyloNode(
         name = "R1b-L21",
@@ -413,11 +417,15 @@ class HaplogroupTreeMergeServiceSpec extends PlaySpec with MockitoSugar with Sca
         .thenReturn(Future.successful(true))
       when(mockVariantV2Repository.searchByName(anyString()))
         .thenReturn(Future.successful(Seq.empty))
-      
+      when(mockVariantV2Repository.searchByNames(any[Seq[String]]))
+        .thenReturn(Future.successful(Map.empty[String, Seq[VariantV2]]))
+
       // Mocks for context loading
       when(mockHaplogroupRepo.getDescendants(anyInt()))
         .thenReturn(Future.successful(Seq.empty))
       when(mockVariantRepo.getVariantsForHaplogroups(any[Seq[Int]]))
+        .thenReturn(Future.successful(Seq.empty))
+      when(mockHaplogroupRepo.getAllRelationships(HaplogroupType.Y))
         .thenReturn(Future.successful(Seq.empty))
 
       val sourceTree = createPhyloNode(
@@ -802,6 +810,10 @@ class HaplogroupTreeMergeServiceSpec extends PlaySpec with MockitoSugar with Sca
         .thenReturn(Future.successful(Seq.empty))
       when(mockVariantV2Repository.searchByName(anyString()))
         .thenReturn(Future.successful(Seq.empty))
+      when(mockVariantV2Repository.searchByNames(any[Seq[String]]))
+        .thenReturn(Future.successful(Map.empty[String, Seq[VariantV2]]))
+      when(mockHaplogroupRepo.getAllRelationships(HaplogroupType.Y))
+        .thenReturn(Future.successful(Seq((2, 1)))) // Child(2) -> Root(1)
 
       when(mockHaplogroupRevisionMetadataRepo.addNextRelationshipRevisionMetadata(
         anyInt(), anyString(), any(), anyString(), anyString()
