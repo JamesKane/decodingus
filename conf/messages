@@ -321,6 +321,7 @@ variants.detail.strandDiff = Strand difference (reverse complement)
 variants.detail.build = Build
 variants.detail.position = Position
 variants.detail.alleles = Alleles
+variants.detail.motifRepeats = Motif / Repeats
 variants.detail.usedBy = Used By Haplogroups
 variants.detail.noHaplogroups = This variant is not associated with any haplogroups.
 variants.detail.more = more

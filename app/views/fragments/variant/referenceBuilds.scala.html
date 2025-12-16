@@ -10,7 +10,11 @@
                     <tr>
                         <th>@messages("variants.detail.build")</th>
                         <th>@messages("variants.detail.position")</th>
-                        <th>@messages("variants.detail.alleles")</th>
+                        @if(variant.isStr) {
+                            <th>@messages("variants.detail.motifRepeats")</th>
+                        } else {
+                            <th>@messages("variants.detail.alleles")</th>
+                        }
                     </tr>
                 </thead>
                 <tbody>
