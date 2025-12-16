@@ -25,7 +25,7 @@
            hx-get="@hxGet"
            hx-trigger="@hxTrigger"
            hx-target="@hxTarget"
-           hx-indicator="@if(hxIndicator.isEmpty) { ##@{id}-box } else { @hxIndicator }"
+           hx-indicator="@if(hxIndicator.isEmpty) { #@{id}-box } else { @hxIndicator }"
            autocomplete="off">
     @if(value.exists(_.nonEmpty)) {
         <button class="btn btn-outline-secondary"
