@@ -4,8 +4,9 @@ import jakarta.inject.{Inject, Singleton}
 import models.HaplogroupType
 import models.api.haplogroups.*
 import models.domain.genomics.VariantV2
-import models.domain.haplogroups.{Haplogroup, HaplogroupProvenance, HaplogroupRelationship, RelationshipRevisionMetadata, HaplogroupVariantMetadata}
+import models.domain.haplogroups.{Haplogroup, HaplogroupProvenance, HaplogroupRelationship, RelationshipRevisionMetadata, HaplogroupVariantMetadata, TreeChangeType}
 import play.api.Logging
+import play.api.libs.json.Json
 import repositories.{HaplogroupCoreRepository, HaplogroupVariantRepository, VariantV2Repository, HaplogroupRevisionMetadataRepository, HaplogroupVariantMetadataRepository}
 
 import java.io.{File, PrintWriter}
@@ -82,7 +83,8 @@ class HaplogroupTreeMergeService @Inject()(
   haplogroupVariantRepository: HaplogroupVariantRepository,
   variantV2Repository: VariantV2Repository,
   haplogroupRevisionMetadataRepository: HaplogroupRevisionMetadataRepository,
-  haplogroupVariantMetadataRepository: HaplogroupVariantMetadataRepository
+  haplogroupVariantMetadataRepository: HaplogroupVariantMetadataRepository,
+  treeVersioningService: TreeVersioningService
 )(implicit ec: ExecutionContext) extends Logging {
 
   // ============================================================================
@@ -419,21 +421,39 @@ class HaplogroupTreeMergeService @Inject()(
     sourceName: String,
     priorityConfig: SourcePriorityConfig,
     conflictStrategy: ConflictStrategy,
-    preloadedIndex: Option[VariantIndex] = None
+    preloadedIndex: Option[VariantIndex] = None,
+    enableChangeTracking: Boolean = true
   ): Future[TreeMergeResponse] = {
     val now = LocalDateTime.now()
-    val context = MergeContext(
-      haplogroupType = haplogroupType,
-      sourceName = sourceName,
-      priorityConfig = priorityConfig,
-      conflictStrategy = conflictStrategy,
-      timestamp = now
-    )
-
     val nodeCount = countNodes(sourceTree)
-    logger.info(s"Starting merge for source '$sourceName' with $nodeCount nodes")
+    logger.info(s"Starting merge for source '$sourceName' with $nodeCount nodes (change tracking: $enableChangeTracking)")
 
     for {
+      // Phase 0: Create change set for tracking (if enabled)
+      changeSetOpt <- if (enableChangeTracking) {
+        treeVersioningService.createChangeSet(
+          haplogroupType = haplogroupType,
+          sourceName = sourceName,
+          description = Some(s"Tree merge from $sourceName with $nodeCount nodes"),
+          createdBy = "system"
+        ).map(Some(_)).recover {
+          case e: IllegalStateException =>
+            logger.warn(s"Could not create change set (one may already be active): ${e.getMessage}")
+            None
+        }
+      } else Future.successful(None)
+      changeSetId = changeSetOpt.flatMap(_.id)
+      _ = changeSetOpt.foreach(cs => logger.info(s"Created change set ${cs.id.get}: ${cs.name}"))
+
+      context = MergeContext(
+        haplogroupType = haplogroupType,
+        sourceName = sourceName,
+        priorityConfig = priorityConfig,
+        conflictStrategy = conflictStrategy,
+        timestamp = now,
+        changeSetId = changeSetId
+      )
+
       // Phase 1a: Build in-memory tree of existing haplogroups with indexes
       existingTreeOpt <- buildExistingTree(haplogroupType).map(_.map(ExistingTree.fromRoot))
       _ = logger.info(s"Existing tree built with indexes: ${existingTreeOpt.map(t => s"${t.byName.size} nodes").getOrElse("no root found")}")
@@ -480,12 +500,30 @@ class HaplogroupTreeMergeService @Inject()(
         accumulator = MergeAccumulator.empty
       )
       _ = logger.info(s"Merge completed: ${result.statistics}")
-      _ = if (result.ambiguities.nonEmpty) {
+
+      // Write ambiguity report if needed and capture the path
+      ambiguityReportPath = if (result.ambiguities.nonEmpty) {
         logger.warn(s"AMBIGUITIES DETECTED: ${result.ambiguities.size} placement(s) require curator review")
-        writeAmbiguityReport(result.ambiguities, result.statistics, sourceName, haplogroupType, now) match {
-          case Some(path) => logger.info(s"Ambiguity report written to: $path")
+        val path = writeAmbiguityReport(result.ambiguities, result.statistics, sourceName, haplogroupType, now)
+        path match {
+          case Some(p) => logger.info(s"Ambiguity report written to: $p")
           case None => logger.warn("Failed to write ambiguity report")
         }
+        path
+      } else None
+
+      // Finalize change set (if one was created)
+      _ <- changeSetId match {
+        case Some(csId) =>
+          treeVersioningService.finalizeChangeSet(csId, result.statistics, ambiguityReportPath).map { success =>
+            if (success) logger.info(s"Change set $csId finalized and ready for review")
+            else logger.warn(s"Failed to finalize change set $csId")
+          }.recover {
+            case e: Exception =>
+              logger.error(s"Error finalizing change set $csId: ${e.getMessage}")
+          }
+        case None =>
+          Future.successful(())
       }
     } yield TreeMergeResponse(
       success = result.errors.isEmpty,
@@ -719,6 +757,16 @@ class HaplogroupTreeMergeService @Inject()(
                   for {
                     // Perform Adjacency List update - change parent_id
                     _ <- haplogroupRepository.updateParent(matched.haplogroup.id.get, existing.id.get, context.sourceName)
+
+                    // Record REPARENT change for tracking (fire-and-forget)
+                    _ = context.changeSetId.foreach { csId =>
+                      treeVersioningService.recordReparent(
+                        csId, matched.haplogroup.id.get, None, existing.id.get
+                      ).recover {
+                        case e: Exception => logger.warn(s"Failed to record REPARENT change: ${e.getMessage}")
+                      }
+                    }
+
                     reparentedStats = acc.statistics.copy(
                       relationshipsUpdated = acc.statistics.relationshipsUpdated + 1,
                       splitOperations = acc.statistics.splitOperations + 1
@@ -911,6 +959,19 @@ class HaplogroupTreeMergeService @Inject()(
     for {
       (newId, _) <- haplogroupRepository.createWithParent(newHaplogroup, parentId, context.sourceName)
 
+      // Record CREATE change for tracking (fire-and-forget to not slow down merge)
+      _ = context.changeSetId.foreach { csId =>
+        val haplogroupJson = Json.obj(
+          "name" -> sourceNode.name,
+          "haplogroupType" -> context.haplogroupType.toString,
+          "source" -> context.sourceName,
+          "variants" -> sourceNode.variants.map(_.name)
+        ).toString()
+        treeVersioningService.recordCreate(csId, haplogroupJson, parentId).recover {
+          case e: Exception => logger.warn(s"Failed to record CREATE change: ${e.getMessage}")
+        }
+      }
+
       haplogroupVariantIds <- if (variantIds.nonEmpty) {
         haplogroupVariantRepository.bulkAddVariantsToHaplogroups(
           variantIds.map(vid => (newId, vid))
@@ -1044,6 +1105,18 @@ class HaplogroupTreeMergeService @Inject()(
               _ <- Future.sequence(allMatches.map { node =>
                 haplogroupRepository.updateParent(node.haplogroup.id.get, newId, context.sourceName)
               })
+
+              // Record REPARENT changes for tracking (fire-and-forget for each node)
+              _ = context.changeSetId.foreach { csId =>
+                allMatches.foreach { node =>
+                  treeVersioningService.recordReparent(
+                    csId, node.haplogroup.id.get, None, newId
+                  ).recover {
+                    case e: Exception => logger.warn(s"Failed to record REPARENT change: ${e.getMessage}")
+                  }
+                }
+              }
+
               reparentedStats = acc.statistics.copy(
                 relationshipsUpdated = acc.statistics.relationshipsUpdated + allMatches.size,
                 splitOperations = acc.statistics.splitOperations + 1
@@ -1585,7 +1658,8 @@ private[services] case class MergeContext(
   sourceName: String,
   priorityConfig: SourcePriorityConfig,
   conflictStrategy: ConflictStrategy,
-  timestamp: LocalDateTime
+  timestamp: LocalDateTime,
+  changeSetId: Option[Int] = None // For change tracking integration
 )
 
 /**

@@ -3,7 +3,7 @@ package services
 import models.HaplogroupType
 import models.api.haplogroups.*
 import models.domain.genomics.VariantV2
-import models.domain.haplogroups.{Haplogroup, HaplogroupProvenance, RelationshipRevisionMetadata}
+import models.domain.haplogroups.{ChangeSet, ChangeSetStatus, Haplogroup, HaplogroupProvenance, RelationshipRevisionMetadata}
 import org.mockito.ArgumentMatchers.{any, anyInt, anyString}
 import org.mockito.Mockito.{never, reset, verify, when}
 import org.scalatest.BeforeAndAfterEach
@@ -28,6 +28,7 @@ class HaplogroupTreeMergeServiceSpec extends PlaySpec with MockitoSugar with Sca
   var mockVariantV2Repository: VariantV2Repository = _
   var mockHaplogroupRevisionMetadataRepo: HaplogroupRevisionMetadataRepository = _
   var mockHaplogroupVariantMetadataRepo: HaplogroupVariantMetadataRepository = _
+  var mockTreeVersioningService: TreeVersioningService = _
   var service: HaplogroupTreeMergeService = _
 
   // Test fixtures
@@ -71,18 +72,31 @@ class HaplogroupTreeMergeServiceSpec extends PlaySpec with MockitoSugar with Sca
     mockVariantV2Repository = mock[VariantV2Repository]
     mockHaplogroupRevisionMetadataRepo = mock[HaplogroupRevisionMetadataRepository]
     mockHaplogroupVariantMetadataRepo = mock[HaplogroupVariantMetadataRepository]
+    mockTreeVersioningService = mock[TreeVersioningService]
     service = new HaplogroupTreeMergeService(
       mockHaplogroupRepo,
       mockVariantRepo,
       mockVariantV2Repository,
       mockHaplogroupRevisionMetadataRepo,
-      mockHaplogroupVariantMetadataRepo
+      mockHaplogroupVariantMetadataRepo,
+      mockTreeVersioningService
     )
 
     // Default mock behaviors for new metadata repositories
     when(mockHaplogroupRevisionMetadataRepo.addRelationshipRevisionMetadata(any()))
       .thenReturn(Future.successful(1))
     when(mockHaplogroupVariantMetadataRepo.addVariantRevisionMetadata(any()))
+      .thenReturn(Future.successful(1))
+
+    // Default mock behaviors for tree versioning service
+    // By default, return a failed Future to skip change tracking (simulating no active change set allowed)
+    when(mockTreeVersioningService.createChangeSet(any(), anyString(), any(), anyString()))
+      .thenReturn(Future.failed(new IllegalStateException("Change set creation disabled in tests")))
+    when(mockTreeVersioningService.finalizeChangeSet(anyInt(), any(), any()))
+      .thenReturn(Future.successful(true))
+    when(mockTreeVersioningService.recordCreate(anyInt(), anyString(), any(), any(), any()))
+      .thenReturn(Future.successful(1))
+    when(mockTreeVersioningService.recordReparent(anyInt(), anyInt(), any(), anyInt(), any(), any()))
       .thenReturn(Future.successful(1))
   }
 
