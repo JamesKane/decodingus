@@ -55,7 +55,7 @@ object VariantViewUtils {
     refGenome match {
         case "GRCh37" => "GRCh37"
         case "GRCh38" => "GRCh38"
-        case "hs1" => "T2T"
+        case "hs1" => "hs1"
         case other => other
     }
   }

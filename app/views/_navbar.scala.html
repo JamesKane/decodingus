@@ -21,6 +21,8 @@
                         @messages("nav.tools")
                     </a>
                     <ul class="dropdown-menu">
+                        <li><a class="dropdown-item" href="@controllers.routes.VariantBrowserController.index(None, 1, 25)">
+                            <i class="bi bi-search me-2"></i>@messages("nav.variants")</a></li>
                         <li><a class="dropdown-item" href="@controllers.routes.CoverageController.index()">
                             <i class="bi bi-bar-chart me-2"></i>@messages("nav.coverage")</a></li>
                     </ul>
