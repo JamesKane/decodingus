@@ -53,7 +53,10 @@
                                     }
                                 </td>
                                 <td>
-                                    <code>@alleles._1</code><i class="bi bi-arrow-right text-muted mx-1" style="font-size: 0.6rem;"></i><code>@alleles._2</code>
+                                    <code>@alleles._1</code>
+                                    @if(alleles._2 != "?") {
+                                        <i class="bi bi-arrow-right text-muted mx-1" style="font-size: 0.6rem;"></i><code>@alleles._2</code>
+                                    }
                                 </td>
                                 <td>
                                     <span class="badge bg-secondary">@variant.mutationType</span>
