@@ -1,6 +1,6 @@
-@import models.domain.haplogroups.{TreeChange, TreeChangeType}
+@import models.domain.haplogroups.{TreeChangeView, TreeChangeType}
 @import play.api.data.Form
-@(changeSetId: Int, changes: Seq[TreeChange], reviewForm: Form[_])(implicit request: RequestHeader, messages: Messages)
+@(changeSetId: Int, changes: Seq[TreeChangeView], reviewForm: Form[_])(implicit request: RequestHeader, messages: Messages)
 
 @changeTypeBadge(t: TreeChangeType) = {
     @t match {
@@ -34,39 +34,37 @@
         <small class="text-muted">@changes.size pending change(s) to review:</small>
     </div>
     <div class="list-group list-group-flush" style="max-height: 300px; overflow-y: auto;">
-        @for(change <- changes) {
-            <div class="list-group-item px-1 py-2" id="change-@change.id.get">
+        @for(cv <- changes) {
+            <div class="list-group-item px-1 py-2" id="change-@cv.change.id.get">
                 <div class="d-flex justify-content-between align-items-start">
                     <div class="flex-grow-1">
-                        @changeTypeBadge(change.changeType)
+                        @changeTypeBadge(cv.change.changeType)
                         <span class="ms-1">
-                            @change.changeType match {
+                            @cv.change.changeType match {
                                 case TreeChangeType.Create => {
-                                    <strong>New node</strong>
-                                    @change.newParentId.map { p => under #@p }
+                                    <strong>@cv.haplogroupName.getOrElse("New node")</strong>
+                                    @cv.parentName.map { p => under <strong>@p</strong> }
                                 }
                                 case TreeChangeType.Reparent => {
-                                    <strong>Node #@change.haplogroupId.getOrElse("?")</strong>
-                                    @change.oldParentId.map { old => from #@old }
-                                    @change.newParentId.map { np => to #@np }
+                                    <strong>@cv.haplogroupName.getOrElse(s"Node #${cv.change.haplogroupId.getOrElse("?")}")</strong>
+                                    to <strong>@cv.parentName.getOrElse("?")</strong>
                                 }
                                 case TreeChangeType.AddVariant => {
-                                    Add variant #@change.variantId.getOrElse("?")
-                                    to node #@change.haplogroupId.getOrElse("?")
+                                    Add variant to <strong>@cv.haplogroupName.getOrElse(s"#${cv.change.haplogroupId.getOrElse("?")}")</strong>
                                 }
                                 case TreeChangeType.Update => {
-                                    Update node #@change.haplogroupId.getOrElse("?")
+                                    Update <strong>@cv.haplogroupName.getOrElse(s"Node #${cv.change.haplogroupId.getOrElse("?")}")</strong>
                                 }
                                 case _ => {
-                                    @change.changeType on node #@change.haplogroupId.getOrElse("?")
+                                    @cv.change.changeType on <strong>@cv.haplogroupName.getOrElse(s"#${cv.change.haplogroupId.getOrElse("?")}")</strong>
                                 }
                             }
                         </span>
                     </div>
                 </div>
                 <div class="mt-2 btn-group btn-group-sm">
-                    <form hx-post="@controllers.routes.TreeVersioningCuratorController.reviewChange(changeSetId, change.id.get)"
-                          hx-target="#change-@change.id.get"
+                    <form hx-post="@controllers.routes.TreeVersioningCuratorController.reviewChange(changeSetId, cv.change.id.get)"
+                          hx-target="#change-@cv.change.id.get"
                           hx-swap="outerHTML"
                           class="d-inline">
                         @views.html.helper.CSRF.formField
@@ -75,8 +73,8 @@
                             <i class="bi bi-check"></i>
                         </button>
                     </form>
-                    <form hx-post="@controllers.routes.TreeVersioningCuratorController.reviewChange(changeSetId, change.id.get)"
-                          hx-target="#change-@change.id.get"
+                    <form hx-post="@controllers.routes.TreeVersioningCuratorController.reviewChange(changeSetId, cv.change.id.get)"
+                          hx-target="#change-@cv.change.id.get"
                           hx-swap="outerHTML"
                           class="d-inline">
                         @views.html.helper.CSRF.formField
@@ -85,8 +83,8 @@
                             <i class="bi bi-dash"></i>
                         </button>
                     </form>
-                    <form hx-post="@controllers.routes.TreeVersioningCuratorController.reviewChange(changeSetId, change.id.get)"
-                          hx-target="#change-@change.id.get"
+                    <form hx-post="@controllers.routes.TreeVersioningCuratorController.reviewChange(changeSetId, cv.change.id.get)"
+                          hx-target="#change-@cv.change.id.get"
                           hx-swap="outerHTML"
                           class="d-inline">
                         @views.html.helper.CSRF.formField

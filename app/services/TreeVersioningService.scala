@@ -155,6 +155,11 @@ trait TreeVersioningService {
   def getPendingReviewChanges(changeSetId: Int, limit: Int = 50): Future[Seq[TreeChange]]
 
   /**
+   * Get pending changes for review with names resolved for UI display.
+   */
+  def getPendingReviewChangesWithNames(changeSetId: Int, limit: Int = 50): Future[Seq[TreeChangeView]]
+
+  /**
    * Review a specific change.
    */
   def reviewChange(
@@ -542,6 +547,37 @@ class TreeVersioningServiceImpl @Inject()(
     repository.getPendingReviewChanges(changeSetId, limit)
   }
 
+  override def getPendingReviewChangesWithNames(changeSetId: Int, limit: Int): Future[Seq[TreeChangeView]] = {
+    for {
+      changeSetOpt <- repository.getChangeSet(changeSetId)
+      changes <- repository.getPendingReviewChanges(changeSetId, limit)
+      // Collect all haplogroup IDs we need to look up
+      haplogroupIds = changes.flatMap(c => c.haplogroupId.toSeq ++ c.oldParentId.toSeq ++ c.newParentId.toSeq).toSet
+      names <- repository.getHaplogroupNamesById(haplogroupIds)
+    } yield {
+      val changeSetName = changeSetOpt.map(_.name).getOrElse(s"ChangeSet #$changeSetId")
+      val sourceName = changeSetOpt.map(_.sourceName).getOrElse("Unknown")
+
+      changes.map { change =>
+        // For CREATE, try to extract name from haplogroupData JSON
+        val haplogroupName = change.haplogroupId.flatMap(names.get).orElse {
+          change.haplogroupData.flatMap { data =>
+            (Json.parse(data) \ "name").asOpt[String]
+          }
+        }
+
+        TreeChangeView(
+          change = change,
+          changeSetName = changeSetName,
+          sourceName = sourceName,
+          haplogroupName = haplogroupName,
+          parentName = change.newParentId.flatMap(names.get).orElse(change.oldParentId.flatMap(names.get)),
+          variantName = None // Could be enhanced later if needed
+        )
+      }
+    }
+  }
+
   override def reviewChange(
     changeId: Int,
     curatorId: String,
@@ -607,12 +643,15 @@ class TreeVersioningServiceImpl @Inject()(
     for {
       changeSetOpt <- repository.getChangeSet(changeSetId)
       changes <- repository.getChangesForChangeSet(changeSetId)
+      // Collect all haplogroup IDs we need to look up
+      haplogroupIds = changes.flatMap(c => c.haplogroupId.toSeq ++ c.oldParentId.toSeq ++ c.newParentId.toSeq ++ c.createdHaplogroupId.toSeq).toSet
+      names <- repository.getHaplogroupNamesById(haplogroupIds)
     } yield {
       changeSetOpt match {
         case None =>
           TreeDiff.empty.copy(changeSetId = changeSetId)
         case Some(changeSet) =>
-          computeTreeDiff(changeSet, changes)
+          computeTreeDiff(changeSet, changes, names)
       }
     }
   }
@@ -630,8 +669,13 @@ class TreeVersioningServiceImpl @Inject()(
 
   /**
    * Compute tree diff from change set and its changes.
+   * @param names Map of haplogroup ID -> name for display
    */
-  private def computeTreeDiff(changeSet: ChangeSet, changes: Seq[TreeChange]): TreeDiff = {
+  private def computeTreeDiff(changeSet: ChangeSet, changes: Seq[TreeChange], names: Map[Int, String]): TreeDiff = {
+    // Helper to get name or fallback to ID
+    def getName(idOpt: Option[Int]): Option[String] = idOpt.map(id => names.getOrElse(id, s"#$id"))
+    def getNameOrId(idOpt: Option[Int]): String = idOpt.map(id => names.getOrElse(id, s"#$id")).getOrElse("?")
+
     // Group changes by type
     val createChanges = changes.filter(_.changeType == TreeChangeType.Create)
     val updateChanges = changes.filter(_.changeType == TreeChangeType.Update)
@@ -647,15 +691,18 @@ class TreeVersioningServiceImpl @Inject()(
     createChanges.foreach { change =>
       val haplogroupName = change.haplogroupData
         .flatMap(data => (Json.parse(data) \ "name").asOpt[String])
+        .orElse(change.createdHaplogroupId.flatMap(names.get))
         .getOrElse(s"Node ${change.createdHaplogroupId.getOrElse("?")}")
+
+      val parentName = getName(change.newParentId)
 
       entries += TreeDiffEntry(
         diffType = DiffType.Added,
         haplogroupId = change.createdHaplogroupId,
         haplogroupName = haplogroupName,
         oldParentName = None,
-        newParentName = change.newParentId.map(id => s"#$id"),
-        changeDescription = s"New node created under parent #${change.newParentId.getOrElse("root")}",
+        newParentName = parentName,
+        changeDescription = s"New node created under parent ${parentName.getOrElse("root")}",
         changeIds = List(change.id.get)
       )
     }
@@ -665,7 +712,7 @@ class TreeVersioningServiceImpl @Inject()(
       entries += TreeDiffEntry(
         diffType = DiffType.Removed,
         haplogroupId = change.haplogroupId,
-        haplogroupName = s"Node #${change.haplogroupId.getOrElse("?")}",
+        haplogroupName = getNameOrId(change.haplogroupId),
         oldParentName = None,
         newParentName = None,
         changeDescription = "Node marked for deletion",
@@ -675,13 +722,16 @@ class TreeVersioningServiceImpl @Inject()(
 
     // REPARENT entries
     reparentChanges.foreach { change =>
+      val oldParent = getName(change.oldParentId)
+      val newParent = getName(change.newParentId)
+
       entries += TreeDiffEntry(
         diffType = DiffType.Reparented,
         haplogroupId = change.haplogroupId,
-        haplogroupName = s"Node #${change.haplogroupId.getOrElse("?")}",
-        oldParentName = change.oldParentId.map(id => s"#$id"),
-        newParentName = change.newParentId.map(id => s"#$id"),
-        changeDescription = s"Parent changed from #${change.oldParentId.getOrElse("none")} to #${change.newParentId.getOrElse("none")}",
+        haplogroupName = getNameOrId(change.haplogroupId),
+        oldParentName = oldParent,
+        newParentName = newParent,
+        changeDescription = s"Parent changed from ${oldParent.getOrElse("none")} to ${newParent.getOrElse("none")}",
         changeIds = List(change.id.get)
       )
     }
@@ -708,7 +758,7 @@ class TreeVersioningServiceImpl @Inject()(
       entries += TreeDiffEntry(
         diffType = DiffType.Modified,
         haplogroupId = Some(hgId),
-        haplogroupName = s"Node #$hgId",
+        haplogroupName = names.getOrElse(hgId, s"#$hgId"),
         oldParentName = None,
         newParentName = None,
         changeDescription = description,

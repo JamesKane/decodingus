@@ -649,6 +649,8 @@ class TreeVersioningServiceSpec extends PlaySpec with MockitoSugar with ScalaFut
         .thenReturn(Future.successful(Some(changeSet)))
       when(mockRepository.getChangesForChangeSet(1))
         .thenReturn(Future.successful(changes))
+      when(mockRepository.getHaplogroupNamesById(any[Set[Int]]))
+        .thenReturn(Future.successful(Map(101 -> "R-M269", 102 -> "R-U106", 100 -> "R-M343")))
 
       whenReady(service.getTreeDiff(1)) { diff =>
         diff.changeSetId mustBe 1
@@ -670,6 +672,8 @@ class TreeVersioningServiceSpec extends PlaySpec with MockitoSugar with ScalaFut
         .thenReturn(Future.successful(None))
       when(mockRepository.getChangesForChangeSet(999))
         .thenReturn(Future.successful(Seq.empty))
+      when(mockRepository.getHaplogroupNamesById(any[Set[Int]]))
+        .thenReturn(Future.successful(Map.empty[Int, String]))
 
       whenReady(service.getTreeDiff(999)) { diff =>
         diff.changeSetId mustBe 999
@@ -689,6 +693,8 @@ class TreeVersioningServiceSpec extends PlaySpec with MockitoSugar with ScalaFut
         .thenReturn(Future.successful(Some(changeSet)))
       when(mockRepository.getChangesForChangeSet(1))
         .thenReturn(Future.successful(Seq.empty))
+      when(mockRepository.getHaplogroupNamesById(any[Set[Int]]))
+        .thenReturn(Future.successful(Map.empty[Int, String]))
 
       whenReady(service.getActiveTreeDiff(HaplogroupType.Y)) { result =>
         result mustBe defined

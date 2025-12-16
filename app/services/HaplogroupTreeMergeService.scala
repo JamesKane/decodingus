@@ -1007,11 +1007,66 @@ class HaplogroupTreeMergeService @Inject()(
         } yield removed
       } else Future.successful(0)
 
+      // ========================================================================
+      // SUBTREE LOOK-AHEAD: Reparent existing siblings that belong in this subtree
+      // ========================================================================
+      //
+      // When creating a new intermediate node (e.g., A0000 under Y), we need to
+      // check if any of the parent's existing children should be moved under
+      // this new intermediate. This happens when ISOGG provides finer structure
+      // than the existing tree.
+      //
+      // Strategy: Collect ALL variants from the source subtree (this node and all
+      // descendants). If an existing sibling's nodeVariants overlap with any
+      // variant in the subtree, that sibling belongs somewhere in this subtree
+      // and should be reparented under this new node.
+      //
+      // Example:
+      //   - Existing: Y → A0
+      //   - ISOGG: Y → A0000 → A000-T → A000 → ... → A0
+      //   - A0's variants match something in the A0000 subtree
+      //   - So A0 should be reparented under A0000
+      //   - Later, when processing A000-T, A000, etc., A0 may move further down
+      subtreeLookAheadReparents <- parentId.flatMap(pid => existingTree.flatMap(_.findById(pid))) match {
+        case Some(parentNode) =>
+          val subtreeVariants = collectAllVariantNames(sourceNode).map(_.toUpperCase).toSet
+          val siblingsToReparent = parentNode.children.filter { sibling =>
+            // Don't reparent the node we just matched/created
+            sibling.haplogroup.id != Some(newId) &&
+            // Check if sibling's nodeVariants overlap with ANY variant in the source subtree
+            sibling.nodeVariants.intersect(subtreeVariants).nonEmpty
+          }
+
+          if (siblingsToReparent.nonEmpty) {
+            val siblingNames = siblingsToReparent.map(_.haplogroup.name)
+            logger.info(s"SUBTREE_LOOK_AHEAD: Reparenting ${siblingNames.mkString(", ")} under ${sourceNode.name} (subtree has ${subtreeVariants.size} variants)")
+
+            Future.sequence(siblingsToReparent.map { sibling =>
+              for {
+                _ <- haplogroupRepository.updateParent(sibling.haplogroup.id.get, newId, context.sourceName)
+                // Record REPARENT change for tracking
+                _ = context.changeSetId.foreach { csId =>
+                  treeVersioningService.recordReparent(
+                    csId, sibling.haplogroup.id.get, parentId, newId
+                  ).recover {
+                    case e: Exception => logger.warn(s"Failed to record REPARENT change: ${e.getMessage}")
+                  }
+                }
+              } yield sibling.haplogroup.name
+            }).map(_.size)
+          } else {
+            Future.successful(0)
+          }
+        case None =>
+          Future.successful(0)
+      }
+
       updatedStats = accumulator.statistics.copy(
         nodesProcessed = accumulator.statistics.nodesProcessed + 1,
         nodesCreated = accumulator.statistics.nodesCreated + 1,
         variantsAdded = accumulator.statistics.variantsAdded + haplogroupVariantIds.size,
-        relationshipsCreated = if (parentId.isDefined) accumulator.statistics.relationshipsCreated + 1 else accumulator.statistics.relationshipsCreated
+        relationshipsCreated = if (parentId.isDefined) accumulator.statistics.relationshipsCreated + 1 else accumulator.statistics.relationshipsCreated,
+        relationshipsUpdated = accumulator.statistics.relationshipsUpdated + subtreeLookAheadReparents
       )
 
       // ========================================================================
@@ -1717,11 +1772,16 @@ private[services] case class VariantCache(
 private[services] case class ExistingTree(
   root: ExistingTreeNode,
   byName: Map[String, ExistingTreeNode],         // name (uppercase) -> node (for conflict detection only)
-  byVariant: Map[String, Seq[ExistingTreeNode]]  // variant name (uppercase) -> nodes with that variant in cumulative set
+  byVariant: Map[String, Seq[ExistingTreeNode]], // variant name (uppercase) -> nodes with that variant in cumulative set
+  byId: Map[Int, ExistingTreeNode] = Map.empty   // haplogroup ID -> node (for parent lookup)
 ) {
   /** Find node by name - O(1) - used only for conflict detection */
   def findByName(name: String): Option[ExistingTreeNode] =
     byName.get(name.toUpperCase)
+
+  /** Find node by haplogroup ID - O(1) */
+  def findById(id: Int): Option[ExistingTreeNode] =
+    byId.get(id)
 
   /**
    * Find best matching node for source cumulative variants.
@@ -1949,9 +2009,11 @@ private[services] object ExistingTree {
   def fromRoot(root: ExistingTreeNode): ExistingTree = {
     val byName = scala.collection.mutable.Map.empty[String, ExistingTreeNode]
     val byVariant = scala.collection.mutable.Map.empty[String, List[ExistingTreeNode]]
+    val byId = scala.collection.mutable.Map.empty[Int, ExistingTreeNode]
 
     def index(node: ExistingTreeNode): Unit = {
       byName(node.haplogroup.name.toUpperCase) = node
+      node.haplogroup.id.foreach(id => byId(id) = node)
       // Index by CUMULATIVE variants (the full mutation signature)
       node.cumulativeVariants.foreach { v =>
         byVariant(v) = node :: byVariant.getOrElse(v, Nil)
@@ -1960,7 +2022,7 @@ private[services] object ExistingTree {
     }
 
     index(root)
-    ExistingTree(root, byName.toMap, byVariant.toMap)
+    ExistingTree(root, byName.toMap, byVariant.toMap, byId.toMap)
   }
 }
 

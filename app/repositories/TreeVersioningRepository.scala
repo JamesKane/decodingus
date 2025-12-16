@@ -197,6 +197,12 @@ trait TreeVersioningRepository {
    * List comments for a specific tree change.
    */
   def listCommentsForChange(treeChangeId: Int): Future[Seq[ChangeSetComment]]
+
+  /**
+   * Get haplogroup names by IDs.
+   * Returns a map of haplogroup ID -> name for lookup.
+   */
+  def getHaplogroupNamesById(ids: Set[Int]): Future[Map[Int, String]]
 }
 
 class TreeVersioningRepositoryImpl @Inject()(
@@ -206,7 +212,7 @@ class TreeVersioningRepositoryImpl @Inject()(
     with TreeVersioningRepository
     with Logging {
 
-  import models.dal.DatabaseSchema.domain.haplogroups.{changeSets, treeChanges, changeSetComments}
+  import models.dal.DatabaseSchema.domain.haplogroups.{changeSets, treeChanges, changeSetComments, haplogroups}
   import models.dal.MyPostgresProfile.api.*
 
   // ============================================================================
@@ -400,39 +406,26 @@ class TreeVersioningRepositoryImpl @Inject()(
     limit: Int,
     offset: Int
   ): Future[Seq[ChangeSet]] = {
-    val baseQuery = changeSets
-
-    val filteredByType = haplogroupType match {
-      case Some(ht) => baseQuery.filter(_.haplogroupType === ht)
-      case None => baseQuery
-    }
-
-    val filteredByStatus = status match {
-      case Some(s) => filteredByType.filter(_.status === ChangeSetStatus.toDbString(s))
-      case None => filteredByType
-    }
-
-    val paginatedQuery = filteredByStatus.sortBy(_.createdAt.desc).drop(offset).take(limit).result
-    runQuery(paginatedQuery).map(_.map(toChangeSet))
+    val query = changeSets
+      .filterOpt(haplogroupType)((cs, ht) => cs.haplogroupType === ht)
+      .filterOpt(status.map(ChangeSetStatus.toDbString))((cs, s) => cs.status === s)
+      .sortBy(_.createdAt.desc)
+      .drop(offset)
+      .take(limit)
+      .result
+    runQuery(query).map(_.map(toChangeSet))
   }
 
   override def countChangeSets(
     haplogroupType: Option[HaplogroupType],
     status: Option[ChangeSetStatus]
   ): Future[Int] = {
-    val baseQuery = changeSets
-
-    val filteredByType = haplogroupType match {
-      case Some(ht) => baseQuery.filter(_.haplogroupType === ht)
-      case None => baseQuery
-    }
-
-    val filteredByStatus = status match {
-      case Some(s) => filteredByType.filter(_.status === ChangeSetStatus.toDbString(s))
-      case None => filteredByType
-    }
-
-    runQuery(filteredByStatus.length.result)
+    val query = changeSets
+      .filterOpt(haplogroupType)((cs, ht) => cs.haplogroupType === ht)
+      .filterOpt(status.map(ChangeSetStatus.toDbString))((cs, s) => cs.status === s)
+      .length
+      .result
+    runQuery(query)
   }
 
   override def updateChangeSet(changeSet: ChangeSet): Future[Boolean] = {
@@ -588,20 +581,15 @@ class TreeVersioningRepositoryImpl @Inject()(
     limit: Int,
     offset: Int
   ): Future[Seq[TreeChange]] = {
-    val baseQuery = treeChanges.filter(_.changeSetId === changeSetId)
-
-    val filteredByType = changeType match {
-      case Some(ct) => baseQuery.filter(_.changeType === TreeChangeType.toDbString(ct))
-      case None => baseQuery
-    }
-
-    val filteredByStatus = status match {
-      case Some(s) => filteredByType.filter(_.status === ChangeStatus.toDbString(s))
-      case None => filteredByType
-    }
-
-    val paginatedQuery = filteredByStatus.sortBy(_.sequenceNum).drop(offset).take(limit).result
-    runQuery(paginatedQuery).map(_.map(toTreeChange))
+    val query = treeChanges
+      .filter(_.changeSetId === changeSetId)
+      .filterOpt(changeType.map(TreeChangeType.toDbString))((tc, ct) => tc.changeType === ct)
+      .filterOpt(status.map(ChangeStatus.toDbString))((tc, s) => tc.status === s)
+      .sortBy(_.sequenceNum)
+      .drop(offset)
+      .take(limit)
+      .result
+    runQuery(query).map(_.map(toTreeChange))
   }
 
   override def countTreeChanges(
@@ -609,19 +597,13 @@ class TreeVersioningRepositoryImpl @Inject()(
     changeType: Option[TreeChangeType],
     status: Option[ChangeStatus]
   ): Future[Int] = {
-    val baseQuery = treeChanges.filter(_.changeSetId === changeSetId)
-
-    val filteredByType = changeType match {
-      case Some(ct) => baseQuery.filter(_.changeType === TreeChangeType.toDbString(ct))
-      case None => baseQuery
-    }
-
-    val filteredByStatus = status match {
-      case Some(s) => filteredByType.filter(_.status === ChangeStatus.toDbString(s))
-      case None => filteredByType
-    }
-
-    runQuery(filteredByStatus.length.result)
+    val query = treeChanges
+      .filter(_.changeSetId === changeSetId)
+      .filterOpt(changeType.map(TreeChangeType.toDbString))((tc, ct) => tc.changeType === ct)
+      .filterOpt(status.map(ChangeStatus.toDbString))((tc, s) => tc.status === s)
+      .length
+      .result
+    runQuery(query)
   }
 
   override def getNextSequenceNum(changeSetId: Int): Future[Int] = {
@@ -762,5 +744,19 @@ class TreeVersioningRepositoryImpl @Inject()(
       .sortBy(_.createdAt)
       .result
     runQuery(query).map(_.map(toComment))
+  }
+
+  override def getHaplogroupNamesById(ids: Set[Int]): Future[Map[Int, String]] = {
+    if (ids.isEmpty) {
+      Future.successful(Map.empty)
+    } else {
+      val query = haplogroups
+        .filter(_.haplogroupId.inSet(ids))
+        .map(h => (h.haplogroupId, h.name))
+        .result
+      runQuery(query).map { rows =>
+        rows.map { case (id, name) => id -> name }.toMap
+      }
+    }
   }
 }

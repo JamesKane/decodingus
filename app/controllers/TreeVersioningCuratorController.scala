@@ -94,7 +94,7 @@ class TreeVersioningCuratorController @Inject()(
    */
   def pendingChangesFragment(id: Int, limit: Int): Action[AnyContent] =
     withPermission("tree.version.view").async { implicit request =>
-      treeVersioningService.getPendingReviewChanges(id, limit).map { changes =>
+      treeVersioningService.getPendingReviewChangesWithNames(id, limit).map { changes =>
         Ok(views.html.curator.changesets.changesFragment(id, changes, reviewChangeForm))
       }
     }

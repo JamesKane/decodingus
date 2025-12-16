@@ -43,6 +43,28 @@ abstract class BaseRepository @Inject()(
 
   import api.* // This brings === and other operators into scope
 
+  // ============================================================================
+  // Query Extension Methods
+  // ============================================================================
+
+  /**
+   * Extension method for optional filtering on Slick queries.
+   * Applies a filter only when the option has a value.
+   *
+   * Usage:
+   * {{{
+   * val filtered = baseQuery
+   *   .filterOpt(maybeType)((row, t) => row.typeColumn === t)
+   *   .filterOpt(maybeStatus)((row, s) => row.status === s)
+   * }}}
+   */
+  implicit class QueryFilterOps[E, U, C[_]](val query: Query[E, U, C]) {
+    def filterOpt[V](opt: Option[V])(f: (E, V) => Rep[Boolean]): Query[E, U, C] =
+      opt match {
+        case Some(v) => query.filter(e => f(e, v))
+        case None => query
+      }
+  }
 
   // Common schema access
   protected val schema = DatabaseSchema
