@@ -5,7 +5,7 @@ import play.api.Mode.Prod
 import play.api.{Configuration, Environment, Mode}
 import services.genomics.{SpecimenDonorService, SpecimenDonorServiceImpl}
 import services.{AwsSesEmailService, EmailService, LoggingEmailService, TreeVersioningService, TreeVersioningServiceImpl}
-import repositories.{TreeVersioningRepository, TreeVersioningRepositoryImpl}
+import repositories.{TreeVersioningRepository, TreeVersioningRepositoryImpl, WipTreeRepository, WipTreeRepositoryImpl}
 
 class ServicesModule(environment: Environment, configuration: Configuration) extends AbstractModule {
   override def configure(): Unit = {
@@ -34,6 +34,9 @@ class ServicesModule(environment: Environment, configuration: Configuration) ext
     // Tree Versioning System
     bind(classOf[TreeVersioningRepository]).to(classOf[TreeVersioningRepositoryImpl])
     bind(classOf[TreeVersioningService]).to(classOf[TreeVersioningServiceImpl]).asEagerSingleton()
+
+    // WIP Shadow Tables for staging merge changes
+    bind(classOf[WipTreeRepository]).to(classOf[WipTreeRepositoryImpl])
   }
 }
 

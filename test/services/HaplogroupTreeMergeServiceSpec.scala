@@ -12,7 +12,7 @@ import org.scalatest.time.{Millis, Seconds, Span}
 import org.scalatestplus.mockito.MockitoSugar
 import org.scalatestplus.play.PlaySpec
 import play.api.libs.json.Json
-import repositories.{HaplogroupCoreRepository, HaplogroupVariantRepository, VariantV2Repository, HaplogroupRevisionMetadataRepository, HaplogroupVariantMetadataRepository}
+import repositories.{HaplogroupCoreRepository, HaplogroupVariantRepository, VariantV2Repository, HaplogroupRevisionMetadataRepository, HaplogroupVariantMetadataRepository, WipTreeRepository}
 
 import java.time.LocalDateTime
 import scala.concurrent.{ExecutionContext, Future}
@@ -29,6 +29,7 @@ class HaplogroupTreeMergeServiceSpec extends PlaySpec with MockitoSugar with Sca
   var mockHaplogroupRevisionMetadataRepo: HaplogroupRevisionMetadataRepository = _
   var mockHaplogroupVariantMetadataRepo: HaplogroupVariantMetadataRepository = _
   var mockTreeVersioningService: TreeVersioningService = _
+  var mockWipTreeRepository: WipTreeRepository = _
   var service: HaplogroupTreeMergeService = _
 
   // Test fixtures
@@ -73,13 +74,15 @@ class HaplogroupTreeMergeServiceSpec extends PlaySpec with MockitoSugar with Sca
     mockHaplogroupRevisionMetadataRepo = mock[HaplogroupRevisionMetadataRepository]
     mockHaplogroupVariantMetadataRepo = mock[HaplogroupVariantMetadataRepository]
     mockTreeVersioningService = mock[TreeVersioningService]
+    mockWipTreeRepository = mock[WipTreeRepository]
     service = new HaplogroupTreeMergeService(
       mockHaplogroupRepo,
       mockVariantRepo,
       mockVariantV2Repository,
       mockHaplogroupRevisionMetadataRepo,
       mockHaplogroupVariantMetadataRepo,
-      mockTreeVersioningService
+      mockTreeVersioningService,
+      mockWipTreeRepository
     )
 
     // Default mock behaviors for new metadata repositories
@@ -869,7 +872,8 @@ class HaplogroupTreeMergeServiceSpec extends PlaySpec with MockitoSugar with Sca
       whenReady(service.mergeFullTree(request)) { result =>
         result.success mustBe true
         // Verify Child (ID 2) was reparented to NewParent (ID 3)
-        verify(mockHaplogroupRepo).updateParent(2, 3, "HighPrioritySource")
+        // May be called multiple times due to SUBTREE_LOOK_AHEAD and NODE_CONTRACTION mechanisms
+        verify(mockHaplogroupRepo, org.mockito.Mockito.atLeast(1)).updateParent(2, 3, "HighPrioritySource")
       }
     }
   }

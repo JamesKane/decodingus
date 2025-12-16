@@ -97,6 +97,9 @@ object ConflictStrategy {
 
 /**
  * Request for full tree merge (replace entire Y-DNA or mtDNA tree).
+ *
+ * @param stagingMode When true (default), changes are recorded in a change set for curator review
+ *                    but NOT applied to production. When false, changes are applied directly.
  */
 case class TreeMergeRequest(
   haplogroupType: HaplogroupType,
@@ -104,7 +107,8 @@ case class TreeMergeRequest(
   sourceName: String,
   priorityConfig: Option[SourcePriorityConfig] = None,
   conflictStrategy: Option[ConflictStrategy] = None,
-  dryRun: Boolean = false
+  dryRun: Boolean = false,
+  stagingMode: Boolean = true
 )
 
 object TreeMergeRequest {
@@ -113,6 +117,9 @@ object TreeMergeRequest {
 
 /**
  * Request for subtree merge (merge under a specific anchor node).
+ *
+ * @param stagingMode When true (default), changes are recorded in a change set for curator review
+ *                    but NOT applied to production. When false, changes are applied directly.
  */
 case class SubtreeMergeRequest(
   haplogroupType: HaplogroupType,
@@ -121,7 +128,8 @@ case class SubtreeMergeRequest(
   sourceName: String,
   priorityConfig: Option[SourcePriorityConfig] = None,
   conflictStrategy: Option[ConflictStrategy] = None,
-  dryRun: Boolean = false
+  dryRun: Boolean = false,
+  stagingMode: Boolean = true
 )
 
 object SubtreeMergeRequest {

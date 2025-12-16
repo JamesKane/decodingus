@@ -109,6 +109,12 @@ object DatabaseSchema {
       val changeSets = TableQuery[ChangeSetsTable]
       val treeChanges = TableQuery[TreeChangesTable]
       val changeSetComments = TableQuery[ChangeSetCommentsTable]
+
+      // WIP Shadow Tables for staging merge changes
+      val wipHaplogroups = TableQuery[WipHaplogroupTable]
+      val wipRelationships = TableQuery[WipRelationshipTable]
+      val wipHaplogroupVariants = TableQuery[WipHaplogroupVariantTable]
+      val wipReparents = TableQuery[WipReparentTable]
     }
 
     object pangenome {

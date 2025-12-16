@@ -4,10 +4,11 @@ import jakarta.inject.{Inject, Singleton}
 import models.HaplogroupType
 import models.api.haplogroups.*
 import models.domain.genomics.VariantV2
+import models.dal.domain.haplogroups.{WipHaplogroupRow, WipRelationshipRow, WipHaplogroupVariantRow, WipReparentRow}
 import models.domain.haplogroups.{Haplogroup, HaplogroupProvenance, HaplogroupRelationship, RelationshipRevisionMetadata, HaplogroupVariantMetadata, TreeChangeType}
 import play.api.Logging
 import play.api.libs.json.Json
-import repositories.{HaplogroupCoreRepository, HaplogroupVariantRepository, VariantV2Repository, HaplogroupRevisionMetadataRepository, HaplogroupVariantMetadataRepository}
+import repositories.{HaplogroupCoreRepository, HaplogroupVariantRepository, VariantV2Repository, HaplogroupRevisionMetadataRepository, HaplogroupVariantMetadataRepository, WipTreeRepository}
 
 import java.io.{File, PrintWriter}
 import java.time.LocalDateTime
@@ -84,8 +85,15 @@ class HaplogroupTreeMergeService @Inject()(
   variantV2Repository: VariantV2Repository,
   haplogroupRevisionMetadataRepository: HaplogroupRevisionMetadataRepository,
   haplogroupVariantMetadataRepository: HaplogroupVariantMetadataRepository,
-  treeVersioningService: TreeVersioningService
+  treeVersioningService: TreeVersioningService,
+  wipTreeRepository: WipTreeRepository
 )(implicit ec: ExecutionContext) extends Logging {
+
+  import java.util.concurrent.atomic.AtomicInteger
+
+  // Placeholder ID counter for WIP nodes (starts negative to avoid collision with real IDs)
+  // Reset per merge operation
+  private val placeholderCounter = new AtomicInteger(-1)
 
   // ============================================================================
   // Helper methods for VariantInput
@@ -113,6 +121,154 @@ class HaplogroupTreeMergeService @Inject()(
   /** Count total nodes in a tree */
   private def countNodes(node: PhyloNodeInput): Int = {
     1 + node.children.map(countNodes).sum
+  }
+
+  // ============================================================================
+  // Staging Mode Helper Methods
+  // ============================================================================
+
+  /**
+   * Check if an ID is a placeholder (negative = WIP node, positive = production node).
+   */
+  private def isPlaceholder(id: Int): Boolean = id < 0
+
+  /**
+   * Create a haplogroup - routes to WIP table if staging mode, else production.
+   *
+   * @param haplogroup The haplogroup to create
+   * @param parentId Parent ID (can be production ID or placeholder)
+   * @param context Merge context with staging mode flag
+   * @return (newId, relationshipId) - newId is placeholder in staging mode, real ID otherwise
+   */
+  private def createHaplogroupStaged(
+    haplogroup: Haplogroup,
+    parentId: Option[Int],
+    context: MergeContext
+  ): Future[(Int, Option[Int])] = {
+    if (context.stagingMode) {
+      val changeSetId = context.changeSetId.getOrElse(
+        throw new IllegalStateException("Staging mode requires a change set ID")
+      )
+      val placeholderId = placeholderCounter.getAndDecrement()
+
+      // Create WIP haplogroup row
+      val wipHaplogroup = WipHaplogroupRow(
+        id = None,
+        changeSetId = changeSetId,
+        placeholderId = placeholderId,
+        name = haplogroup.name,
+        lineage = haplogroup.lineage,
+        description = haplogroup.description,
+        haplogroupType = haplogroup.haplogroupType,
+        source = haplogroup.source,
+        confidenceLevel = haplogroup.confidenceLevel,
+        formedYbp = haplogroup.formedYbp,
+        formedYbpLower = haplogroup.formedYbpLower,
+        formedYbpUpper = haplogroup.formedYbpUpper,
+        tmrcaYbp = haplogroup.tmrcaYbp,
+        tmrcaYbpLower = haplogroup.tmrcaYbpLower,
+        tmrcaYbpUpper = haplogroup.tmrcaYbpUpper,
+        ageEstimateSource = haplogroup.ageEstimateSource,
+        provenance = haplogroup.provenance,
+        createdAt = context.timestamp
+      )
+
+      for {
+        _ <- wipTreeRepository.createWipHaplogroup(wipHaplogroup)
+
+        // Create WIP relationship if parent specified
+        _ <- parentId match {
+          case Some(pid) =>
+            val wipRelationship = WipRelationshipRow(
+              id = None,
+              changeSetId = changeSetId,
+              childHaplogroupId = None, // Child is WIP
+              childPlaceholderId = Some(placeholderId),
+              parentHaplogroupId = if (isPlaceholder(pid)) None else Some(pid),
+              parentPlaceholderId = if (isPlaceholder(pid)) Some(pid) else None,
+              source = context.sourceName,
+              createdAt = context.timestamp
+            )
+            wipTreeRepository.createWipRelationship(wipRelationship)
+          case None =>
+            Future.successful(0)
+        }
+      } yield (placeholderId, None) // Return placeholder ID
+    } else {
+      haplogroupRepository.createWithParent(haplogroup, parentId, context.sourceName)
+    }
+  }
+
+  /**
+   * Add variants to a haplogroup - routes to WIP table if staging mode.
+   *
+   * @param haplogroupId Haplogroup ID (can be production ID or placeholder)
+   * @param variantIds Variant IDs to add (always production variant IDs)
+   * @param context Merge context
+   * @return IDs of created associations
+   */
+  private def addVariantsStaged(
+    haplogroupId: Int,
+    variantIds: Seq[Int],
+    context: MergeContext
+  ): Future[Seq[Int]] = {
+    if (variantIds.isEmpty) {
+      Future.successful(Seq.empty)
+    } else if (context.stagingMode) {
+      val changeSetId = context.changeSetId.getOrElse(
+        throw new IllegalStateException("Staging mode requires a change set ID")
+      )
+      val rows = variantIds.map { vid =>
+        WipHaplogroupVariantRow(
+          id = None,
+          changeSetId = changeSetId,
+          haplogroupId = if (isPlaceholder(haplogroupId)) None else Some(haplogroupId),
+          haplogroupPlaceholderId = if (isPlaceholder(haplogroupId)) Some(haplogroupId) else None,
+          variantId = vid,
+          source = Some(context.sourceName),
+          createdAt = context.timestamp
+        )
+      }
+      wipTreeRepository.createWipHaplogroupVariants(rows)
+    } else {
+      haplogroupVariantRepository.bulkAddVariantsToHaplogroups(
+        variantIds.map(vid => (haplogroupId, vid))
+      )
+    }
+  }
+
+  /**
+   * Reparent an existing production haplogroup - routes to WIP table if staging mode.
+   *
+   * @param haplogroupId The production haplogroup to reparent
+   * @param oldParentId Current parent (for reference)
+   * @param newParentId New parent ID (can be production ID or placeholder)
+   * @param context Merge context
+   */
+  private def reparentStaged(
+    haplogroupId: Int,
+    oldParentId: Option[Int],
+    newParentId: Int,
+    context: MergeContext
+  ): Future[Unit] = {
+    if (context.stagingMode) {
+      val changeSetId = context.changeSetId.getOrElse(
+        throw new IllegalStateException("Staging mode requires a change set ID")
+      )
+      val wipReparent = WipReparentRow(
+        id = None,
+        changeSetId = changeSetId,
+        haplogroupId = haplogroupId, // Production haplogroup being reparented
+        oldParentId = oldParentId,
+        newParentId = if (isPlaceholder(newParentId)) None else Some(newParentId),
+        newParentPlaceholderId = if (isPlaceholder(newParentId)) Some(newParentId) else None,
+        source = context.sourceName,
+        createdAt = context.timestamp
+      )
+      wipTreeRepository.createWipReparent(wipReparent).map(_ => ())
+    } else {
+      haplogroupRepository.updateParent(haplogroupId, newParentId, context.sourceName).map(_ => ())
+    }
   }
 
   // ============================================================================
@@ -145,7 +301,8 @@ class HaplogroupTreeMergeService @Inject()(
         sourceTree = request.sourceTree,
         sourceName = request.sourceName,
         priorityConfig = request.priorityConfig.getOrElse(SourcePriorityConfig(List.empty)),
-        conflictStrategy = request.conflictStrategy.getOrElse(ConflictStrategy.HigherPriorityWins)
+        conflictStrategy = request.conflictStrategy.getOrElse(ConflictStrategy.HigherPriorityWins),
+        stagingMode = request.stagingMode
       )
     }
   }
@@ -199,7 +356,8 @@ class HaplogroupTreeMergeService @Inject()(
           sourceName = request.sourceName,
           priorityConfig = request.priorityConfig.getOrElse(SourcePriorityConfig(List.empty)),
           conflictStrategy = request.conflictStrategy.getOrElse(ConflictStrategy.HigherPriorityWins),
-          preloadedIndex = Some(subtreeIndex)
+          preloadedIndex = Some(subtreeIndex),
+          stagingMode = request.stagingMode
         )
       } yield result
     }
@@ -422,11 +580,16 @@ class HaplogroupTreeMergeService @Inject()(
     priorityConfig: SourcePriorityConfig,
     conflictStrategy: ConflictStrategy,
     preloadedIndex: Option[VariantIndex] = None,
-    enableChangeTracking: Boolean = true
+    enableChangeTracking: Boolean = true,
+    stagingMode: Boolean = true
   ): Future[TreeMergeResponse] = {
     val now = LocalDateTime.now()
     val nodeCount = countNodes(sourceTree)
-    logger.info(s"Starting merge for source '$sourceName' with $nodeCount nodes (change tracking: $enableChangeTracking)")
+
+    // Reset placeholder counter for this merge operation
+    placeholderCounter.set(-1)
+
+    logger.info(s"Starting merge for source '$sourceName' with $nodeCount nodes (change tracking: $enableChangeTracking, stagingMode: $stagingMode)")
 
     for {
       // Phase 0: Create change set for tracking (if enabled)
@@ -445,13 +608,21 @@ class HaplogroupTreeMergeService @Inject()(
       changeSetId = changeSetOpt.flatMap(_.id)
       _ = changeSetOpt.foreach(cs => logger.info(s"Created change set ${cs.id.get}: ${cs.name}"))
 
+      // Staging mode requires a change set ID for WIP table operations
+      // If change set creation failed, fall back to non-staging (production) mode
+      effectiveStagingMode = stagingMode && changeSetId.isDefined
+      _ = if (stagingMode && !effectiveStagingMode) {
+        logger.warn("Staging mode disabled - change set creation failed, falling back to production mode")
+      }
+
       context = MergeContext(
         haplogroupType = haplogroupType,
         sourceName = sourceName,
         priorityConfig = priorityConfig,
         conflictStrategy = conflictStrategy,
         timestamp = now,
-        changeSetId = changeSetId
+        changeSetId = changeSetId,
+        stagingMode = effectiveStagingMode
       )
 
       // Phase 1a: Build in-memory tree of existing haplogroups with indexes
@@ -695,15 +866,14 @@ class HaplogroupTreeMergeService @Inject()(
     for {
       existingHaplogroupVariantIds <- haplogroupVariantRepository.getHaplogroupVariantIds(existing.id.get)
 
-      newlyAssociatedIds <- if (variantIds.nonEmpty) {
-        haplogroupVariantRepository.bulkAddVariantsToHaplogroups(
-          variantIds.map(vid => (existing.id.get, vid))
-        )
-      } else Future.successful(Seq.empty)
+      // Add variants - routes to WIP table in staging mode, production otherwise
+      newlyAssociatedIds <- addVariantsStaged(existing.id.get, variantIds, context)
 
       addedVariantIds = newlyAssociatedIds.diff(existingHaplogroupVariantIds)
 
-      _ <- updateProvenance(existing, sourceNode.variants, context)
+      // Update provenance (only in non-staging mode - we don't modify production nodes in staging)
+      _ <- if (!context.stagingMode) updateProvenance(existing, sourceNode.variants, context)
+           else Future.successful(())
 
       updatedStats = accumulator.statistics.copy(
         nodesProcessed = accumulator.statistics.nodesProcessed + 1,
@@ -755,15 +925,17 @@ class HaplogroupTreeMergeService @Inject()(
                   )
 
                   for {
-                    // Perform Adjacency List update - change parent_id
-                    _ <- haplogroupRepository.updateParent(matched.haplogroup.id.get, existing.id.get, context.sourceName)
+                    // Perform Adjacency List update - routes to WIP table in staging mode
+                    _ <- reparentStaged(matched.haplogroup.id.get, None, existing.id.get, context)
 
-                    // Record REPARENT change for tracking (fire-and-forget)
-                    _ = context.changeSetId.foreach { csId =>
-                      treeVersioningService.recordReparent(
-                        csId, matched.haplogroup.id.get, None, existing.id.get
-                      ).recover {
-                        case e: Exception => logger.warn(s"Failed to record REPARENT change: ${e.getMessage}")
+                    // Record REPARENT change for tracking (only in non-staging mode)
+                    _ = if (!context.stagingMode) {
+                      context.changeSetId.foreach { csId =>
+                        treeVersioningService.recordReparent(
+                          csId, matched.haplogroup.id.get, None, existing.id.get
+                        ).recover {
+                          case e: Exception => logger.warn(s"Failed to record REPARENT change: ${e.getMessage}")
+                        }
                       }
                     }
 
@@ -957,26 +1129,27 @@ class HaplogroupTreeMergeService @Inject()(
     }.distinct
 
     for {
-      (newId, _) <- haplogroupRepository.createWithParent(newHaplogroup, parentId, context.sourceName)
+      // Create haplogroup - routes to WIP table in staging mode
+      (newId, _) <- createHaplogroupStaged(newHaplogroup, parentId, context)
 
       // Record CREATE change for tracking (fire-and-forget to not slow down merge)
-      _ = context.changeSetId.foreach { csId =>
-        val haplogroupJson = Json.obj(
-          "name" -> sourceNode.name,
-          "haplogroupType" -> context.haplogroupType.toString,
-          "source" -> context.sourceName,
-          "variants" -> sourceNode.variants.map(_.name)
-        ).toString()
-        treeVersioningService.recordCreate(csId, haplogroupJson, parentId).recover {
-          case e: Exception => logger.warn(s"Failed to record CREATE change: ${e.getMessage}")
+      // In staging mode, the change is tracked via WIP tables, so we skip this
+      _ = if (!context.stagingMode) {
+        context.changeSetId.foreach { csId =>
+          val haplogroupJson = Json.obj(
+            "name" -> sourceNode.name,
+            "haplogroupType" -> context.haplogroupType.toString,
+            "source" -> context.sourceName,
+            "variants" -> sourceNode.variants.map(_.name)
+          ).toString()
+          treeVersioningService.recordCreate(csId, haplogroupJson, parentId).recover {
+            case e: Exception => logger.warn(s"Failed to record CREATE change: ${e.getMessage}")
+          }
         }
       }
 
-      haplogroupVariantIds <- if (variantIds.nonEmpty) {
-        haplogroupVariantRepository.bulkAddVariantsToHaplogroups(
-          variantIds.map(vid => (newId, vid))
-        )
-      } else Future.successful(Seq.empty)
+      // Add variants - routes to WIP table in staging mode
+      haplogroupVariantIds <- addVariantsStaged(newId, variantIds, context)
 
       // ========================================================================
       // VARIANT DOWNFLOW: Move variants from parent to new intermediate
@@ -995,7 +1168,10 @@ class HaplogroupTreeMergeService @Inject()(
       // This "downflow" ensures variants are associated with their most specific
       // defining haplogroup, not ancestors that happened to have them before
       // finer structure was added.
-      variantsRedistributed <- if (parentId.isDefined && variantIds.nonEmpty) {
+      //
+      // NOTE: In staging mode, we skip variant downflow because we can't modify
+      // production variant associations. This will be handled during Apply phase.
+      variantsRedistributed <- if (!context.stagingMode && parentId.isDefined && variantIds.nonEmpty && !isPlaceholder(parentId.get)) {
         for {
           parentVariantIds <- haplogroupVariantRepository.getVariantIdsForHaplogroup(parentId.get)
           variantIdsSet = variantIds.toSet
@@ -1027,7 +1203,10 @@ class HaplogroupTreeMergeService @Inject()(
       //   - A0's variants match something in the A0000 subtree
       //   - So A0 should be reparented under A0000
       //   - Later, when processing A000-T, A000, etc., A0 may move further down
-      subtreeLookAheadReparents <- parentId.flatMap(pid => existingTree.flatMap(_.findById(pid))) match {
+      // NOTE: In staging mode with placeholder parent, we can't look up existing siblings from
+      // the in-memory tree because the parent is a newly created WIP node. The reparenting will
+      // be handled during the Apply phase when placeholders are resolved to real IDs.
+      subtreeLookAheadReparents <- parentId.flatMap(pid => if (isPlaceholder(pid)) None else existingTree.flatMap(_.findById(pid))) match {
         case Some(parentNode) =>
           val subtreeVariants = collectAllVariantNames(sourceNode).map(_.toUpperCase).toSet
           val siblingsToReparent = parentNode.children.filter { sibling =>
@@ -1043,13 +1222,16 @@ class HaplogroupTreeMergeService @Inject()(
 
             Future.sequence(siblingsToReparent.map { sibling =>
               for {
-                _ <- haplogroupRepository.updateParent(sibling.haplogroup.id.get, newId, context.sourceName)
-                // Record REPARENT change for tracking
-                _ = context.changeSetId.foreach { csId =>
-                  treeVersioningService.recordReparent(
-                    csId, sibling.haplogroup.id.get, parentId, newId
-                  ).recover {
-                    case e: Exception => logger.warn(s"Failed to record REPARENT change: ${e.getMessage}")
+                // Use staged reparent - routes to WIP table in staging mode
+                _ <- reparentStaged(sibling.haplogroup.id.get, parentId, newId, context)
+                // Record REPARENT change for tracking (only in non-staging mode)
+                _ = if (!context.stagingMode) {
+                  context.changeSetId.foreach { csId =>
+                    treeVersioningService.recordReparent(
+                      csId, sibling.haplogroup.id.get, parentId, newId
+                    ).recover {
+                      case e: Exception => logger.warn(s"Failed to record REPARENT change: ${e.getMessage}")
+                    }
                   }
                 }
               } yield sibling.haplogroup.name
@@ -1156,18 +1338,20 @@ class HaplogroupTreeMergeService @Inject()(
             )
 
             for {
-              // Perform Adjacency List updates for ALL matching siblings
+              // Perform Adjacency List updates for ALL matching siblings - routes to WIP in staging mode
               _ <- Future.sequence(allMatches.map { node =>
-                haplogroupRepository.updateParent(node.haplogroup.id.get, newId, context.sourceName)
+                reparentStaged(node.haplogroup.id.get, None, newId, context)
               })
 
-              // Record REPARENT changes for tracking (fire-and-forget for each node)
-              _ = context.changeSetId.foreach { csId =>
-                allMatches.foreach { node =>
-                  treeVersioningService.recordReparent(
-                    csId, node.haplogroup.id.get, None, newId
-                  ).recover {
-                    case e: Exception => logger.warn(s"Failed to record REPARENT change: ${e.getMessage}")
+              // Record REPARENT changes for tracking (only in non-staging mode)
+              _ = if (!context.stagingMode) {
+                context.changeSetId.foreach { csId =>
+                  allMatches.foreach { node =>
+                    treeVersioningService.recordReparent(
+                      csId, node.haplogroup.id.get, None, newId
+                    ).recover {
+                      case e: Exception => logger.warn(s"Failed to record REPARENT change: ${e.getMessage}")
+                    }
                   }
                 }
               }
@@ -1714,7 +1898,8 @@ private[services] case class MergeContext(
   priorityConfig: SourcePriorityConfig,
   conflictStrategy: ConflictStrategy,
   timestamp: LocalDateTime,
-  changeSetId: Option[Int] = None // For change tracking integration
+  changeSetId: Option[Int] = None, // For change tracking integration
+  stagingMode: Boolean = true // When true, only record changes, don't apply to production
 )
 
 /**

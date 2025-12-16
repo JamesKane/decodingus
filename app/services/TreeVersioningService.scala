@@ -6,7 +6,7 @@ import models.api.haplogroups.MergeStatistics
 import models.domain.haplogroups.*
 import play.api.Logging
 import play.api.libs.json.Json
-import repositories.TreeVersioningRepository
+import repositories.{HaplogroupCoreRepository, HaplogroupVariantRepository, TreeVersioningRepository, WipTreeRepository}
 
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
@@ -217,6 +217,9 @@ trait TreeVersioningService {
 @Singleton
 class TreeVersioningServiceImpl @Inject()(
   repository: TreeVersioningRepository,
+  wipTreeRepository: WipTreeRepository,
+  haplogroupRepository: HaplogroupCoreRepository,
+  haplogroupVariantRepository: HaplogroupVariantRepository,
   auditService: CuratorAuditService
 )(implicit ec: ExecutionContext)
   extends TreeVersioningService
@@ -377,18 +380,41 @@ class TreeVersioningServiceImpl @Inject()(
     repository.getChangeSet(changeSetId).flatMap {
       case Some(cs) if cs.status == ChangeSetStatus.UnderReview || cs.status == ChangeSetStatus.ReadyForReview =>
         for {
-          // Apply all pending changes
+          // Check for WIP data (staging mode merge)
+          wipStats <- wipTreeRepository.getWipStatistics(changeSetId)
+          hasWipData = wipStats.haplogroups > 0 || wipStats.relationships > 0 ||
+                       wipStats.variants > 0 || wipStats.reparents > 0
+
+          // Apply WIP data to production if present
+          appliedWipCount <- if (hasWipData) {
+            logger.info(s"Applying WIP data for change set $changeSetId: " +
+              s"${wipStats.haplogroups} haplogroups, ${wipStats.relationships} relationships, " +
+              s"${wipStats.variants} variants, ${wipStats.reparents} reparents")
+            applyWipToProduction(changeSetId, cs.haplogroupType, cs.sourceName)
+          } else {
+            Future.successful(0)
+          }
+
+          // Apply all pending tree changes (legacy mode)
           appliedCount <- repository.applyAllPendingChanges(changeSetId)
+
           // Mark the change set as applied
           result <- repository.applyChangeSet(changeSetId, curatorId)
+
+          // Clean up WIP data (tables have ON DELETE CASCADE, but explicit cleanup is cleaner)
+          _ <- if (hasWipData) wipTreeRepository.deleteWipDataForChangeSet(changeSetId)
+               else Future.successful(0)
+
           // Get updated change set for audit
           updatedCs <- repository.getChangeSet(changeSetId)
         } yield {
           if (result) {
-            logger.info(s"Change set $changeSetId applied to Production by $curatorId ($appliedCount changes)")
+            val totalApplied = appliedCount + appliedWipCount
+            logger.info(s"Change set $changeSetId applied to Production by $curatorId " +
+              s"($totalApplied changes: $appliedCount legacy, $appliedWipCount from WIP)")
             // Log audit entry for apply action
             updatedCs.foreach { ucs =>
-              auditService.logChangeSetApply(curatorId, ucs, appliedCount, Some("Applied to Production"))
+              auditService.logChangeSetApply(curatorId, ucs, totalApplied, Some("Applied to Production"))
             }
           }
           result
@@ -400,6 +426,165 @@ class TreeVersioningServiceImpl @Inject()(
       case None =>
         Future.failed(new NoSuchElementException(s"Change set $changeSetId not found"))
     }
+  }
+
+  /**
+   * Apply WIP (staging) data to production tables.
+   *
+   * This method is called when applying a change set that was created in staging mode.
+   * It copies data from WIP shadow tables to production tables, resolving placeholder
+   * IDs to real production IDs.
+   *
+   * @param changeSetId The change set ID
+   * @param haplogroupType Y or MT DNA type
+   * @param sourceName Source name for new records
+   * @return Number of operations applied
+   */
+  private def applyWipToProduction(
+    changeSetId: Int,
+    haplogroupType: HaplogroupType,
+    sourceName: String
+  ): Future[Int] = {
+    val now = LocalDateTime.now()
+
+    for {
+      // 1. Get all WIP haplogroups
+      wipHaplogroups <- wipTreeRepository.getWipHaplogroupsForChangeSet(changeSetId)
+      _ = logger.info(s"Creating ${wipHaplogroups.size} haplogroups from WIP")
+
+      // 2. Create production haplogroups and build placeholder → real ID mapping
+      placeholderToRealId <- createProductionHaplogroups(wipHaplogroups, haplogroupType, sourceName, now)
+      _ = logger.info(s"Created ${placeholderToRealId.size} production haplogroups")
+
+      // 3. Get all WIP relationships and create them in production
+      wipRelationships <- wipTreeRepository.getWipRelationshipsForChangeSet(changeSetId)
+      _ = logger.info(s"Creating ${wipRelationships.size} relationships from WIP")
+      relationshipsCreated <- createProductionRelationships(wipRelationships, placeholderToRealId, sourceName)
+
+      // 4. Get all WIP variant associations and create them in production
+      wipVariants <- wipTreeRepository.getWipVariantsForChangeSet(changeSetId)
+      _ = logger.info(s"Creating ${wipVariants.size} variant associations from WIP")
+      variantsCreated <- createProductionVariants(wipVariants, placeholderToRealId)
+
+      // 5. Get all WIP reparents and apply them
+      wipReparents <- wipTreeRepository.getWipReparentsForChangeSet(changeSetId)
+      _ = logger.info(s"Applying ${wipReparents.size} reparents from WIP")
+      reparentsApplied <- applyProductionReparents(wipReparents, placeholderToRealId, sourceName)
+
+    } yield wipHaplogroups.size + relationshipsCreated + variantsCreated + reparentsApplied
+  }
+
+  /**
+   * Create production haplogroups from WIP data.
+   * Returns a map of placeholder ID → real production ID.
+   */
+  private def createProductionHaplogroups(
+    wipHaplogroups: Seq[models.dal.domain.haplogroups.WipHaplogroupRow],
+    haplogroupType: HaplogroupType,
+    sourceName: String,
+    now: LocalDateTime
+  ): Future[Map[Int, Int]] = {
+    // Process in order (by placeholder ID) to ensure parents are created before children
+    val sortedWip = wipHaplogroups.sortBy(_.placeholderId)(Ordering[Int].reverse) // Most negative (first created) first
+
+    sortedWip.foldLeft(Future.successful(Map.empty[Int, Int])) { (accFuture, wip) =>
+      accFuture.flatMap { mapping =>
+        val haplogroup = Haplogroup(
+          id = None,
+          name = wip.name,
+          lineage = wip.lineage,
+          description = wip.description,
+          haplogroupType = haplogroupType,
+          revisionId = 1,
+          source = wip.source,
+          confidenceLevel = wip.confidenceLevel,
+          validFrom = now,
+          validUntil = None,
+          formedYbp = wip.formedYbp,
+          formedYbpLower = wip.formedYbpLower,
+          formedYbpUpper = wip.formedYbpUpper,
+          tmrcaYbp = wip.tmrcaYbp,
+          tmrcaYbpLower = wip.tmrcaYbpLower,
+          tmrcaYbpUpper = wip.tmrcaYbpUpper,
+          ageEstimateSource = wip.ageEstimateSource,
+          provenance = wip.provenance
+        )
+
+        // Create without parent (relationships handled separately)
+        haplogroupRepository.createWithParent(haplogroup, None, sourceName).map { case (realId, _) =>
+          logger.debug(s"Created haplogroup ${wip.name}: placeholder ${wip.placeholderId} → real $realId")
+          mapping + (wip.placeholderId -> realId)
+        }
+      }
+    }
+  }
+
+  /**
+   * Create production relationships from WIP data.
+   */
+  private def createProductionRelationships(
+    wipRelationships: Seq[models.dal.domain.haplogroups.WipRelationshipRow],
+    placeholderToRealId: Map[Int, Int],
+    sourceName: String
+  ): Future[Int] = {
+    def resolveId(haplogroupId: Option[Int], placeholderId: Option[Int]): Option[Int] = {
+      haplogroupId.orElse(placeholderId.flatMap(placeholderToRealId.get))
+    }
+
+    Future.sequence(wipRelationships.map { wip =>
+      val childId = resolveId(wip.childHaplogroupId, wip.childPlaceholderId)
+      val parentId = resolveId(wip.parentHaplogroupId, wip.parentPlaceholderId)
+
+      (childId, parentId) match {
+        case (Some(cid), Some(pid)) =>
+          haplogroupRepository.updateParent(cid, pid, sourceName).map(_ => 1)
+        case _ =>
+          logger.warn(s"Could not resolve relationship: child=${wip.childHaplogroupId}/${wip.childPlaceholderId}, " +
+            s"parent=${wip.parentHaplogroupId}/${wip.parentPlaceholderId}")
+          Future.successful(0)
+      }
+    }).map(_.sum)
+  }
+
+  /**
+   * Create production variant associations from WIP data.
+   */
+  private def createProductionVariants(
+    wipVariants: Seq[models.dal.domain.haplogroups.WipHaplogroupVariantRow],
+    placeholderToRealId: Map[Int, Int]
+  ): Future[Int] = {
+    val resolvedVariants = wipVariants.flatMap { wip =>
+      val haplogroupId = wip.haplogroupId.orElse(wip.haplogroupPlaceholderId.flatMap(placeholderToRealId.get))
+      haplogroupId.map(hid => (hid, wip.variantId))
+    }
+
+    if (resolvedVariants.nonEmpty) {
+      haplogroupVariantRepository.bulkAddVariantsToHaplogroups(resolvedVariants).map(_.size)
+    } else {
+      Future.successful(0)
+    }
+  }
+
+  /**
+   * Apply production reparents from WIP data.
+   */
+  private def applyProductionReparents(
+    wipReparents: Seq[models.dal.domain.haplogroups.WipReparentRow],
+    placeholderToRealId: Map[Int, Int],
+    sourceName: String
+  ): Future[Int] = {
+    Future.sequence(wipReparents.map { wip =>
+      val newParentId = wip.newParentId.orElse(wip.newParentPlaceholderId.flatMap(placeholderToRealId.get))
+
+      newParentId match {
+        case Some(pid) =>
+          haplogroupRepository.updateParent(wip.haplogroupId, pid, sourceName).map(_ => 1)
+        case None =>
+          logger.warn(s"Could not resolve reparent for haplogroup ${wip.haplogroupId}: " +
+            s"newParent=${wip.newParentId}/${wip.newParentPlaceholderId}")
+          Future.successful(0)
+      }
+    }).map(_.sum)
   }
 
   override def discardChangeSet(changeSetId: Int, curatorId: String, reason: String): Future[Boolean] = {

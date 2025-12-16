@@ -10,7 +10,7 @@ import org.scalatest.concurrent.ScalaFutures
 import org.scalatest.time.{Millis, Seconds, Span}
 import org.scalatestplus.mockito.MockitoSugar
 import org.scalatestplus.play.PlaySpec
-import repositories.TreeVersioningRepository
+import repositories.{HaplogroupCoreRepository, HaplogroupVariantRepository, TreeVersioningRepository, WipTreeRepository, WipStatistics}
 
 import java.time.LocalDateTime
 import scala.concurrent.{ExecutionContext, Future}
@@ -22,6 +22,9 @@ class TreeVersioningServiceSpec extends PlaySpec with MockitoSugar with ScalaFut
 
   // Mocks
   var mockRepository: TreeVersioningRepository = _
+  var mockWipRepository: WipTreeRepository = _
+  var mockHaplogroupRepository: HaplogroupCoreRepository = _
+  var mockHaplogroupVariantRepository: HaplogroupVariantRepository = _
   var mockAuditService: CuratorAuditService = _
   var service: TreeVersioningServiceImpl = _
 
@@ -65,8 +68,21 @@ class TreeVersioningServiceSpec extends PlaySpec with MockitoSugar with ScalaFut
 
   override def beforeEach(): Unit = {
     mockRepository = mock[TreeVersioningRepository]
+    mockWipRepository = mock[WipTreeRepository]
+    mockHaplogroupRepository = mock[HaplogroupCoreRepository]
+    mockHaplogroupVariantRepository = mock[HaplogroupVariantRepository]
     mockAuditService = mock[CuratorAuditService]
-    service = new TreeVersioningServiceImpl(mockRepository, mockAuditService)
+    service = new TreeVersioningServiceImpl(
+      mockRepository,
+      mockWipRepository,
+      mockHaplogroupRepository,
+      mockHaplogroupVariantRepository,
+      mockAuditService
+    )
+
+    // Default mock behavior for WIP repository (empty stats - no WIP data)
+    when(mockWipRepository.getWipStatistics(anyInt()))
+      .thenReturn(Future.successful(WipStatistics(0, 0, 0, 0)))
 
     // Default mock behavior for audit service
     when(mockAuditService.logChangeSetCreate(anyString(), any[ChangeSet], any[Option[String]]))
