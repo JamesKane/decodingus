@@ -30,10 +30,14 @@ object VariantViewUtils {
     if (ref.isDefined) {
        (ref.get, alt.getOrElse("?"))
     } else {
-       val motif = (coords \ "repeatMotif").asOpt[String]
+       val rawMotif = (coords \ "repeatMotif").asOpt[String]
+       val motif = rawMotif.filterNot(_ == "N/A")
        val refRepeats = (coords \ "referenceRepeats").asOpt[Int]
+       
        if (motif.isDefined && refRepeats.isDefined) {
          (s"${motif.get} x ${refRepeats.get}", "?")
+       } else if (refRepeats.isDefined) {
+         (s"(repeats: ${refRepeats.get})", "?")
        } else {
          ("?", "?")
        }
