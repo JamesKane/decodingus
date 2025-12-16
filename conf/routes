@@ -201,6 +201,10 @@ POST          /api/v1/manage/change-sets/:id/approve-all                        
 POST          /api/v1/manage/change-sets/:id/comments                                          controllers.TreeVersioningApiController.addComment(id: Int)
 GET           /api/v1/manage/change-sets/:id/comments                                          controllers.TreeVersioningApiController.listComments(id: Int)
 
+# Tree Diff
+GET           /api/v1/manage/change-sets/:id/diff                                              controllers.TreeVersioningApiController.getTreeDiff(id: Int)
+GET           /api/v1/manage/tree-diff/:haplogroupType                                         controllers.TreeVersioningApiController.getActiveTreeDiff(haplogroupType: String)
+
 # Curator Workflow
 GET           /admin/publication-candidates                                                      controllers.PublicationCandidateController.listCandidates(page: Int ?= 1, pageSize: Int ?= 20)
 POST          /admin/publication-candidates/:id/accept                                           controllers.PublicationCandidateController.accept(id: Int)
@@ -219,6 +223,10 @@ POST          /curator/change-sets/:id/apply                                    
 POST          /curator/change-sets/:id/discard                                                   controllers.TreeVersioningCuratorController.discardChangeSet(id: Int)
 POST          /curator/change-sets/:id/approve-all                                               controllers.TreeVersioningCuratorController.approveAllPending(id: Int)
 POST          /curator/change-sets/:changeSetId/changes/:changeId/review                         controllers.TreeVersioningCuratorController.reviewChange(changeSetId: Int, changeId: Int)
+GET           /curator/change-sets/:id/diff                                                       controllers.TreeVersioningCuratorController.diffView(id: Int)
+GET           /curator/change-sets/:id/diff/fragment                                              controllers.TreeVersioningCuratorController.diffFragment(id: Int)
+GET           /curator/change-sets/:id/ambiguity-report                                           controllers.TreeVersioningCuratorController.ambiguityReport(id: Int)
+GET           /curator/change-sets/:id/ambiguity-report/download                                  controllers.TreeVersioningCuratorController.downloadAmbiguityReport(id: Int)
 
 # Curator - Haplogroups
 GET           /curator/haplogroups                                                               controllers.CuratorController.listHaplogroups(query: Option[String], hgType: Option[String], page: Int ?= 1, pageSize: Int ?= 20)

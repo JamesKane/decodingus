@@ -164,6 +164,12 @@ trait TreeVersioningRepository {
   def getPendingReviewChanges(changeSetId: Int, limit: Int = 50): Future[Seq[TreeChange]]
 
   /**
+   * Get all changes for a change set (for diff computation).
+   * Returns all changes without pagination, ordered by sequence number.
+   */
+  def getChangesForChangeSet(changeSetId: Int): Future[Seq[TreeChange]]
+
+  /**
    * Get change summary by type for a change set.
    */
   def getChangeSummaryByType(changeSetId: Int): Future[Map[TreeChangeType, Int]]
@@ -586,6 +592,14 @@ class TreeVersioningRepositoryImpl @Inject()(
       .filter(tc => tc.changeSetId === changeSetId && tc.status === "PENDING")
       .sortBy(tc => (tc.ambiguityConfidence.asc.nullsLast, tc.sequenceNum))
       .take(limit)
+      .result
+    runQuery(query).map(_.map(toTreeChange))
+  }
+
+  override def getChangesForChangeSet(changeSetId: Int): Future[Seq[TreeChange]] = {
+    val query = treeChanges
+      .filter(_.changeSetId === changeSetId)
+      .sortBy(_.sequenceNum)
       .result
     runQuery(query).map(_.map(toTreeChange))
   }

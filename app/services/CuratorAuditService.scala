@@ -4,7 +4,7 @@ import jakarta.inject.{Inject, Singleton}
 import models.HaplogroupType
 import models.domain.genomics.VariantV2
 import models.domain.curator.AuditLogEntry
-import models.domain.haplogroups.{Haplogroup, HaplogroupVariantMetadata}
+import models.domain.haplogroups.{ChangeSet, ChangeSetStatus, Haplogroup, HaplogroupVariantMetadata, TreeChange}
 import play.api.Logging
 import play.api.libs.json.*
 import repositories.{CuratorAuditRepository, HaplogroupVariantMetadataRepository}
@@ -259,6 +259,159 @@ class CuratorAuditService @Inject()(
    */
   def getHaplogroupVariantHistory(haplogroupVariantId: Int): Future[Seq[HaplogroupVariantMetadata]] = {
     haplogroupVariantMetadataRepository.getVariantRevisionHistory(haplogroupVariantId).map(_.map(_._2))
+  }
+
+  // === Tree Versioning Audit Methods ===
+
+  /**
+   * Log change set creation.
+   */
+  def logChangeSetCreate(
+      curatorId: String,
+      changeSet: ChangeSet,
+      comment: Option[String] = None
+  ): Future[AuditLogEntry] = {
+    val details = Json.obj(
+      "changeSetId" -> changeSet.id,
+      "name" -> changeSet.name,
+      "haplogroupType" -> changeSet.haplogroupType.toString,
+      "sourceName" -> changeSet.sourceName,
+      "status" -> changeSet.status.toString
+    )
+    val entry = AuditLogEntry(
+      userId = curatorIdToUuid(curatorId),
+      entityType = "change_set",
+      entityId = changeSet.id.getOrElse(0),
+      action = "create",
+      oldValue = None,
+      newValue = Some(details),
+      comment = comment
+    )
+    auditRepository.logAction(entry)
+  }
+
+  /**
+   * Log change set status transition.
+   */
+  def logChangeSetStatusChange(
+      curatorId: String,
+      changeSetId: Int,
+      oldStatus: ChangeSetStatus,
+      newStatus: ChangeSetStatus,
+      comment: Option[String] = None
+  ): Future[AuditLogEntry] = {
+    val entry = AuditLogEntry(
+      userId = curatorIdToUuid(curatorId),
+      entityType = "change_set",
+      entityId = changeSetId,
+      action = "status_change",
+      oldValue = Some(Json.obj("status" -> oldStatus.toString)),
+      newValue = Some(Json.obj("status" -> newStatus.toString)),
+      comment = comment
+    )
+    auditRepository.logAction(entry)
+  }
+
+  /**
+   * Log change set applied to production.
+   */
+  def logChangeSetApply(
+      curatorId: String,
+      changeSet: ChangeSet,
+      appliedChangesCount: Int,
+      comment: Option[String] = None
+  ): Future[AuditLogEntry] = {
+    val details = Json.obj(
+      "changeSetId" -> changeSet.id,
+      "name" -> changeSet.name,
+      "haplogroupType" -> changeSet.haplogroupType.toString,
+      "appliedChanges" -> appliedChangesCount,
+      "statistics" -> Json.obj(
+        "nodesCreated" -> changeSet.statistics.nodesCreated,
+        "nodesUpdated" -> changeSet.statistics.nodesUpdated,
+        "variantsAdded" -> changeSet.statistics.variantsAdded
+      )
+    )
+    val entry = AuditLogEntry(
+      userId = curatorIdToUuid(curatorId),
+      entityType = "change_set",
+      entityId = changeSet.id.getOrElse(0),
+      action = "apply",
+      oldValue = Some(Json.obj("status" -> ChangeSetStatus.UnderReview.toString)),
+      newValue = Some(details),
+      comment = comment
+    )
+    auditRepository.logAction(entry)
+  }
+
+  /**
+   * Log change set discarded.
+   */
+  def logChangeSetDiscard(
+      curatorId: String,
+      changeSet: ChangeSet,
+      reason: String
+  ): Future[AuditLogEntry] = {
+    val details = Json.obj(
+      "changeSetId" -> changeSet.id,
+      "name" -> changeSet.name,
+      "reason" -> reason
+    )
+    val entry = AuditLogEntry(
+      userId = curatorIdToUuid(curatorId),
+      entityType = "change_set",
+      entityId = changeSet.id.getOrElse(0),
+      action = "discard",
+      oldValue = Some(Json.obj("status" -> changeSet.status.toString)),
+      newValue = Some(details),
+      comment = Some(reason)
+    )
+    auditRepository.logAction(entry)
+  }
+
+  /**
+   * Log individual change review action.
+   */
+  def logChangeReview(
+      curatorId: String,
+      change: TreeChange,
+      action: String,
+      notes: Option[String] = None
+  ): Future[AuditLogEntry] = {
+    val details = Json.obj(
+      "changeId" -> change.id,
+      "changeSetId" -> change.changeSetId,
+      "changeType" -> change.changeType.toString,
+      "reviewAction" -> action
+    )
+    val entry = AuditLogEntry(
+      userId = curatorIdToUuid(curatorId),
+      entityType = "tree_change",
+      entityId = change.id.getOrElse(0),
+      action = s"review_$action".toLowerCase,
+      oldValue = Some(Json.obj("status" -> change.status.toString)),
+      newValue = Some(details),
+      comment = notes
+    )
+    auditRepository.logAction(entry)
+  }
+
+  /**
+   * Get audit history for a change set.
+   */
+  def getChangeSetHistory(changeSetId: Int): Future[Seq[AuditLogEntry]] = {
+    auditRepository.getEntityHistory("change_set", changeSetId)
+  }
+
+  // Helper to convert curator ID string to UUID
+  private def curatorIdToUuid(curatorId: String): UUID = {
+    try {
+      UUID.fromString(curatorId)
+    } catch {
+      case _: IllegalArgumentException =>
+        // Generate a deterministic UUID from the curator ID string
+        UUID.nameUUIDFromBytes(curatorId.getBytes("UTF-8"))
+    }
   }
 
   // === Tree Restructuring Audit Methods ===

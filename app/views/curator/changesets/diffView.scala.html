@@ -1,0 +1,155 @@
+@import models.domain.haplogroups.{ChangeSetDetails, ChangeSetStatus}
+@import org.webjars.play.WebJarsUtil
+@(details: ChangeSetDetails)(implicit request: RequestHeader, messages: Messages, webJarsUtil: WebJarsUtil)
+
+@statusBadge(s: ChangeSetStatus) = {
+    @s match {
+        case ChangeSetStatus.Draft => {
+            <span class="badge status-badge-draft">Draft</span>
+        }
+        case ChangeSetStatus.ReadyForReview => {
+            <span class="badge status-badge-ready">Ready for Review</span>
+        }
+        case ChangeSetStatus.UnderReview => {
+            <span class="badge status-badge-review">Under Review</span>
+        }
+        case ChangeSetStatus.Applied => {
+            <span class="badge status-badge-applied">Applied</span>
+        }
+        case ChangeSetStatus.Discarded => {
+            <span class="badge status-badge-discarded">Discarded</span>
+        }
+    }
+}
+
+@main("Tree Diff - " + details.changeSet.name) {
+    <div class="container-fluid py-4">
+        <nav aria-label="breadcrumb" class="mb-3">
+            <ol class="breadcrumb">
+                <li class="breadcrumb-item"><a href="@controllers.routes.CuratorController.dashboard">Curator</a></li>
+                <li class="breadcrumb-item"><a href="@controllers.routes.TreeVersioningCuratorController.listChangeSets(None, None, 20)">Change Sets</a></li>
+                <li class="breadcrumb-item active" aria-current="page">@details.changeSet.name</li>
+            </ol>
+        </nav>
+
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h4>
+                <i class="bi bi-file-diff"></i> Tree Diff: @details.changeSet.name
+                @statusBadge(details.changeSet.status)
+            </h4>
+            <a href="@controllers.routes.TreeVersioningCuratorController.listChangeSets(None, None, 20)" class="btn btn-outline-secondary">
+                <i class="bi bi-arrow-left"></i> Back to Change Sets
+            </a>
+        </div>
+
+        <div class="row">
+            <div class="col-md-3">
+                <div class="card mb-3">
+                    <div class="card-header">
+                        <h6 class="mb-0"><i class="bi bi-info-circle"></i> Change Set Info</h6>
+                    </div>
+                    <div class="card-body">
+                        <dl class="mb-0">
+                            <dt class="small text-muted">Source</dt>
+                            <dd>@details.changeSet.sourceName</dd>
+
+                            <dt class="small text-muted">Type</dt>
+                            <dd>
+                                <span class="badge @if(details.changeSet.haplogroupType.toString == "Y"){bg-primary}else{bg-success}">
+                                    @details.changeSet.haplogroupType
+                                </span>
+                            </dd>
+
+                            <dt class="small text-muted">Created</dt>
+                            <dd>@details.changeSet.createdAt.toLocalDate</dd>
+
+                            <dt class="small text-muted">Total Changes</dt>
+                            <dd><strong>@details.totalChanges</strong></dd>
+                        </dl>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h6 class="mb-0"><i class="bi bi-bar-chart"></i> Summary</h6>
+                    </div>
+                    <div class="card-body p-2">
+                        <table class="table table-sm table-borderless mb-0">
+                            <tbody>
+                                <tr>
+                                    <td><span class="badge bg-success me-1">+</span> Created</td>
+                                    <td class="text-end">@details.changeSet.statistics.nodesCreated</td>
+                                </tr>
+                                <tr>
+                                    <td><span class="badge bg-primary me-1">~</span> Updated</td>
+                                    <td class="text-end">@details.changeSet.statistics.nodesUpdated</td>
+                                </tr>
+                                <tr>
+                                    <td><span class="badge bg-info me-1">&rarr;</span> Reparented</td>
+                                    <td class="text-end">@details.changeSet.statistics.relationshipsUpdated</td>
+                                </tr>
+                                <tr>
+                                    <td><span class="badge bg-warning text-dark me-1">+V</span> Variants</td>
+                                    <td class="text-end">@details.changeSet.statistics.variantsAdded</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-9">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h6 class="mb-0"><i class="bi bi-list-ul"></i> Diff Entries</h6>
+                        <div class="btn-group btn-group-sm" role="group">
+                            <button type="button" class="btn btn-outline-secondary active" data-filter="all">All</button>
+                            <button type="button" class="btn btn-outline-success" data-filter="added">Added</button>
+                            <button type="button" class="btn btn-outline-primary" data-filter="modified">Modified</button>
+                            <button type="button" class="btn btn-outline-info" data-filter="reparented">Reparented</button>
+                            <button type="button" class="btn btn-outline-danger" data-filter="removed">Removed</button>
+                        </div>
+                    </div>
+                    <div class="card-body p-0"
+                         id="diff-content"
+                         hx-get="@controllers.routes.TreeVersioningCuratorController.diffFragment(details.changeSet.id.get)"
+                         hx-trigger="load"
+                         hx-swap="innerHTML">
+                        <div class="text-center py-5">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                            <p class="mt-2 text-muted">Loading diff...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Filter buttons
+            document.querySelectorAll('[data-filter]').forEach(function(btn) {
+                btn.addEventListener('click', function() {
+                    var filter = this.dataset.filter;
+
+                    // Update active state
+                    document.querySelectorAll('[data-filter]').forEach(function(b) {
+                        b.classList.remove('active');
+                    });
+                    this.classList.add('active');
+
+                    // Filter entries
+                    document.querySelectorAll('.diff-entry').forEach(function(entry) {
+                        if (filter === 'all' || entry.dataset.diffType === filter) {
+                            entry.style.display = '';
+                        } else {
+                            entry.style.display = 'none';
+                        }
+                    });
+                });
+            });
+        });
+    </script>
+}

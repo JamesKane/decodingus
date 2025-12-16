@@ -98,11 +98,25 @@
 
         @details.changeSet.ambiguityReportPath.map { path =>
             <div class="alert alert-warning py-2 mb-3">
-                <small><i class="bi bi-exclamation-triangle"></i> Ambiguity report available: @path.split("/").last</small>
+                <div class="d-flex justify-content-between align-items-center">
+                    <small><i class="bi bi-exclamation-triangle"></i> @details.changeSet.statistics.ambiguityCount ambiguities detected</small>
+                    <a href="@controllers.routes.TreeVersioningCuratorController.ambiguityReport(details.changeSet.id.get)"
+                       class="btn btn-sm btn-outline-warning">
+                        <i class="bi bi-file-text"></i> View Report
+                    </a>
+                </div>
             </div>
         }
 
         <hr>
+
+        @* View Diff link *@
+        <div class="mb-3">
+            <a href="@controllers.routes.TreeVersioningCuratorController.diffView(details.changeSet.id.get)"
+               class="btn btn-outline-info w-100">
+                <i class="bi bi-file-diff"></i> View Full Diff
+            </a>
+        </div>
 
         @* Action buttons based on status *@
         @details.changeSet.status match {

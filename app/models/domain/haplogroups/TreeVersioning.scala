@@ -311,3 +311,98 @@ case class TreeChangeView(
 object TreeChangeView {
   implicit val format: OFormat[TreeChangeView] = Json.format[TreeChangeView]
 }
+
+// ============================================================================
+// Tree Diff Models (Phase 3)
+// ============================================================================
+
+/**
+ * Type of difference between Production and WIP trees.
+ */
+enum DiffType:
+  case Added     // Node exists in WIP but not Production
+  case Removed   // Node exists in Production but not WIP (from DELETE changes)
+  case Modified  // Node exists in both but has changes
+  case Reparented // Node's parent changed
+
+object DiffType {
+  def fromString(s: String): DiffType = s.toUpperCase match {
+    case "ADDED" => DiffType.Added
+    case "REMOVED" => DiffType.Removed
+    case "MODIFIED" => DiffType.Modified
+    case "REPARENTED" => DiffType.Reparented
+    case other => throw new IllegalArgumentException(s"Unknown DiffType: $other")
+  }
+
+  def toDbString(dt: DiffType): String = dt match {
+    case DiffType.Added => "ADDED"
+    case DiffType.Removed => "REMOVED"
+    case DiffType.Modified => "MODIFIED"
+    case DiffType.Reparented => "REPARENTED"
+  }
+
+  implicit val reads: Reads[DiffType] = Reads.StringReads.map(fromString)
+  implicit val writes: Writes[DiffType] = Writes.StringWrites.contramap(toDbString)
+  implicit val format: Format[DiffType] = Format(reads, writes)
+}
+
+/**
+ * A single difference between Production and WIP trees.
+ */
+case class TreeDiffEntry(
+  diffType: DiffType,
+  haplogroupId: Option[Int],       // ID if existing node
+  haplogroupName: String,
+  oldParentName: Option[String],   // For REPARENTED
+  newParentName: Option[String],   // For REPARENTED or ADDED
+  changeDescription: String,       // Human-readable description
+  changeIds: List[Int],            // Related tree_change IDs
+  variantsAdded: List[String] = List.empty,
+  variantsRemoved: List[String] = List.empty
+)
+
+object TreeDiffEntry {
+  implicit val format: OFormat[TreeDiffEntry] = Json.format[TreeDiffEntry]
+}
+
+/**
+ * Complete diff between Production and WIP trees.
+ */
+case class TreeDiff(
+  changeSetId: Int,
+  changeSetName: String,
+  haplogroupType: HaplogroupType,
+  entries: List[TreeDiffEntry],
+  summary: TreeDiffSummary
+)
+
+object TreeDiff {
+  implicit val format: OFormat[TreeDiff] = Json.format[TreeDiff]
+
+  val empty: TreeDiff = TreeDiff(
+    changeSetId = 0,
+    changeSetName = "",
+    haplogroupType = HaplogroupType.Y,
+    entries = List.empty,
+    summary = TreeDiffSummary.empty
+  )
+}
+
+/**
+ * Summary statistics for a tree diff.
+ */
+case class TreeDiffSummary(
+  totalChanges: Int,
+  nodesAdded: Int,
+  nodesRemoved: Int,
+  nodesModified: Int,
+  nodesReparented: Int,
+  variantsAdded: Int,
+  variantsRemoved: Int
+)
+
+object TreeDiffSummary {
+  implicit val format: OFormat[TreeDiffSummary] = Json.format[TreeDiffSummary]
+
+  val empty: TreeDiffSummary = TreeDiffSummary(0, 0, 0, 0, 0, 0, 0)
+}

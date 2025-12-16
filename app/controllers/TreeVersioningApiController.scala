@@ -279,6 +279,44 @@ class TreeVersioningApiController @Inject()(
   }
 
   // ============================================================================
+  // Tree Diff Endpoints (Phase 3)
+  // ============================================================================
+
+  /**
+   * Get tree diff for a change set.
+   * GET /api/v1/manage/change-sets/:id/diff
+   */
+  def getTreeDiff(id: Int): Action[AnyContent] = secureApi.async { _ =>
+    treeVersioningService.getTreeDiff(id).map { diff =>
+      Ok(Json.toJson(diff))
+    }.recover {
+      case e: Exception =>
+        logger.error(s"Error getting tree diff for set $id: ${e.getMessage}", e)
+        InternalServerError(Json.obj("error" -> e.getMessage))
+    }
+  }
+
+  /**
+   * Get active tree diff for a haplogroup type.
+   * GET /api/v1/manage/tree-diff/:haplogroupType
+   */
+  def getActiveTreeDiff(haplogroupType: String): Action[AnyContent] = secureApi.async { _ =>
+    parseHaplogroupType(haplogroupType) match {
+      case None =>
+        Future.successful(BadRequest(Json.obj("error" -> s"Invalid haplogroup type: $haplogroupType")))
+      case Some(hgType) =>
+        treeVersioningService.getActiveTreeDiff(hgType).map {
+          case Some(diff) => Ok(Json.toJson(diff))
+          case None => Ok(Json.obj("message" -> s"No active change set for $haplogroupType"))
+        }.recover {
+          case e: Exception =>
+            logger.error(s"Error getting active tree diff for $haplogroupType: ${e.getMessage}", e)
+            InternalServerError(Json.obj("error" -> e.getMessage))
+        }
+    }
+  }
+
+  // ============================================================================
   // Helper Methods
   // ============================================================================
 

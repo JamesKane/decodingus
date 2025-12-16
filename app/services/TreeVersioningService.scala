@@ -187,11 +187,32 @@ trait TreeVersioningService {
    * List comments for a change set.
    */
   def listComments(changeSetId: Int): Future[Seq[ChangeSetComment]]
+
+  // ============================================================================
+  // Tree Diff (Phase 3)
+  // ============================================================================
+
+  /**
+   * Get the diff between Production and WIP for a specific change set.
+   * Computes differences by analyzing pending changes.
+   */
+  def getTreeDiff(changeSetId: Int): Future[TreeDiff]
+
+  /**
+   * Get the diff between Production and the active WIP change set (if any).
+   */
+  def getActiveTreeDiff(haplogroupType: HaplogroupType): Future[Option[TreeDiff]]
+
+  /**
+   * Get all changes for a change set grouped by type for diff display.
+   */
+  def getChangesForDiff(changeSetId: Int): Future[Seq[TreeChange]]
 }
 
 @Singleton
 class TreeVersioningServiceImpl @Inject()(
-  repository: TreeVersioningRepository
+  repository: TreeVersioningRepository,
+  auditService: CuratorAuditService
 )(implicit ec: ExecutionContext)
   extends TreeVersioningService
     with Logging {
@@ -227,9 +248,14 @@ class TreeVersioningServiceImpl @Inject()(
           createdBy = createdBy
         )
         repository.createChangeSet(changeSet).flatMap { id =>
-          repository.getChangeSet(id).map(_.getOrElse(
-            throw new IllegalStateException(s"Failed to retrieve created change set with id $id")
-          ))
+          repository.getChangeSet(id).map { csOpt =>
+            val cs = csOpt.getOrElse(
+              throw new IllegalStateException(s"Failed to retrieve created change set with id $id")
+            )
+            // Log audit entry for change set creation
+            auditService.logChangeSetCreate(createdBy, cs, Some(s"Created from $sourceName"))
+            cs
+          }
         }
     }
   }
@@ -324,6 +350,12 @@ class TreeVersioningServiceImpl @Inject()(
         repository.updateChangeSetStatus(changeSetId, ChangeSetStatus.UnderReview).map { result =>
           if (result) {
             logger.info(s"Change set $changeSetId now under review by $curatorId")
+            // Log audit entry for status change
+            auditService.logChangeSetStatusChange(
+              curatorId, changeSetId,
+              ChangeSetStatus.ReadyForReview, ChangeSetStatus.UnderReview,
+              Some(s"Review started by $curatorId")
+            )
           }
           result
         }
@@ -344,9 +376,15 @@ class TreeVersioningServiceImpl @Inject()(
           appliedCount <- repository.applyAllPendingChanges(changeSetId)
           // Mark the change set as applied
           result <- repository.applyChangeSet(changeSetId, curatorId)
+          // Get updated change set for audit
+          updatedCs <- repository.getChangeSet(changeSetId)
         } yield {
           if (result) {
             logger.info(s"Change set $changeSetId applied to Production by $curatorId ($appliedCount changes)")
+            // Log audit entry for apply action
+            updatedCs.foreach { ucs =>
+              auditService.logChangeSetApply(curatorId, ucs, appliedCount, Some("Applied to Production"))
+            }
           }
           result
         }
@@ -365,6 +403,8 @@ class TreeVersioningServiceImpl @Inject()(
         repository.discardChangeSet(changeSetId, curatorId, reason).map { result =>
           if (result) {
             logger.info(s"Change set $changeSetId discarded by $curatorId: $reason")
+            // Log audit entry for discard action
+            auditService.logChangeSetDiscard(curatorId, cs, reason)
           }
           result
         }
@@ -511,9 +551,16 @@ class TreeVersioningServiceImpl @Inject()(
     if (action == ChangeStatus.Pending) {
       Future.failed(new IllegalArgumentException("Cannot set status back to PENDING"))
     } else {
-      repository.reviewTreeChange(changeId, curatorId, notes, action).map { result =>
+      for {
+        changeOpt <- repository.getTreeChange(changeId)
+        result <- repository.reviewTreeChange(changeId, curatorId, notes, action)
+      } yield {
         if (result) {
           logger.debug(s"Change $changeId reviewed by $curatorId: $action")
+          // Log audit entry for change review
+          changeOpt.foreach { change =>
+            auditService.logChangeReview(curatorId, change, ChangeStatus.toDbString(action), notes)
+          }
         }
         result
       }
@@ -550,5 +597,144 @@ class TreeVersioningServiceImpl @Inject()(
 
   override def listComments(changeSetId: Int): Future[Seq[ChangeSetComment]] = {
     repository.listComments(changeSetId)
+  }
+
+  // ============================================================================
+  // Tree Diff (Phase 3)
+  // ============================================================================
+
+  override def getTreeDiff(changeSetId: Int): Future[TreeDiff] = {
+    for {
+      changeSetOpt <- repository.getChangeSet(changeSetId)
+      changes <- repository.getChangesForChangeSet(changeSetId)
+    } yield {
+      changeSetOpt match {
+        case None =>
+          TreeDiff.empty.copy(changeSetId = changeSetId)
+        case Some(changeSet) =>
+          computeTreeDiff(changeSet, changes)
+      }
+    }
+  }
+
+  override def getActiveTreeDiff(haplogroupType: HaplogroupType): Future[Option[TreeDiff]] = {
+    repository.getActiveChangeSet(haplogroupType).flatMap {
+      case None => Future.successful(None)
+      case Some(cs) => getTreeDiff(cs.id.get).map(Some(_))
+    }
+  }
+
+  override def getChangesForDiff(changeSetId: Int): Future[Seq[TreeChange]] = {
+    repository.getChangesForChangeSet(changeSetId)
+  }
+
+  /**
+   * Compute tree diff from change set and its changes.
+   */
+  private def computeTreeDiff(changeSet: ChangeSet, changes: Seq[TreeChange]): TreeDiff = {
+    // Group changes by type
+    val createChanges = changes.filter(_.changeType == TreeChangeType.Create)
+    val updateChanges = changes.filter(_.changeType == TreeChangeType.Update)
+    val deleteChanges = changes.filter(_.changeType == TreeChangeType.Delete)
+    val reparentChanges = changes.filter(_.changeType == TreeChangeType.Reparent)
+    val addVariantChanges = changes.filter(_.changeType == TreeChangeType.AddVariant)
+    val removeVariantChanges = changes.filter(_.changeType == TreeChangeType.RemoveVariant)
+
+    // Build diff entries
+    val entries = List.newBuilder[TreeDiffEntry]
+
+    // CREATE entries (Added nodes)
+    createChanges.foreach { change =>
+      val haplogroupName = change.haplogroupData
+        .flatMap(data => (Json.parse(data) \ "name").asOpt[String])
+        .getOrElse(s"Node ${change.createdHaplogroupId.getOrElse("?")}")
+
+      entries += TreeDiffEntry(
+        diffType = DiffType.Added,
+        haplogroupId = change.createdHaplogroupId,
+        haplogroupName = haplogroupName,
+        oldParentName = None,
+        newParentName = change.newParentId.map(id => s"#$id"),
+        changeDescription = s"New node created under parent #${change.newParentId.getOrElse("root")}",
+        changeIds = List(change.id.get)
+      )
+    }
+
+    // DELETE entries (Removed nodes)
+    deleteChanges.foreach { change =>
+      entries += TreeDiffEntry(
+        diffType = DiffType.Removed,
+        haplogroupId = change.haplogroupId,
+        haplogroupName = s"Node #${change.haplogroupId.getOrElse("?")}",
+        oldParentName = None,
+        newParentName = None,
+        changeDescription = "Node marked for deletion",
+        changeIds = List(change.id.get)
+      )
+    }
+
+    // REPARENT entries
+    reparentChanges.foreach { change =>
+      entries += TreeDiffEntry(
+        diffType = DiffType.Reparented,
+        haplogroupId = change.haplogroupId,
+        haplogroupName = s"Node #${change.haplogroupId.getOrElse("?")}",
+        oldParentName = change.oldParentId.map(id => s"#$id"),
+        newParentName = change.newParentId.map(id => s"#$id"),
+        changeDescription = s"Parent changed from #${change.oldParentId.getOrElse("none")} to #${change.newParentId.getOrElse("none")}",
+        changeIds = List(change.id.get)
+      )
+    }
+
+    // Group UPDATE and variant changes by haplogroup for Modified entries
+    val updatesByHg = updateChanges.groupBy(_.haplogroupId)
+    val variantAddsByHg = addVariantChanges.groupBy(_.haplogroupId)
+    val variantRemovesByHg = removeVariantChanges.groupBy(_.haplogroupId)
+
+    val allModifiedHgs = (updatesByHg.keySet ++ variantAddsByHg.keySet ++ variantRemovesByHg.keySet).flatten
+
+    allModifiedHgs.foreach { hgId =>
+      val updates = updatesByHg.getOrElse(Some(hgId), Seq.empty)
+      val variantAdds = variantAddsByHg.getOrElse(Some(hgId), Seq.empty)
+      val variantRemoves = variantRemovesByHg.getOrElse(Some(hgId), Seq.empty)
+
+      val changeIds = (updates.flatMap(_.id) ++ variantAdds.flatMap(_.id) ++ variantRemoves.flatMap(_.id)).toList
+      val description = List(
+        if (updates.nonEmpty) s"${updates.size} update(s)" else "",
+        if (variantAdds.nonEmpty) s"${variantAdds.size} variant(s) added" else "",
+        if (variantRemoves.nonEmpty) s"${variantRemoves.size} variant(s) removed" else ""
+      ).filter(_.nonEmpty).mkString(", ")
+
+      entries += TreeDiffEntry(
+        diffType = DiffType.Modified,
+        haplogroupId = Some(hgId),
+        haplogroupName = s"Node #$hgId",
+        oldParentName = None,
+        newParentName = None,
+        changeDescription = description,
+        changeIds = changeIds,
+        variantsAdded = variantAdds.flatMap(_.variantId).map(v => s"#$v").toList,
+        variantsRemoved = variantRemoves.flatMap(_.variantId).map(v => s"#$v").toList
+      )
+    }
+
+    // Build summary
+    val summary = TreeDiffSummary(
+      totalChanges = changes.size,
+      nodesAdded = createChanges.size,
+      nodesRemoved = deleteChanges.size,
+      nodesModified = allModifiedHgs.size,
+      nodesReparented = reparentChanges.size,
+      variantsAdded = addVariantChanges.size,
+      variantsRemoved = removeVariantChanges.size
+    )
+
+    TreeDiff(
+      changeSetId = changeSet.id.get,
+      changeSetName = changeSet.name,
+      haplogroupType = changeSet.haplogroupType,
+      entries = entries.result(),
+      summary = summary
+    )
   }
 }

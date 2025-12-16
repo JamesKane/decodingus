@@ -13,7 +13,7 @@ import play.api.libs.json.Json
 import play.api.i18n.I18nSupport
 import play.api.mvc.*
 import repositories.{GenbankContigRepository, HaplogroupCoreRepository, HaplogroupVariantRepository, VariantV2Repository}
-import services.{CuratorAuditService, TreeRestructuringService}
+import services.{CuratorAuditService, TreeRestructuringService, TreeVersioningService}
 import services.genomics.YBrowseVariantIngestionService
 
 import java.time.LocalDateTime
@@ -78,7 +78,8 @@ class CuratorController @Inject()(
     genbankContigRepository: GenbankContigRepository,
     auditService: CuratorAuditService,
     treeRestructuringService: TreeRestructuringService,
-    variantIngestionService: YBrowseVariantIngestionService
+    variantIngestionService: YBrowseVariantIngestionService,
+    treeVersioningService: TreeVersioningService
 )(implicit ec: ExecutionContext, webJarsUtil: WebJarsUtil)
     extends BaseController with I18nSupport with Logging {
 
@@ -150,8 +151,10 @@ class CuratorController @Inject()(
       yCount <- haplogroupRepository.countByType(HaplogroupType.Y)
       mtCount <- haplogroupRepository.countByType(HaplogroupType.MT)
       variantCount <- variantV2Repository.count(None)
+      yActiveChangeSet <- treeVersioningService.getActiveChangeSet(HaplogroupType.Y)
+      mtActiveChangeSet <- treeVersioningService.getActiveChangeSet(HaplogroupType.MT)
     } yield {
-      Ok(views.html.curator.dashboard(yCount, mtCount, variantCount))
+      Ok(views.html.curator.dashboard(yCount, mtCount, variantCount, yActiveChangeSet, mtActiveChangeSet))
     }
   }
 

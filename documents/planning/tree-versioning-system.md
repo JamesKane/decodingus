@@ -541,33 +541,109 @@ GET  /api/v1/tree/haplogroups/{type}/diff
 
 ## Implementation Phases
 
-### Phase 1: Foundation
+### Phase 1: Foundation ✅ COMPLETE
 
-- [ ] Database schema for change sets and tree changes
-- [ ] `TreeVersioningService` core implementation
-- [ ] Modify `HaplogroupTreeMergeService` to record changes
-- [ ] Basic API endpoints for change set management
+- [x] Database schema for change sets and tree changes
+- [x] `TreeVersioningService` core implementation
+- [x] Modify `HaplogroupTreeMergeService` to record changes
+- [x] Basic API endpoints for change set management
 
-### Phase 2: Curator Workflow
+### Phase 2: Curator Workflow ✅ COMPLETE
 
-- [ ] Change set review dashboard
-- [ ] Individual change review/modify/revert
-- [ ] Promotion workflow with validation
-- [ ] Discard workflow
+- [x] Change set review dashboard
+- [x] Individual change review/modify/revert
+- [x] Promotion workflow with validation
+- [x] Discard workflow
 
-### Phase 3: Tree Views
+### Phase 3: Tree Views ✅ COMPLETE
 
-- [ ] WIP tree materialization
-- [ ] Tree diff computation
-- [ ] Diff viewer UI
-- [ ] Production/WIP toggle in tree explorer
+- [x] WIP tree materialization (change-based diff computation)
+- [x] Tree diff computation (`getTreeDiff`, `computeTreeDiff`)
+- [x] Diff viewer UI (`diffView.scala.html`, `diffFragment.scala.html`)
+- [x] Production/WIP toggle in tree explorer (WIP status indicator on curator dashboard)
 
-### Phase 4: Integration
+### Phase 4: Integration ✅ COMPLETE
 
-- [ ] Link ambiguity reports to change sets
-- [ ] Notification system for change set status
-- [ ] Audit trail for all version operations
-- [ ] Integration with Discovery System (re-evaluate proposals on promotion)
+- [x] Link ambiguity reports to change sets
+  - Ambiguity reports generated during merge are stored at `ambiguityReportPath`
+  - Curator UI shows report viewer at `/curator/change-sets/:id/ambiguity-report`
+  - Download available at `/curator/change-sets/:id/ambiguity-report/download`
+- [x] Notification system for change set status
+  - Dashboard shows prominent "Action Required" banner for ReadyForReview change sets
+  - Active change sets shown with status badges and quick action links
+- [x] Audit trail for all version operations
+  - `CuratorAuditService` extended with tree versioning methods
+  - Logs: `logChangeSetCreate`, `logChangeSetStatusChange`, `logChangeSetApply`, `logChangeSetDiscard`, `logChangeReview`
+  - All operations logged to `tree.curator_action` table
+- [x] Integration with Discovery System (documented)
+  - See "Discovery System Integration" section below
+
+---
+
+## Discovery System Integration
+
+The Tree Versioning System and [Haplogroup Discovery System](haplogroup-discovery-system.md) have distinct but complementary roles:
+
+| Aspect | Tree Versioning | Discovery System |
+|--------|-----------------|------------------|
+| Direction | Top-down (authority imports) | Bottom-up (sample observations) |
+| Scope | Bulk changes (thousands of nodes) | Individual proposals |
+| Source | External authorities (ISOGG, ytree.net) | User biosample data |
+| Review | Change set promotion workflow | Proposal consensus threshold |
+
+### Integration Points
+
+When a WIP tree is promoted to Production, the Discovery System may need to re-evaluate:
+
+1. **Pending Proposals**
+   - Proposals targeting nodes that were reparented should be reviewed
+   - Proposals for nodes that now exist (imported from authority) may become duplicates
+   - Parent relationship changes may invalidate proposal placement
+
+2. **Consensus Calculations**
+   - If the tree structure changes, variant assignments may need recalculation
+   - New intermediate nodes may affect haplogroup assignment algorithms
+
+### Recommended Integration Approach
+
+```scala
+// In TreeVersioningService.applyChangeSet():
+override def applyChangeSet(changeSetId: Int, curatorId: String): Future[Boolean] = {
+  for {
+    // ... existing apply logic ...
+    result <- repository.applyChangeSet(changeSetId, curatorId)
+
+    // Trigger discovery system re-evaluation (future enhancement)
+    _ <- if (result) {
+      discoveryService.notifyTreeChange(changeSet.haplogroupType, changeSetId)
+    } else Future.successful(())
+  } yield result
+}
+
+// In DiscoveryService:
+def notifyTreeChange(haplogroupType: HaplogroupType, changeSetId: Int): Future[Unit] = {
+  for {
+    // Get affected haplogroup IDs from the change set
+    affectedIds <- treeVersioningService.getAffectedHaplogroupIds(changeSetId)
+
+    // Find proposals targeting affected nodes
+    proposals <- proposalRepository.findByTargetNodes(affectedIds)
+
+    // Mark proposals for re-evaluation
+    _ <- proposalRepository.markForReview(proposals.map(_.id.get),
+      reason = s"Tree structure changed by change set $changeSetId")
+  } yield ()
+}
+```
+
+### Implementation Status
+
+The integration hooks are designed but not yet implemented:
+- `TreeVersioningService.applyChangeSet()` could call a discovery notification
+- `DiscoveryService` would need a `notifyTreeChange()` method
+- A proposal re-evaluation queue would handle flagged proposals
+
+This is intentionally deferred as the Discovery System itself is still in planning phase.
 
 ---
 

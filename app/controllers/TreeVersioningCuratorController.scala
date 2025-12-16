@@ -12,7 +12,10 @@ import play.api.i18n.I18nSupport
 import play.api.mvc.*
 import services.TreeVersioningService
 
+import java.io.File
+import scala.io.Source
 import scala.concurrent.{ExecutionContext, Future}
+import scala.util.Using
 
 /**
  * Curator UI controller for Tree Versioning operations.
@@ -224,6 +227,89 @@ class TreeVersioningCuratorController @Inject()(
           }
         }
       )
+    }
+
+  // ============================================================================
+  // Ambiguity Report Views
+  // ============================================================================
+
+  /**
+   * View ambiguity report for a change set.
+   */
+  def ambiguityReport(id: Int): Action[AnyContent] =
+    withPermission("tree.version.view").async { implicit request =>
+      treeVersioningService.getChangeSetDetails(id).map {
+        case Some(details) =>
+          details.changeSet.ambiguityReportPath match {
+            case Some(path) =>
+              val file = new File(path)
+              if (file.exists()) {
+                Using(Source.fromFile(file)) { source =>
+                  val content = source.mkString
+                  Ok(views.html.curator.changesets.ambiguityReport(details.changeSet, content))
+                }.getOrElse {
+                  InternalServerError(views.html.fragments.errorPanel("Failed to read ambiguity report"))
+                }
+              } else {
+                NotFound(views.html.fragments.errorPanel(s"Ambiguity report not found at: ${file.getName}"))
+              }
+            case None =>
+              Ok(views.html.curator.changesets.ambiguityReport(details.changeSet, "No ambiguities were detected during this merge."))
+          }
+        case None =>
+          NotFound(views.html.fragments.errorPanel("Change set not found"))
+      }
+    }
+
+  /**
+   * Download ambiguity report as markdown file.
+   */
+  def downloadAmbiguityReport(id: Int): Action[AnyContent] =
+    withPermission("tree.version.view").async { implicit request =>
+      treeVersioningService.getChangeSetDetails(id).map {
+        case Some(details) =>
+          details.changeSet.ambiguityReportPath match {
+            case Some(path) =>
+              val file = new File(path)
+              if (file.exists()) {
+                Ok.sendFile(file, fileName = _ => Some(file.getName))
+                  .as("text/markdown")
+              } else {
+                NotFound("Ambiguity report file not found")
+              }
+            case None =>
+              NotFound("No ambiguity report available for this change set")
+          }
+        case None =>
+          NotFound("Change set not found")
+      }
+    }
+
+  // ============================================================================
+  // Tree Diff Views
+  // ============================================================================
+
+  /**
+   * Diff view page for a change set.
+   */
+  def diffView(id: Int): Action[AnyContent] =
+    withPermission("tree.version.view").async { implicit request =>
+      treeVersioningService.getChangeSetDetails(id).map {
+        case Some(details) =>
+          Ok(views.html.curator.changesets.diffView(details))
+        case None =>
+          NotFound(views.html.fragments.errorPanel("Change set not found"))
+      }
+    }
+
+  /**
+   * Diff fragment (loaded via HTMX).
+   */
+  def diffFragment(id: Int): Action[AnyContent] =
+    withPermission("tree.version.view").async { implicit request =>
+      treeVersioningService.getTreeDiff(id).map { diff =>
+        Ok(views.html.curator.changesets.diffFragment(diff))
+      }
     }
 
   // ============================================================================

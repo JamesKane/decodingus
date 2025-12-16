@@ -1,0 +1,127 @@
+@import models.domain.haplogroups.{TreeDiff, TreeDiffEntry, DiffType}
+@(diff: TreeDiff)(implicit request: RequestHeader, messages: Messages)
+
+@diffTypeBadge(dt: DiffType) = {
+    @dt match {
+        case DiffType.Added => {
+            <span class="badge bg-success"><i class="bi bi-plus-lg"></i> Added</span>
+        }
+        case DiffType.Removed => {
+            <span class="badge bg-danger"><i class="bi bi-dash-lg"></i> Removed</span>
+        }
+        case DiffType.Modified => {
+            <span class="badge bg-primary"><i class="bi bi-pencil"></i> Modified</span>
+        }
+        case DiffType.Reparented => {
+            <span class="badge bg-info"><i class="bi bi-arrows-move"></i> Reparented</span>
+        }
+    }
+}
+
+@diffTypeFilter(dt: DiffType) = @{
+    dt match {
+        case DiffType.Added => "added"
+        case DiffType.Removed => "removed"
+        case DiffType.Modified => "modified"
+        case DiffType.Reparented => "reparented"
+    }
+}
+
+@if(diff.entries.isEmpty) {
+    <div class="alert alert-info m-3">
+        <i class="bi bi-info-circle"></i> No differences found in this change set.
+    </div>
+} else {
+    <div class="p-2 bg-light border-bottom">
+        <small class="text-muted">
+            Showing @diff.entries.size entries:
+            <span class="text-success">@diff.summary.nodesAdded added</span>,
+            <span class="text-primary">@diff.summary.nodesModified modified</span>,
+            <span class="text-info">@diff.summary.nodesReparented reparented</span>,
+            <span class="text-danger">@diff.summary.nodesRemoved removed</span>
+        </small>
+    </div>
+
+    <div class="list-group list-group-flush" style="max-height: 600px; overflow-y: auto;">
+        @for(entry <- diff.entries) {
+            <div class="list-group-item diff-entry" data-diff-type="@diffTypeFilter(entry.diffType)">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div class="flex-grow-1">
+                        <div class="d-flex align-items-center mb-1">
+                            @diffTypeBadge(entry.diffType)
+                            <strong class="ms-2">@entry.haplogroupName</strong>
+                            @entry.haplogroupId.map { id =>
+                                <small class="text-muted ms-1">(ID: @id)</small>
+                            }
+                        </div>
+                        <p class="mb-1 text-muted small">@entry.changeDescription</p>
+
+                        @* Show parent change for reparented nodes *@
+                        @if(entry.diffType == DiffType.Reparented) {
+                            <div class="small">
+                                <span class="text-muted">Parent:</span>
+                                @entry.oldParentName.getOrElse("(root)") <i class="bi bi-arrow-right"></i> @entry.newParentName.getOrElse("(root)")
+                            </div>
+                        }
+
+                        @* Show new parent for added nodes *@
+                        @if(entry.diffType == DiffType.Added && entry.newParentName.isDefined) {
+                            <div class="small">
+                                <span class="text-muted">Under:</span> @entry.newParentName.get
+                            </div>
+                        }
+
+                        @* Show variant changes if any *@
+                        @if(entry.variantsAdded.nonEmpty || entry.variantsRemoved.nonEmpty) {
+                            <div class="mt-1">
+                                @if(entry.variantsAdded.nonEmpty) {
+                                    <span class="small">
+                                        <span class="text-success">+</span>
+                                        @entry.variantsAdded.take(5).mkString(", ")
+                                        @if(entry.variantsAdded.size > 5) { ... and @{entry.variantsAdded.size - 5} more }
+                                    </span>
+                                }
+                                @if(entry.variantsRemoved.nonEmpty) {
+                                    <span class="small ms-2">
+                                        <span class="text-danger">-</span>
+                                        @entry.variantsRemoved.take(5).mkString(", ")
+                                        @if(entry.variantsRemoved.size > 5) { ... and @{entry.variantsRemoved.size - 5} more }
+                                    </span>
+                                }
+                            </div>
+                        }
+                    </div>
+                    <div class="text-end">
+                        <small class="text-muted">@entry.changeIds.size change(s)</small>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+
+    @* Summary footer *@
+    <div class="p-2 bg-light border-top">
+        <div class="row text-center small">
+            <div class="col">
+                <span class="text-success fw-bold">@diff.summary.nodesAdded</span>
+                <span class="text-muted">Nodes Added</span>
+            </div>
+            <div class="col">
+                <span class="text-primary fw-bold">@diff.summary.nodesModified</span>
+                <span class="text-muted">Nodes Modified</span>
+            </div>
+            <div class="col">
+                <span class="text-info fw-bold">@diff.summary.nodesReparented</span>
+                <span class="text-muted">Reparented</span>
+            </div>
+            <div class="col">
+                <span class="text-danger fw-bold">@diff.summary.nodesRemoved</span>
+                <span class="text-muted">Removed</span>
+            </div>
+            <div class="col">
+                <span class="text-warning fw-bold">@diff.summary.variantsAdded</span>
+                <span class="text-muted">Variants+</span>
+            </div>
+        </div>
+    </div>
+}

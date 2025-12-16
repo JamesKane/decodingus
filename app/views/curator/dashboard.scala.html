@@ -1,11 +1,39 @@
 @import org.webjars.play.WebJarsUtil
-@(yHaplogroupCount: Int, mtHaplogroupCount: Int, variantCount: Int)(implicit request: RequestHeader, messages: Messages, webJarsUtil: WebJarsUtil)
+@import models.domain.haplogroups.{ChangeSet, ChangeSetStatus}
+@(yHaplogroupCount: Int, mtHaplogroupCount: Int, variantCount: Int, yActiveChangeSet: Option[ChangeSet], mtActiveChangeSet: Option[ChangeSet])(implicit request: RequestHeader, messages: Messages, webJarsUtil: WebJarsUtil)
+
+@needsAttention(cs: ChangeSet) = @{
+    cs.status == ChangeSetStatus.ReadyForReview
+}
 
 @main("Curator Dashboard") {
     <div class="container py-5">
         <h1 class="mb-4"><i class="bi bi-tree"></i> Curator Dashboard</h1>
 
         @views.html.fragments.flashMessages(request.flash)
+
+        @* Notification banner for change sets needing review *@
+        @defining(Seq(yActiveChangeSet, mtActiveChangeSet).flatten.filter(needsAttention)) { pendingReview =>
+            @if(pendingReview.nonEmpty) {
+                <div class="alert alert-warning alert-dismissible fade show mb-4" role="alert">
+                    <h5 class="alert-heading"><i class="bi bi-bell-fill"></i> Action Required</h5>
+                    <p class="mb-2">The following change sets are ready for your review:</p>
+                    <ul class="mb-2">
+                        @for(cs <- pendingReview) {
+                            <li>
+                                <strong>@cs.haplogroupType:</strong> @cs.name
+                                (@cs.statistics.nodesCreated created, @cs.statistics.nodesUpdated updated, @cs.statistics.ambiguityCount ambiguities)
+                                <a href="@controllers.routes.TreeVersioningCuratorController.listChangeSets(Some(cs.haplogroupType.toString), Some("READY_FOR_REVIEW"), 20)"
+                                   class="btn btn-sm btn-warning ms-2">
+                                    <i class="bi bi-play-circle"></i> Start Review
+                                </a>
+                            </li>
+                        }
+                    </ul>
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>
+            }
+        }
 
         <div class="row g-4 mb-5">
             <div class="col-md-4">
@@ -46,13 +74,60 @@
         <div class="row g-4 mb-5">
             <div class="col-12">
                 <div class="card border-warning">
-                    <div class="card-header bg-warning-subtle">
+                    <div class="card-header bg-warning-subtle d-flex justify-content-between align-items-center">
                         <h5 class="mb-0"><i class="bi bi-git"></i> Tree Versioning</h5>
+                        @if(yActiveChangeSet.isDefined || mtActiveChangeSet.isDefined) {
+                            <span class="badge bg-warning text-dark">WIP Active</span>
+                        }
                     </div>
                     <div class="card-body">
                         <p class="text-muted mb-3">Review and approve changes from tree merge operations before applying to Production.</p>
+
+                        @* Show active change sets if any *@
+                        @if(yActiveChangeSet.isDefined || mtActiveChangeSet.isDefined) {
+                            <div class="alert alert-info py-2 mb-3">
+                                <strong><i class="bi bi-info-circle"></i> Active Change Sets:</strong>
+                                <ul class="mb-0 mt-1">
+                                    @yActiveChangeSet.map { cs =>
+                                        <li>
+                                            <strong>Y-DNA:</strong> @cs.name
+                                            <span class="badge @cs.status match {
+                                                case ChangeSetStatus.Draft => { bg-secondary }
+                                                case ChangeSetStatus.ReadyForReview => { bg-primary }
+                                                case ChangeSetStatus.UnderReview => { bg-warning text-dark }
+                                                case _ => { bg-secondary }
+                                            }">@cs.status</span>
+                                            <a href="@controllers.routes.TreeVersioningCuratorController.diffView(cs.id.get)"
+                                               class="btn btn-sm btn-outline-info ms-2">
+                                                <i class="bi bi-file-diff"></i> View Diff
+                                            </a>
+                                        </li>
+                                    }
+                                    @mtActiveChangeSet.map { cs =>
+                                        <li>
+                                            <strong>mtDNA:</strong> @cs.name
+                                            <span class="badge @cs.status match {
+                                                case ChangeSetStatus.Draft => { bg-secondary }
+                                                case ChangeSetStatus.ReadyForReview => { bg-primary }
+                                                case ChangeSetStatus.UnderReview => { bg-warning text-dark }
+                                                case _ => { bg-secondary }
+                                            }">@cs.status</span>
+                                            <a href="@controllers.routes.TreeVersioningCuratorController.diffView(cs.id.get)"
+                                               class="btn btn-sm btn-outline-info ms-2">
+                                                <i class="bi bi-file-diff"></i> View Diff
+                                            </a>
+                                        </li>
+                                    }
+                                </ul>
+                            </div>
+                        } else {
+                            <p class="text-muted mb-3">
+                                <i class="bi bi-check-circle text-success"></i> No pending changes. Production trees are up to date.
+                            </p>
+                        }
+
                         <a href="@controllers.routes.TreeVersioningCuratorController.listChangeSets(None, None, 20)" class="btn btn-warning">
-                            <i class="bi bi-list-check"></i> View Change Sets
+                            <i class="bi bi-list-check"></i> View All Change Sets
                         </a>
                     </div>
                 </div>

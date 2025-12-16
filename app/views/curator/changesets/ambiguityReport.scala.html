@@ -1,0 +1,94 @@
+@import models.domain.haplogroups.ChangeSet
+@import org.webjars.play.WebJarsUtil
+@(changeSet: ChangeSet, reportContent: String)(implicit request: RequestHeader, messages: Messages, webJarsUtil: WebJarsUtil)
+
+@main("Ambiguity Report - " + changeSet.name) {
+    <div class="container-fluid py-4">
+        <nav aria-label="breadcrumb" class="mb-3">
+            <ol class="breadcrumb">
+                <li class="breadcrumb-item"><a href="@controllers.routes.CuratorController.dashboard">Curator</a></li>
+                <li class="breadcrumb-item"><a href="@controllers.routes.TreeVersioningCuratorController.listChangeSets(None, None, 20)">Change Sets</a></li>
+                <li class="breadcrumb-item active" aria-current="page">@changeSet.name - Ambiguity Report</li>
+            </ol>
+        </nav>
+
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h4>
+                <i class="bi bi-exclamation-triangle text-warning"></i> Ambiguity Report: @changeSet.name
+            </h4>
+            <div>
+                @changeSet.ambiguityReportPath.map { _ =>
+                    <a href="@controllers.routes.TreeVersioningCuratorController.downloadAmbiguityReport(changeSet.id.get)"
+                       class="btn btn-outline-primary me-2">
+                        <i class="bi bi-download"></i> Download Markdown
+                    </a>
+                }
+                <a href="@controllers.routes.TreeVersioningCuratorController.listChangeSets(None, None, 20)" class="btn btn-outline-secondary">
+                    <i class="bi bi-arrow-left"></i> Back to Change Sets
+                </a>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-md-3">
+                <div class="card mb-3">
+                    <div class="card-header">
+                        <h6 class="mb-0"><i class="bi bi-info-circle"></i> Change Set Info</h6>
+                    </div>
+                    <div class="card-body">
+                        <dl class="mb-0">
+                            <dt class="small text-muted">Source</dt>
+                            <dd>@changeSet.sourceName</dd>
+
+                            <dt class="small text-muted">Type</dt>
+                            <dd>
+                                <span class="badge @if(changeSet.haplogroupType.toString == "Y"){bg-primary}else{bg-success}">
+                                    @changeSet.haplogroupType
+                                </span>
+                            </dd>
+
+                            <dt class="small text-muted">Created</dt>
+                            <dd>@changeSet.createdAt.toLocalDate</dd>
+
+                            <dt class="small text-muted">Ambiguities</dt>
+                            <dd><strong>@changeSet.statistics.ambiguityCount</strong></dd>
+                        </dl>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h6 class="mb-0"><i class="bi bi-link"></i> Quick Links</h6>
+                    </div>
+                    <div class="card-body">
+                        <div class="d-grid gap-2">
+                            <a href="@controllers.routes.TreeVersioningCuratorController.diffView(changeSet.id.get)"
+                               class="btn btn-outline-info btn-sm">
+                                <i class="bi bi-file-diff"></i> View Diff
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-9">
+                <div class="card">
+                    <div class="card-header">
+                        <h6 class="mb-0"><i class="bi bi-file-text"></i> Report Content</h6>
+                    </div>
+                    <div class="card-body">
+                        <div class="markdown-content" style="max-height: 700px; overflow-y: auto;">
+                            @if(changeSet.ambiguityReportPath.isDefined) {
+                                <pre class="bg-light p-3 rounded" style="white-space: pre-wrap; font-family: monospace; font-size: 0.9rem;">@reportContent</pre>
+                            } else {
+                                <div class="alert alert-success">
+                                    <i class="bi bi-check-circle"></i> @reportContent
+                                </div>
+                            }
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+}
