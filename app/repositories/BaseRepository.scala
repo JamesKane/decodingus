@@ -3,8 +3,10 @@ package repositories
 import jakarta.inject.Inject
 import models.dal.{DatabaseSchema, MyPostgresProfile}
 import play.api.db.slick.{DatabaseConfigProvider, HasDatabaseConfigProvider}
-import slick.jdbc.GetResult
+import slick.dbio.Effect.All
+import slick.jdbc.{GetResult, SimpleJdbcAction}
 
+import java.sql.PreparedStatement
 import scala.concurrent.{ExecutionContext, Future}
 
 /**
@@ -108,5 +110,82 @@ abstract class BaseRepository @Inject()(
       $mainQuery
     """
     rawSQL(sql)
+  }
+
+  // ============================================================================
+  // SimpleDBIO Helpers for PostgreSQL enum/jsonb type handling
+  // ============================================================================
+
+  /**
+   * Execute an UPDATE statement with proper JDBC handling for PostgreSQL enums.
+   * Returns true if at least one row was affected.
+   *
+   * Usage:
+   * {{{
+   * executeUpdate("UPDATE table SET status = CAST(? AS my_enum) WHERE id = ?") { ps =>
+   *   ps.setString(1, "VALUE")
+   *   ps.setInt(2, id)
+   * }
+   * }}}
+   */
+  protected def executeUpdate(sql: String)(setParams: PreparedStatement => Unit): Future[Boolean] = {
+    import api.SimpleDBIO
+    val action = SimpleDBIO[Int] { session =>
+      val ps = session.connection.prepareStatement(sql)
+      try {
+        setParams(ps)
+        ps.executeUpdate()
+      } finally {
+        ps.close()
+      }
+    }
+    db.run(action).map(_ > 0)
+  }
+
+  /**
+   * Execute an UPDATE statement returning the count of affected rows.
+   */
+  protected def executeUpdateCount(sql: String)(setParams: PreparedStatement => Unit): Future[Int] = {
+    import api.SimpleDBIO
+    val action = SimpleDBIO[Int] { session =>
+      val ps = session.connection.prepareStatement(sql)
+      try {
+        setParams(ps)
+        ps.executeUpdate()
+      } finally {
+        ps.close()
+      }
+    }
+    db.run(action)
+  }
+
+  /**
+   * Execute an INSERT statement with RETURNING clause for PostgreSQL.
+   * Returns the generated ID.
+   *
+   * Usage:
+   * {{{
+   * executeInsertReturningId(
+   *   "INSERT INTO table (col1, col2) VALUES (?, CAST(? AS my_enum)) RETURNING id"
+   * ) { ps =>
+   *   ps.setString(1, "value1")
+   *   ps.setString(2, "ENUM_VALUE")
+   * }
+   * }}}
+   */
+  protected def executeInsertReturningId(sql: String)(setParams: PreparedStatement => Unit): Future[Int] = {
+    import api.SimpleDBIO
+    val action = SimpleDBIO[Int] { session =>
+      val ps = session.connection.prepareStatement(sql)
+      try {
+        setParams(ps)
+        val rs = ps.executeQuery()
+        rs.next()
+        rs.getInt(1)
+      } finally {
+        ps.close()
+      }
+    }
+    db.run(action)
   }
 }

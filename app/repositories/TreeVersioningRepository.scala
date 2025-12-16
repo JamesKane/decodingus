@@ -329,28 +329,24 @@ class TreeVersioningRepositoryImpl @Inject()(
   // ============================================================================
 
   override def createChangeSet(changeSet: ChangeSet): Future[Int] = {
-    import slick.jdbc.{GetResult, PositionedParameters, SetParameter}
     import java.sql.Timestamp
 
-    // Use SimpleDBIO for proper JDBC handling with enum casts
-    val action = SimpleDBIO[Int] { session =>
-      val conn = session.connection
-      val sql = """
-        INSERT INTO tree.change_set (
-          haplogroup_type, name, description, source_name, created_at, created_by,
-          finalized_at, applied_at, applied_by, discarded_at, discarded_by, discard_reason,
-          status, nodes_processed, nodes_created, nodes_updated, nodes_unchanged,
-          variants_added, relationships_created, relationships_updated, split_operations,
-          ambiguity_count, ambiguity_report_path, metadata
-        ) VALUES (
-          ?, ?, ?, ?, ?, ?,
-          ?, ?, ?, ?, ?, ?,
-          CAST(? AS tree.change_set_status), ?, ?, ?, ?,
-          ?, ?, ?, ?,
-          ?, ?, NULL
-        ) RETURNING id
-      """
-      val ps = conn.prepareStatement(sql)
+    val sql = """
+      INSERT INTO tree.change_set (
+        haplogroup_type, name, description, source_name, created_at, created_by,
+        finalized_at, applied_at, applied_by, discarded_at, discarded_by, discard_reason,
+        status, nodes_processed, nodes_created, nodes_updated, nodes_unchanged,
+        variants_added, relationships_created, relationships_updated, split_operations,
+        ambiguity_count, ambiguity_report_path, metadata
+      ) VALUES (
+        ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?, ?,
+        CAST(? AS tree.change_set_status), ?, ?, ?, ?,
+        ?, ?, ?, ?,
+        ?, ?, NULL
+      ) RETURNING id
+    """
+    executeInsertReturningId(sql) { ps =>
       ps.setString(1, changeSet.haplogroupType.toString)
       ps.setString(2, changeSet.name)
       ps.setString(3, changeSet.description.orNull)
@@ -374,12 +370,7 @@ class TreeVersioningRepositoryImpl @Inject()(
       ps.setInt(21, changeSet.statistics.splitOperations)
       ps.setInt(22, changeSet.statistics.ambiguityCount)
       ps.setString(23, changeSet.ambiguityReportPath.orNull)
-
-      val rs = ps.executeQuery()
-      rs.next()
-      rs.getInt(1)
     }
-    db.run(action)
   }
 
   override def getChangeSet(id: Int): Future[Option[ChangeSet]] = {
@@ -456,16 +447,10 @@ class TreeVersioningRepositoryImpl @Inject()(
   }
 
   override def updateChangeSetStatus(id: Int, status: ChangeSetStatus): Future[Boolean] = {
-    import java.sql.Timestamp
-    val action = SimpleDBIO[Int] { session =>
-      val conn = session.connection
-      val sql = "UPDATE tree.change_set SET status = CAST(? AS tree.change_set_status) WHERE id = ?"
-      val ps = conn.prepareStatement(sql)
+    executeUpdate("UPDATE tree.change_set SET status = CAST(? AS tree.change_set_status) WHERE id = ?") { ps =>
       ps.setString(1, ChangeSetStatus.toDbString(status))
       ps.setInt(2, id)
-      ps.executeUpdate()
     }
-    db.run(action).map(_ > 0)
   }
 
   override def finalizeChangeSet(
@@ -475,25 +460,23 @@ class TreeVersioningRepositoryImpl @Inject()(
   ): Future[Boolean] = {
     import java.sql.Timestamp
     val now = LocalDateTime.now()
-    val action = SimpleDBIO[Int] { session =>
-      val conn = session.connection
-      val sql = """
-        UPDATE tree.change_set
-        SET status = CAST('READY_FOR_REVIEW' AS tree.change_set_status),
-            finalized_at = ?,
-            nodes_processed = ?,
-            nodes_created = ?,
-            nodes_updated = ?,
-            nodes_unchanged = ?,
-            variants_added = ?,
-            relationships_created = ?,
-            relationships_updated = ?,
-            split_operations = ?,
-            ambiguity_count = ?,
-            ambiguity_report_path = ?
-        WHERE id = ?
-      """
-      val ps = conn.prepareStatement(sql)
+    val sql = """
+      UPDATE tree.change_set
+      SET status = CAST('READY_FOR_REVIEW' AS tree.change_set_status),
+          finalized_at = ?,
+          nodes_processed = ?,
+          nodes_created = ?,
+          nodes_updated = ?,
+          nodes_unchanged = ?,
+          variants_added = ?,
+          relationships_created = ?,
+          relationships_updated = ?,
+          split_operations = ?,
+          ambiguity_count = ?,
+          ambiguity_report_path = ?
+      WHERE id = ?
+    """
+    executeUpdate(sql) { ps =>
       ps.setTimestamp(1, Timestamp.valueOf(now))
       ps.setInt(2, statistics.nodesProcessed)
       ps.setInt(3, statistics.nodesCreated)
@@ -506,53 +489,43 @@ class TreeVersioningRepositoryImpl @Inject()(
       ps.setInt(10, statistics.ambiguityCount)
       ps.setString(11, ambiguityReportPath.orNull)
       ps.setInt(12, id)
-      ps.executeUpdate()
     }
-    db.run(action).map(_ > 0)
   }
 
   override def applyChangeSet(id: Int, appliedBy: String): Future[Boolean] = {
     import java.sql.Timestamp
     val now = LocalDateTime.now()
-    val action = SimpleDBIO[Int] { session =>
-      val conn = session.connection
-      val sql = """
-        UPDATE tree.change_set
-        SET status = CAST('APPLIED' AS tree.change_set_status),
-            applied_at = ?,
-            applied_by = ?
-        WHERE id = ?
-      """
-      val ps = conn.prepareStatement(sql)
+    val sql = """
+      UPDATE tree.change_set
+      SET status = CAST('APPLIED' AS tree.change_set_status),
+          applied_at = ?,
+          applied_by = ?
+      WHERE id = ?
+    """
+    executeUpdate(sql) { ps =>
       ps.setTimestamp(1, Timestamp.valueOf(now))
       ps.setString(2, appliedBy)
       ps.setInt(3, id)
-      ps.executeUpdate()
     }
-    db.run(action).map(_ > 0)
   }
 
   override def discardChangeSet(id: Int, discardedBy: String, reason: String): Future[Boolean] = {
     import java.sql.Timestamp
     val now = LocalDateTime.now()
-    val action = SimpleDBIO[Int] { session =>
-      val conn = session.connection
-      val sql = """
-        UPDATE tree.change_set
-        SET status = CAST('DISCARDED' AS tree.change_set_status),
-            discarded_at = ?,
-            discarded_by = ?,
-            discard_reason = ?
-        WHERE id = ?
-      """
-      val ps = conn.prepareStatement(sql)
+    val sql = """
+      UPDATE tree.change_set
+      SET status = CAST('DISCARDED' AS tree.change_set_status),
+          discarded_at = ?,
+          discarded_by = ?,
+          discard_reason = ?
+      WHERE id = ?
+    """
+    executeUpdate(sql) { ps =>
       ps.setTimestamp(1, Timestamp.valueOf(now))
       ps.setString(2, discardedBy)
       ps.setString(3, reason)
       ps.setInt(4, id)
-      ps.executeUpdate()
     }
-    db.run(action).map(_ > 0)
   }
 
   // ============================================================================
@@ -562,22 +535,20 @@ class TreeVersioningRepositoryImpl @Inject()(
   override def createTreeChange(change: TreeChange): Future[Int] = {
     import java.sql.{Timestamp, Types}
 
-    val action = SimpleDBIO[Int] { session =>
-      val conn = session.connection
-      val sql = """
-        INSERT INTO tree.tree_change (
-          change_set_id, change_type, haplogroup_id, variant_id, old_parent_id, new_parent_id,
-          haplogroup_data, old_data, created_haplogroup_id, sequence_num, status,
-          reviewed_at, reviewed_by, review_notes, created_at, applied_at,
-          ambiguity_type, ambiguity_confidence
-        ) VALUES (
-          ?, CAST(? AS tree.tree_change_type), ?, ?, ?, ?,
-          CAST(? AS jsonb), CAST(? AS jsonb), ?, ?, CAST(? AS tree.change_status),
-          ?, ?, ?, ?, ?,
-          ?, ?
-        ) RETURNING id
-      """
-      val ps = conn.prepareStatement(sql)
+    val sql = """
+      INSERT INTO tree.tree_change (
+        change_set_id, change_type, haplogroup_id, variant_id, old_parent_id, new_parent_id,
+        haplogroup_data, old_data, created_haplogroup_id, sequence_num, status,
+        reviewed_at, reviewed_by, review_notes, created_at, applied_at,
+        ambiguity_type, ambiguity_confidence
+      ) VALUES (
+        ?, CAST(? AS tree.tree_change_type), ?, ?, ?, ?,
+        CAST(? AS jsonb), CAST(? AS jsonb), ?, ?, CAST(? AS tree.change_status),
+        ?, ?, ?, ?, ?,
+        ?, ?
+      ) RETURNING id
+    """
+    executeInsertReturningId(sql) { ps =>
       ps.setInt(1, change.changeSetId)
       ps.setString(2, TreeChangeType.toDbString(change.changeType))
       change.haplogroupId.fold(ps.setNull(3, Types.INTEGER))(v => ps.setInt(3, v))
@@ -596,12 +567,7 @@ class TreeVersioningRepositoryImpl @Inject()(
       change.appliedAt.fold(ps.setNull(16, Types.TIMESTAMP))(v => ps.setTimestamp(16, Timestamp.valueOf(v)))
       ps.setString(17, change.ambiguityType.orNull)
       change.ambiguityConfidence.fold(ps.setNull(18, Types.DOUBLE))(v => ps.setDouble(18, v))
-
-      val rs = ps.executeQuery()
-      rs.next()
-      rs.getInt(1)
     }
-    db.run(action)
   }
 
   override def createTreeChanges(changes: Seq[TreeChange]): Future[Seq[Int]] = {
@@ -679,15 +645,10 @@ class TreeVersioningRepositoryImpl @Inject()(
   }
 
   override def updateTreeChangeStatus(id: Int, status: ChangeStatus): Future[Boolean] = {
-    val action = SimpleDBIO[Int] { session =>
-      val conn = session.connection
-      val sql = "UPDATE tree.tree_change SET status = CAST(? AS tree.change_status) WHERE id = ?"
-      val ps = conn.prepareStatement(sql)
+    executeUpdate("UPDATE tree.tree_change SET status = CAST(? AS tree.change_status) WHERE id = ?") { ps =>
       ps.setString(1, ChangeStatus.toDbString(status))
       ps.setInt(2, id)
-      ps.executeUpdate()
     }
-    db.run(action).map(_ > 0)
   }
 
   override def reviewTreeChange(
@@ -698,44 +659,36 @@ class TreeVersioningRepositoryImpl @Inject()(
   ): Future[Boolean] = {
     import java.sql.Timestamp
     val now = LocalDateTime.now()
-    val action = SimpleDBIO[Int] { session =>
-      val conn = session.connection
-      val sql = """
-        UPDATE tree.tree_change
-        SET status = CAST(? AS tree.change_status),
-            reviewed_at = ?,
-            reviewed_by = ?,
-            review_notes = ?
-        WHERE id = ?
-      """
-      val ps = conn.prepareStatement(sql)
+    val sql = """
+      UPDATE tree.tree_change
+      SET status = CAST(? AS tree.change_status),
+          reviewed_at = ?,
+          reviewed_by = ?,
+          review_notes = ?
+      WHERE id = ?
+    """
+    executeUpdate(sql) { ps =>
       ps.setString(1, ChangeStatus.toDbString(newStatus))
       ps.setTimestamp(2, Timestamp.valueOf(now))
       ps.setString(3, reviewedBy)
       ps.setString(4, notes.orNull)
       ps.setInt(5, id)
-      ps.executeUpdate()
     }
-    db.run(action).map(_ > 0)
   }
 
   override def applyAllPendingChanges(changeSetId: Int): Future[Int] = {
     import java.sql.Timestamp
     val now = LocalDateTime.now()
-    val action = SimpleDBIO[Int] { session =>
-      val conn = session.connection
-      val sql = """
-        UPDATE tree.tree_change
-        SET status = CAST('APPLIED' AS tree.change_status),
-            applied_at = ?
-        WHERE change_set_id = ? AND status = 'PENDING'
-      """
-      val ps = conn.prepareStatement(sql)
+    val sql = """
+      UPDATE tree.tree_change
+      SET status = CAST('APPLIED' AS tree.change_status),
+          applied_at = ?
+      WHERE change_set_id = ? AND status = 'PENDING'
+    """
+    executeUpdateCount(sql) { ps =>
       ps.setTimestamp(1, Timestamp.valueOf(now))
       ps.setInt(2, changeSetId)
-      ps.executeUpdate()
     }
-    db.run(action)
   }
 
   override def getPendingReviewChanges(changeSetId: Int, limit: Int): Future[Seq[TreeChange]] = {
