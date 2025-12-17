@@ -304,6 +304,17 @@ class TreeVersioningCuratorController @Inject()(
       }
     }
 
+  /**
+   * Get ASCII tree preview of proposed changes for a change set.
+   * Returns plain text showing the tree structure with markers for new/reparented nodes.
+   */
+  def treePreview(id: Int): Action[AnyContent] =
+    withPermission("tree.version.view").async { implicit request =>
+      treeVersioningService.getTreePreview(id).map { preview =>
+        Ok(preview).as("text/plain; charset=utf-8")
+      }
+    }
+
   // ============================================================================
   // Helpers
   // ============================================================================

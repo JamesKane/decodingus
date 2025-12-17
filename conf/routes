@@ -225,6 +225,7 @@ POST          /curator/change-sets/:id/approve-all                              
 POST          /curator/change-sets/:changeSetId/changes/:changeId/review                         controllers.TreeVersioningCuratorController.reviewChange(changeSetId: Int, changeId: Int)
 GET           /curator/change-sets/:id/diff                                                       controllers.TreeVersioningCuratorController.diffView(id: Int)
 GET           /curator/change-sets/:id/diff/fragment                                              controllers.TreeVersioningCuratorController.diffFragment(id: Int)
+GET           /curator/change-sets/:id/tree-preview                                               controllers.TreeVersioningCuratorController.treePreview(id: Int)
 GET           /curator/change-sets/:id/ambiguity-report                                           controllers.TreeVersioningCuratorController.ambiguityReport(id: Int)
 GET           /curator/change-sets/:id/ambiguity-report/download                                  controllers.TreeVersioningCuratorController.downloadAmbiguityReport(id: Int)
 

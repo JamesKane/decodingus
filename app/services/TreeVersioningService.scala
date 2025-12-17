@@ -212,6 +212,13 @@ trait TreeVersioningService {
    * Get all changes for a change set grouped by type for diff display.
    */
   def getChangesForDiff(changeSetId: Int): Future[Seq[TreeChange]]
+
+  /**
+   * Generate an ASCII tree preview of proposed changes.
+   * Shows affected subtrees with new nodes marked [+], reparented nodes marked [→],
+   * and variants listed for each node.
+   */
+  def getTreePreview(changeSetId: Int): Future[String]
 }
 
 @Singleton
@@ -521,6 +528,7 @@ class TreeVersioningServiceImpl @Inject()(
 
   /**
    * Create production relationships from WIP data.
+   * Processes in batches to avoid thread pool exhaustion.
    */
   private def createProductionRelationships(
     wipRelationships: Seq[models.dal.domain.haplogroups.WipRelationshipRow],
@@ -531,19 +539,28 @@ class TreeVersioningServiceImpl @Inject()(
       haplogroupId.orElse(placeholderId.flatMap(placeholderToRealId.get))
     }
 
-    Future.sequence(wipRelationships.map { wip =>
-      val childId = resolveId(wip.childHaplogroupId, wip.childPlaceholderId)
-      val parentId = resolveId(wip.parentHaplogroupId, wip.parentPlaceholderId)
+    val batchSize = 100
+    val batches = wipRelationships.grouped(batchSize).toSeq
 
-      (childId, parentId) match {
-        case (Some(cid), Some(pid)) =>
-          haplogroupRepository.updateParent(cid, pid, sourceName).map(_ => 1)
-        case _ =>
-          logger.warn(s"Could not resolve relationship: child=${wip.childHaplogroupId}/${wip.childPlaceholderId}, " +
-            s"parent=${wip.parentHaplogroupId}/${wip.parentPlaceholderId}")
-          Future.successful(0)
+    // Process batches sequentially
+    batches.foldLeft(Future.successful(0)) { (accFuture, batch) =>
+      accFuture.flatMap { acc =>
+        // Process items within batch in parallel
+        Future.sequence(batch.map { wip =>
+          val childId = resolveId(wip.childHaplogroupId, wip.childPlaceholderId)
+          val parentId = resolveId(wip.parentHaplogroupId, wip.parentPlaceholderId)
+
+          (childId, parentId) match {
+            case (Some(cid), Some(pid)) =>
+              haplogroupRepository.updateParent(cid, pid, sourceName).map(_ => 1)
+            case _ =>
+              logger.warn(s"Could not resolve relationship: child=${wip.childHaplogroupId}/${wip.childPlaceholderId}, " +
+                s"parent=${wip.parentHaplogroupId}/${wip.parentPlaceholderId}")
+              Future.successful(0)
+          }
+        }).map(results => acc + results.sum)
       }
-    }).map(_.sum)
+    }
   }
 
   /**
@@ -566,25 +583,35 @@ class TreeVersioningServiceImpl @Inject()(
   }
 
   /**
-   * Apply production reparents from WIP data.
+   * Apply reparent operations from WIP data.
+   * Processes in batches to avoid thread pool exhaustion.
    */
   private def applyProductionReparents(
     wipReparents: Seq[models.dal.domain.haplogroups.WipReparentRow],
     placeholderToRealId: Map[Int, Int],
     sourceName: String
   ): Future[Int] = {
-    Future.sequence(wipReparents.map { wip =>
-      val newParentId = wip.newParentId.orElse(wip.newParentPlaceholderId.flatMap(placeholderToRealId.get))
+    val batchSize = 100
+    val batches = wipReparents.grouped(batchSize).toSeq
 
-      newParentId match {
-        case Some(pid) =>
-          haplogroupRepository.updateParent(wip.haplogroupId, pid, sourceName).map(_ => 1)
-        case None =>
-          logger.warn(s"Could not resolve reparent for haplogroup ${wip.haplogroupId}: " +
-            s"newParent=${wip.newParentId}/${wip.newParentPlaceholderId}")
-          Future.successful(0)
+    // Process batches sequentially
+    batches.foldLeft(Future.successful(0)) { (accFuture, batch) =>
+      accFuture.flatMap { acc =>
+        // Process items within batch in parallel
+        Future.sequence(batch.map { wip =>
+          val newParentId = wip.newParentId.orElse(wip.newParentPlaceholderId.flatMap(placeholderToRealId.get))
+
+          newParentId match {
+            case Some(pid) =>
+              haplogroupRepository.updateParent(wip.haplogroupId, pid, sourceName).map(_ => 1)
+            case None =>
+              logger.warn(s"Could not resolve reparent for haplogroup ${wip.haplogroupId}: " +
+                s"newParent=${wip.newParentId}/${wip.newParentPlaceholderId}")
+              Future.successful(0)
+          }
+        }).map(results => acc + results.sum)
       }
-    }).map(_.sum)
+    }
   }
 
   override def discardChangeSet(changeSetId: Int, curatorId: String, reason: String): Future[Boolean] = {
@@ -1095,5 +1122,245 @@ class TreeVersioningServiceImpl @Inject()(
         summary = summary
       )
     }
+  }
+
+  // ============================================================================
+  // Tree Preview (ASCII visualization)
+  // ============================================================================
+
+  override def getTreePreview(changeSetId: Int): Future[String] = {
+    for {
+      changeSetOpt <- repository.getChangeSet(changeSetId)
+      wipHaplogroups <- wipTreeRepository.getWipHaplogroupsForChangeSet(changeSetId)
+      wipRelationships <- wipTreeRepository.getWipRelationshipsForChangeSet(changeSetId)
+      wipReparents <- wipTreeRepository.getWipReparentsForChangeSet(changeSetId)
+      wipVariants <- wipTreeRepository.getWipVariantsForChangeSet(changeSetId)
+
+      // Get all affected production haplogroup IDs
+      affectedProdIds = (
+        wipReparents.map(_.haplogroupId) ++
+        wipReparents.flatMap(_.oldParentId) ++
+        wipReparents.flatMap(_.newParentId) ++
+        wipVariants.flatMap(_.haplogroupId) ++
+        wipRelationships.flatMap(_.childHaplogroupId) ++
+        wipRelationships.flatMap(_.parentHaplogroupId)
+      ).toSet
+
+      // Get names for production haplogroups
+      prodNames <- repository.getHaplogroupNamesById(affectedProdIds)
+
+      // Get children of affected parents for context
+      parentIds = wipRelationships.flatMap(_.parentHaplogroupId).toSet ++
+                  wipReparents.flatMap(_.newParentId).toSet
+      existingChildren <- Future.sequence(parentIds.toSeq.map { pid =>
+        haplogroupRepository.getDirectChildren(pid).map(children => pid -> children)
+      }).map(_.toMap)
+
+      // Get variant names for display
+      allVariantIds = wipVariants.map(_.variantId).toSet
+      variantNames <- if (allVariantIds.nonEmpty) {
+        haplogroupVariantRepository.getVariantNamesByIds(allVariantIds)
+      } else {
+        Future.successful(Map.empty[Int, String])
+      }
+
+    } yield {
+      changeSetOpt match {
+        case None => s"Change set $changeSetId not found"
+        case Some(changeSet) =>
+          buildTreePreview(
+            changeSet,
+            wipHaplogroups,
+            wipRelationships,
+            wipReparents,
+            wipVariants,
+            prodNames,
+            existingChildren,
+            variantNames
+          )
+      }
+    }
+  }
+
+  /**
+   * Build ASCII tree preview from WIP data.
+   */
+  private def buildTreePreview(
+    changeSet: ChangeSet,
+    wipHaplogroups: Seq[models.dal.domain.haplogroups.WipHaplogroupRow],
+    wipRelationships: Seq[models.dal.domain.haplogroups.WipRelationshipRow],
+    wipReparents: Seq[models.dal.domain.haplogroups.WipReparentRow],
+    wipVariants: Seq[models.dal.domain.haplogroups.WipHaplogroupVariantRow],
+    prodNames: Map[Int, String],
+    existingChildren: Map[Int, Seq[models.domain.haplogroups.Haplogroup]],
+    variantNames: Map[Int, String]
+  ): String = {
+    val sb = new StringBuilder
+
+    // Header
+    sb.append(s"=== Tree Preview: ${changeSet.name} ===\n")
+    sb.append(s"Type: ${changeSet.haplogroupType} | Status: ${changeSet.status}\n")
+    sb.append(s"New nodes: ${wipHaplogroups.size} | Reparents: ${wipReparents.size} | Variant additions: ${wipVariants.size}\n")
+    sb.append("\nLegend: [+] = new node, [→] = reparented, [~] = modified\n")
+    sb.append("=" * 50 + "\n\n")
+
+    // Build WIP name lookup (placeholder ID -> name)
+    val wipNames = wipHaplogroups.map(h => h.placeholderId -> h.name).toMap
+
+    // Build parent relationships for WIP nodes
+    val wipParentMap = wipRelationships.flatMap { rel =>
+      rel.childPlaceholderId.map { childPh =>
+        childPh -> (rel.parentHaplogroupId, rel.parentPlaceholderId)
+      }
+    }.toMap
+
+    // Group WIP variants by haplogroup (placeholder or production)
+    val variantsByPlaceholder = wipVariants.filter(_.haplogroupPlaceholderId.isDefined)
+      .groupBy(_.haplogroupPlaceholderId.get)
+    val variantsByProdHg = wipVariants.filter(_.haplogroupId.isDefined)
+      .groupBy(_.haplogroupId.get)
+
+    // Build reparent lookup
+    val reparentedNodes = wipReparents.map(r => r.haplogroupId -> r).toMap
+
+    // Find root-level changes (nodes whose parent is a production node)
+    val rootParents = wipRelationships
+      .filter(r => r.parentHaplogroupId.isDefined && r.childPlaceholderId.isDefined)
+      .groupBy(_.parentHaplogroupId.get)
+
+    // Also include production nodes being reparented
+    val prodNodesBeingReparented = wipReparents.groupBy { r =>
+      r.newParentId.orElse(r.newParentPlaceholderId.flatMap { ph =>
+        wipParentMap.get(ph).flatMap(_._1)
+      })
+    }
+
+    // Render each affected subtree
+    val renderedParents = scala.collection.mutable.Set[Int]()
+
+    // Helper to format variants
+    def formatVariants(variantIds: Seq[Int]): String = {
+      if (variantIds.isEmpty) ""
+      else {
+        val names = variantIds.take(5).map(vid => variantNames.getOrElse(vid, s"#$vid"))
+        val suffix = if (variantIds.size > 5) s" +${variantIds.size - 5} more" else ""
+        s" (${names.mkString(", ")}$suffix)"
+      }
+    }
+
+    // Recursive function to render WIP subtree
+    def renderWipNode(placeholderId: Int, prefix: String, isLast: Boolean): Unit = {
+      val name = wipNames.getOrElse(placeholderId, s"?$placeholderId")
+      val variants = variantsByPlaceholder.getOrElse(placeholderId, Seq.empty).map(_.variantId)
+      val variantStr = formatVariants(variants)
+
+      val connector = if (isLast) "└── " else "├── "
+      val childPrefix = prefix + (if (isLast) "    " else "│   ")
+
+      sb.append(s"$prefix$connector[+] $name$variantStr\n")
+
+      // Find children of this placeholder
+      val children = wipRelationships
+        .filter(r => r.parentPlaceholderId.contains(placeholderId))
+        .flatMap(_.childPlaceholderId)
+        .distinct
+
+      children.zipWithIndex.foreach { case (childPh, idx) =>
+        renderWipNode(childPh, childPrefix, idx == children.size - 1)
+      }
+    }
+
+    // Render subtrees rooted at production nodes
+    rootParents.toSeq.sortBy { case (pid, _) => prodNames.getOrElse(pid, "") }.foreach { case (parentId, rels) =>
+      if (!renderedParents.contains(parentId)) {
+        renderedParents += parentId
+        val parentName = prodNames.getOrElse(parentId, s"#$parentId")
+
+        sb.append(s"$parentName\n")
+
+        // Get existing children for context
+        val existingKids = existingChildren.getOrElse(parentId, Seq.empty)
+          .filterNot(h => reparentedNodes.contains(h.id.get)) // Exclude reparented ones
+          .map(h => (h.name, false, h.id.get)) // (name, isNew, id)
+
+        // Get new WIP children
+        val newKids = rels.flatMap(_.childPlaceholderId).map { ph =>
+          (wipNames.getOrElse(ph, s"?$ph"), true, ph)
+        }
+
+        // Get reparented production children
+        val reparentedKids = wipReparents
+          .filter(r => r.newParentId.contains(parentId) || r.newParentPlaceholderId.isEmpty && r.newParentId.contains(parentId))
+          .map(r => (prodNames.getOrElse(r.haplogroupId, s"#${r.haplogroupId}"), false, r.haplogroupId, true))
+
+        // Combine and sort
+        val allChildren = existingKids.map(k => (k._1, k._2, k._3, false)) ++
+                          newKids.map(k => (k._1, k._2, k._3, false)) ++
+                          reparentedKids
+
+        allChildren.sortBy(_._1).zipWithIndex.foreach { case ((name, isNew, id, isReparented), idx) =>
+          val isLast = idx == allChildren.size - 1
+          val connector = if (isLast) "└── " else "├── "
+          val childPrefix = if (isLast) "    " else "│   "
+
+          if (isNew) {
+            // New WIP node - render its subtree
+            val variants = variantsByPlaceholder.getOrElse(id, Seq.empty).map(_.variantId)
+            val variantStr = formatVariants(variants)
+            sb.append(s"$connector[+] $name$variantStr\n")
+
+            // Render children of this WIP node
+            val wipChildren = wipRelationships
+              .filter(r => r.parentPlaceholderId.contains(id))
+              .flatMap(_.childPlaceholderId)
+              .distinct
+
+            wipChildren.zipWithIndex.foreach { case (childPh, childIdx) =>
+              renderWipNode(childPh, childPrefix, childIdx == wipChildren.size - 1)
+            }
+          } else if (isReparented) {
+            // Reparented production node
+            val variants = variantsByProdHg.getOrElse(id, Seq.empty).map(_.variantId)
+            val variantStr = formatVariants(variants)
+            sb.append(s"$connector[→] $name$variantStr\n")
+          } else {
+            // Existing node (for context)
+            val variants = variantsByProdHg.getOrElse(id, Seq.empty).map(_.variantId)
+            val variantStr = if (variants.nonEmpty) {
+              s" [~]${formatVariants(variants)}"
+            } else ""
+            sb.append(s"$connector$name$variantStr\n")
+          }
+        }
+
+        sb.append("\n")
+      }
+    }
+
+    // Render reparents that move to WIP nodes (new parent is placeholder)
+    val reparentsToWip = wipReparents.filter(_.newParentPlaceholderId.isDefined)
+    if (reparentsToWip.nonEmpty) {
+      sb.append("--- Nodes reparented to new WIP nodes ---\n")
+      reparentsToWip.foreach { r =>
+        val nodeName = prodNames.getOrElse(r.haplogroupId, s"#${r.haplogroupId}")
+        val oldParent = r.oldParentId.flatMap(prodNames.get).getOrElse("?")
+        val newParent = r.newParentPlaceholderId.flatMap(wipNames.get).getOrElse("?")
+        sb.append(s"  $nodeName: $oldParent → $newParent [+]\n")
+      }
+      sb.append("\n")
+    }
+
+    // Summary of variant additions to existing nodes
+    val variantAdditions = variantsByProdHg.filter(_._2.nonEmpty)
+    if (variantAdditions.nonEmpty) {
+      sb.append("--- Variant additions to existing nodes ---\n")
+      variantAdditions.toSeq.sortBy { case (hgId, _) => prodNames.getOrElse(hgId, "") }.foreach { case (hgId, vars) =>
+        val nodeName = prodNames.getOrElse(hgId, s"#$hgId")
+        val variantStr = formatVariants(vars.map(_.variantId))
+        sb.append(s"  $nodeName:$variantStr\n")
+      }
+    }
+
+    sb.toString()
   }
 }

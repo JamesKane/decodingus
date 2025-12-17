@@ -110,11 +110,17 @@
 
         <hr>
 
-        @* View Diff link *@
-        <div class="mb-3">
+        @* View options *@
+        <div class="mb-3 d-flex gap-2">
             <a href="@controllers.routes.TreeVersioningCuratorController.diffView(details.changeSet.id.get)"
-               class="btn btn-outline-info w-100">
-                <i class="bi bi-file-diff"></i> View Full Diff
+               class="btn btn-outline-info flex-grow-1">
+                <i class="bi bi-file-diff"></i> View Diff
+            </a>
+            <a href="@controllers.routes.TreeVersioningCuratorController.treePreview(details.changeSet.id.get)"
+               class="btn btn-outline-secondary flex-grow-1"
+               target="_blank"
+               title="View ASCII tree structure of proposed changes">
+                <i class="bi bi-diagram-3"></i> Tree Preview
             </a>
         </div>
 

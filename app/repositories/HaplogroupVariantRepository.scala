@@ -122,6 +122,14 @@ trait HaplogroupVariantRepository {
    * @return A Future containing the sequence of variant IDs
    */
   def getVariantIdsForHaplogroup(haplogroupId: Int): Future[Seq[Int]]
+
+  /**
+   * Gets variant names by their IDs for display purposes.
+   *
+   * @param variantIds The set of variant IDs to look up
+   * @return A Future containing a map of variant ID -> canonical name
+   */
+  def getVariantNamesByIds(variantIds: Set[Int]): Future[Map[Int, String]]
 }
 
 class HaplogroupVariantRepositoryImpl @Inject()(
@@ -357,5 +365,20 @@ class HaplogroupVariantRepositoryImpl @Inject()(
   override def getVariantIdsForHaplogroup(haplogroupId: Int): Future[Seq[Int]] = {
     val query = haplogroupVariants.filter(_.haplogroupId === haplogroupId).map(_.variantId)
     runQuery(query.result)
+  }
+
+  override def getVariantNamesByIds(variantIds: Set[Int]): Future[Map[Int, String]] = {
+    if (variantIds.isEmpty) return Future.successful(Map.empty)
+
+    val query = variantsV2
+      .filter(_.variantId.inSet(variantIds))
+      .map(v => (v.variantId, v.canonicalName))
+      .result
+
+    runQuery(query).map { results =>
+      results.collect {
+        case (id, Some(name)) => id -> name
+      }.toMap
+    }
   }
 }
