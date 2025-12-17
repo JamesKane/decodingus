@@ -828,17 +828,21 @@ class TreeVersioningServiceImpl @Inject()(
     for {
       changeSetOpt <- repository.getChangeSet(changeSetId)
       changes <- repository.getChangesForChangeSet(changeSetId)
-      // Collect all haplogroup IDs we need to look up
-      haplogroupIds = changes.flatMap(c => c.haplogroupId.toSeq ++ c.oldParentId.toSeq ++ c.newParentId.toSeq ++ c.createdHaplogroupId.toSeq).toSet
-      names <- repository.getHaplogroupNamesById(haplogroupIds)
-    } yield {
-      changeSetOpt match {
+      // If no TreeChange records, try WIP tables (staging mode)
+      result <- changeSetOpt match {
         case None =>
-          TreeDiff.empty.copy(changeSetId = changeSetId)
+          Future.successful(TreeDiff.empty.copy(changeSetId = changeSetId))
+        case Some(changeSet) if changes.isEmpty =>
+          // No TreeChange records - compute from WIP tables (staging mode)
+          computeTreeDiffFromWip(changeSet)
         case Some(changeSet) =>
-          computeTreeDiff(changeSet, changes, names)
+          // Has TreeChange records - use those
+          val haplogroupIds = changes.flatMap(c => c.haplogroupId.toSeq ++ c.oldParentId.toSeq ++ c.newParentId.toSeq ++ c.createdHaplogroupId.toSeq).toSet
+          repository.getHaplogroupNamesById(haplogroupIds).map { names =>
+            computeTreeDiff(changeSet, changes, names)
+          }
       }
-    }
+    } yield result
   }
 
   override def getActiveTreeDiff(haplogroupType: HaplogroupType): Future[Option[TreeDiff]] = {
@@ -971,5 +975,125 @@ class TreeVersioningServiceImpl @Inject()(
       entries = entries.result(),
       summary = summary
     )
+  }
+
+  /**
+   * Compute tree diff from WIP tables (for staging mode).
+   * This is used when no TreeChange records exist because changes are staged in WIP tables.
+   */
+  private def computeTreeDiffFromWip(changeSet: ChangeSet): Future[TreeDiff] = {
+    val changeSetId = changeSet.id.get
+
+    for {
+      // Get all WIP data
+      wipHaplogroups <- wipTreeRepository.getWipHaplogroupsForChangeSet(changeSetId)
+      wipReparents <- wipTreeRepository.getWipReparentsForChangeSet(changeSetId)
+      wipVariants <- wipTreeRepository.getWipVariantsForChangeSet(changeSetId)
+      wipRelationships <- wipTreeRepository.getWipRelationshipsForChangeSet(changeSetId)
+
+      // Collect all production haplogroup IDs we need to look up names for
+      productionHgIds = (
+        wipReparents.map(_.haplogroupId) ++
+        wipReparents.flatMap(_.oldParentId) ++
+        wipReparents.flatMap(_.newParentId) ++
+        wipVariants.flatMap(_.haplogroupId) ++
+        wipRelationships.flatMap(_.childHaplogroupId) ++
+        wipRelationships.flatMap(_.parentHaplogroupId)
+      ).toSet
+
+      names <- repository.getHaplogroupNamesById(productionHgIds)
+    } yield {
+      val entries = List.newBuilder[TreeDiffEntry]
+
+      // Helper to get name
+      def getName(idOpt: Option[Int]): Option[String] = idOpt.map(id => names.getOrElse(id, s"#$id"))
+
+      // Build map of placeholder ID -> WIP haplogroup name
+      val wipNames = wipHaplogroups.map(h => h.placeholderId -> h.name).toMap
+
+      // Build map of placeholder ID -> parent info from relationships
+      val parentByPlaceholder = wipRelationships
+        .filter(_.childPlaceholderId.isDefined)
+        .map(r => r.childPlaceholderId.get -> (r.parentHaplogroupId, r.parentPlaceholderId))
+        .toMap
+
+      // CREATE entries from WIP haplogroups
+      wipHaplogroups.foreach { wh =>
+        val parentInfo = parentByPlaceholder.get(wh.placeholderId)
+        val parentName = parentInfo.flatMap {
+          case (Some(prodId), _) => names.get(prodId)
+          case (_, Some(placeholderId)) => wipNames.get(placeholderId)
+          case _ => None
+        }
+
+        entries += TreeDiffEntry(
+          diffType = DiffType.Added,
+          haplogroupId = None, // Placeholder, not production ID
+          haplogroupName = wh.name,
+          oldParentName = None,
+          newParentName = parentName,
+          changeDescription = s"New node to be created under parent ${parentName.getOrElse("root")}",
+          changeIds = List.empty
+        )
+      }
+
+      // REPARENT entries from WIP reparents
+      wipReparents.foreach { wr =>
+        val haplogroupName = names.getOrElse(wr.haplogroupId, s"#${wr.haplogroupId}")
+        val oldParent = getName(wr.oldParentId)
+        val newParent = wr.newParentId.flatMap(names.get).orElse(
+          wr.newParentPlaceholderId.flatMap(wipNames.get)
+        )
+
+        entries += TreeDiffEntry(
+          diffType = DiffType.Reparented,
+          haplogroupId = Some(wr.haplogroupId),
+          haplogroupName = haplogroupName,
+          oldParentName = oldParent,
+          newParentName = newParent,
+          changeDescription = s"Parent to be changed from ${oldParent.getOrElse("none")} to ${newParent.getOrElse("new node")}",
+          changeIds = List.empty
+        )
+      }
+
+      // MODIFIED entries from WIP variants (for existing production haplogroups)
+      val variantsByProductionHg = wipVariants
+        .filter(_.haplogroupId.isDefined)
+        .groupBy(_.haplogroupId.get)
+
+      variantsByProductionHg.foreach { case (hgId, variants) =>
+        val haplogroupName = names.getOrElse(hgId, s"#$hgId")
+
+        entries += TreeDiffEntry(
+          diffType = DiffType.Modified,
+          haplogroupId = Some(hgId),
+          haplogroupName = haplogroupName,
+          oldParentName = None,
+          newParentName = None,
+          changeDescription = s"${variants.size} variant(s) to be added",
+          changeIds = List.empty,
+          variantsAdded = variants.map(v => s"#${v.variantId}").toList
+        )
+      }
+
+      // Build summary
+      val summary = TreeDiffSummary(
+        totalChanges = wipHaplogroups.size + wipReparents.size + variantsByProductionHg.size,
+        nodesAdded = wipHaplogroups.size,
+        nodesRemoved = 0,
+        nodesModified = variantsByProductionHg.size,
+        nodesReparented = wipReparents.size,
+        variantsAdded = wipVariants.size,
+        variantsRemoved = 0
+      )
+
+      TreeDiff(
+        changeSetId = changeSetId,
+        changeSetName = changeSet.name,
+        haplogroupType = changeSet.haplogroupType,
+        entries = entries.result(),
+        summary = summary
+      )
+    }
   }
 }
