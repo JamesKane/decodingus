@@ -229,6 +229,15 @@ GET           /curator/change-sets/:id/tree-preview                             
 GET           /curator/change-sets/:id/ambiguity-report                                           controllers.TreeVersioningCuratorController.ambiguityReport(id: Int)
 GET           /curator/change-sets/:id/ambiguity-report/download                                  controllers.TreeVersioningCuratorController.downloadAmbiguityReport(id: Int)
 
+# Curator - Change Set Conflict Resolutions
+GET           /curator/change-sets/:id/resolutions                                               controllers.TreeVersioningCuratorController.listResolutions(id: Int)
+GET           /curator/change-sets/:id/deferred                                                  controllers.TreeVersioningCuratorController.listDeferredItems(id: Int)
+POST          /curator/change-sets/:id/resolve/reparent                                          controllers.TreeVersioningCuratorController.resolveReparent(id: Int)
+POST          /curator/change-sets/:id/resolve/edit-variants                                     controllers.TreeVersioningCuratorController.resolveEditVariants(id: Int)
+POST          /curator/change-sets/:id/resolve/merge-existing                                    controllers.TreeVersioningCuratorController.resolveMergeExisting(id: Int)
+POST          /curator/change-sets/:id/resolve/defer                                             controllers.TreeVersioningCuratorController.resolveDefer(id: Int)
+DELETE        /curator/change-sets/:changeSetId/resolutions/:resolutionId                        controllers.TreeVersioningCuratorController.cancelResolution(changeSetId: Int, resolutionId: Int)
+
 # Curator - Haplogroups
 GET           /curator/haplogroups                                                               controllers.CuratorController.listHaplogroups(query: Option[String], hgType: Option[String], page: Int ?= 1, pageSize: Int ?= 20)
 GET           /curator/haplogroups/fragment                                                      controllers.CuratorController.haplogroupsFragment(query: Option[String], hgType: Option[String], page: Int ?= 1, pageSize: Int ?= 20)

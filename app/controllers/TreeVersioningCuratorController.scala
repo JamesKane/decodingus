@@ -3,16 +3,20 @@ package controllers
 import actions.{AuthenticatedAction, AuthenticatedRequest, PermissionAction}
 import jakarta.inject.{Inject, Singleton}
 import models.HaplogroupType
+import models.dal.domain.haplogroups.{DeferPriority, ResolutionType, WipResolutionRow}
 import models.domain.haplogroups.{ChangeSetStatus, ChangeStatus}
 import org.webjars.play.WebJarsUtil
 import play.api.Logging
 import play.api.data.Form
 import play.api.data.Forms.*
 import play.api.i18n.I18nSupport
+import play.api.libs.json.*
 import play.api.mvc.*
+import repositories.WipTreeRepository
 import services.TreeVersioningService
 
 import java.io.File
+import java.time.LocalDateTime
 import scala.io.Source
 import scala.concurrent.{ExecutionContext, Future}
 import scala.util.Using
@@ -26,7 +30,8 @@ class TreeVersioningCuratorController @Inject()(
     val controllerComponents: ControllerComponents,
     protected val authenticatedAction: AuthenticatedAction,
     protected val permissionAction: PermissionAction,
-    treeVersioningService: TreeVersioningService
+    treeVersioningService: TreeVersioningService,
+    wipTreeRepository: WipTreeRepository
 )(implicit ec: ExecutionContext, webJarsUtil: WebJarsUtil)
     extends BaseController with I18nSupport with Logging with BaseCuratorController {
 
@@ -44,6 +49,73 @@ class TreeVersioningCuratorController @Inject()(
       "action" -> nonEmptyText.verifying("Invalid action", a => Seq("APPLIED", "SKIPPED", "REVERTED").contains(a)),
       "notes" -> optional(text(maxLength = 1000))
     )(ReviewChangeFormData.apply)(d => Some((d.action, d.notes)))
+  )
+
+  // Resolution form data classes
+  case class ReparentFormData(
+    wipHaplogroupId: Option[Int],
+    wipReparentId: Option[Int],
+    newParentId: Option[Int],
+    newParentPlaceholderId: Option[Int],
+    notes: Option[String]
+  )
+  private val reparentForm: Form[ReparentFormData] = Form(
+    mapping(
+      "wipHaplogroupId" -> optional(number),
+      "wipReparentId" -> optional(number),
+      "newParentId" -> optional(number),
+      "newParentPlaceholderId" -> optional(number),
+      "notes" -> optional(text(maxLength = 1000))
+    )(ReparentFormData.apply)(d => Some((d.wipHaplogroupId, d.wipReparentId, d.newParentId, d.newParentPlaceholderId, d.notes)))
+  )
+
+  case class EditVariantsFormData(
+    wipHaplogroupId: Option[Int],
+    wipReparentId: Option[Int],
+    variantsToAdd: String,
+    variantsToRemove: String,
+    notes: Option[String]
+  )
+  private val editVariantsForm: Form[EditVariantsFormData] = Form(
+    mapping(
+      "wipHaplogroupId" -> optional(number),
+      "wipReparentId" -> optional(number),
+      "variantsToAdd" -> text,
+      "variantsToRemove" -> text,
+      "notes" -> optional(text(maxLength = 1000))
+    )(EditVariantsFormData.apply)(d => Some((d.wipHaplogroupId, d.wipReparentId, d.variantsToAdd, d.variantsToRemove, d.notes)))
+  )
+
+  case class MergeExistingFormData(
+    wipHaplogroupId: Option[Int],
+    wipReparentId: Option[Int],
+    mergeTargetId: Int,
+    notes: Option[String]
+  )
+  private val mergeExistingForm: Form[MergeExistingFormData] = Form(
+    mapping(
+      "wipHaplogroupId" -> optional(number),
+      "wipReparentId" -> optional(number),
+      "mergeTargetId" -> number,
+      "notes" -> optional(text(maxLength = 1000))
+    )(MergeExistingFormData.apply)(d => Some((d.wipHaplogroupId, d.wipReparentId, d.mergeTargetId, d.notes)))
+  )
+
+  case class DeferFormData(
+    wipHaplogroupId: Option[Int],
+    wipReparentId: Option[Int],
+    priority: String,
+    reason: String,
+    notes: Option[String]
+  )
+  private val deferForm: Form[DeferFormData] = Form(
+    mapping(
+      "wipHaplogroupId" -> optional(number),
+      "wipReparentId" -> optional(number),
+      "priority" -> nonEmptyText.verifying("Invalid priority", p => Seq("LOW", "NORMAL", "HIGH", "CRITICAL").contains(p.toUpperCase)),
+      "reason" -> nonEmptyText(minLength = 5, maxLength = 500),
+      "notes" -> optional(text(maxLength = 1000))
+    )(DeferFormData.apply)(d => Some((d.wipHaplogroupId, d.wipReparentId, d.priority, d.reason, d.notes)))
   )
 
   // ============================================================================
@@ -314,6 +386,264 @@ class TreeVersioningCuratorController @Inject()(
         Ok(preview).as("text/plain; charset=utf-8")
       }
     }
+
+  // ============================================================================
+  // Conflict Resolution API
+  // ============================================================================
+
+  /**
+   * Get all resolutions for a change set.
+   */
+  def listResolutions(id: Int): Action[AnyContent] =
+    withPermission("tree.version.view").async { implicit request =>
+      wipTreeRepository.getResolutionsForChangeSet(id).map { resolutions =>
+        Ok(Json.toJson(resolutions.map(resolutionToJson)))
+      }
+    }
+
+  /**
+   * Get deferred items for a change set.
+   */
+  def listDeferredItems(id: Int): Action[AnyContent] =
+    withPermission("tree.version.view").async { implicit request =>
+      wipTreeRepository.getDeferredItems(id).map { deferred =>
+        Ok(Json.toJson(deferred.map(resolutionToJson)))
+      }
+    }
+
+  /**
+   * Create a REPARENT resolution - change the parent of a node.
+   */
+  def resolveReparent(id: Int): Action[AnyContent] =
+    withPermission("tree.version.review").async { implicit request =>
+      reparentForm.bindFromRequest().fold(
+        formWithErrors => {
+          Future.successful(BadRequest(Json.obj(
+            "error" -> "Invalid form data",
+            "details" -> formWithErrors.errors.map(e => s"${e.key}: ${e.message}").mkString(", ")
+          )))
+        },
+        data => {
+          if (data.wipHaplogroupId.isEmpty && data.wipReparentId.isEmpty) {
+            Future.successful(BadRequest(Json.obj(
+              "error" -> "Either wipHaplogroupId or wipReparentId must be provided"
+            )))
+          } else if (data.newParentId.isEmpty && data.newParentPlaceholderId.isEmpty) {
+            Future.successful(BadRequest(Json.obj(
+              "error" -> "Either newParentId or newParentPlaceholderId must be provided"
+            )))
+          } else {
+            val resolution = WipResolutionRow(
+              id = None,
+              changeSetId = id,
+              wipHaplogroupId = data.wipHaplogroupId,
+              wipReparentId = data.wipReparentId,
+              resolutionType = "REPARENT",
+              newParentId = data.newParentId,
+              newParentPlaceholderId = data.newParentPlaceholderId,
+              mergeTargetId = None,
+              variantsToAdd = None,
+              variantsToRemove = None,
+              deferReason = None,
+              deferPriority = "NORMAL",
+              curatorId = curatorId(request),
+              curatorNotes = data.notes,
+              status = "PENDING",
+              createdAt = LocalDateTime.now(),
+              appliedAt = None
+            )
+            wipTreeRepository.createResolution(resolution).map { resolutionId =>
+              Created(Json.obj(
+                "message" -> "Reparent resolution created",
+                "resolutionId" -> resolutionId
+              ))
+            }
+          }
+        }
+      )
+    }
+
+  /**
+   * Create an EDIT_VARIANTS resolution - add or remove variant associations.
+   */
+  def resolveEditVariants(id: Int): Action[AnyContent] =
+    withPermission("tree.version.review").async { implicit request =>
+      editVariantsForm.bindFromRequest().fold(
+        formWithErrors => {
+          Future.successful(BadRequest(Json.obj(
+            "error" -> "Invalid form data",
+            "details" -> formWithErrors.errors.map(e => s"${e.key}: ${e.message}").mkString(", ")
+          )))
+        },
+        data => {
+          if (data.wipHaplogroupId.isEmpty && data.wipReparentId.isEmpty) {
+            Future.successful(BadRequest(Json.obj(
+              "error" -> "Either wipHaplogroupId or wipReparentId must be provided"
+            )))
+          } else {
+            val resolution = WipResolutionRow(
+              id = None,
+              changeSetId = id,
+              wipHaplogroupId = data.wipHaplogroupId,
+              wipReparentId = data.wipReparentId,
+              resolutionType = "EDIT_VARIANTS",
+              newParentId = None,
+              newParentPlaceholderId = None,
+              mergeTargetId = None,
+              variantsToAdd = Some(data.variantsToAdd),
+              variantsToRemove = Some(data.variantsToRemove),
+              deferReason = None,
+              deferPriority = "NORMAL",
+              curatorId = curatorId(request),
+              curatorNotes = data.notes,
+              status = "PENDING",
+              createdAt = LocalDateTime.now(),
+              appliedAt = None
+            )
+            wipTreeRepository.createResolution(resolution).map { resolutionId =>
+              Created(Json.obj(
+                "message" -> "Edit variants resolution created",
+                "resolutionId" -> resolutionId
+              ))
+            }
+          }
+        }
+      )
+    }
+
+  /**
+   * Create a MERGE_EXISTING resolution - map WIP node to existing production node.
+   */
+  def resolveMergeExisting(id: Int): Action[AnyContent] =
+    withPermission("tree.version.review").async { implicit request =>
+      mergeExistingForm.bindFromRequest().fold(
+        formWithErrors => {
+          Future.successful(BadRequest(Json.obj(
+            "error" -> "Invalid form data",
+            "details" -> formWithErrors.errors.map(e => s"${e.key}: ${e.message}").mkString(", ")
+          )))
+        },
+        data => {
+          if (data.wipHaplogroupId.isEmpty && data.wipReparentId.isEmpty) {
+            Future.successful(BadRequest(Json.obj(
+              "error" -> "Either wipHaplogroupId or wipReparentId must be provided"
+            )))
+          } else {
+            val resolution = WipResolutionRow(
+              id = None,
+              changeSetId = id,
+              wipHaplogroupId = data.wipHaplogroupId,
+              wipReparentId = data.wipReparentId,
+              resolutionType = "MERGE_EXISTING",
+              newParentId = None,
+              newParentPlaceholderId = None,
+              mergeTargetId = Some(data.mergeTargetId),
+              variantsToAdd = None,
+              variantsToRemove = None,
+              deferReason = None,
+              deferPriority = "NORMAL",
+              curatorId = curatorId(request),
+              curatorNotes = data.notes,
+              status = "PENDING",
+              createdAt = LocalDateTime.now(),
+              appliedAt = None
+            )
+            wipTreeRepository.createResolution(resolution).map { resolutionId =>
+              Created(Json.obj(
+                "message" -> "Merge existing resolution created",
+                "resolutionId" -> resolutionId
+              ))
+            }
+          }
+        }
+      )
+    }
+
+  /**
+   * Create a DEFER resolution - move to manual review queue.
+   */
+  def resolveDefer(id: Int): Action[AnyContent] =
+    withPermission("tree.version.review").async { implicit request =>
+      deferForm.bindFromRequest().fold(
+        formWithErrors => {
+          Future.successful(BadRequest(Json.obj(
+            "error" -> "Invalid form data",
+            "details" -> formWithErrors.errors.map(e => s"${e.key}: ${e.message}").mkString(", ")
+          )))
+        },
+        data => {
+          if (data.wipHaplogroupId.isEmpty && data.wipReparentId.isEmpty) {
+            Future.successful(BadRequest(Json.obj(
+              "error" -> "Either wipHaplogroupId or wipReparentId must be provided"
+            )))
+          } else {
+            val resolution = WipResolutionRow(
+              id = None,
+              changeSetId = id,
+              wipHaplogroupId = data.wipHaplogroupId,
+              wipReparentId = data.wipReparentId,
+              resolutionType = "DEFER",
+              newParentId = None,
+              newParentPlaceholderId = None,
+              mergeTargetId = None,
+              variantsToAdd = None,
+              variantsToRemove = None,
+              deferReason = Some(data.reason),
+              deferPriority = data.priority.toUpperCase,
+              curatorId = curatorId(request),
+              curatorNotes = data.notes,
+              status = "PENDING",
+              createdAt = LocalDateTime.now(),
+              appliedAt = None
+            )
+            wipTreeRepository.createResolution(resolution).map { resolutionId =>
+              Created(Json.obj(
+                "message" -> "Defer resolution created",
+                "resolutionId" -> resolutionId
+              ))
+            }
+          }
+        }
+      )
+    }
+
+  /**
+   * Cancel a resolution.
+   */
+  def cancelResolution(changeSetId: Int, resolutionId: Int): Action[AnyContent] =
+    withPermission("tree.version.review").async { implicit request =>
+      wipTreeRepository.cancelResolution(resolutionId).map { updated =>
+        if (updated > 0) {
+          Ok(Json.obj(
+            "message" -> "Resolution cancelled",
+            "resolutionId" -> resolutionId
+          ))
+        } else {
+          NotFound(Json.obj("error" -> "Resolution not found"))
+        }
+      }
+    }
+
+  // JSON serialization helper for WipResolutionRow
+  private def resolutionToJson(r: WipResolutionRow): JsObject = Json.obj(
+    "id" -> r.id,
+    "changeSetId" -> r.changeSetId,
+    "wipHaplogroupId" -> r.wipHaplogroupId,
+    "wipReparentId" -> r.wipReparentId,
+    "resolutionType" -> r.resolutionType,
+    "newParentId" -> r.newParentId,
+    "newParentPlaceholderId" -> r.newParentPlaceholderId,
+    "mergeTargetId" -> r.mergeTargetId,
+    "variantsToAdd" -> r.variantsToAdd,
+    "variantsToRemove" -> r.variantsToRemove,
+    "deferReason" -> r.deferReason,
+    "deferPriority" -> r.deferPriority,
+    "curatorId" -> r.curatorId,
+    "curatorNotes" -> r.curatorNotes,
+    "status" -> r.status,
+    "createdAt" -> r.createdAt.toString,
+    "appliedAt" -> r.appliedAt.map(_.toString)
+  )
 
   // ============================================================================
   // Helpers
