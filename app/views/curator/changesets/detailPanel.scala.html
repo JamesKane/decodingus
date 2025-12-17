@@ -124,6 +124,68 @@
             </a>
         </div>
 
+        @* Resolutions section - shown for reviewable change sets *@
+        @if(details.changeSet.status == ChangeSetStatus.ReadyForReview || details.changeSet.status == ChangeSetStatus.UnderReview) {
+            <div class="mb-3">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <h6 class="mb-0"><i class="bi bi-tools"></i> Conflict Resolutions</h6>
+                    <div class="btn-group btn-group-sm">
+                        <a href="@controllers.routes.TreeVersioningCuratorController.listResolutions(details.changeSet.id.get)"
+                           class="btn btn-outline-secondary"
+                           target="_blank"
+                           title="View all resolutions (JSON)">
+                            <i class="bi bi-list"></i> All
+                        </a>
+                        <a href="@controllers.routes.TreeVersioningCuratorController.listDeferredItems(details.changeSet.id.get)"
+                           class="btn btn-outline-warning"
+                           target="_blank"
+                           title="View deferred items (JSON)">
+                            <i class="bi bi-pause-circle"></i> Deferred
+                        </a>
+                    </div>
+                </div>
+                <div id="resolutions-summary"
+                     hx-get="@controllers.routes.TreeVersioningCuratorController.listResolutions(details.changeSet.id.get)"
+                     hx-trigger="load"
+                     hx-swap="innerHTML">
+                    <div class="text-center py-2">
+                        <div class="spinner-border spinner-border-sm" role="status"></div>
+                        <small class="ms-2">Loading resolutions...</small>
+                    </div>
+                </div>
+                <script>
+                    // Transform JSON response into a summary display
+                    document.body.addEventListener('htmx:afterSwap', function(evt) {
+                        if (evt.detail.target.id === 'resolutions-summary') {
+                            try {
+                                var data = JSON.parse(evt.detail.target.textContent);
+                                var pending = data.filter(r => r.status === 'PENDING').length;
+                                var applied = data.filter(r => r.status === 'APPLIED').length;
+                                var deferred = data.filter(r => r.resolutionType === 'DEFER' && r.status === 'PENDING').length;
+
+                                if (data.length === 0) {
+                                    evt.detail.target.innerHTML = '<small class="text-muted">No resolutions created yet. Use the API to create resolutions for ambiguous items.</small>';
+                                } else {
+                                    evt.detail.target.innerHTML = '<div class="d-flex gap-2 flex-wrap">' +
+                                        '<span class="badge bg-info">' + pending + ' pending</span>' +
+                                        '<span class="badge bg-success">' + applied + ' applied</span>' +
+                                        (deferred > 0 ? '<span class="badge bg-warning text-dark">' + deferred + ' deferred</span>' : '') +
+                                        '</div>';
+                                }
+                            } catch (e) {
+                                evt.detail.target.innerHTML = '<small class="text-muted">Could not load resolutions.</small>';
+                            }
+                        }
+                    });
+                </script>
+                <small class="text-muted d-block mt-1">
+                    <i class="bi bi-info-circle"></i> Create resolutions via API to correct merge decisions.
+                    <a href="/documents/curator-guide-tree-versioning.md#conflict-resolution" target="_blank">Learn more</a>
+                </small>
+            </div>
+            <hr>
+        }
+
         @* Action buttons based on status *@
         @details.changeSet.status match {
             case ChangeSetStatus.ReadyForReview => {
