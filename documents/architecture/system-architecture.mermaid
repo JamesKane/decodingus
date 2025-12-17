@@ -1,0 +1,145 @@
+%% Decoding Us - System Architecture Diagram
+%% Generated: 2025-12-17
+
+flowchart TB
+    subgraph Clients["Clients"]
+        Browser["Web Browser"]
+        APIClients["API Clients"]
+    end
+
+    subgraph Presentation["Presentation Layer"]
+        direction TB
+        Templates["Scala HTML Templates<br/>(Bootstrap 5 + HTMX)"]
+        Swagger["Swagger/OpenAPI Docs"]
+    end
+
+    subgraph HTTP["HTTP Layer"]
+        direction TB
+        Router["Play Router"]
+        Filters["HTTP Filters"]
+        Actions["Action Builders<br/>(Auth, Roles, Permissions)"]
+    end
+
+    subgraph Controllers["Controllers (37+)"]
+        direction LR
+        HomeCtrl["HomeController"]
+        TreeCtrl["TreeController"]
+        BiosampleCtrl["BiosampleController"]
+        VariantCtrl["VariantBrowserController"]
+        AuthCtrl["AuthController"]
+        CuratorCtrl["CuratorController"]
+        AdminCtrl["AdminController"]
+    end
+
+    subgraph API["Tapir API Endpoints"]
+        direction LR
+        HaplogroupAPI["Haplogroup API"]
+        SampleAPI["Sample API"]
+        VariantAPI["Variant API"]
+        CoverageAPI["Coverage API"]
+        FirehoseAPI["Firehose API"]
+        GenomeAPI["GenomeRegions API"]
+    end
+
+    subgraph Services["Service Layer (50+)"]
+        direction TB
+        subgraph CoreServices["Core Services"]
+            BiosampleSvc["BiosampleService"]
+            TreeSvc["HaplogroupTreeService"]
+            VersionSvc["TreeVersioningService"]
+            MergeSvc["TreeMergeService"]
+            PublicationSvc["PublicationService"]
+        end
+        subgraph SupportServices["Support Services"]
+            AuthSvc["AuthService"]
+            EmailSvc["EmailService"]
+            EncryptionSvc["EncryptionService"]
+            ReputationSvc["ReputationService"]
+        end
+        subgraph ExternalServices["External Integration"]
+            OpenAlexSvc["OpenAlexService"]
+            ATProtoClient["ATProtocolClient"]
+        end
+    end
+
+    subgraph Repositories["Repository Layer (55+)"]
+        direction LR
+        BaseRepo["BaseRepository"]
+        BiosampleRepo["BiosampleRepository"]
+        HaplogroupRepo["HaplogroupCoreRepository"]
+        VariantRepo["VariantV2Repository"]
+        TreeVersionRepo["TreeVersioningRepository"]
+        UserRepo["UserRepository"]
+    end
+
+    subgraph Actors["Pekko Actors (Scheduled Jobs)"]
+        direction LR
+        PubUpdateActor["PublicationUpdateActor<br/>(bi-weekly)"]
+        PubDiscoveryActor["PublicationDiscoveryActor<br/>(weekly)"]
+        YBrowseActor["YBrowseVariantUpdateActor<br/>(weekly)"]
+        ExportActor["VariantExportActor<br/>(daily)"]
+    end
+
+    subgraph Data["Data Layer"]
+        direction TB
+        PostgreSQL[("PostgreSQL 14+<br/>+ PostGIS")]
+        Slick["Slick ORM<br/>(MyPostgresProfile)"]
+        Cache["Caffeine Cache"]
+    end
+
+    subgraph External["External APIs & Services"]
+        direction TB
+        OpenAlex["OpenAlex API<br/>(Publications)"]
+        ENA["ENA API<br/>(Genomic Samples)"]
+        NCBI["NCBI API"]
+        YBrowse["YBrowse API<br/>(Y-DNA SNPs)"]
+        ATProto["AT Protocol<br/>(Bluesky/DID)"]
+        AWS["AWS<br/>(Secrets Manager, SES)"]
+        Recaptcha["reCAPTCHA 3.0"]
+    end
+
+    %% Client connections
+    Browser --> Templates
+    Browser --> Router
+    APIClients --> Router
+    APIClients --> Swagger
+
+    %% HTTP flow
+    Router --> Filters --> Actions
+    Actions --> Controllers
+    Actions --> API
+
+    %% Controller/API to Services
+    Controllers --> Services
+    API --> Services
+
+    %% Services to Repositories
+    CoreServices --> Repositories
+    SupportServices --> Repositories
+    ExternalServices --> Repositories
+
+    %% Actors to Services
+    Actors --> ExternalServices
+    Actors --> CoreServices
+
+    %% Repository to Data
+    Repositories --> Slick --> PostgreSQL
+    Services --> Cache
+
+    %% External integrations
+    OpenAlexSvc --> OpenAlex
+    ATProtoClient --> ATProto
+    ExternalServices --> ENA
+    ExternalServices --> NCBI
+    YBrowseActor --> YBrowse
+    SupportServices --> AWS
+    Actions --> Recaptcha
+
+    %% Styling
+    classDef primary fill:#4a90d9,stroke:#2563eb,color:white
+    classDef secondary fill:#10b981,stroke:#059669,color:white
+    classDef data fill:#f59e0b,stroke:#d97706,color:white
+    classDef external fill:#8b5cf6,stroke:#7c3aed,color:white
+
+    class PostgreSQL,Slick,Cache data
+    class OpenAlex,ENA,NCBI,YBrowse,ATProto,AWS,Recaptcha external
