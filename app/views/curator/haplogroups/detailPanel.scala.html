@@ -173,6 +173,10 @@
                     <i class="bi bi-arrow-up-circle"></i> Merge into Parent
                 </a>
             }
+            <a href="@controllers.routes.CuratorController.reparentForm(haplogroup.id.get)"
+               class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-arrow-up-right-circle"></i> Reparent
+            </a>
             <button type="button"
                     class="btn btn-danger btn-sm"
                     hx-delete="@controllers.routes.CuratorController.deleteHaplogroup(haplogroup.id.get)"

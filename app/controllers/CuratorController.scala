@@ -67,6 +67,12 @@ case class SplitBranchFormData(
     childIds: Seq[Int]
 )
 
+case class ReparentFormData(
+    newParentId: Int,
+    source: String,
+    reason: Option[String]
+)
+
 @Singleton
 class CuratorController @Inject()(
     val controllerComponents: ControllerComponents,
@@ -125,6 +131,14 @@ class CuratorController @Inject()(
       "variantIds" -> seq(number),
       "childIds" -> seq(number)
     )(SplitBranchFormData.apply)(s => Some((s.name, s.lineage, s.description, s.source, s.confidenceLevel, s.variantIds, s.childIds)))
+  )
+
+  private val reparentForm: Form[ReparentFormData] = Form(
+    mapping(
+      "newParentId" -> number,
+      "source" -> nonEmptyText(1, 100),
+      "reason" -> optional(text(maxLength = 500))
+    )(ReparentFormData.apply)(r => Some((r.newParentId, r.source, r.reason)))
   )
 
   private val createHaplogroupFormMapping: Form[CreateHaplogroupFormData] = Form(
@@ -775,6 +789,112 @@ class CuratorController @Inject()(
       }.recover {
         case e: IllegalArgumentException =>
           BadRequest(e.getMessage)
+      }
+    }
+
+  /**
+   * Show the reparent form for a haplogroup.
+   * Displays the current parent and allows selecting a new one.
+   */
+  def reparentForm(id: Int): Action[AnyContent] =
+    withPermission("haplogroup.update").async { implicit request =>
+      for {
+        haplogroupOpt <- haplogroupRepository.findById(id)
+        currentParentOpt <- haplogroupOpt match {
+          case Some(hg) => haplogroupRepository.getParent(id)
+          case None => Future.successful(None)
+        }
+        siblings <- haplogroupOpt match {
+          case Some(hg) => haplogroupRepository.search("", Some(hg.haplogroupType), 10000, 0)
+          case None => Future.successful(Seq.empty)
+        }
+      } yield {
+        haplogroupOpt match {
+          case Some(haplogroup) =>
+            // Filter out the haplogroup itself and its descendants to avoid cycles
+            val potentialParents = siblings.filterNot(_.id == haplogroup.id)
+            Ok(views.html.curator.haplogroups.reparentForm(haplogroup, currentParentOpt, potentialParents, reparentForm))
+          case None =>
+            NotFound("Haplogroup not found")
+        }
+      }
+    }
+
+  /**
+   * Process the reparent form submission.
+   * Validates the new parent and updates the relationship.
+   */
+  def reparent(id: Int): Action[AnyContent] =
+    withPermission("haplogroup.update").async { implicit request =>
+      haplogroupRepository.findById(id).flatMap {
+        case None =>
+          Future.successful(NotFound("Haplogroup not found"))
+
+        case Some(haplogroup) =>
+          reparentForm.bindFromRequest().fold(
+            formWithErrors => {
+              for {
+                currentParent <- haplogroupRepository.getParent(id)
+                siblings <- haplogroupRepository.search("", Some(haplogroup.haplogroupType), 10000, 0)
+              } yield {
+                val potentialParents = siblings.filterNot(_.id == haplogroup.id)
+                BadRequest(views.html.curator.haplogroups.reparentForm(haplogroup, currentParent, potentialParents, formWithErrors))
+              }
+            },
+            data => {
+              // Validate the new parent
+              haplogroupRepository.findById(data.newParentId).flatMap {
+                case None =>
+                  for {
+                    currentParent <- haplogroupRepository.getParent(id)
+                    siblings <- haplogroupRepository.search("", Some(haplogroup.haplogroupType), 10000, 0)
+                  } yield {
+                    val potentialParents = siblings.filterNot(_.id == haplogroup.id)
+                    val errorForm = reparentForm.fill(data).withGlobalError("Selected parent does not exist")
+                    BadRequest(views.html.curator.haplogroups.reparentForm(haplogroup, currentParent, potentialParents, errorForm))
+                  }
+
+                case Some(newParent) if newParent.haplogroupType != haplogroup.haplogroupType =>
+                  for {
+                    currentParent <- haplogroupRepository.getParent(id)
+                    siblings <- haplogroupRepository.search("", Some(haplogroup.haplogroupType), 10000, 0)
+                  } yield {
+                    val potentialParents = siblings.filterNot(_.id == haplogroup.id)
+                    val errorForm = reparentForm.fill(data).withGlobalError(
+                      s"Parent haplogroup type (${newParent.haplogroupType}) must match child type (${haplogroup.haplogroupType})"
+                    )
+                    BadRequest(views.html.curator.haplogroups.reparentForm(haplogroup, currentParent, potentialParents, errorForm))
+                  }
+
+                case Some(newParent) if newParent.id == haplogroup.id =>
+                  for {
+                    currentParent <- haplogroupRepository.getParent(id)
+                    siblings <- haplogroupRepository.search("", Some(haplogroup.haplogroupType), 10000, 0)
+                  } yield {
+                    val potentialParents = siblings.filterNot(_.id == haplogroup.id)
+                    val errorForm = reparentForm.fill(data).withGlobalError("Cannot set a haplogroup as its own parent")
+                    BadRequest(views.html.curator.haplogroups.reparentForm(haplogroup, currentParent, potentialParents, errorForm))
+                  }
+
+                case Some(newParent) =>
+                  // TODO: Check for cycles (newParent cannot be a descendant of haplogroup)
+                  for {
+                    oldParentOpt <- haplogroupRepository.getParent(id)
+                    _ <- haplogroupRepository.updateParent(id, data.newParentId, data.source)
+                    _ <- auditService.logHaplogroupReparent(
+                      request.user.id.get,
+                      haplogroup,
+                      oldParentOpt,
+                      newParent,
+                      data.reason
+                    )
+                  } yield {
+                    Redirect(routes.CuratorController.listHaplogroups(None, None, 1, 20))
+                      .flashing("success" -> s"${haplogroup.name} reparented under ${newParent.name}")
+                  }
+              }
+            }
+          )
       }
     }
 }

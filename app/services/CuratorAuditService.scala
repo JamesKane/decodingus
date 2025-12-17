@@ -475,4 +475,35 @@ class CuratorAuditService @Inject()(
     )
     auditRepository.logAction(entry)
   }
+
+  /**
+   * Log a reparent operation (moving a haplogroup to a new parent).
+   */
+  def logHaplogroupReparent(
+      userId: UUID,
+      haplogroup: Haplogroup,
+      oldParent: Option[Haplogroup],
+      newParent: Haplogroup,
+      reason: Option[String] = None
+  ): Future[AuditLogEntry] = {
+    val details = Json.obj(
+      "operation" -> "reparent",
+      "haplogroupId" -> haplogroup.id,
+      "haplogroupName" -> haplogroup.name,
+      "oldParentId" -> oldParent.flatMap(_.id),
+      "oldParentName" -> oldParent.map(_.name),
+      "newParentId" -> newParent.id,
+      "newParentName" -> newParent.name
+    )
+    val entry = AuditLogEntry(
+      userId = userId,
+      entityType = "haplogroup",
+      entityId = haplogroup.id.getOrElse(0),
+      action = "reparent",
+      oldValue = oldParent.map(p => Json.obj("parentId" -> p.id, "parentName" -> p.name)),
+      newValue = Some(details),
+      comment = reason
+    )
+    auditRepository.logAction(entry)
+  }
 }

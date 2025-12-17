@@ -254,6 +254,8 @@ GET           /curator/haplogroups/:id/split                                    
 POST          /curator/haplogroups/:id/split                                                      controllers.CuratorController.splitBranch(id: Int)
 GET           /curator/haplogroups/:id/merge                                                      controllers.CuratorController.mergeConfirmForm(id: Int)
 POST          /curator/haplogroups/:id/merge                                                      controllers.CuratorController.mergeIntoParent(id: Int)
+GET           /curator/haplogroups/:id/reparent                                                   controllers.CuratorController.reparentForm(id: Int)
+POST          /curator/haplogroups/:id/reparent                                                   controllers.CuratorController.reparent(id: Int)
 
 # Curator - Haplogroup-Variant Associations
 GET           /curator/haplogroups/:id/variants/search                                           controllers.CuratorController.searchVariantsForHaplogroup(id: Int, q: Option[String])

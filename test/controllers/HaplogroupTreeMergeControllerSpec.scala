@@ -80,7 +80,7 @@ class HaplogroupTreeMergeControllerSpec extends PlaySpec
     // mergeFullTree endpoint tests
     // =========================================================================
 
-    "return 200 for successful full tree merge" in {
+    "return 202 Accepted for full tree merge request" in {
       when(mockMergeService.mergeFullTree(any[TreeMergeRequest]))
         .thenReturn(Future.successful(createSuccessResponse()))
 
@@ -88,7 +88,7 @@ class HaplogroupTreeMergeControllerSpec extends PlaySpec
         "haplogroupType" -> "Y",
         "sourceTree" -> Json.obj(
           "name" -> "R1b",
-          "variants" -> Json.arr("M269")
+          "variants" -> Json.arr(Json.obj("name" -> "M269"))
         ),
         "sourceName" -> "ytree.net"
       )
@@ -99,15 +99,16 @@ class HaplogroupTreeMergeControllerSpec extends PlaySpec
 
       val result = route(app, request).get
 
-      status(result) mustBe OK
+      status(result) mustBe ACCEPTED
       contentType(result) mustBe Some("application/json")
 
       val json = contentAsJson(result)
-      (json \ "success").as[Boolean] mustBe true
-      (json \ "statistics" \ "nodesCreated").as[Int] mustBe 5
+      (json \ "status").as[String] mustBe "Processing"
     }
 
-    "return 400 for failed merge" in {
+    "return 202 Accepted even for failed merge (fire-and-forget)" in {
+      // With fire-and-forget pattern, the controller always returns 202 immediately
+      // Errors are logged in the background, not returned to the client
       val failureResponse = TreeMergeResponse.failure(
         "Merge validation failed",
         List("Invalid tree structure")
@@ -127,9 +128,9 @@ class HaplogroupTreeMergeControllerSpec extends PlaySpec
 
       val result = route(app, request).get
 
-      status(result) mustBe BAD_REQUEST
+      status(result) mustBe ACCEPTED
       val json = contentAsJson(result)
-      (json \ "success").as[Boolean] mustBe false
+      (json \ "status").as[String] mustBe "Processing"
     }
 
     "reject invalid haplogroup type in JSON body" in {
@@ -166,7 +167,9 @@ class HaplogroupTreeMergeControllerSpec extends PlaySpec
       status(result) mustBe BAD_REQUEST
     }
 
-    "handle service exceptions gracefully" in {
+    "return 202 Accepted even for service exceptions (fire-and-forget)" in {
+      // With fire-and-forget pattern, exceptions are logged in the background
+      // The client still receives 202 Accepted immediately
       when(mockMergeService.mergeFullTree(any[TreeMergeRequest]))
         .thenReturn(Future.failed(new RuntimeException("Database connection failed")))
 
@@ -182,10 +185,9 @@ class HaplogroupTreeMergeControllerSpec extends PlaySpec
 
       val result = route(app, request).get
 
-      status(result) mustBe INTERNAL_SERVER_ERROR
+      status(result) mustBe ACCEPTED
       val json = contentAsJson(result)
-      (json \ "success").as[Boolean] mustBe false
-      (json \ "errors").as[List[String]] must not be empty
+      (json \ "status").as[String] mustBe "Processing"
     }
 
     "pass through all request parameters to service" in {
@@ -196,7 +198,7 @@ class HaplogroupTreeMergeControllerSpec extends PlaySpec
         "haplogroupType" -> "Y",
         "sourceTree" -> Json.obj(
           "name" -> "R1b",
-          "variants" -> Json.arr("M269"),
+          "variants" -> Json.arr(Json.obj("name" -> "M269")),
           "formedYbp" -> 4500
         ),
         "sourceName" -> "ytree.net",
@@ -213,7 +215,7 @@ class HaplogroupTreeMergeControllerSpec extends PlaySpec
 
       val result = route(app, request).get
 
-      status(result) mustBe OK
+      status(result) mustBe ACCEPTED
       verify(mockMergeService).mergeFullTree(any[TreeMergeRequest])
     }
 
@@ -221,7 +223,7 @@ class HaplogroupTreeMergeControllerSpec extends PlaySpec
     // mergeSubtree endpoint tests
     // =========================================================================
 
-    "return 200 for successful subtree merge" in {
+    "return 202 Accepted for subtree merge request" in {
       when(mockMergeService.mergeSubtree(any[SubtreeMergeRequest]))
         .thenReturn(Future.successful(createSuccessResponse()))
 
@@ -230,7 +232,7 @@ class HaplogroupTreeMergeControllerSpec extends PlaySpec
         "anchorHaplogroupName" -> "R1b",
         "sourceTree" -> Json.obj(
           "name" -> "R1b-L21",
-          "variants" -> Json.arr("L21")
+          "variants" -> Json.arr(Json.obj("name" -> "L21"))
         ),
         "sourceName" -> "ytree.net"
       )
@@ -241,12 +243,14 @@ class HaplogroupTreeMergeControllerSpec extends PlaySpec
 
       val result = route(app, request).get
 
-      status(result) mustBe OK
+      status(result) mustBe ACCEPTED
       val json = contentAsJson(result)
-      (json \ "success").as[Boolean] mustBe true
+      (json \ "status").as[String] mustBe "Processing"
     }
 
-    "return 400 when anchor haplogroup not found" in {
+    "return 202 Accepted even when anchor haplogroup error occurs (fire-and-forget)" in {
+      // With fire-and-forget pattern, validation errors occur in the background
+      // The client still receives 202 Accepted immediately
       when(mockMergeService.mergeSubtree(any[SubtreeMergeRequest]))
         .thenReturn(Future.failed(new IllegalArgumentException("Anchor haplogroup 'NONEXISTENT' not found")))
 
@@ -263,9 +267,9 @@ class HaplogroupTreeMergeControllerSpec extends PlaySpec
 
       val result = route(app, request).get
 
-      status(result) mustBe BAD_REQUEST
+      status(result) mustBe ACCEPTED
       val json = contentAsJson(result)
-      (json \ "message").as[String] must include("not found")
+      (json \ "status").as[String] mustBe "Processing"
     }
 
     "return 400 for missing anchorHaplogroupName" in {
@@ -297,7 +301,7 @@ class HaplogroupTreeMergeControllerSpec extends PlaySpec
         "haplogroupType" -> "Y",
         "sourceTree" -> Json.obj(
           "name" -> "R1b",
-          "variants" -> Json.arr("M269")
+          "variants" -> Json.arr(Json.obj("name" -> "M269"))
         ),
         "sourceName" -> "ytree.net"
       )
@@ -407,7 +411,7 @@ class HaplogroupTreeMergeControllerSpec extends PlaySpec
         "haplogroupType" -> "MT",
         "sourceTree" -> Json.obj(
           "name" -> "H1",
-          "variants" -> Json.arr("H1-defining")
+          "variants" -> Json.arr(Json.obj("name" -> "H1-defining"))
         ),
         "sourceName" -> "mtDNA-tree"
       )
@@ -418,7 +422,7 @@ class HaplogroupTreeMergeControllerSpec extends PlaySpec
 
       val result = route(app, request).get
 
-      status(result) mustBe OK
+      status(result) mustBe ACCEPTED
     }
 
     // =========================================================================
@@ -433,19 +437,19 @@ class HaplogroupTreeMergeControllerSpec extends PlaySpec
         "haplogroupType" -> "Y",
         "sourceTree" -> Json.obj(
           "name" -> "R1b",
-          "variants" -> Json.arr("M269"),
+          "variants" -> Json.arr(Json.obj("name" -> "M269")),
           "children" -> Json.arr(
             Json.obj(
               "name" -> "R1b-L21",
-              "variants" -> Json.arr("L21"),
+              "variants" -> Json.arr(Json.obj("name" -> "L21")),
               "children" -> Json.arr(
                 Json.obj(
                   "name" -> "R1b-DF13",
-                  "variants" -> Json.arr("DF13"),
+                  "variants" -> Json.arr(Json.obj("name" -> "DF13")),
                   "children" -> Json.arr(
                     Json.obj(
                       "name" -> "R1b-Z39589",
-                      "variants" -> Json.arr("Z39589")
+                      "variants" -> Json.arr(Json.obj("name" -> "Z39589"))
                     )
                   )
                 )
@@ -462,7 +466,7 @@ class HaplogroupTreeMergeControllerSpec extends PlaySpec
 
       val result = route(app, request).get
 
-      status(result) mustBe OK
+      status(result) mustBe ACCEPTED
     }
 
     // =========================================================================
@@ -486,7 +490,7 @@ class HaplogroupTreeMergeControllerSpec extends PlaySpec
 
       val result = route(app, request).get
 
-      status(result) mustBe OK
+      status(result) mustBe ACCEPTED
     }
 
     // =========================================================================
