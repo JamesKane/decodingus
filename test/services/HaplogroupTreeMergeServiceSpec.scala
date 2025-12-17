@@ -30,6 +30,7 @@ class HaplogroupTreeMergeServiceSpec extends PlaySpec with MockitoSugar with Sca
   var mockHaplogroupVariantMetadataRepo: HaplogroupVariantMetadataRepository = _
   var mockTreeVersioningService: TreeVersioningService = _
   var mockWipTreeRepository: WipTreeRepository = _
+  var stagingHelper: TreeMergeStagingHelper = _
   var service: HaplogroupTreeMergeService = _
 
   // Test fixtures
@@ -75,6 +76,11 @@ class HaplogroupTreeMergeServiceSpec extends PlaySpec with MockitoSugar with Sca
     mockHaplogroupVariantMetadataRepo = mock[HaplogroupVariantMetadataRepository]
     mockTreeVersioningService = mock[TreeVersioningService]
     mockWipTreeRepository = mock[WipTreeRepository]
+    stagingHelper = new TreeMergeStagingHelper(
+      mockHaplogroupRepo,
+      mockVariantRepo,
+      mockWipTreeRepository
+    )
     service = new HaplogroupTreeMergeService(
       mockHaplogroupRepo,
       mockVariantRepo,
@@ -82,7 +88,7 @@ class HaplogroupTreeMergeServiceSpec extends PlaySpec with MockitoSugar with Sca
       mockHaplogroupRevisionMetadataRepo,
       mockHaplogroupVariantMetadataRepo,
       mockTreeVersioningService,
-      mockWipTreeRepository
+      stagingHelper
     )
 
     // Default mock behaviors for new metadata repositories
