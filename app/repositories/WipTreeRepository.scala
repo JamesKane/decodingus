@@ -144,6 +144,50 @@ trait WipTreeRepository {
   def getWipReparent(changeSetId: Int, haplogroupId: Int): Future[Option[WipReparentRow]]
 
   // ============================================================================
+  // WIP Resolution Operations (Curator Conflict Corrections)
+  // ============================================================================
+
+  /**
+   * Create a new resolution for a WIP item.
+   */
+  def createResolution(row: WipResolutionRow): Future[Int]
+
+  /**
+   * Get all resolutions for a change set.
+   */
+  def getResolutionsForChangeSet(changeSetId: Int): Future[Seq[WipResolutionRow]]
+
+  /**
+   * Get pending resolutions for a change set.
+   */
+  def getPendingResolutions(changeSetId: Int): Future[Seq[WipResolutionRow]]
+
+  /**
+   * Get deferred items for a change set.
+   */
+  def getDeferredItems(changeSetId: Int): Future[Seq[WipResolutionRow]]
+
+  /**
+   * Get resolution for a specific WIP haplogroup.
+   */
+  def getResolutionForWipHaplogroup(changeSetId: Int, wipHaplogroupId: Int): Future[Option[WipResolutionRow]]
+
+  /**
+   * Get resolution for a specific WIP reparent.
+   */
+  def getResolutionForWipReparent(changeSetId: Int, wipReparentId: Int): Future[Option[WipResolutionRow]]
+
+  /**
+   * Update resolution status (APPLIED or CANCELLED).
+   */
+  def updateResolutionStatus(resolutionId: Int, status: String, appliedAt: Option[java.time.LocalDateTime] = None): Future[Int]
+
+  /**
+   * Cancel a resolution.
+   */
+  def cancelResolution(resolutionId: Int): Future[Int]
+
+  // ============================================================================
   // Cleanup Operations
   // ============================================================================
 
@@ -368,6 +412,67 @@ class WipTreeRepositoryImpl @Inject()(
       .filter(r => r.changeSetId === changeSetId && r.haplogroupId === haplogroupId)
       .result.headOption
     runQuery(query)
+  }
+
+  // ============================================================================
+  // WIP Resolution Implementations
+  // ============================================================================
+
+  import models.dal.DatabaseSchema.domain.haplogroups.wipResolutions
+
+  override def createResolution(row: WipResolutionRow): Future[Int] = {
+    val query = (wipResolutions returning wipResolutions.map(_.id)) += row
+    runQuery(query)
+  }
+
+  override def getResolutionsForChangeSet(changeSetId: Int): Future[Seq[WipResolutionRow]] = {
+    val query = wipResolutions
+      .filter(_.changeSetId === changeSetId)
+      .sortBy(_.createdAt.desc)
+      .result
+    runQuery(query)
+  }
+
+  override def getPendingResolutions(changeSetId: Int): Future[Seq[WipResolutionRow]] = {
+    val query = wipResolutions
+      .filter(r => r.changeSetId === changeSetId && r.status === "PENDING")
+      .sortBy(_.createdAt.desc)
+      .result
+    runQuery(query)
+  }
+
+  override def getDeferredItems(changeSetId: Int): Future[Seq[WipResolutionRow]] = {
+    val query = wipResolutions
+      .filter(r => r.changeSetId === changeSetId && r.resolutionType === "DEFER" && r.status === "PENDING")
+      .sortBy(r => (r.deferPriority.desc, r.createdAt.desc))
+      .result
+    runQuery(query)
+  }
+
+  override def getResolutionForWipHaplogroup(changeSetId: Int, wipHaplogroupId: Int): Future[Option[WipResolutionRow]] = {
+    val query = wipResolutions
+      .filter(r => r.changeSetId === changeSetId && r.wipHaplogroupId === wipHaplogroupId && r.status === "PENDING")
+      .result.headOption
+    runQuery(query)
+  }
+
+  override def getResolutionForWipReparent(changeSetId: Int, wipReparentId: Int): Future[Option[WipResolutionRow]] = {
+    val query = wipResolutions
+      .filter(r => r.changeSetId === changeSetId && r.wipReparentId === wipReparentId && r.status === "PENDING")
+      .result.headOption
+    runQuery(query)
+  }
+
+  override def updateResolutionStatus(resolutionId: Int, status: String, appliedAt: Option[LocalDateTime] = None): Future[Int] = {
+    val query = wipResolutions
+      .filter(_.id === resolutionId)
+      .map(r => (r.status, r.appliedAt))
+      .update((status, appliedAt))
+    runQuery(query)
+  }
+
+  override def cancelResolution(resolutionId: Int): Future[Int] = {
+    updateResolutionStatus(resolutionId, "CANCELLED", None)
   }
 
   // ============================================================================

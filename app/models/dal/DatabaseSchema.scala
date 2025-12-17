@@ -115,6 +115,7 @@ object DatabaseSchema {
       val wipRelationships = TableQuery[WipRelationshipTable]
       val wipHaplogroupVariants = TableQuery[WipHaplogroupVariantTable]
       val wipReparents = TableQuery[WipReparentTable]
+      val wipResolutions = TableQuery[WipResolutionTable]
     }
 
     object pangenome {
