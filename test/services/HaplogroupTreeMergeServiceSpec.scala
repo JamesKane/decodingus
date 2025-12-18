@@ -13,6 +13,7 @@ import org.scalatestplus.mockito.MockitoSugar
 import org.scalatestplus.play.PlaySpec
 import play.api.libs.json.Json
 import repositories.{HaplogroupCoreRepository, HaplogroupVariantRepository, VariantV2Repository, HaplogroupRevisionMetadataRepository, HaplogroupVariantMetadataRepository, WipTreeRepository}
+import services.tree.{TreeMergePreviewService, TreeMergeProvenanceService, VariantMatchingService}
 
 import java.time.LocalDateTime
 import scala.concurrent.{ExecutionContext, Future}
@@ -31,6 +32,9 @@ class HaplogroupTreeMergeServiceSpec extends PlaySpec with MockitoSugar with Sca
   var mockTreeVersioningService: TreeVersioningService = _
   var mockWipTreeRepository: WipTreeRepository = _
   var stagingHelper: TreeMergeStagingHelper = _
+  var provenanceService: TreeMergeProvenanceService = _
+  var variantMatchingService: VariantMatchingService = _
+  var previewService: TreeMergePreviewService = _
   var service: HaplogroupTreeMergeService = _
 
   // Test fixtures
@@ -81,6 +85,9 @@ class HaplogroupTreeMergeServiceSpec extends PlaySpec with MockitoSugar with Sca
       mockVariantRepo,
       mockWipTreeRepository
     )
+    provenanceService = new TreeMergeProvenanceService(mockHaplogroupRepo)
+    variantMatchingService = new VariantMatchingService(mockHaplogroupRepo, mockVariantRepo)
+    previewService = new TreeMergePreviewService(variantMatchingService, provenanceService)
     service = new HaplogroupTreeMergeService(
       mockHaplogroupRepo,
       mockVariantRepo,
@@ -88,7 +95,10 @@ class HaplogroupTreeMergeServiceSpec extends PlaySpec with MockitoSugar with Sca
       mockHaplogroupRevisionMetadataRepo,
       mockHaplogroupVariantMetadataRepo,
       mockTreeVersioningService,
-      stagingHelper
+      stagingHelper,
+      provenanceService,
+      variantMatchingService,
+      previewService
     )
 
     // Default mock behaviors for new metadata repositories

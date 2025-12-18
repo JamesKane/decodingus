@@ -8,12 +8,10 @@ import models.domain.haplogroups.{ExistingTree, ExistingTreeNode, Haplogroup, Ha
 import play.api.Logging
 import play.api.libs.json.Json
 import repositories.{HaplogroupCoreRepository, HaplogroupVariantRepository, HaplogroupRevisionMetadataRepository, HaplogroupVariantMetadataRepository, VariantV2Repository, WipTreeRepository}
+import services.tree.{TreeMergePreviewService, TreeMergeProvenanceService, VariantMatchingService}
 
-import java.io.{File, PrintWriter}
 import java.time.LocalDateTime
-import java.time.format.DateTimeFormatter
 import scala.concurrent.{ExecutionContext, Future}
-import scala.util.{Try, Using}
 
 /**
  * Service for merging external haplogroup trees into the DecodingUs baseline tree.
@@ -85,7 +83,10 @@ class HaplogroupTreeMergeService @Inject()(
   haplogroupRevisionMetadataRepository: HaplogroupRevisionMetadataRepository,
   haplogroupVariantMetadataRepository: HaplogroupVariantMetadataRepository,
   treeVersioningService: TreeVersioningService,
-  stagingHelper: TreeMergeStagingHelper
+  stagingHelper: TreeMergeStagingHelper,
+  provenanceService: TreeMergeProvenanceService,
+  variantMatchingService: VariantMatchingService,
+  previewService: TreeMergePreviewService
 )(implicit ec: ExecutionContext) extends Logging {
 
   // ============================================================================
@@ -184,13 +185,13 @@ class HaplogroupTreeMergeService @Inject()(
         
         // Build scoped index for the anchor and its descendants
         subtreeScope = anchor +: descendants
-        subtreeIndex <- buildVariantIndexForScope(subtreeScope)
+        subtreeIndex <- variantMatchingService.buildVariantIndexForScope(subtreeScope)
 
         // Check if the source tree root is the anchor itself
         // If the source tree root matches the anchor, we should NOT pass the anchor ID as parent,
         // because that would imply the anchor is a child of itself (reparenting conflict).
         // Instead, passing None tells performMerge/mergeNode to treat it as a root update (no parent change).
-        rootMatch = findExistingMatch(request.sourceTree, subtreeIndex)
+        rootMatch = variantMatchingService.findExistingMatch(request.sourceTree, subtreeIndex)
         rootIsAnchor = rootMatch.exists(_.id == anchor.id)
         effectiveAnchorId = if (rootIsAnchor) None else anchor.id
 
@@ -215,12 +216,12 @@ class HaplogroupTreeMergeService @Inject()(
     for {
       // Build variant-based index of existing haplogroups
       // If we are previewing a subtree, we should ideally scope this too, but for now maintaining global index behavior for preview
-      // unless specifically requested to scope preview. 
+      // unless specifically requested to scope preview.
       // Optimization: For subtree preview, we could also scope, but let's stick to the requested changes for mergeSubtree first.
-      existingIndex <- buildVariantIndex(request.haplogroupType)
+      existingIndex <- variantMatchingService.buildVariantIndex(request.haplogroupType)
 
       // Simulate the merge to collect statistics
-      preview <- simulateMerge(
+      preview <- previewService.simulateMerge(
         sourceTree = request.sourceTree,
         sourceName = request.sourceName,
         existingIndex = existingIndex,
@@ -238,176 +239,6 @@ class HaplogroupTreeMergeService @Inject()(
    */
   private def getDescendantsRecursive(haplogroupId: Int): Future[Seq[Haplogroup]] = {
     haplogroupRepository.getDescendants(haplogroupId)
-  }
-
-  /**
-   * Build an index of existing haplogroups scoped to a specific list.
-   */
-  private def buildVariantIndexForScope(haplogroups: Seq[Haplogroup]): Future[VariantIndex] = {
-    val haplogroupIds = haplogroups.flatMap(_.id)
-    
-    // Bulk fetch variants for all haplogroups in the scope
-    haplogroupVariantRepository.getVariantsForHaplogroups(haplogroupIds).map { variants =>
-      // Group variants by haplogroup ID
-      val variantsByHaplogroupId = variants.groupMap(_._1)(_._2)
-      
-      // Associate haplogroups with their variant names
-      val hgsWithVariantNames = haplogroups.map { hg =>
-        val associatedVariants = variantsByHaplogroupId.getOrElse(hg.id.get, Seq.empty)
-        (hg, associatedVariants.flatMap(_.canonicalName))
-      }
-
-      val variantToHaplogroup = hgsWithVariantNames.flatMap { case (hg, variantNames) =>
-        variantNames.map(v => v.toUpperCase -> hg)
-      }.groupMap(_._1)(_._2)
-
-      val haplogroupByName = hgsWithVariantNames.map { case (hg, _) =>
-        hg.name.toUpperCase -> hg
-      }.toMap
-
-      VariantIndex(variantToHaplogroup, haplogroupByName)
-    }
-  }
-
-  /**
-   * Build an index of existing haplogroups by their variant names.
-   * This enables variant-based matching across different naming conventions.
-   */
-  private def buildVariantIndex(haplogroupType: HaplogroupType): Future[VariantIndex] = {
-    haplogroupRepository.getAllWithVariantNames(haplogroupType).map { haplogroupsWithVariants =>
-      val variantToHaplogroup = haplogroupsWithVariants.flatMap { case (hg, variants) =>
-        variants.map(v => v.toUpperCase -> hg)
-      }.groupMap(_._1)(_._2)
-
-      val haplogroupByName = haplogroupsWithVariants.map { case (hg, _) =>
-        hg.name.toUpperCase -> hg
-      }.toMap
-
-      VariantIndex(variantToHaplogroup, haplogroupByName)
-    }
-  }
-
-  /**
-   * Build an in-memory tree structure of existing haplogroups.
-   *
-   * == Formal Role: Phase 1 - Normalization of T₀ ==
-   *
-   * This method loads the existing tree and normalizes each node with:
-   *   - U(N): nodeVariants - variants defined at this node
-   *   - C(N): cumulativeVariants - all variants from root to N
-   *
-   * == Forest Support ==
-   *
-   * Y-DNA and mtDNA databases may contain multiple root trees:
-   *   - The main tree (Y-Adam or mtEve)
-   *   - Floating fragments from research papers
-   *   - Orphan nodes not yet connected
-   *
-   * To handle this, we create a virtual "Super-Adam" root that parents all
-   * actual roots. This unifies the forest into a single tree structure while:
-   *   - Preserving all indexes for global node lookup
-   *   - Allowing matches against nodes in any fragment
-   *   - Tracking the "primary root" for merge traversal
-   *
-   * @param haplogroupType Y or MT DNA type
-   * @return A unified tree with all roots as children of a virtual root
-   */
-  private def buildExistingTree(haplogroupType: HaplogroupType): Future[Option[ExistingTreeNode]] = {
-    for {
-      // Bulk fetch all haplogroups with their variants
-      haplogroupsWithVariants <- haplogroupRepository.getAllWithVariantNames(haplogroupType)
-      _ = logger.info(s"Loaded ${haplogroupsWithVariants.size} existing haplogroups")
-
-      // Bulk fetch all relationships
-      relationships <- haplogroupRepository.getAllRelationships(haplogroupType)
-      _ = logger.info(s"Loaded ${relationships.size} relationships")
-
-      // Build a map of haplogroup ID -> (haplogroup, variant names)
-      hgMap = haplogroupsWithVariants.flatMap { case (hg, variants) =>
-        hg.id.map(id => id -> (hg, variants.map(_.toUpperCase).toSet))
-      }.toMap
-
-      // Build parent -> children map from relationships
-      parentToChildren = relationships.groupMap(_._2)(_._1) // parentId -> Seq[childId]
-
-      // Find roots (haplogroups with no parent)
-      childIds = relationships.map(_._1).toSet
-      rootIds = hgMap.keys.filterNot(childIds.contains).toSeq
-      rootNames = rootIds.flatMap(id => hgMap.get(id).map { case (hg, _) => s"${hg.name}(id=$id)" })
-      _ = logger.info(s"Found ${rootIds.size} root haplogroup(s): ${rootNames.mkString(", ")}")
-    } yield {
-      // Recursively build tree nodes with cumulative variants
-      def buildNode(hgId: Int, inheritedVariants: Set[String]): Option[ExistingTreeNode] = {
-        hgMap.get(hgId).map { case (hg, nodeVariants) =>
-          val cumulativeVariants = inheritedVariants ++ nodeVariants
-          val nodeChildIds = parentToChildren.getOrElse(hgId, Seq.empty)
-          val children = nodeChildIds.flatMap(childId => buildNode(childId, cumulativeVariants))
-          ExistingTreeNode(hg, nodeVariants, cumulativeVariants, children)
-        }
-      }
-
-      // Build ALL root trees (not just the largest)
-      val allRootTrees = rootIds.flatMap { rootId =>
-        buildNode(rootId, Set.empty).map(tree => (tree, countTreeNodes(tree)))
-      }.sortBy(-_._2) // Sort by size descending
-
-      if (allRootTrees.isEmpty) {
-        logger.info(s"No existing tree found")
-        None
-      } else if (allRootTrees.size == 1) {
-        // Single root - return directly
-        val (primaryRoot, nodeCount) = allRootTrees.head
-        logger.info(s"Selected root: ${primaryRoot.haplogroup.name} with $nodeCount nodes")
-        Some(primaryRoot)
-      } else {
-        // Multiple roots - create virtual "Super-Adam" to unify the forest
-        // This ensures all nodes from all fragments are indexed for matching
-        val (primaryRoot, primaryCount) = allRootTrees.head
-        val fragmentCount = allRootTrees.tail.map(_._2).sum
-        val fragmentNames = allRootTrees.tail.map(_._1.haplogroup.name)
-
-        logger.info(s"FOREST DETECTED: Primary root ${primaryRoot.haplogroup.name} ($primaryCount nodes), " +
-          s"${allRootTrees.size - 1} fragment(s): ${fragmentNames.mkString(", ")} ($fragmentCount total nodes)")
-
-        // Create virtual Super-Adam root with all actual roots as children
-        // The virtual root has no variants (empty sets) and a synthetic haplogroup
-        val virtualSuperAdam = Haplogroup(
-          id = Some(-1), // Synthetic ID (never persisted)
-          name = s"__SUPER_ADAM_${haplogroupType}__",
-          lineage = None,
-          description = Some("Virtual root unifying forest fragments"),
-          haplogroupType = haplogroupType,
-          revisionId = 0,
-          source = "SYSTEM",
-          confidenceLevel = "system",
-          validFrom = java.time.LocalDateTime.now(),
-          validUntil = None,
-          formedYbp = None,
-          formedYbpLower = None,
-          formedYbpUpper = None,
-          tmrcaYbp = None,
-          tmrcaYbpLower = None,
-          tmrcaYbpUpper = None,
-          ageEstimateSource = None,
-          provenance = None
-        )
-
-        val unifiedRoot = ExistingTreeNode(
-          haplogroup = virtualSuperAdam,
-          nodeVariants = Set.empty,
-          cumulativeVariants = Set.empty,
-          children = allRootTrees.map(_._1)
-        )
-
-        logger.info(s"Created unified forest with ${countTreeNodes(unifiedRoot)} total nodes")
-        Some(unifiedRoot)
-      }
-    }
-  }
-
-  /** Count nodes in an ExistingTreeNode tree */
-  private def countTreeNodes(node: ExistingTreeNode): Int = {
-    1 + node.children.map(countTreeNodes).sum
   }
 
   /**
@@ -471,7 +302,7 @@ class HaplogroupTreeMergeService @Inject()(
       )
 
       // Phase 1a: Build in-memory tree of existing haplogroups with indexes
-      existingTreeOpt <- buildExistingTree(haplogroupType).map(_.map(ExistingTree.fromRoot))
+      existingTreeOpt <- variantMatchingService.buildExistingTree(haplogroupType).map(_.map(ExistingTree.fromRoot))
       _ = logger.info(s"Existing tree built with indexes: ${existingTreeOpt.map(t => s"${t.byName.size} nodes").getOrElse("no root found")}")
 
       // Phase 1b: Preload all variants from the source tree
@@ -520,7 +351,7 @@ class HaplogroupTreeMergeService @Inject()(
       // Write ambiguity report if needed and capture the path
       ambiguityReportPath = if (result.ambiguities.nonEmpty) {
         logger.warn(s"AMBIGUITIES DETECTED: ${result.ambiguities.size} placement(s) require curator review")
-        val path = writeAmbiguityReport(result.ambiguities, result.statistics, sourceName, haplogroupType, now)
+        val path = provenanceService.writeAmbiguityReport(result.ambiguities, result.statistics, sourceName, haplogroupType, now)
         path match {
           case Some(p) => logger.info(s"Ambiguity report written to: $p")
           case None => logger.warn("Failed to write ambiguity report")
@@ -717,7 +548,7 @@ class HaplogroupTreeMergeService @Inject()(
       addedVariantIds = newlyAssociatedIds.diff(existingHaplogroupVariantIds)
 
       // Update provenance (only in non-staging mode - we don't modify production nodes in staging)
-      _ <- if (!context.stagingMode) updateProvenance(existing, sourceNode.variants, context)
+      _ <- if (!context.stagingMode) provenanceService.updateProvenance(existing, sourceNode.variants, context)
            else Future.successful(())
 
       updatedStats = accumulator.statistics.copy(
@@ -1229,359 +1060,4 @@ class HaplogroupTreeMergeService @Inject()(
   }
 
 
-  /**
-   * Find an existing haplogroup that matches the input node.
-   *
-   * Matching priority:
-   * 1. Exact name match (most reliable)
-   * 2. Variant-based match with name confirmation (variant match + similar name)
-   * 3. Variant-based match with multiple shared variants
-   *
-   * This avoids false matches where downstream haplogroups inherit ancestral variants.
-   */
-  private def findExistingMatch(node: PhyloNodeInput, index: VariantIndex): Option[Haplogroup] = {
-    // First: try exact name match (most reliable)
-    val nameMatch = index.haplogroupByName.get(node.name.toUpperCase)
-    if (nameMatch.isDefined) {
-      return nameMatch
-    }
-
-    // Second: try variant-based matching
-    val allNames = allVariantNames(node.variants)
-    if (allNames.isEmpty) {
-      return None
-    }
-
-    val variantMatches = allNames
-      .flatMap(v => index.variantToHaplogroup.getOrElse(v.toUpperCase, Seq.empty))
-      .groupBy(identity)
-      .view.mapValues(_.size)
-      .toSeq
-      .sortBy(-_._2) // Sort by match count descending
-
-    // Require at least 2 matching variants to avoid false positives from inherited variants
-    // OR if there's only 1 variant in the input, require that the matched haplogroup name
-    // starts with the same letter as the input node name (basic lineage check)
-    variantMatches.headOption.flatMap { case (hg, matchCount) =>
-      val inputNodePrefix = node.name.take(1).toUpperCase
-      val matchedPrefix = hg.name.take(1).toUpperCase
-
-      if (matchCount >= 2) {
-        // Multiple variant matches - likely correct
-        Some(hg)
-      } else if (matchCount == 1 && inputNodePrefix == matchedPrefix) {
-        // Single variant match but same haplogroup lineage (e.g., both start with "R")
-        Some(hg)
-      } else {
-        // Single variant match with different lineage - likely false positive
-        logger.debug(s"Rejecting weak variant match: ${node.name} -> ${hg.name} (only $matchCount shared variants, different lineage)")
-        None
-      }
-    }
-  }
-
-  /**
-   * Update provenance for an existing haplogroup.
-   */
-  private def updateProvenance(
-    existing: Haplogroup,
-    newVariants: List[VariantInput],
-    context: MergeContext
-  ): Future[Boolean] = {
-    val existingProvenance = existing.provenance.getOrElse(
-      HaplogroupProvenance(primaryCredit = existing.source, nodeProvenance = Set(existing.source))
-    )
-
-    // Determine primary credit based on priority and preservation rules
-    val currentCredit = existingProvenance.primaryCredit
-    val newSource = context.sourceName
-    
-    val primaryCredit = if (HaplogroupProvenance.shouldPreserveCredit(currentCredit)) {
-      currentCredit // Always preserve ISOGG (or other protected sources)
-    } else {
-      // Check priority: lower index = higher priority
-      val currentPriority = getPriority(currentCredit, context.priorityConfig)
-      val newPriority = getPriority(newSource, context.priorityConfig)
-
-      if (newPriority < currentPriority) {
-        newSource // Update to higher priority source
-      } else {
-        currentCredit // Keep existing
-      }
-    }
-
-    // Add new source to node provenance
-    val updatedNodeProv = existingProvenance.nodeProvenance + context.sourceName
-
-    // Add variant provenance for new variants (primary names only for provenance tracking)
-    val variantNames = primaryVariantNames(newVariants)
-    val updatedVariantProv = variantNames.foldLeft(existingProvenance.variantProvenance) { (prov, variant) =>
-      prov.updatedWith(variant) {
-        case Some(sources) => Some(sources + context.sourceName)
-        case None => Some(Set(context.sourceName))
-      }
-    }
-
-    val updatedProvenance = HaplogroupProvenance(
-      primaryCredit = primaryCredit,
-      nodeProvenance = updatedNodeProv,
-      variantProvenance = updatedVariantProv,
-      lastMergedAt = Some(context.timestamp),
-      lastMergedFrom = Some(context.sourceName)
-    )
-
-    haplogroupRepository.updateProvenance(existing.id.get, updatedProvenance)
-  }
-
-  /**
-   * Update age estimates for a haplogroup.
-   */
-  private def updateAgeEstimates(
-    haplogroupId: Int,
-    node: PhyloNodeInput,
-    sourceName: String
-  ): Future[Boolean] = {
-    haplogroupRepository.findById(haplogroupId).flatMap {
-      case Some(existing) =>
-        val updated = existing.copy(
-          formedYbp = node.formedYbp.orElse(existing.formedYbp),
-          formedYbpLower = node.formedYbpLower.orElse(existing.formedYbpLower),
-          formedYbpUpper = node.formedYbpUpper.orElse(existing.formedYbpUpper),
-          tmrcaYbp = node.tmrcaYbp.orElse(existing.tmrcaYbp),
-          tmrcaYbpLower = node.tmrcaYbpLower.orElse(existing.tmrcaYbpLower),
-          tmrcaYbpUpper = node.tmrcaYbpUpper.orElse(existing.tmrcaYbpUpper),
-          ageEstimateSource = Some(sourceName)
-        )
-        haplogroupRepository.update(updated)
-      case None =>
-        Future.successful(false)
-    }
-  }
-
-  /**
-   * Get priority for a source (lower = higher priority).
-   */
-  private def getPriority(source: String, config: SourcePriorityConfig): Int = {
-    config.sourcePriorities.indexOf(source) match {
-      case -1 => config.defaultPriority
-      case idx => idx
-    }
-  }
-
-  /**
-   * Check if node has any age estimates.
-   */
-  private def hasAgeEstimates(node: PhyloNodeInput): Boolean = {
-    node.formedYbp.isDefined || node.tmrcaYbp.isDefined
-  }
-
-  /**
-   * Simulate merge without applying changes (for preview).
-   */
-  private def simulateMerge(
-    sourceTree: PhyloNodeInput,
-    sourceName: String,
-    existingIndex: VariantIndex,
-    priorityConfig: SourcePriorityConfig
-  ): Future[MergePreviewResponse] = {
-    // Recursively analyze the tree
-    val (stats, conflicts, splits, ambiguities, newNodes, updatedNodes, unchangedNodes) =
-      analyzeTree(sourceTree, existingIndex, sourceName, priorityConfig)
-
-    Future.successful(MergePreviewResponse(
-      statistics = stats,
-      conflicts = conflicts,
-      splits = splits,
-      ambiguities = ambiguities,
-      newNodes = newNodes,
-      updatedNodes = updatedNodes,
-      unchangedNodes = unchangedNodes
-    ))
-  }
-
-  /**
-   * Analyze tree structure for preview without making changes.
-   */
-  private def analyzeTree(
-    node: PhyloNodeInput,
-    index: VariantIndex,
-    sourceName: String,
-    priorityConfig: SourcePriorityConfig
-  ): (MergeStatistics, List[MergeConflict], List[SplitOperation], List[PlacementAmbiguity], List[String], List[String], List[String]) = {
-
-    val existingMatch = findExistingMatch(node, index)
-    val conflicts = scala.collection.mutable.ListBuffer.empty[MergeConflict]
-    val splits = scala.collection.mutable.ListBuffer.empty[SplitOperation]
-    val ambiguities = scala.collection.mutable.ListBuffer.empty[PlacementAmbiguity]
-    val newNodes = scala.collection.mutable.ListBuffer.empty[String]
-    val updatedNodes = scala.collection.mutable.ListBuffer.empty[String]
-    val unchangedNodes = scala.collection.mutable.ListBuffer.empty[String]
-
-    var stats = existingMatch match {
-      case Some(existing) =>
-        val existingSource = existing.provenance.map(_.primaryCredit).getOrElse(existing.source)
-        val shouldUpdate = getPriority(sourceName, priorityConfig) < getPriority(existingSource, priorityConfig)
-
-        // Check for conflicts
-        if (node.formedYbp.isDefined && existing.formedYbp.isDefined && node.formedYbp != existing.formedYbp) {
-          conflicts += MergeConflict(
-            haplogroupName = existing.name,
-            field = "formedYbp",
-            existingValue = existing.formedYbp.get.toString,
-            newValue = node.formedYbp.get.toString,
-            resolution = if (shouldUpdate) "will_update" else "will_keep_existing",
-            existingSource = existingSource,
-            newSource = sourceName
-          )
-        }
-
-        if (shouldUpdate && conflicts.nonEmpty) {
-          updatedNodes += existing.name
-          MergeStatistics(1, 0, 1, 0, 0, 0, 0, 0, 0)
-        } else {
-          unchangedNodes += existing.name
-          MergeStatistics(1, 0, 0, 1, 0, 0, 0, 0, 0)
-        }
-
-      case None =>
-        newNodes += node.name
-        MergeStatistics(1, 1, 0, 0, node.variants.size, 0, 1, 0, 0)
-    }
-
-    // Process children
-    node.children.foreach { child =>
-      val (childStats, childConflicts, childSplits, childAmbiguities, childNew, childUpdated, childUnchanged) =
-        analyzeTree(child, index, sourceName, priorityConfig)
-      stats = MergeStatistics.combine(stats, childStats)
-      conflicts ++= childConflicts
-      splits ++= childSplits
-      ambiguities ++= childAmbiguities
-      newNodes ++= childNew
-      updatedNodes ++= childUpdated
-      unchangedNodes ++= childUnchanged
-    }
-
-    (stats, conflicts.toList, splits.toList, ambiguities.toList, newNodes.toList, updatedNodes.toList, unchangedNodes.toList)
-  }
-
-  /**
-   * Write ambiguity report to a file for curator review.
-   *
-   * Reports are written to logs/merge-reports/ with timestamped filenames.
-   * The markdown format includes:
-   *   - Summary statistics
-   *   - Ambiguities grouped by type
-   *   - Full details for each ambiguity
-   *
-   * @param ambiguities List of placement ambiguities detected during merge
-   * @param statistics Merge statistics for context
-   * @param sourceName Name of the source being merged (e.g., "ISOGG")
-   * @param haplogroupType Y or MT
-   * @param timestamp When the merge occurred
-   * @return Path to the written report, or None if writing failed
-   */
-  private def writeAmbiguityReport(
-    ambiguities: List[PlacementAmbiguity],
-    statistics: MergeStatistics,
-    sourceName: String,
-    haplogroupType: HaplogroupType,
-    timestamp: LocalDateTime
-  ): Option[String] = {
-    if (ambiguities.isEmpty) return None
-
-    Try {
-      // Create reports directory if it doesn't exist
-      val reportsDir = new File("logs/merge-reports")
-      if (!reportsDir.exists()) {
-        reportsDir.mkdirs()
-      }
-
-      // Generate filename with timestamp
-      val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss")
-      val timestampStr = timestamp.format(formatter)
-      val sanitizedSource = sourceName.replaceAll("[^a-zA-Z0-9_-]", "_")
-      val filename = s"ambiguity-report_${haplogroupType}_${sanitizedSource}_$timestampStr.md"
-      val reportFile = new File(reportsDir, filename)
-
-      // Group ambiguities by type for organized reporting
-      val byType = ambiguities.groupBy(_.ambiguityType)
-
-      Using(new PrintWriter(reportFile)) { writer =>
-        writer.println(s"# Merge Ambiguity Report")
-        writer.println()
-        writer.println(s"**Source:** $sourceName")
-        writer.println(s"**Haplogroup Type:** $haplogroupType")
-        writer.println(s"**Timestamp:** $timestamp")
-        writer.println()
-
-        // Summary statistics
-        writer.println("## Merge Statistics")
-        writer.println()
-        writer.println(s"| Metric | Count |")
-        writer.println(s"|--------|-------|")
-        writer.println(s"| Nodes Processed | ${statistics.nodesProcessed} |")
-        writer.println(s"| Nodes Created | ${statistics.nodesCreated} |")
-        writer.println(s"| Nodes Updated | ${statistics.nodesUpdated} |")
-        writer.println(s"| Nodes Unchanged | ${statistics.nodesUnchanged} |")
-        writer.println(s"| Variants Added | ${statistics.variantsAdded} |")
-        writer.println(s"| Relationships Created | ${statistics.relationshipsCreated} |")
-        writer.println(s"| Relationships Updated | ${statistics.relationshipsUpdated} |")
-        writer.println(s"| Split Operations | ${statistics.splitOperations} |")
-        writer.println()
-
-        // Ambiguity summary
-        writer.println("## Ambiguity Summary")
-        writer.println()
-        writer.println(s"**Total Ambiguities:** ${ambiguities.size}")
-        writer.println()
-        writer.println("| Type | Count |")
-        writer.println("|------|-------|")
-        byType.toSeq.sortBy(-_._2.size).foreach { case (ambType, items) =>
-          writer.println(s"| $ambType | ${items.size} |")
-        }
-        writer.println()
-
-        // Detailed ambiguities by type
-        byType.toSeq.sortBy(-_._2.size).foreach { case (ambType, items) =>
-          writer.println(s"## $ambType (${items.size})")
-          writer.println()
-
-          // Sort by confidence (lowest first - most concerning)
-          items.sortBy(_.confidence).foreach { amb =>
-            writer.println(s"### ${amb.nodeName}")
-            writer.println()
-            writer.println(s"**Confidence:** ${f"${amb.confidence}%.2f"}")
-            writer.println()
-            writer.println(s"**Description:** ${amb.description}")
-            writer.println()
-            writer.println(s"**Resolution:** ${amb.resolution}")
-            writer.println()
-
-            if (amb.candidateMatches.nonEmpty) {
-              writer.println(s"**Candidate Matches:** ${amb.candidateMatches.mkString(", ")}")
-              writer.println()
-            }
-
-            if (amb.sharedVariants.nonEmpty) {
-              writer.println(s"**Shared Variants (${amb.sharedVariants.size}):** ${amb.sharedVariants.take(20).mkString(", ")}${if (amb.sharedVariants.size > 20) " ..." else ""}")
-              writer.println()
-            }
-
-            if (amb.conflictingVariants.nonEmpty) {
-              writer.println(s"**Conflicting Variants (${amb.conflictingVariants.size}):** ${amb.conflictingVariants.take(20).mkString(", ")}${if (amb.conflictingVariants.size > 20) " ..." else ""}")
-              writer.println()
-            }
-
-            writer.println("---")
-            writer.println()
-          }
-        }
-
-        writer.println()
-        writer.println("*Report generated by DecodingUs HaplogroupTreeMergeService*")
-      }.get
-
-      reportFile.getAbsolutePath
-    }.toOption
-  }
 }
