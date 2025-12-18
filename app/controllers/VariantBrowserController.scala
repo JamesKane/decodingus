@@ -1,13 +1,11 @@
 package controllers
 
 import jakarta.inject.{Inject, Singleton}
-import models.domain.genomics.VariantV2
-import models.domain.haplogroups.Haplogroup
 import org.webjars.play.WebJarsUtil
 import play.api.cache.AsyncCacheApi
 import play.api.i18n.I18nSupport
 import play.api.mvc.*
-import repositories.{HaplogroupVariantRepository, VariantV2Repository}
+import services.VariantBrowserService
 
 import scala.concurrent.duration.*
 import scala.concurrent.{ExecutionContext, Future}
@@ -20,8 +18,7 @@ import scala.concurrent.{ExecutionContext, Future}
 @Singleton
 class VariantBrowserController @Inject()(
     val controllerComponents: ControllerComponents,
-    variantRepository: VariantV2Repository,
-    haplogroupVariantRepository: HaplogroupVariantRepository,
+    variantBrowserService: VariantBrowserService,
     cache: AsyncCacheApi
 )(using webJarsUtil: WebJarsUtil, ec: ExecutionContext)
   extends BaseController with I18nSupport {
@@ -64,31 +61,26 @@ class VariantBrowserController @Inject()(
   // === Caching helpers ===
 
   /**
-   * Get cached search results or fetch from database.
+   * Get cached search results or fetch from service.
    */
-  private def getCachedSearchResults(query: String, offset: Int, limit: Int): Future[(Seq[VariantV2], Int)] = {
+  private def getCachedSearchResults(query: String, offset: Int, limit: Int): Future[(Seq[models.domain.genomics.VariantV2], Int)] = {
     val cacheKey = s"variant-browser:${query.toLowerCase.trim}:$offset:$limit"
     cache.getOrElseUpdate(cacheKey, SearchCacheDuration) {
-      variantRepository.searchPaginated(query, offset, limit)
+      variantBrowserService.searchPaginated(query, offset, limit)
     }
   }
 
   /**
-   * Get cached detail panel or fetch from database.
+   * Get cached detail panel or fetch from service.
    */
   private def getCachedDetailPanel(id: Int)(implicit request: Request[AnyContent]): Future[Result] = {
     val cacheKey = s"variant-browser-detail:$id"
     cache.getOrElseUpdate(cacheKey, DetailCacheDuration) {
-      for {
-        variantOpt <- variantRepository.findById(id)
-        haplogroups <- haplogroupVariantRepository.getHaplogroupsByVariant(id)
-      } yield {
-        variantOpt match {
-          case Some(variant) =>
-            Ok(views.html.variants.detailPanel(variant, haplogroups))
-          case None =>
-            NotFound("Variant not found")
-        }
+      variantBrowserService.getVariantWithHaplogroups(id).map {
+        case Some((variant, haplogroups)) =>
+          Ok(views.html.variants.detailPanel(variant, haplogroups))
+        case None =>
+          NotFound("Variant not found")
       }
     }
   }

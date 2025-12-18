@@ -108,34 +108,67 @@ class PublicationRepositoryImpl @Inject()(protected val dbConfigProvider: Databa
     // Apply sorting first, then pagination
     val sortedAndPaginatedQuery = publications
       .sortBy { p =>
-        // Sort in descending order by citation percentile, then cited by count, then publication date
-        // Use .desc for descending.
-        // For Option columns, .desc.nullsLast or .desc.nullsFirst determines how NULLs are sorted.
-        // If higher percentile/count is better, and no value means worse, then nullsLast is appropriate.
-        // For dates, typically newer is better, so desc.
         (
-          p.citationNormalizedPercentile.desc.nullsLast, // Higher percentile first, NULLs last
-          p.citedByCount.desc.nullsLast, // Higher count first, NULLs last
-          p.publicationDate.desc.nullsLast // Newer publication date first, NULLs last
+          p.citationNormalizedPercentile.desc.nullsLast,
+          p.citedByCount.desc.nullsLast,
+          p.publicationDate.desc.nullsLast
         )
       }
       .drop(offset)
       .take(pageSize)
 
     db.run(sortedAndPaginatedQuery.result).flatMap { paginatedPublications =>
-      Future.sequence(paginatedPublications.map { publication =>
-        val enaStudyQuery = (for {
-          pes <- publicationEnaStudies if pes.publicationId === publication.id
-          es <- enaStudies if es.id === pes.genomicStudyId
-        } yield es).result
+      if (paginatedPublications.isEmpty) {
+        Future.successful(Seq.empty)
+      } else {
+        assemblePublicationsWithDetails(paginatedPublications)
+      }
+    }
+  }
 
-        val sampleCountQuery = publicationBiosamples.filter(_.publicationId === publication.id).length.result
+  /**
+   * Assembles publication details using batch queries instead of N+1 pattern.
+   * Uses 2 additional queries regardless of the number of publications.
+   */
+  private def assemblePublicationsWithDetails(paginatedPublications: Seq[Publication]): Future[Seq[PublicationWithEnaStudiesAndSampleCount]] = {
+    val publicationIds = paginatedPublications.flatMap(_.id)
 
-        for {
-          enaStudiesResult <- db.run(enaStudyQuery)
-          sampleCountResult <- db.run(sampleCountQuery)
-        } yield PublicationWithEnaStudiesAndSampleCount(publication, enaStudiesResult, sampleCountResult)
-      })
+    // Batch query 1: Get all genomic studies for all publication IDs
+    val studiesQuery = (for {
+      pes <- publicationEnaStudies if pes.publicationId.inSet(publicationIds)
+      es <- enaStudies if es.id === pes.genomicStudyId
+    } yield (pes.publicationId, es)).result
+
+    // Batch query 2: Get all biosample counts for all publication IDs
+    val countsQuery = publicationBiosamples
+      .filter(_.publicationId.inSet(publicationIds))
+      .groupBy(_.publicationId)
+      .map { case (pubId, group) => (pubId, group.length) }
+      .result
+
+    for {
+      studiesWithPubId <- db.run(studiesQuery)
+      counts <- db.run(countsQuery)
+    } yield {
+      // Group studies by publication ID
+      val studiesByPubId: Map[Int, Seq[GenomicStudy]] = studiesWithPubId
+        .groupBy(_._1)
+        .view
+        .mapValues(_.map(_._2))
+        .toMap
+
+      // Convert counts to map
+      val countsByPubId: Map[Int, Int] = counts.toMap
+
+      // Assemble results maintaining original order
+      paginatedPublications.map { publication =>
+        val pubId = publication.id.getOrElse(0)
+        PublicationWithEnaStudiesAndSampleCount(
+          publication,
+          studiesByPubId.getOrElse(pubId, Seq.empty),
+          countsByPubId.getOrElse(pubId, 0)
+        )
+      }
     }
   }
 
@@ -200,19 +233,11 @@ class PublicationRepositoryImpl @Inject()(protected val dbConfigProvider: Databa
     for {
       totalCount <- db.run(countQuery)
       paginatedPublications <- db.run(sortedAndPaginatedQuery.result)
-      publicationsWithDetails <- Future.sequence(paginatedPublications.map { publication =>
-        val enaStudyQuery = (for {
-          pes <- publicationEnaStudies if pes.publicationId === publication.id
-          es <- enaStudies if es.id === pes.genomicStudyId
-        } yield es).result
-
-        val sampleCountQuery = publicationBiosamples.filter(_.publicationId === publication.id).length.result
-
-        for {
-          enaStudiesResult <- db.run(enaStudyQuery)
-          sampleCountResult <- db.run(sampleCountQuery)
-        } yield PublicationWithEnaStudiesAndSampleCount(publication, enaStudiesResult, sampleCountResult)
-      })
+      publicationsWithDetails <- if (paginatedPublications.isEmpty) {
+        Future.successful(Seq.empty)
+      } else {
+        assemblePublicationsWithDetails(paginatedPublications)
+      }
     } yield (publicationsWithDetails, totalCount.toLong)
   }
 }
