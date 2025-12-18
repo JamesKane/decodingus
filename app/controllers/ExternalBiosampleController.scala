@@ -19,21 +19,21 @@ object ApiResponse {
  * Controller for managing external biosample operations, such as creating biosamples.
  *
  * This controller handles HTTP actions related to external biosamples and interacts with the
- * `ExternalBiosampleService` to perform operations such as creating a biosample with provided data.
+ * `BiosampleDomainService` to perform operations such as creating a biosample with provided data.
  *
  * Key functionalities include securing endpoints via `SecureApiAction` and handling JSON payloads
  * representing external biosample requests.
  *
  * @param controllerComponents     The Play Framework `ControllerComponents` for handling requests and responses.
  * @param secureApi                The `SecureApiAction` responsible for securing access to this controller's endpoints.
- * @param externalBiosampleService The service layer used to perform operations related to external biosamples.
+ * @param biosampleDomainService   The facade service for all biosample operations.
  * @param ec                       An implicit `ExecutionContext` for handling asynchronous operations.
  */
 @Singleton
 class ExternalBiosampleController @Inject()(
                                              val controllerComponents: ControllerComponents,
                                              secureApi: ApiSecurityAction,
-                                             externalBiosampleService: ExternalBiosampleService
+                                             biosampleDomainService: BiosampleDomainService
                                            )(implicit ec: ExecutionContext) extends BaseController {
 
   /**
@@ -47,7 +47,7 @@ class ExternalBiosampleController @Inject()(
    *         and responds with the GUID of the created biosample in JSON format.
    */
   def create: Action[ExternalBiosampleRequest] = secureApi.jsonAction[ExternalBiosampleRequest].async { request =>
-    externalBiosampleService.createBiosampleWithData(request.body).map { guid =>
+    biosampleDomainService.createExternalBiosample(request.body).map { guid =>
       Created(Json.obj(
         "status" -> "success",
         "guid" -> guid
@@ -105,7 +105,7 @@ class ExternalBiosampleController @Inject()(
    *         or `500 Internal Server Error` in case of an unexpected error.
    */
   def delete(accession: String, citizenDid: String): Action[AnyContent] = secureApi.async {
-    externalBiosampleService.deleteBiosample(accession, citizenDid).map {
+    biosampleDomainService.deleteBiosample(accession, citizenDid).map {
       case true => NoContent
       case false => NotFound(Json.obj("error" -> "Biosample not found", "message" -> s"Biosample with accession '$accession' and DID '$citizenDid' not found or mismatch."))
     }.recover {

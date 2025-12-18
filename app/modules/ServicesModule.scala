@@ -32,6 +32,9 @@ class ServicesModule(environment: Environment, configuration: Configuration) ext
     bind(classOf[services.TreeMergeStagingHelper]).asEagerSingleton()
     bind(classOf[services.HaplogroupTreeMergeService]).asEagerSingleton()
 
+    // Biosample Domain Facade
+    bind(classOf[services.BiosampleDomainService]).asEagerSingleton()
+
     // Tree Versioning System
     bind(classOf[TreeVersioningRepository]).to(classOf[TreeVersioningRepositoryImpl])
     bind(classOf[TreeVersioningService]).to(classOf[TreeVersioningServiceImpl]).asEagerSingleton()

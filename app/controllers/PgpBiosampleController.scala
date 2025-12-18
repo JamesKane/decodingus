@@ -5,7 +5,7 @@ import jakarta.inject.{Inject, Singleton}
 import models.api.PgpBiosampleRequest
 import play.api.libs.json.Json
 import play.api.mvc.{Action, BaseController, ControllerComponents}
-import services.{DuplicateParticipantException, InvalidCoordinatesException, PgpBiosampleService}
+import services.{BiosampleDomainService, DuplicateParticipantException, InvalidCoordinatesException}
 
 import scala.concurrent.ExecutionContext
 
@@ -18,16 +18,16 @@ import scala.concurrent.ExecutionContext
  * the data, and delegating the actual sample creation logic to the service layer.
  *
  * @constructor Initializes the controller with its required dependencies.
- * @param controllerComponents A base set of helper methods provided by Play Framework for handling HTTP responses.
- * @param secureApi            An action builder that secures API endpoints by enforcing strict authentication and JSON validation.
- * @param pgpBiosampleService  The service layer responsible for handling the business logic of PGP biosample creation and management.
- * @param ec                   An implicit execution context for asynchronous operations.
+ * @param controllerComponents   A base set of helper methods provided by Play Framework for handling HTTP responses.
+ * @param secureApi              An action builder that secures API endpoints by enforcing strict authentication and JSON validation.
+ * @param biosampleDomainService The facade service for all biosample operations.
+ * @param ec                     An implicit execution context for asynchronous operations.
  */
 @Singleton
 class PgpBiosampleController @Inject()(
                                         val controllerComponents: ControllerComponents,
                                         secureApi: ApiSecurityAction,
-                                        pgpBiosampleService: PgpBiosampleService
+                                        biosampleDomainService: BiosampleDomainService
                                       )(implicit ec: ExecutionContext) extends BaseController {
 
   /**
@@ -42,7 +42,7 @@ class PgpBiosampleController @Inject()(
    *         - `500 Internal Server Error` if an unexpected issue occurs during processing.
    */
   def create: Action[PgpBiosampleRequest] = secureApi.jsonAction[PgpBiosampleRequest].async { request =>
-    pgpBiosampleService.createPgpBiosample(
+    biosampleDomainService.createPgpBiosample(
       participantId = request.body.participantId,
       description = request.body.description,
       centerName = request.body.centerName,

@@ -6,8 +6,7 @@ import models.api.{BiosampleUpdate, BiosampleView}
 import models.domain.genomics.Biosample
 import play.api.libs.json.{JsValue, Json}
 import play.api.mvc.{AbstractController, Action, AnyContent, ControllerComponents}
-import repositories.BiosampleRepository
-import services.BiosampleUpdateService
+import services.BiosampleDomainService
 
 import scala.concurrent.{ExecutionContext, Future}
 
@@ -19,15 +18,13 @@ import scala.concurrent.{ExecutionContext, Future}
  * @constructor Creates a new instance of the BiosampleController class.
  * @param cc                     the controller components used for handling HTTP requests and responses
  * @param secureApi              an action builder for processing secure API requests
- * @param biosampleRepository    a repository interface for accessing biosample data
- * @param biosampleUpdateService a service for handling biosample update operations
+ * @param biosampleDomainService the facade service for all biosample operations
  * @param ec                     the implicit execution context for handling asynchronous operations
  */
 class BiosampleController @Inject()(
                                      cc: ControllerComponents,
                                      secureApi: ApiSecurityAction,
-                                     biosampleRepository: BiosampleRepository,
-                                     biosampleUpdateService: BiosampleUpdateService
+                                     biosampleDomainService: BiosampleDomainService
                                    )(implicit ec: ExecutionContext) extends AbstractController(cc) {
 
   /**
@@ -43,7 +40,7 @@ class BiosampleController @Inject()(
       request.body.validate[BiosampleUpdate].fold(
         errors => Future.successful(BadRequest(Json.obj("error" -> "Invalid request format"))),
         update => {
-          biosampleUpdateService.updateBiosample(id, update).map {
+          biosampleDomainService.updateBiosample(id, update).map {
             case Right(biosample) => Ok(Json.toJson(biosample))
             case Left(error) => BadRequest(Json.obj("error" -> error))
           }
@@ -63,7 +60,7 @@ class BiosampleController @Inject()(
    *         a list of biosamples with their associated studies
    */
   def getSamplesWithStudies: Action[AnyContent] = Action.async {
-    biosampleRepository.findAllWithStudies().map {
+    biosampleDomainService.findAllWithStudies().map {
       samples =>
         Ok(Json.toJson(samples))
     }
@@ -82,7 +79,7 @@ class BiosampleController @Inject()(
    *         - On failure, returns a 404 response with an error message.
    */
   def findByAliasOrAccession(query: String): Action[AnyContent] = Action.async {
-    biosampleRepository.findByAliasOrAccession(query).map {
+    biosampleDomainService.findByAliasOrAccession(query).map {
       case Some((biosample, specimenDonor)) => Ok(Json.toJson(BiosampleView.fromDomain(biosample, specimenDonor)))
       case None => NotFound(Json.obj("error" -> "Biosample not found"))
     }

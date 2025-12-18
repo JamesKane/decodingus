@@ -3,7 +3,7 @@ package controllers
 import play.api.libs.json.Json
 import play.api.mvc.{Action, AnyContent, AbstractController, MessagesControllerComponents}
 import play.api.i18n._ // Add this import
-import services.BiosampleReportService
+import services.BiosampleDomainService
 
 import javax.inject.{Inject, Singleton}
 import scala.concurrent.ExecutionContext
@@ -11,12 +11,12 @@ import scala.concurrent.ExecutionContext
 /**
  * Controller responsible for handling operations related to biosample reports.
  *
- * @param cc      Controller components used to handle HTTP-related features.
- * @param service Service layer used to fetch biosample data.
- * @param ec      ExecutionContext for handling asynchronous operations.
+ * @param cc                     Controller components used to handle HTTP-related features.
+ * @param biosampleDomainService The facade service for all biosample operations.
+ * @param ec                     ExecutionContext for handling asynchronous operations.
  */
 @Singleton
-class BiosampleReportController @Inject()(cc: MessagesControllerComponents, service: BiosampleReportService)(implicit ec: ExecutionContext) extends AbstractController(cc) with I18nSupport { // Modified
+class BiosampleReportController @Inject()(cc: MessagesControllerComponents, biosampleDomainService: BiosampleDomainService)(implicit ec: ExecutionContext) extends AbstractController(cc) with I18nSupport { // Modified
   // override protected def controllerComponents: ControllerComponents = cc // Not needed when extending AbstractController directly
 
   /**
@@ -31,7 +31,7 @@ class BiosampleReportController @Inject()(cc: MessagesControllerComponents, serv
     val currentPage = page.getOrElse(1)
     val pageSize = request.queryString.get("pageSize").flatMap(_.headOption).flatMap(_.toIntOption).getOrElse(100)
 
-    service.getPaginatedBiosampleData(publicationId, currentPage, pageSize).map { paginatedResult =>
+    biosampleDomainService.getPaginatedBiosampleData(publicationId, currentPage, pageSize).map { paginatedResult =>
       Ok(views.html.biosampleReport(paginatedResult, publicationId))
     }
   }
@@ -43,7 +43,7 @@ class BiosampleReportController @Inject()(cc: MessagesControllerComponents, serv
    * @return An asynchronous Action that returns the biosample data as a JSON response.
    */
   def getBiosampleReportJSON(publicationId: Int): Action[AnyContent] = Action.async { implicit request =>
-    service.getBiosampleData(publicationId).map { biosamples =>
+    biosampleDomainService.getBiosampleData(publicationId).map { biosamples =>
       val jsonResponse = Json.toJson(biosamples)
       Ok(jsonResponse).as(play.api.http.MimeTypes.JSON)
     }

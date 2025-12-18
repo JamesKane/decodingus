@@ -5,7 +5,7 @@ import jakarta.inject.{Inject, Singleton}
 import models.api.BiosamplePublicationLinkRequest
 import play.api.libs.json.Json
 import play.api.mvc.{AbstractController, Action, ControllerComponents}
-import services.BiosamplePublicationService
+import services.BiosampleDomainService
 
 import scala.concurrent.ExecutionContext
 
@@ -17,16 +17,16 @@ import scala.concurrent.ExecutionContext
  * input data and handles potential errors during the linking process.
  *
  * @constructor Creates a new instance of BiosamplePublicationController.
- * @param cc                          Controller components used for handling requests and responses.
- * @param secureApi                   Security action for validating and processing secure API requests.
- * @param biosamplePublicationService Service for managing biosample-publication associations.
- * @param ec                          Execution context for asynchronous operations.
+ * @param cc                     Controller components used for handling requests and responses.
+ * @param secureApi              Security action for validating and processing secure API requests.
+ * @param biosampleDomainService The facade service for all biosample operations.
+ * @param ec                     Execution context for asynchronous operations.
  */
 @Singleton
 class BiosamplePublicationController @Inject()(
                                                 cc: ControllerComponents,
                                                 secureApi: ApiSecurityAction,
-                                                biosamplePublicationService: BiosamplePublicationService
+                                                biosampleDomainService: BiosampleDomainService
                                               )(implicit ec: ExecutionContext) extends AbstractController(cc) {
 
   /**
@@ -44,7 +44,7 @@ class BiosamplePublicationController @Inject()(
    */
   def linkBiosampleToPublication: Action[BiosamplePublicationLinkRequest] =
     secureApi.jsonAction[BiosamplePublicationLinkRequest].async { request =>
-      biosamplePublicationService.linkBiosampleToPublication(
+      biosampleDomainService.linkBiosampleToPublication(
         request.body.sampleAccession,
         request.body.publicationDoi
       ).map { link =>

@@ -5,7 +5,7 @@ import jakarta.inject.{Inject, Singleton}
 import models.api.{PublicationInfo, SequenceDataInfo}
 import play.api.libs.json.Json
 import play.api.mvc.{Action, BaseController, ControllerComponents}
-import services.BiosampleDataService
+import services.BiosampleDomainService
 
 import java.util.UUID
 import scala.concurrent.ExecutionContext
@@ -18,14 +18,14 @@ import scala.concurrent.ExecutionContext
  * @constructor Creates an instance of BiosampleDataController.
  * @param controllerComponents Standard Play framework controller components.
  * @param secureApi            A custom SecureApiAction used to enforce authentication and JSON validation.
- * @param biosampleDataService The service layer used to execute business logic for biosample operations.
+ * @param biosampleDomainService The facade service for all biosample operations.
  * @param ec                   An implicit ExecutionContext for asynchronous operations.
  */
 @Singleton
 class BiosampleDataController @Inject()(
                                          val controllerComponents: ControllerComponents,
                                          secureApi: ApiSecurityAction,
-                                         biosampleDataService: BiosampleDataService
+                                         biosampleDomainService: BiosampleDomainService
                                        )(implicit ec: ExecutionContext) extends BaseController {
 
   /**
@@ -43,7 +43,7 @@ class BiosampleDataController @Inject()(
    */
   def addSequenceData(sampleGuid: UUID): Action[SequenceDataInfo] =
     secureApi.jsonAction[SequenceDataInfo].async { request =>
-      biosampleDataService.addSequenceData(sampleGuid, request.body).map { _ =>
+      biosampleDomainService.addSequenceData(sampleGuid, request.body).map { _ =>
         Ok(Json.toJson(ApiResponse("success")))
       }
     }
@@ -60,7 +60,7 @@ class BiosampleDataController @Inject()(
    */
   def linkPublication(sampleGuid: UUID): Action[PublicationInfo] =
     secureApi.jsonAction[PublicationInfo].async { request =>
-      biosampleDataService.linkPublication(sampleGuid, request.body).map { _ =>
+      biosampleDomainService.linkPublication(sampleGuid, request.body).map { _ =>
         Ok(Json.toJson(ApiResponse("success")))
       }
     }
