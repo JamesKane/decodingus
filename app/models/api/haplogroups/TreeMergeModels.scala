@@ -271,7 +271,8 @@ case class TreeMergeResponse(
   conflicts: List[MergeConflict] = List.empty,
   splits: List[SplitOperation] = List.empty,
   ambiguities: List[PlacementAmbiguity] = List.empty,
-  errors: List[String] = List.empty
+  errors: List[String] = List.empty,
+  ambiguityReportPath: Option[String] = None
 )
 
 object TreeMergeResponse {

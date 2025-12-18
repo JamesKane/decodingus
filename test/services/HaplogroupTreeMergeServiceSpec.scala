@@ -13,7 +13,7 @@ import org.scalatestplus.mockito.MockitoSugar
 import org.scalatestplus.play.PlaySpec
 import play.api.libs.json.Json
 import repositories.{HaplogroupCoreRepository, HaplogroupVariantRepository, VariantV2Repository, HaplogroupRevisionMetadataRepository, HaplogroupVariantMetadataRepository, WipTreeRepository}
-import services.tree.{TreeMergePreviewService, TreeMergeProvenanceService, VariantMatchingService}
+import services.tree.{TreeMergeAlgorithmService, TreeMergePreviewService, TreeMergeProvenanceService, VariantMatchingService}
 
 import java.time.LocalDateTime
 import scala.concurrent.{ExecutionContext, Future}
@@ -35,6 +35,7 @@ class HaplogroupTreeMergeServiceSpec extends PlaySpec with MockitoSugar with Sca
   var provenanceService: TreeMergeProvenanceService = _
   var variantMatchingService: VariantMatchingService = _
   var previewService: TreeMergePreviewService = _
+  var algorithmService: TreeMergeAlgorithmService = _
   var service: HaplogroupTreeMergeService = _
 
   // Test fixtures
@@ -88,14 +89,17 @@ class HaplogroupTreeMergeServiceSpec extends PlaySpec with MockitoSugar with Sca
     provenanceService = new TreeMergeProvenanceService(mockHaplogroupRepo)
     variantMatchingService = new VariantMatchingService(mockHaplogroupRepo, mockVariantRepo)
     previewService = new TreeMergePreviewService(variantMatchingService, provenanceService)
-    service = new HaplogroupTreeMergeService(
+    algorithmService = new TreeMergeAlgorithmService(
       mockHaplogroupRepo,
       mockVariantRepo,
       mockVariantV2Repository,
-      mockHaplogroupRevisionMetadataRepo,
-      mockHaplogroupVariantMetadataRepo,
-      mockTreeVersioningService,
       stagingHelper,
+      provenanceService,
+      variantMatchingService
+    )
+    service = new HaplogroupTreeMergeService(
+      mockTreeVersioningService,
+      algorithmService,
       provenanceService,
       variantMatchingService,
       previewService
@@ -481,8 +485,9 @@ class HaplogroupTreeMergeServiceSpec extends PlaySpec with MockitoSugar with Sca
     }
 
     "fail subtree merge when anchor not found" in {
-      when(mockHaplogroupRepo.getHaplogroupByName("NONEXISTENT", HaplogroupType.Y))
-        .thenReturn(Future.successful(None))
+      // The mergeSubtree now first builds a variant index to find the anchor
+      when(mockHaplogroupRepo.getAllWithVariantNames(HaplogroupType.Y))
+        .thenReturn(Future.successful(Seq.empty)) // No haplogroups, so anchor won't be found
 
       val sourceTree = createPhyloNode(name = "Test")
 
