@@ -29,6 +29,7 @@
                 </li>
             </ul>
             <ul class="navbar-nav ms-auto">
+                @partials.languageSwitcher()
                 @if(request.session.get("userId").isDefined) {
                     @* Messages link with badge *@
                     <li class="nav-item">

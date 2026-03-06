@@ -1,0 +1,335 @@
+# General
+app.name = Decoding Us
+
+# Navigation
+nav.home = Accueil
+nav.about = À propos
+nav.ytree = Arbre Y-ADN
+nav.mtree = Arbre ADN-mt
+nav.references = Références
+nav.tools = Outils de recherche
+nav.coverage = Benchmarks de couverture
+nav.contact = Contact
+nav.reputation = Système de réputation
+nav.terms = Conditions d''utilisation
+nav.privacy = Politique de confidentialité
+nav.cookies = Utilisation des cookies
+nav.faq = FAQ
+nav.api = Documentation de l''API
+nav.profile = Profil
+nav.candidates = Examiner les candidats
+nav.messages = Messages
+nav.supportAdmin = Support
+nav.logout = Déconnexion
+nav.login = Connexion
+
+# Footer
+footer.copyright = Copyright © {0}, Decoding-Us.com
+
+# Home Page
+home.title = Decoding Us
+home.welcome = Bienvenue sur Decoding Us
+
+# Reputation System
+reputation.title = Système de réputation communautaire
+reputation.link = Système de réputation
+
+# Legal
+legal.cookies.title = Utilisation des cookies
+legal.privacy.title = Politique de confidentialité
+legal.terms.title = Conditions d''utilisation
+legal.faq.title = FAQ
+
+# Cookie Consent Banner
+cookies.banner.message = Nous utilisons les cookies uniquement pour l''authentification. Pas de suivi, pas de marketing, pas de partage avec des tiers.
+cookies.banner.learnMore = En savoir plus
+cookies.banner.accept = Accepter
+
+# Generic
+generic.notAvailable = Non disponible
+generic.submit = Envoyer
+generic.loading = Chargement...
+generic.show = Afficher
+generic.hide = Masquer
+generic.cancel = Annuler
+
+# Pagination
+pagination.pageOf = Page {0} sur {1}
+pagination.previous = Précédent
+pagination.next = Suivant
+pagination.first = Premier
+pagination.last = Dernier
+pagination.itemsPerPage = Éléments par page :
+
+# Biosample Report
+biosample.details = Détails de l''échantillon
+biosample.header.sampleId = Identifiant de l''échantillon
+biosample.header.accession = Numéro d''accession
+biosample.header.origin = Origine géographique
+biosample.header.timePeriod = Période
+biosample.header.datingPeriod = Période de datation
+biosample.header.sex = Sexe
+biosample.header.yHaplo = Haplogroupe Y-ADN
+biosample.header.mtHaplo = Haplogroupe ADN-mt
+biosample.header.population = Groupe de population
+biosample.analysisMethod = Méthode d''analyse : {0}
+
+# Map
+map.title = Distribution géographique des échantillons
+map.loading = Chargement des échantillons...
+map.totalSamplesPrefix = Total des échantillons :
+map.totalSamples = Total des échantillons : {0}
+
+# Contact
+contact.title = Nous contacter
+contact.name.label = Nom
+contact.name.placeholder = Votre nom
+contact.name.help = Veuillez entrer votre nom complet
+contact.email.label = Courriel
+contact.email.placeholder = votre.courriel@exemple.com
+contact.email.help = Nous ne partagerons jamais votre courriel avec qui que ce soit
+contact.subject.label = Objet
+contact.subject.placeholder = Objet de votre message
+contact.message.label = Message
+contact.message.placeholder = Votre message
+contact.send = Envoyer le message
+contact.authenticated.info = Vous êtes connecté(e). Votre message sera lié à votre compte et vous pourrez suivre les réponses dans votre historique.
+contact.viewHistory = Voir l''historique des messages
+
+# Support - User Messages
+support.myMessages.title = Mes messages
+support.myMessages.heading = Historique de mes messages
+support.myMessages.empty = Vous n''avez pas encore envoyé de messages.
+support.newMessage = Nouveau message
+support.status.new = Nouveau
+support.status.read = Lu
+support.status.replied = Répondu
+support.status.closed = Fermé
+
+# Support - Admin
+support.admin.title = Messages de support
+support.admin.heading = Gestion des messages de contact
+support.admin.filterStatus = Filtrer par statut :
+support.admin.allStatuses = Tous les statuts
+support.admin.noMessages = Aucun message trouvé.
+support.admin.table.status = Statut
+support.admin.table.from = De
+support.admin.table.subject = Objet
+support.admin.table.date = Date
+support.admin.view = Voir
+support.admin.authenticated = Utilisateur
+support.admin.registeredUser = Utilisateur enregistré
+support.admin.anonymous = Anonyme
+support.admin.messageDetail.title = Détails du message
+support.admin.backToList = Retour aux messages
+support.admin.receivedAt = Reçu le
+support.admin.replies = Réponses
+support.admin.repliedBy = Répondu par
+support.admin.emailSent = Courriel envoyé
+support.admin.sendReply = Envoyer une réponse
+support.admin.replyPlaceholder = Tapez votre réponse ici...
+support.admin.sendEmailCopy = Envoyer une copie par courriel à
+support.admin.noEmailForAuth = Cet utilisateur est connecté. Les réponses apparaîtront dans son historique de messages.
+support.admin.submitReply = Envoyer la réponse
+support.admin.senderInfo = Informations sur l''expéditeur
+support.admin.type = Type
+support.admin.handle = Identifiant
+support.admin.userId = ID utilisateur
+support.admin.name = Nom
+support.admin.email = Courriel
+support.admin.actions = Actions
+support.admin.markClosed = Marquer comme fermé
+support.admin.reopen = Rouvrir
+
+# Errors
+error.forbidden.title = Accès refusé
+error.forbidden.heading = Accès refusé
+error.notFound.title = Non trouvé
+error.notFound.heading = Page non trouvée
+
+# Coverage
+coverage.subtitle = Statistiques de couverture agrégées par laboratoire, type de test et contig.
+coverage.selectLab = Sélectionner un laboratoire de séquençage :
+coverage.selectLab.default = -- Sélectionner un laboratoire --
+coverage.selectLab.prompt = Veuillez sélectionner un laboratoire pour consulter les données de benchmark.
+coverage.metrics.title = Explication des métriques
+coverage.whyMatters = Pourquoi c''est important
+coverage.technicalDetails = Détails techniques
+
+# Benchmarks
+benchmark.header.testType = Type de test
+benchmark.header.contig = Contig
+benchmark.header.meanReadLen = Longueur moyenne des lectures
+benchmark.header.readLenRange = Plage de longueur des lectures
+benchmark.header.meanInsertSize = Taille moyenne d''insertion
+benchmark.header.insertSizeRange = Plage de taille d''insertion
+benchmark.header.meanDepth = Profondeur moyenne
+benchmark.header.noCoverage = Bases sans couverture
+benchmark.header.lowQuality = Mapping de faible qualité
+benchmark.header.callable = Bases appelables
+benchmark.header.meanMappingQuality = Qualité moyenne de mapping
+benchmark.header.samples = Échantillons
+benchmark.noData = Aucune donnée de benchmark disponible pour ce laboratoire.
+
+# Tree
+tree.legend.established = Haplogroupe établi
+tree.legend.updated = Mis à jour au cours de la dernière année
+tree.noData = Aucune donnée d''arbre disponible
+tree.loading = Chargement de l''arbre des haplogroupes...
+tree.jumpTo = Aller à l''haplogroupe :
+tree.go = Aller
+tree.reRoot = Cliquer pour changer la racine
+tree.verticalCladogram = Cladogramme vertical
+tree.clickToSeeVariants = Cliquer pour voir {0} variant(s) définissant(s)
+
+# Sidebar
+sidebar.title = Variant(s) définissant(s) pour {0}
+sidebar.noVariants = Aucun variant définissant trouvé pour {0}.
+sidebar.type = Type : {0}
+sidebar.refLocation = Emplacement(s) de référence :
+
+# References Page
+references.title = Publications
+references.viewMap = Voir la carte
+references.search.placeholder = Rechercher par titre, auteur, DOI...
+references.search.help = Rechercher des publications par titre, nom d''auteur, revue ou DOI
+
+# Publication
+publication.authors = Auteurs :
+publication.authors.etAl = (Voir l''article pour la liste complète des auteurs)
+publication.journal = Revue :
+publication.published = Publié :
+publication.abstract = Résumé
+publication.additionalDetails = Détails supplémentaires
+publication.classification = Classification :
+publication.access = Accès à la publication :
+publication.impact = Métriques d''impact :
+publication.cited = Cité : {0}
+publication.percentile = Percentile : {0}%
+publication.genomicStudies = Études génomiques
+publication.sampleCount = Nombre d''échantillons : {0}
+publication.showSamples = Afficher les échantillons
+publication.hideSamples = Masquer les échantillons
+publication.directLink = Lien direct
+publication.source.ena = Archive européenne des nucléotides
+publication.source.ncbi = BioProject NCBI
+publication.list.notFound = Aucune publication trouvée correspondant à « <strong>{0}</strong> ». Essayez un autre terme de recherche.
+publication.list.empty = Aucune publication disponible.
+publication.list.total = {0} publications
+publication.submit.title = Soumettre une publication
+publication.submit.doi.label = DOI
+publication.submit.doi.placeholder = Entrez le DOI ou l''URL du DOI (ex. : 10.1234/exemple ou https://doi.org/10.1234/exemple)
+publication.submit.doi.help = Entrez un DOI (10.1234/exemple) ou l''URL complète du DOI (https://doi.org/10.1234/exemple)
+publication.submit.ena.label = Accession d''étude d''archive de séquences (optionnel)
+publication.submit.ena.placeholder = Entrez l''accession d''étude d''archive si disponible (ex. : PRJEB12345, PRJNA123456)
+publication.submit.ena.help = Si l''article mentionne une étude d''archive de séquences (ex. : ENA ou SRA), entrez son accession ici
+publication.submit.forceRefresh = Forcer l''actualisation (mettre à jour même si la publication existe déjà)
+
+# Publication Candidates
+publicationCandidates.title = Revue des publications candidates
+publicationCandidates.heading = Publications candidates à examiner
+publicationCandidates.noCandidates = Aucune publication candidate en attente.
+publicationCandidates.table.title = Titre
+publicationCandidates.table.journal = Revue
+publicationCandidates.table.date = Date de publication
+publicationCandidates.table.relevance = Score de pertinence
+publicationCandidates.table.status = Statut
+publicationCandidates.table.actions = Actions
+publicationCandidates.action.accept = Accepter
+publicationCandidates.action.reject = Rejeter
+publicationCandidates.action.reviewed = Examiné
+publicationCandidates.confirmAccept = Êtes-vous sûr(e) de vouloir accepter ce candidat et l''importer comme nouvelle publication ?
+publicationCandidates.confirmReject = Êtes-vous sûr(e) de vouloir rejeter ce candidat ?
+publicationCandidates.acceptSuccess = Candidat « {0} » accepté et importé avec succès.
+publicationCandidates.acceptFailed = Échec de l''acceptation du candidat ou de l''importation de la publication.
+publicationCandidates.acceptError = Erreur lors de l''acceptation du candidat : {0}
+publicationCandidates.rejectSuccess = Candidat rejeté avec succès.
+publicationCandidates.rejectFailed = Échec du rejet du candidat.
+publicationCandidates.rejectError = Erreur lors du rejet du candidat : {0}
+publicationCandidates.promptRejectReason = Veuillez entrer une raison pour rejeter ce candidat.
+publicationCandidates.emptyRejectReasonAlert = La raison du rejet ne peut pas être vide.
+
+# Auth
+auth.login.title = Connexion
+auth.login.heading = Connexion
+auth.login.federation.title = Connexion fédérée
+auth.login.federation.description = Connectez-vous avec votre identité AT Protocol depuis n''importe quel fournisseur compatible (Bluesky, PDS auto-hébergé ou futurs comptes DecodingUs).
+auth.login.handle = Identifiant ou DID
+auth.login.handle.placeholder = alice.bsky.social ou did:plc:...
+auth.login.handle.help = Entrez votre identifiant complet (ex. : alice.bsky.social) ou DID. Nous trouverons votre fournisseur d''identité automatiquement.
+auth.login.password = Mot de passe d''application
+auth.login.passwordHelp = Utilisez un mot de passe d''application de votre fournisseur d''identité. <a href="{0}">En savoir plus sur les mots de passe d''application</a>.
+auth.login.submit = Se connecter
+
+# Auth - App Password Help
+auth.appPasswordHelp.title = Qu''est-ce qu''un mot de passe d''application ?
+auth.appPasswordHelp.heading = Qu''est-ce qu''un mot de passe d''application ?
+auth.appPasswordHelp.p1 = Un mot de passe d''application est un mot de passe unique généré par votre fournisseur d''identité AT Protocol (comme Bluesky, un PDS auto-hébergé ou d''autres services compatibles) spécifiquement pour les applications tierces comme celle-ci. Il vous permet d''accorder l''accès à une application sans partager votre mot de passe principal.
+auth.appPasswordHelp.p2 = L''utilisation de mots de passe d''application renforce votre sécurité en :
+auth.appPasswordHelp.li1 = Vous permettant de révoquer l''accès pour une seule application sans changer votre mot de passe principal.
+auth.appPasswordHelp.li2 = Limitant les permissions qu''une application peut avoir (bien que pour cette application, elle accorde un accès complet à la session).
+auth.appPasswordHelp.generateSteps = Comment générer un mot de passe d''application :
+auth.appPasswordHelp.step1 = Ouvrez les paramètres de votre client AT Protocol ou de votre fournisseur d''identité (ex. : bsky.app pour Bluesky, ou le panneau d''administration de votre PDS auto-hébergé).
+auth.appPasswordHelp.step2 = Accédez à <b>Paramètres</b> > <b>Mots de passe d''application</b> (ou <b>Confidentialité et sécurité</b> > <b>Mots de passe d''application</b>).
+auth.appPasswordHelp.step3 = Cliquez sur <b>Ajouter un mot de passe d''application</b>.
+auth.appPasswordHelp.step4 = Donnez-lui un nom descriptif (ex. : « Appli DecodingUs »).
+auth.appPasswordHelp.step5 = Copiez le mot de passe généré. C''est la seule fois que vous le verrez.
+auth.appPasswordHelp.note = Ce mot de passe généré est celui que vous utiliserez dans le formulaire de connexion. Traitez-le comme un mot de passe ordinaire.
+
+# Profile
+profile.title = Profil utilisateur
+profile.heading = Votre profil
+profile.accountDetails = Détails du compte
+profile.handle = Identifiant
+profile.did = DID
+profile.editProfile = Modifier le profil
+profile.displayName = Nom d''affichage
+profile.displayNameHelp = Ce nom sera visible par les autres utilisateurs dans le système de messagerie.
+profile.save = Enregistrer le profil
+
+# Variant Browser
+nav.variants = Navigateur de variants
+variants.browser.title = Navigateur de variants
+variants.browser.heading = Navigateur de variants
+variants.browser.description = Recherchez dans la base de données des variants Y-ADN et ADN-mt. Trouvez des SNP par nom, rsID ou alias.
+variants.browser.variants = Variants
+variants.browser.searchPlaceholder = Rechercher par rsID, nom de SNP ou alias (ex. : M269, rs9786076)...
+variants.browser.searchHelp = Entrez au moins 2 caractères pour rechercher. Recherche dans les noms, rsID et alias de variants.
+variants.browser.selectVariant = Sélectionnez un variant pour voir les détails
+variants.browser.foundMatching = {0} groupes de variants trouvés pour « {1} »
+variants.browser.showingTotal = Affichage de {0} groupes de variants au total
+variants.browser.pageOf = Page {0} sur {1}
+variants.browser.noResults = Aucun variant trouvé pour « {0} ».
+variants.browser.enterSearch = Entrez un terme de recherche pour trouver des variants.
+variants.browser.col.name = Nom / rsID
+variants.browser.col.alleles = Anc/Dér
+variants.browser.col.type = Type
+variants.browser.col.builds = Builds
+variants.browser.strandDiffers = Le brin diffère entre les builds
+
+# Variant Detail Panel
+variants.detail.rsId = rsID
+variants.detail.commonName = Nom commun
+variants.detail.ancestral = Ancestral
+variants.detail.derived = Dérivé
+variants.detail.type = Type
+variants.detail.status = Statut de dénomination
+variants.detail.altNames = Noms alternatifs
+variants.detail.source = Source
+variants.detail.refBuilds = Builds de référence
+variants.detail.strandDiff = Différence de brin (complément inverse)
+variants.detail.build = Build
+variants.detail.position = Position
+variants.detail.alleles = Allèles
+variants.detail.motifRepeats = Motif / Répétitions
+variants.detail.usedBy = Utilisé par les haplogroupes
+variants.detail.noHaplogroups = Ce variant n''est associé à aucun haplogroupe.
+variants.detail.more = plus
+variants.detail.aliasType.snpNames = Noms de SNP
+variants.detail.aliasType.dbsnp = Identifiants dbSNP
+
+# Language
+lang.switch = Langue
+lang.en = English
+lang.fr = Français
+lang.es = Español

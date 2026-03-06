@@ -1,0 +1,12 @@
+@()(implicit messages: Messages, request: RequestHeader)
+
+<li class="nav-item dropdown">
+    <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+        <i class="bi bi-translate me-1"></i>@messages("lang.switch")
+    </a>
+    <ul class="dropdown-menu dropdown-menu-end">
+        <li><a class="dropdown-item @if(messages.lang.code == "en"){ active fw-bold }" href="@controllers.routes.LanguageController.switchLanguage("en")">@messages("lang.en")</a></li>
+        <li><a class="dropdown-item @if(messages.lang.code == "fr"){ active fw-bold }" href="@controllers.routes.LanguageController.switchLanguage("fr")">@messages("lang.fr")</a></li>
+        <li><a class="dropdown-item @if(messages.lang.code == "es"){ active fw-bold }" href="@controllers.routes.LanguageController.switchLanguage("es")">@messages("lang.es")</a></li>
+    </ul>
+</li>

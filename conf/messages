@@ -327,3 +327,9 @@ variants.detail.noHaplogroups = This variant is not associated with any haplogro
 variants.detail.more = more
 variants.detail.aliasType.snpNames = SNP Names
 variants.detail.aliasType.dbsnp = dbSNP IDs
+
+# Language
+lang.switch = Language
+lang.en = English
+lang.fr = Français
+lang.es = Español
