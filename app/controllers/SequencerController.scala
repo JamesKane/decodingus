@@ -3,45 +3,30 @@ package controllers
 import actions.ApiSecurityAction
 import jakarta.inject.{Inject, Singleton}
 import models.api.genomics.AssociateLabWithInstrumentRequest
-import models.api.{SequencerLabInfo, SequencerLabInstrumentsResponse}
+import models.api.SequencerLabInstrumentsResponse
 import play.api.libs.json.Json
 import play.api.mvc.{AbstractController, Action, AnyContent, ControllerComponents}
-import repositories.SequencerInstrumentRepository
 import services.genomics.SequencerInstrumentService
 
 import scala.concurrent.ExecutionContext
 
-/**
- * Controller for sequencer instrument and lab information endpoints.
- */
 @Singleton
 class SequencerController @Inject()(
                                      cc: ControllerComponents,
-                                     repository: SequencerInstrumentRepository,
                                      apiSecurityAction: ApiSecurityAction,
                                      sequencerService: SequencerInstrumentService
                                    )(implicit ec: ExecutionContext)
   extends AbstractController(cc) {
 
-  /**
-   * Endpoint: GET /api/v1/sequencer/lab?instrument_id={id}
-   *
-   * Returns lab information for the given instrument ID.
-   */
   def getLabByInstrumentId(instrumentId: String): Action[AnyContent] = Action.async { implicit request =>
-    repository.findLabByInstrumentId(instrumentId).map {
-      case Some(labInfo) =>
-        Ok(Json.toJson(labInfo))
+    sequencerService.lookupLab(instrumentId).map {
+      case Some(lookupResult) =>
+        Ok(Json.toJson(lookupResult))
       case None =>
-        NotFound(s"Instrument ID '$instrumentId' not found")
+        NotFound(Json.obj("error" -> s"No lab association found for instrument '$instrumentId'"))
     }
   }
 
-  /**
-   * Endpoint: GET /api/v1/sequencer/lab-instruments
-   *
-   * Returns all lab-instrument associations.
-   */
   def getAllLabInstruments: Action[AnyContent] = Action.async { implicit request =>
     sequencerService.getAllLabInstrumentAssociations.map { associations =>
       Ok(Json.toJson(SequencerLabInstrumentsResponse(
@@ -49,22 +34,14 @@ class SequencerController @Inject()(
         count = associations.length
       )))
     }.recover {
-      case e: Exception =>
+      case _: Exception =>
         InternalServerError(Json.obj("error" -> "Failed to retrieve lab-instrument associations"))
     }
   }
 
-  /**
-   * Endpoint: POST /api/v1/sequencer/lab/associate
-   *
-   * Associates a lab with an instrument ID. If the lab doesn't exist,
-   * a placeholder record is created that can be updated with additional metadata later.
-   *
-   * Requires API Key authentication.
-   */
   def associateLabWithInstrument(): Action[AssociateLabWithInstrumentRequest] =
     Action.async(parse.json[AssociateLabWithInstrumentRequest]) { request =>
-      apiSecurityAction.invokeBlock(request, { secureRequest =>
+      apiSecurityAction.invokeBlock(request, { _ =>
         sequencerService.associateLabWithInstrument(
           request.body.instrumentId,
           request.body.labName,
@@ -75,7 +52,7 @@ class SequencerController @Inject()(
         }.recover {
           case e: IllegalArgumentException =>
             BadRequest(Json.obj("error" -> e.getMessage))
-          case e: Exception =>
+          case _: Exception =>
             InternalServerError(Json.obj("error" -> "Failed to associate lab with instrument"))
         }
       })
