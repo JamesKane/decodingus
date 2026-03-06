@@ -266,17 +266,18 @@ class VariantV2RepositoryImpl @Inject()(
       .groupBy(v => v.getCoordinates("hs1").toString)
       .values.map(_.head).toSeq
 
-    def toJsonb(jsValue: play.api.libs.json.JsValue): String = Json.stringify(jsValue)
-    def optString(s: Option[String]): String = s.map(v => s"'$v'").getOrElse("NULL")
+    def escapeSql(s: String): String = s.replace("'", "''")
+    def toJsonb(jsValue: play.api.libs.json.JsValue): String = escapeSql(Json.stringify(jsValue))
+    def optString(s: Option[String]): String = s.map(v => s"'${escapeSql(v)}'").getOrElse("NULL")
     def optInt(i: Option[Int]): String = i.map(_.toString).getOrElse("NULL")
 
     // === Named Variants Upsert ===
     val namedUpsertAction = if (namedVariants.nonEmpty) {
       val namedValues = namedVariants.map { v =>
-        val canonicalName = v.canonicalName.getOrElse(throw new IllegalArgumentException("Named variant must have a canonical name"))
+        val canonicalName = escapeSql(v.canonicalName.getOrElse(throw new IllegalArgumentException("Named variant must have a canonical name")))
         val definingHaplogroupId = optInt(v.definingHaplogroupId)
-        val mutationType = v.mutationType.dbValue
-        val namingStatus = v.namingStatus.dbValue
+        val mutationType = escapeSql(v.mutationType.dbValue)
+        val namingStatus = escapeSql(v.namingStatus.dbValue)
         val aliases = toJsonb(v.aliases)
         val coordinates = toJsonb(v.coordinates)
         val evidence = toJsonb(v.evidence)
@@ -285,7 +286,7 @@ class VariantV2RepositoryImpl @Inject()(
         val annotations = toJsonb(v.annotations)
         val createdAt = v.createdAt.getEpochSecond
         val updatedAt = v.updatedAt.getEpochSecond
-        
+
         s"(NEXTVAL('variant_v2_variant_id_seq'), '$canonicalName', '$mutationType', '$namingStatus', '$aliases', '$coordinates', $definingHaplogroupId, '$evidence', '$primers', $notes, '$annotations', TO_TIMESTAMP($createdAt), TO_TIMESTAMP($updatedAt))"
       }.mkString(",")
 
@@ -319,8 +320,8 @@ class VariantV2RepositoryImpl @Inject()(
           case None => throw new IllegalArgumentException("Unnamed variant without hs1 coordinates cannot be upserted.")
         }
         
-        val mutationType = v.mutationType.dbValue
-        val namingStatus = v.namingStatus.dbValue
+        val mutationType = escapeSql(v.mutationType.dbValue)
+        val namingStatus = escapeSql(v.namingStatus.dbValue)
         val aliases = toJsonb(v.aliases)
         val coordinates = toJsonb(v.coordinates)
         val evidence = toJsonb(v.evidence)
@@ -346,7 +347,7 @@ class VariantV2RepositoryImpl @Inject()(
           aliases = variant_v2.aliases || EXCLUDED.aliases,
           coordinates = variant_v2.coordinates || EXCLUDED.coordinates,
           evidence = variant_v2.evidence || EXCLUDED.evidence,
-          primers = variant_v2.primers || EXCLUDED.primERS,
+          primers = variant_v2.primers || EXCLUDED.primers,
           annotations = variant_v2.annotations || EXCLUDED.annotations,
           notes = COALESCE(variant_v2.notes, EXCLUDED.notes),
           naming_status = EXCLUDED.naming_status,
@@ -470,7 +471,7 @@ class VariantV2RepositoryImpl @Inject()(
   // === Alias Source Management ===
 
   override def bulkUpdateAliasSource(aliasPrefix: String, newSource: String, oldSource: Option[String]): Future[Int] = {
-    val oldSourceFilter = oldSource.map(s => s"AND aliases->'sources' ? '$s'").getOrElse("")
+    val oldSourceFilter = oldSource.map(s => s"AND aliases->'sources' ? '${s.replace("'", "''")}'").getOrElse("")
     val upperPrefix = aliasPrefix.toUpperCase
     db.run(sql"""
       SELECT COUNT(*) FROM variant_v2
@@ -585,7 +586,8 @@ class VariantV2RepositoryImpl @Inject()(
     val upperQuery = query.toUpperCase
     val searchPattern = s"%$upperQuery%"
     val hasQuery = query.trim.nonEmpty
-    val typeFilter = mutationType.map(t => s"AND mutation_type = '$t'").getOrElse("")
+    val validatedType = mutationType.flatMap(MutationType.fromString)
+    val typeFilter = validatedType.map(t => s"AND mutation_type = '${t.dbValue}'").getOrElse("")
 
     val searchSql = if (hasQuery) {
       sql"""
@@ -612,7 +614,8 @@ class VariantV2RepositoryImpl @Inject()(
   }
 
   override def count(query: Option[String] = None, mutationType: Option[String] = None): Future[Int] = {
-    val typeFilter = mutationType.map(t => s"AND mutation_type = '$t'").getOrElse("")
+    val validatedType = mutationType.flatMap(MutationType.fromString)
+    val typeFilter = validatedType.map(t => s"AND mutation_type = '${t.dbValue}'").getOrElse("")
     query match {
       case Some(q) if q.trim.nonEmpty =>
         val upperQuery = q.toUpperCase

@@ -5,6 +5,7 @@ import jakarta.inject.{Inject, Named, Singleton}
 import org.apache.pekko.actor.ActorRef
 import org.apache.pekko.pattern.ask
 import org.apache.pekko.util.Timeout
+import play.api.Logging
 import play.api.libs.json.Json
 import play.api.mvc.{Action, AnyContent, BaseController, ControllerComponents}
 import services.{ExportResult, VariantExportService, VariantPublicApiService}
@@ -24,7 +25,7 @@ class VariantPublicApiController @Inject()(
                                             variantExportService: VariantExportService,
                                             secureApi: ApiSecurityAction,
                                             @Named("variant-export-actor") variantExportActor: ActorRef
-                                          )(implicit ec: ExecutionContext) extends BaseController {
+                                          )(implicit ec: ExecutionContext) extends BaseController with Logging {
 
   /**
    * Search variants with pagination.
@@ -38,7 +39,8 @@ class VariantPublicApiController @Inject()(
       Ok(Json.toJson(response))
     }.recover {
       case e: Exception =>
-        InternalServerError(Json.obj("error" -> e.getMessage))
+        logger.error("Unexpected error in variant API", e)
+        InternalServerError(Json.obj("error" -> "An internal error occurred."))
     }
   }
 
@@ -52,7 +54,8 @@ class VariantPublicApiController @Inject()(
       case None => NotFound(Json.obj("error" -> s"Variant not found: $variantId"))
     }.recover {
       case e: Exception =>
-        InternalServerError(Json.obj("error" -> e.getMessage))
+        logger.error("Unexpected error in variant API", e)
+        InternalServerError(Json.obj("error" -> "An internal error occurred."))
     }
   }
 
@@ -65,7 +68,8 @@ class VariantPublicApiController @Inject()(
       Ok(Json.toJson(variants))
     }.recover {
       case e: Exception =>
-        InternalServerError(Json.obj("error" -> e.getMessage))
+        logger.error("Unexpected error in variant API", e)
+        InternalServerError(Json.obj("error" -> "An internal error occurred."))
     }
   }
 
@@ -127,7 +131,8 @@ class VariantPublicApiController @Inject()(
       }
     }.recover {
       case e: Exception =>
-        InternalServerError(Json.obj("error" -> e.getMessage))
+        logger.error("Unexpected error in variant API", e)
+        InternalServerError(Json.obj("error" -> "An internal error occurred."))
     }
   }
 }

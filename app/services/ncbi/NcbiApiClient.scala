@@ -43,6 +43,7 @@ case class SraBiosampleData(
 @Singleton
 class NcbiApiClient @Inject()(ws: WSClient)(implicit ec: ExecutionContext, mat: Materializer) extends Logging {
   private val baseUrl = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
+  private implicit val system: org.apache.pekko.actor.ActorSystem = mat.system.classicSystem
 
   // Create a queue that processes requests with rate limiting
   private val (queue, _) = Source.queue[(WSRequest, Promise[WSResponse])](
@@ -72,9 +73,7 @@ class NcbiApiClient @Inject()(ws: WSClient)(implicit ec: ExecutionContext, mat: 
     request.get().flatMap { response =>
       (response.json \ "error").asOpt[String] match {
         case Some(error) if error.contains("API rate limit exceeded") && retries > 0 =>
-          // Wait for 1.5 seconds before retrying (NCBI allows 3 requests per second)
-          Thread.sleep(1500)
-          makeRequest(request, retries - 1)
+          org.apache.pekko.pattern.after(1500.millis)(makeRequest(request, retries - 1))
         case Some(error) =>
           Future.failed(NcbiRateLimitException(error))
         case None =>
@@ -138,47 +137,26 @@ class NcbiApiClient @Inject()(ws: WSClient)(implicit ec: ExecutionContext, mat: 
         if (ids.isEmpty) {
           Future.successful(None)
         } else {
-          // For SRA accessions, first get the BioProject ID, then get its details
-          val searchRequest = ws.url(s"$baseUrl/esearch.fcgi")
+          val summaryRequest = ws.url(s"$baseUrl/esummary.fcgi")
             .withQueryStringParameters(
               "db" -> "sra",
-              "term" -> accession,
+              "id" -> ids.head,
               "retmode" -> "json"
             )
 
-          makeRequest(searchRequest).flatMap { searchResponse =>
-            val ids = (searchResponse.json \\ "idlist").headOption
-              .map(_.as[Seq[String]])
-              .getOrElse(Seq.empty)
+          makeRequest(summaryRequest).flatMap { summaryResponse =>
+            val bioProjectIdOpt = for {
+              result <- (summaryResponse.json \ "result").asOpt[JsObject]
+              docsum <- result.value.get(ids.head).flatMap(_.asOpt[JsObject])
+              expXmlStr <- docsum.value.get("expxml").flatMap(_.asOpt[String])
+              xml = scala.xml.XML.loadString(s"<root>${expXmlStr.trim}</root>")
+              bioProjectId <- (xml \\ "Bioproject").headOption.map(_.text)
+            } yield bioProjectId
 
-            if (ids.isEmpty) {
-              Future.successful(None)
-            } else {
-              val summaryRequest = ws.url(s"$baseUrl/esummary.fcgi")
-                .withQueryStringParameters(
-                  "db" -> "sra",
-                  "id" -> ids.head,
-                  "retmode" -> "json"
-                )
-
-              makeRequest(summaryRequest).flatMap { summaryResponse =>
-                // Extract BioProject ID from the summary response
-                val bioProjectIdOpt = for {
-                  result <- (summaryResponse.json \ "result").asOpt[JsObject]
-                  docsum <- result.value.get(ids.head).flatMap(_.asOpt[JsObject])
-                  expXmlStr <- docsum.value.get("expxml").flatMap(_.asOpt[String])
-                  xml = scala.xml.XML.loadString(s"<root>${expXmlStr.trim}</root>")
-                  bioProjectId <- (xml \\ "Bioproject").headOption.map(_.text)
-                } yield bioProjectId
-
-                bioProjectIdOpt match {
-                  case Some(bioProjectId) =>
-                    // Add delay before recursive call
-                    Thread.sleep(1500)
-                    getSraStudyDetails(bioProjectId)
-                  case None => Future.successful(None)
-                }
-              }
+            bioProjectIdOpt match {
+              case Some(bioProjectId) =>
+                org.apache.pekko.pattern.after(1500.millis)(getSraStudyDetails(bioProjectId))
+              case None => Future.successful(None)
             }
           }
         }

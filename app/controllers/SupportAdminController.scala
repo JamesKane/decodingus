@@ -1,5 +1,6 @@
 package controllers
 
+import actions.{AuthenticatedAction, RoleAction}
 import jakarta.inject.{Inject, Singleton}
 import models.domain.support.{MessageReply, MessageStatus}
 import org.webjars.play.WebJarsUtil
@@ -20,6 +21,8 @@ case class ReplyFormData(replyText: String, sendEmail: Boolean)
 @Singleton
 class SupportAdminController @Inject()(
     val controllerComponents: ControllerComponents,
+    authenticatedAction: AuthenticatedAction,
+    roleAction: RoleAction,
     contactMessageRepository: ContactMessageRepository,
     userRepository: UserRepository,
     authService: AuthService,
@@ -34,163 +37,125 @@ class SupportAdminController @Inject()(
     )(ReplyFormData.apply)(r => Some((r.replyText, r.sendEmail)))
   )
 
-  /**
-   * Check if current user has Admin role.
-   */
-  private def withAdminAuth[A](request: play.api.mvc.Request[A])(
-      block: UUID => Future[play.api.mvc.Result]
-  ): Future[play.api.mvc.Result] = {
-    implicit val req: play.api.mvc.RequestHeader = request
-    request.session.get("userId").map(UUID.fromString) match {
-      case Some(userId) =>
-        authService.hasRole(userId, "Admin").flatMap {
-          case true => block(userId)
-          case false =>
-            Future.successful(
-              Forbidden(views.html.errors.forbidden("You do not have permission to access this page."))
-            )
-        }
-      case None =>
-        Future.successful(
-          Redirect(routes.AuthController.login).flashing("error" -> "Please log in to access this page.")
-        )
-    }
-  }
+  private def AdminAction = authenticatedAction andThen roleAction("Admin")
 
   /**
    * List all contact messages for admin review.
    */
-  def listMessages(status: Option[String], page: Int, pageSize: Int): Action[AnyContent] = Action.async { implicit request =>
-    withAdminAuth(request) { _ =>
-      val statusFilter = status.flatMap(MessageStatus.fromString)
-      val offset = (page - 1) * pageSize
+  def listMessages(status: Option[String], page: Int, pageSize: Int): Action[AnyContent] = AdminAction.async { implicit request =>
+    val statusFilter = status.flatMap(MessageStatus.fromString)
+    val offset = (page - 1) * pageSize
 
-      for {
-        messages <- contactMessageRepository.findAll(statusFilter, pageSize, offset)
-        totalCount <- contactMessageRepository.countByStatus(statusFilter)
-      } yield {
-        val totalPages = (totalCount + pageSize - 1) / pageSize
-        Ok(views.html.support.admin.messageList(messages, statusFilter, page, totalPages, pageSize))
-      }
+    for {
+      messages <- contactMessageRepository.findAll(statusFilter, pageSize, offset)
+      totalCount <- contactMessageRepository.countByStatus(statusFilter)
+    } yield {
+      val totalPages = (totalCount + pageSize - 1) / pageSize
+      Ok(views.html.support.admin.messageList(messages, statusFilter, page, totalPages, pageSize))
     }
   }
 
   /**
    * View a single message with its replies.
    */
-  def viewMessage(id: UUID): Action[AnyContent] = Action.async { implicit request =>
-    withAdminAuth(request) { adminUserId =>
-      contactMessageRepository.findWithReplies(id).flatMap {
-        case Some((message, replies)) =>
-          // Mark as read if new
-          val updateFuture = if (message.status == MessageStatus.New) {
-            contactMessageRepository.updateStatus(id, MessageStatus.Read)
-          } else {
-            Future.successful(0)
-          }
+  def viewMessage(id: UUID): Action[AnyContent] = AdminAction.async { implicit request =>
+    val adminUserId = request.user.id.get
+    contactMessageRepository.findWithReplies(id).flatMap {
+      case Some((message, replies)) =>
+        // Mark as read if new
+        val updateFuture = if (message.status == MessageStatus.New) {
+          contactMessageRepository.updateStatus(id, MessageStatus.Read)
+        } else {
+          Future.successful(0)
+        }
 
-          // Get sender info if authenticated user
-          val senderFuture = message.userId match {
-            case Some(userId) => userRepository.findById(userId)
-            case None => Future.successful(None)
-          }
+        // Get sender info if authenticated user
+        val senderFuture = message.userId match {
+          case Some(userId) => userRepository.findById(userId)
+          case None => Future.successful(None)
+        }
 
-          for {
-            _ <- updateFuture
-            senderOpt <- senderFuture
-          } yield {
-            Ok(views.html.support.admin.messageDetail(message, replies, senderOpt, replyForm))
-          }
+        for {
+          _ <- updateFuture
+          senderOpt <- senderFuture
+        } yield {
+          Ok(views.html.support.admin.messageDetail(message, replies, senderOpt, replyForm))
+        }
 
-        case None =>
-          Future.successful(NotFound(views.html.errors.notFound("Message not found.")))
-      }
+      case None =>
+        Future.successful(NotFound(views.html.errors.notFound("Message not found.")))
     }
   }
 
   /**
    * Submit a reply to a message.
    */
-  def submitReply(messageId: UUID): Action[AnyContent] = Action.async { implicit request =>
-    withAdminAuth(request) { adminUserId =>
-      contactMessageRepository.findById(messageId).flatMap {
-        case Some(message) =>
-          replyForm.bindFromRequest().fold(
-            formWithErrors => {
-              for {
-                replies <- contactMessageRepository.findRepliesByMessageId(messageId)
-                senderOpt <- message.userId.map(userRepository.findById).getOrElse(Future.successful(None))
-              } yield {
-                BadRequest(views.html.support.admin.messageDetail(message, replies, senderOpt, formWithErrors))
-              }
-            },
-            data => {
-              val now = LocalDateTime.now()
-              val reply = MessageReply(
-                id = None,
-                messageId = messageId,
-                adminUserId = adminUserId,
-                replyText = data.replyText,
-                emailSent = false,
-                emailSentAt = None,
-                createdAt = now
-              )
-
-              for {
-                createdReply <- contactMessageRepository.createReply(reply)
-                _ <- contactMessageRepository.updateStatus(messageId, MessageStatus.Replied)
-                _ <- if (data.sendEmail && message.senderEmail.isDefined) {
-                  sendReplyEmail(message, data.replyText, createdReply.id.get)
-                } else {
-                  Future.successful(())
-                }
-              } yield {
-                Redirect(routes.SupportAdminController.viewMessage(messageId))
-                  .flashing("success" -> "Reply sent successfully.")
-              }
+  def submitReply(messageId: UUID): Action[AnyContent] = AdminAction.async { implicit request =>
+    val adminUserId = request.user.id.get
+    contactMessageRepository.findById(messageId).flatMap {
+      case Some(message) =>
+        replyForm.bindFromRequest().fold(
+          formWithErrors => {
+            for {
+              replies <- contactMessageRepository.findRepliesByMessageId(messageId)
+              senderOpt <- message.userId.map(userRepository.findById).getOrElse(Future.successful(None))
+            } yield {
+              BadRequest(views.html.support.admin.messageDetail(message, replies, senderOpt, formWithErrors))
             }
-          )
+          },
+          data => {
+            val now = LocalDateTime.now()
+            val reply = MessageReply(
+              id = None,
+              messageId = messageId,
+              adminUserId = adminUserId,
+              replyText = data.replyText,
+              emailSent = false,
+              emailSentAt = None,
+              createdAt = now
+            )
 
-        case None =>
-          Future.successful(NotFound(views.html.errors.notFound("Message not found.")))
-      }
+            for {
+              createdReply <- contactMessageRepository.createReply(reply)
+              _ <- contactMessageRepository.updateStatus(messageId, MessageStatus.Replied)
+              _ <- if (data.sendEmail && message.senderEmail.isDefined) {
+                sendReplyEmail(message, data.replyText, createdReply.id.get)
+              } else {
+                Future.successful(())
+              }
+            } yield {
+              Redirect(routes.SupportAdminController.viewMessage(messageId))
+                .flashing("success" -> "Reply sent successfully.")
+            }
+          }
+        )
+
+      case None =>
+        Future.successful(NotFound(views.html.errors.notFound("Message not found.")))
     }
   }
 
   /**
    * Update message status.
    */
-  def updateStatus(messageId: UUID, status: String): Action[AnyContent] = Action.async { implicit request =>
-    withAdminAuth(request) { _ =>
-      MessageStatus.fromString(status) match {
-        case Some(newStatus) =>
-          contactMessageRepository.updateStatus(messageId, newStatus).map { _ =>
-            Redirect(routes.SupportAdminController.viewMessage(messageId))
-              .flashing("success" -> s"Status updated to ${newStatus.value}.")
-          }
-        case None =>
-          Future.successful(BadRequest("Invalid status"))
-      }
+  def updateStatus(messageId: UUID, status: String): Action[AnyContent] = AdminAction.async { implicit request =>
+    MessageStatus.fromString(status) match {
+      case Some(newStatus) =>
+        contactMessageRepository.updateStatus(messageId, newStatus).map { _ =>
+          Redirect(routes.SupportAdminController.viewMessage(messageId))
+            .flashing("success" -> s"Status updated to ${newStatus.value}.")
+        }
+      case None =>
+        Future.successful(BadRequest("Invalid status"))
     }
   }
 
   /**
    * HTMX endpoint: Get unread message count badge for admins.
    */
-  def adminMessageBadge: Action[AnyContent] = Action.async { implicit request =>
-    // Check if user is admin before returning badge
-    request.session.get("userId").map(UUID.fromString) match {
-      case Some(userId) =>
-        authService.hasRole(userId, "Admin").flatMap {
-          case true =>
-            contactMessageRepository.countUnreadForAdmin.map { count =>
-              Ok(views.html.partials.messageBadge(count))
-            }
-          case false =>
-            Future.successful(Ok(views.html.partials.messageBadge(0)))
-        }
-      case None =>
-        Future.successful(Ok(views.html.partials.messageBadge(0)))
+  def adminMessageBadge: Action[AnyContent] = AdminAction.async { implicit request =>
+    contactMessageRepository.countUnreadForAdmin.map { count =>
+      Ok(views.html.partials.messageBadge(count))
     }
   }
 

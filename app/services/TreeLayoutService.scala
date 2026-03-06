@@ -19,10 +19,7 @@ object TreeLayoutService {
   private val NODE_WIDTH = 150.0
   private val NODE_HEIGHT = 80.0
   private val MARGIN_TOP = 50.0
-  private val MARGIN_LEFT = 120.0 
-
-  // Helper to store mutable state during layout traversal (breadth tracking)
-  private var currentBreadthPosition: Double = 0.0
+  private val MARGIN_LEFT = 120.0
 
   /**
    * Transforms a TreeDTO into a TreeViewModel with calculated coordinates, link paths, and node colors.
@@ -36,7 +33,7 @@ object TreeLayoutService {
    */
   def layoutTree(treeDto: TreeDTO, isAbsoluteTopRoot: Boolean, orientation: TreeOrientation = TreeOrientation.Horizontal): Option[TreeViewModel] = {
     val oneYearAgo = ZonedDateTime.now().minus(1, ChronoUnit.YEARS)
-    
+
     // Determine spacing based on orientation
     // Horizontal: Depth is X (Level), Breadth is Y (Stack). Nodes are 80px high.
     // Vertical: Depth is Y (Level), Breadth is X (Row). Nodes are 150px wide.
@@ -46,8 +43,7 @@ object TreeLayoutService {
     }
 
     treeDto.subclade.map { currentDisplayRootDTO =>
-      // Reset breadth tracker
-      currentBreadthPosition = orientation match {
+      val initialBreadthPosition = orientation match {
         case TreeOrientation.Horizontal => MARGIN_TOP
         case TreeOrientation.Vertical => MARGIN_LEFT
       }
@@ -55,7 +51,8 @@ object TreeLayoutService {
       val allNodes = collection.mutable.ListBuffer[TreeNodeViewModel]()
       val allLinks = collection.mutable.ListBuffer[TreeLinkViewModel]()
 
-      def calculateNodePositions(nodeDTO: TreeNodeDTO, depth: Int, isCurrentDisplayRoot: Boolean): TreeNodeViewModel = {
+      /** Returns (nodeViewModel, nextBreadthPosition) */
+      def calculateNodePositions(nodeDTO: TreeNodeDTO, depth: Int, isCurrentDisplayRoot: Boolean, breadthPosition: Double): (TreeNodeViewModel, Double) = {
         // Depth Position (Level)
         // Horizontal: Left-to-Right axis (svg x).
         // Vertical: Top-to-Bottom axis (svg y).
@@ -79,22 +76,22 @@ object TreeLayoutService {
           nodeDTO.children
         }
 
-        val childViewModels = childrenToProcess.sortBy(_.weight).map { childDTO =>
-          calculateNodePositions(childDTO, depth + 1, false)
+        val (childViewModels, nextBreadth) = childrenToProcess.sortBy(_.weight).foldLeft((List.empty[TreeNodeViewModel], breadthPosition)) {
+          case ((accChildren, currentBreadth), childDTO) =>
+            val (childVm, updatedBreadth) = calculateNodePositions(childDTO, depth + 1, false, currentBreadth)
+            (accChildren :+ childVm, updatedBreadth)
         }
 
         // Breadth Position (Stack/Row)
         // Horizontal: Top-to-Bottom axis (svg y).
         // Vertical: Left-to-Right axis (svg x).
-        val breadthPos = if (childViewModels.isEmpty) {
-          val assigned = currentBreadthPosition
-          currentBreadthPosition += breadthSpacing
-          assigned
+        val (breadthPos, finalBreadth) = if (childViewModels.isEmpty) {
+          (breadthPosition, breadthPosition + breadthSpacing)
         } else {
           val firstChild = childViewModels.head
           val lastChild = childViewModels.last
           // Children store: x = breadth, y = depth.
-          (firstChild.x + lastChild.x) / 2
+          ((firstChild.x + lastChild.x) / 2, nextBreadth)
         }
 
         // Store in ViewModel:
@@ -120,47 +117,20 @@ object TreeLayoutService {
           // Generate path data based on orientation
           val pathData = orientation match {
             case TreeOrientation.Horizontal =>
-              // Standard Layout (Left-to-Right)
-              // SVG X = Depth (y), SVG Y = Breadth (x)
-              // Source: (node.y, node.x)
-              // Target: (child.y, child.x)
-              // Exit Right side of Source: (sourceY + WIDTH/2, sourceX) ?? 
-              // Wait, previous code used (sourceY + WIDTH/2). 
-              // Actually haplogroup.scala.html: rect x = node.y - 75. Center = node.y.
-              // So right edge = node.y + 75. 
-              // Let's assume the previous logic: s"M $sourceY $sourceX" was using Center coordinates.
-              // If node.y is Center X, node.x is Center Y.
-              
               val sourceDepth = nodeViewModel.y + NODE_WIDTH / 2
               val sourceBreadth = nodeViewModel.x
-              
               val targetDepth = child.y - NODE_WIDTH / 2
               val targetBreadth = child.x
-              
-              // M (Depth) (Breadth) -> M x y
               s"M $sourceDepth $sourceBreadth " +
                 s"H ${(sourceDepth + targetDepth) / 2} " +
                 s"V $targetBreadth " +
                 s"H $targetDepth"
-                
+
             case TreeOrientation.Vertical =>
-              // Block Layout (Top-to-Bottom)
-              // SVG X = Breadth (x), SVG Y = Depth (y)
-              // Source: (node.x, node.y)
-              // Target: (child.x, child.y)
-              // Exit Bottom of Source: (sourceX, sourceY + HEIGHT/2)
-              // haplogroup.scala.html: rect y = node.x - 40. Center = node.x ?? NO.
-              // In Vertical, node.x is Breadth (SVG X). Rect x = node.x - 75. Center = node.x.
-              // node.y is Depth (SVG Y). Rect y = node.y - 40. Center = node.y.
-              // Height is 80. Bottom = node.y + 40.
-              
               val sourceBreadth = nodeViewModel.x
               val sourceDepth = nodeViewModel.y + NODE_HEIGHT / 2
-              
               val targetBreadth = child.x
               val targetDepth = child.y - NODE_HEIGHT / 2
-              
-              // M (Breadth) (Depth) -> M x y
               s"M $sourceBreadth $sourceDepth " +
                 s"V ${(sourceDepth + targetDepth) / 2} " +
                 s"H $targetBreadth " +
@@ -170,10 +140,10 @@ object TreeLayoutService {
           allLinks += TreeLinkViewModel(nodeViewModel.name, child.name, pathData)
         }
 
-        nodeViewModel
+        (nodeViewModel, finalBreadth)
       }
 
-      val rootViewModel = calculateNodePositions(currentDisplayRootDTO, 0, true)
+      val (rootViewModel, _) = calculateNodePositions(currentDisplayRootDTO, 0, true, initialBreadthPosition)
 
       // Calculate SVG dimensions
       // x = Breadth, y = Depth

@@ -129,7 +129,7 @@ class TreeVersioningApiController @Inject()(
           NotFound(Json.obj("error" -> e.getMessage))
         case e: Exception =>
           logger.error(s"Error starting review for change set $id: ${e.getMessage}", e)
-          InternalServerError(Json.obj("error" -> e.getMessage))
+          InternalServerError(Json.obj("error" -> "An internal error occurred."))
       }
     }
 
@@ -152,7 +152,7 @@ class TreeVersioningApiController @Inject()(
           NotFound(Json.obj("error" -> e.getMessage))
         case e: Exception =>
           logger.error(s"Error applying change set $id: ${e.getMessage}", e)
-          InternalServerError(Json.obj("error" -> e.getMessage))
+          InternalServerError(Json.obj("error" -> "An internal error occurred."))
       }
     }
 
@@ -176,7 +176,7 @@ class TreeVersioningApiController @Inject()(
           NotFound(Json.obj("error" -> e.getMessage))
         case e: Exception =>
           logger.error(s"Error discarding change set $id: ${e.getMessage}", e)
-          InternalServerError(Json.obj("error" -> e.getMessage))
+          InternalServerError(Json.obj("error" -> "An internal error occurred."))
       }
     }
 
@@ -224,7 +224,7 @@ class TreeVersioningApiController @Inject()(
               BadRequest(Json.obj("error" -> e.getMessage))
             case e: Exception =>
               logger.error(s"Error reviewing change $changeId: ${e.getMessage}", e)
-              InternalServerError(Json.obj("error" -> e.getMessage))
+              InternalServerError(Json.obj("error" -> "An internal error occurred."))
           }
       }
     }
@@ -240,7 +240,7 @@ class TreeVersioningApiController @Inject()(
       }.recover {
         case e: Exception =>
           logger.error(s"Error approving all changes in set $id: ${e.getMessage}", e)
-          InternalServerError(Json.obj("error" -> e.getMessage))
+          InternalServerError(Json.obj("error" -> "An internal error occurred."))
       }
     }
 
@@ -260,7 +260,7 @@ class TreeVersioningApiController @Inject()(
       }.recover {
         case e: Exception =>
           logger.error(s"Error adding comment to set $id: ${e.getMessage}", e)
-          InternalServerError(Json.obj("error" -> e.getMessage))
+          InternalServerError(Json.obj("error" -> "An internal error occurred."))
       }
     }
 
@@ -311,7 +311,7 @@ class TreeVersioningApiController @Inject()(
         }.recover {
           case e: Exception =>
             logger.error(s"Error getting active tree diff for $haplogroupType: ${e.getMessage}", e)
-            InternalServerError(Json.obj("error" -> e.getMessage))
+            InternalServerError(Json.obj("error" -> "An internal error occurred."))
         }
     }
   }

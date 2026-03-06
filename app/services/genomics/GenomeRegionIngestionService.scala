@@ -56,39 +56,30 @@ class GenomeRegionIngestionService @Inject()(
     }
   }
 
-  private def ingestUrl(url: String, regionType: String, liftovers: Map[String, LiftOver]): Future[Unit] = Future {
+  private def ingestUrl(url: String, regionType: String, liftovers: Map[String, LiftOver]): Future[Unit] = {
     logger.info(s"Ingesting $regionType from $url")
-    
-    // Simple download and parse (streaming)
-    Using.resource(Source.fromURL(url)) { source =>
-      val regions = source.getLines()
-        .filterNot(_.startsWith("#"))
-        .filterNot(_.trim.isEmpty)
-        .flatMap {
-          case line =>
-            parseBedLine(line, regionType, liftovers)
-        }
-        .toSeq
 
-      if (regions.nonEmpty) {
-        // Bulk insert
-        // repository.bulkCreateRegions is async, so we need to wait or change this method to return Future
-        // Since we are inside Future { ... }, we can block? No, better to group.
-        // But repository returns Future.
-        
-        // Actually, let's just collect them all (memory might be an issue for massive files, but these BEDs are small)
-        // Cytobands is small. CenSat is larger.
-        // Let's create in batches of 1000
-        regions.grouped(1000).foreach {
-          case batch =>
-            // Await to ensure sequential DB insertion (or we could use Future.sequence if we return Future)
-            // Since we are wrapping the whole thing in Future {}, blocking here blocks that one thread.
-            // Ideally we rewrite this to be fully async stream, but for "1 time bootstrap" this is acceptable.
-            concurrent.Await.result(repository.bulkCreateRegions(batch), scala.concurrent.duration.Duration.Inf)
+    val regions = Future {
+      Using.resource(Source.fromURL(url)) { source =>
+        source.getLines()
+          .filterNot(_.startsWith("#"))
+          .filterNot(_.trim.isEmpty)
+          .flatMap(line => parseBedLine(line, regionType, liftovers))
+          .toSeq
+      }
+    }
+
+    regions.flatMap { parsedRegions =>
+      if (parsedRegions.nonEmpty) {
+        val batches = parsedRegions.grouped(1000).toSeq
+        batches.foldLeft(Future.successful(())) { (acc, batch) =>
+          acc.flatMap(_ => repository.bulkCreateRegions(batch).map(_ => ()))
+        }.map { _ =>
+          logger.info(s"Ingested ${parsedRegions.size} regions for $regionType")
         }
-        logger.info(s"Ingested ${regions.size} regions for $regionType")
       } else {
         logger.warn(s"No regions found for $regionType")
+        Future.successful(())
       }
     }
   }

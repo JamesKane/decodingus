@@ -553,24 +553,37 @@ class HaplogroupCoreRepositoryImpl @Inject()(
     import models.dal.DatabaseSchema.domain.haplogroups.haplogroupVariants
     import models.dal.DatabaseSchema.domain.genomics.variantsV2
 
-    // Query haplogroups with their associated variant names via join
+    // Single query: left join haplogroups with their variant names
     val query = for {
-      hg <- activeHaplogroups.filter(_.haplogroupType === haplogroupType)
-    } yield hg
+      (hg, hv) <- activeHaplogroups.filter(_.haplogroupType === haplogroupType)
+        .joinLeft(haplogroupVariants).on(_.haplogroupId === _.haplogroupId)
+    } yield (hg, hv.map(_.variantId))
 
-    runQuery(query.result).flatMap { hgList =>
-      // For each haplogroup, fetch its variant names (using canonicalName from VariantV2 table)
-      val futures = hgList.map { hg =>
-        val variantQuery = for {
-          hv <- haplogroupVariants.filter(_.haplogroupId === hg.id.get)
-          v <- variantsV2.filter(_.variantId === hv.variantId)
-        } yield v.canonicalName
-
-        runQuery(variantQuery.result).map { variantNames =>
-          (hg, variantNames.flatten) // Filter out None values
+    runQuery(query.result).flatMap { hgWithVariantIds =>
+      // Collect all variant IDs needed, fetch canonical names in one query
+      val allVariantIds = hgWithVariantIds.flatMap(_._2).distinct
+      val variantNamesFuture = if (allVariantIds.isEmpty) {
+        Future.successful(Map.empty[Int, String])
+      } else {
+        runQuery(
+          variantsV2.filter(_.variantId.inSet(allVariantIds))
+            .map(v => (v.variantId, v.canonicalName))
+            .result
+        ).map { pairs =>
+          pairs.collect { case (id, Some(name)) => id -> name }.toMap
         }
       }
-      Future.sequence(futures)
+
+      variantNamesFuture.map { variantNamesMap =>
+        // Group by haplogroup and resolve variant names
+        hgWithVariantIds
+          .groupBy(_._1)
+          .map { case (hg, rows) =>
+            val names = rows.flatMap(_._2).flatMap(variantNamesMap.get)
+            (hg, names)
+          }
+          .toSeq
+      }
     }
   }
 
