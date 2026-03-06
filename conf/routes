@@ -66,6 +66,13 @@ GET           /api/v1/sequencer/lab                                             
 GET           /api/v1/sequencer/lab-instruments                                                  controllers.SequencerController.getAllLabInstruments
 POST          /api/v1/sequencer/lab/associate                                                    controllers.SequencerController.associateLabWithInstrument()
 
+# Instrument Proposal Curator API
+GET           /api/v1/curator/instrument-proposals                                                controllers.InstrumentProposalController.listProposals(status: Option[String])
+GET           /api/v1/curator/instrument-proposals/conflicts                                      controllers.InstrumentProposalController.detectConflicts()
+GET           /api/v1/curator/instrument-proposals/:id                                            controllers.InstrumentProposalController.getProposalDetail(id: Int)
+POST          /api/v1/curator/instrument-proposals/:id/accept                                     controllers.InstrumentProposalController.acceptProposal(id: Int)
+POST          /api/v1/curator/instrument-proposals/:id/reject                                     controllers.InstrumentProposalController.rejectProposal(id: Int)
+
 GET           /api/v1/references/details                                                         controllers.PublicationController.getAllPublicationsWithDetailsJson()
 GET           /api/v1/references/details/:publicationId/biosamples                               controllers.BiosampleReportController.getBiosampleReportJSON(publicationId: Int)
 
