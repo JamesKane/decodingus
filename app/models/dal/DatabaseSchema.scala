@@ -121,6 +121,9 @@ object DatabaseSchema {
       val wipReparents = TableQuery[WipReparentTable]
       val wipResolutions = TableQuery[WipResolutionTable]
 
+      // Genealogical anchors for age estimation
+      val genealogicalAnchors = TableQuery[GenealogicalAnchorTable]
+
       // Discovery System
       val biosamplePrivateVariants = TableQuery[BiosamplePrivateVariantTable]
       val proposedBranches = TableQuery[ProposedBranchTable]

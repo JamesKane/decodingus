@@ -150,5 +150,10 @@ class BaseModule extends AbstractModule {
     bind(classOf[HaplogroupCharacterStateRepository])
       .to(classOf[HaplogroupCharacterStateRepositoryImpl])
       .asEagerSingleton()
+
+    // Genealogical anchors
+    bind(classOf[GenealogicalAnchorRepository])
+      .to(classOf[GenealogicalAnchorRepositoryImpl])
+      .asEagerSingleton()
   }
 }
