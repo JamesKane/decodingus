@@ -76,6 +76,7 @@ object DatabaseSchema {
       val sequenceLibraries = TableQuery[SequenceLibrariesTable]
       val sequencingLabs = TableQuery[SequencingLabsTable]
       val sequencerInstruments = TableQuery[SequencerInstrumentsTable]
+      val instrumentObservations = TableQuery[InstrumentObservationTable]
       val specimenDonors = TableQuery[SpecimenDonorsTable]
       val validationServices = TableQuery[ValidationServicesTable]
       val testTypeDefinition = TableQuery[TestTypeTable]

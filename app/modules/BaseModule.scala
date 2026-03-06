@@ -54,6 +54,9 @@ class BaseModule extends AbstractModule {
       .to(classOf[BiosampleOriginalHaplogroupRepositoryImpl])
       .asEagerSingleton()
 
+    bind(classOf[InstrumentObservationRepository])
+      .to(classOf[InstrumentObservationRepositoryImpl])
+      .asEagerSingleton()
 
     bind(classOf[SequenceFileRepository])
       .to(classOf[SequenceFileRepositoryImpl])

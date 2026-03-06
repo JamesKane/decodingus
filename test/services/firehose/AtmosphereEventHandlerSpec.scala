@@ -47,7 +47,8 @@ class AtmosphereEventHandlerSpec extends PlaySpec with MockitoSugar with ScalaFu
     TestTypeService,
     GenotypeDataRepository,
     PopulationBreakdownRepository,
-    HaplogroupReconciliationRepository
+    HaplogroupReconciliationRepository,
+    InstrumentObservationRepository
   ) = (
     mock[CitizenBiosampleRepository],
     mock[SequenceLibraryRepository],
@@ -58,7 +59,8 @@ class AtmosphereEventHandlerSpec extends PlaySpec with MockitoSugar with ScalaFu
     mock[TestTypeService],
     mock[GenotypeDataRepository],
     mock[PopulationBreakdownRepository],
-    mock[HaplogroupReconciliationRepository]
+    mock[HaplogroupReconciliationRepository],
+    mock[InstrumentObservationRepository]
   )
 
   def createHandler(mocks: (
@@ -71,9 +73,10 @@ class AtmosphereEventHandlerSpec extends PlaySpec with MockitoSugar with ScalaFu
     TestTypeService,
     GenotypeDataRepository,
     PopulationBreakdownRepository,
-    HaplogroupReconciliationRepository
+    HaplogroupReconciliationRepository,
+    InstrumentObservationRepository
   )): AtmosphereEventHandler = {
-    val (biosampleRepo, seqLibRepo, seqFileRepo, alignmentRepo, donorRepo, projectRepo, testTypeService, genotypeRepo, popRepo, reconRepo) = mocks
+    val (biosampleRepo, seqLibRepo, seqFileRepo, alignmentRepo, donorRepo, projectRepo, testTypeService, genotypeRepo, popRepo, reconRepo, instrObsRepo) = mocks
     new AtmosphereEventHandler(
       biosampleRepo,
       seqLibRepo,
@@ -84,7 +87,8 @@ class AtmosphereEventHandlerSpec extends PlaySpec with MockitoSugar with ScalaFu
       testTypeService,
       genotypeRepo,
       popRepo,
-      reconRepo
+      reconRepo,
+      instrObsRepo
     )
   }
 
@@ -94,7 +98,7 @@ class AtmosphereEventHandlerSpec extends PlaySpec with MockitoSugar with ScalaFu
 
     "create a new genotype successfully" in {
       val mocks = createMocks()
-      val (biosampleRepo, _, _, _, _, _, testTypeService, genotypeRepo, _, _) = mocks
+      val (biosampleRepo, _, _, _, _, _, testTypeService, genotypeRepo, _, _, _) = mocks
 
       val atUri = "at://did:plc:test123/com.decodingus.atmosphere.genotype/rkey1"
       val biosampleAtUri = "at://did:plc:test123/com.decodingus.atmosphere.biosample/sample1"
@@ -192,7 +196,7 @@ class AtmosphereEventHandlerSpec extends PlaySpec with MockitoSugar with ScalaFu
 
     "return validation error when biosample not found for genotype" in {
       val mocks = createMocks()
-      val (biosampleRepo, _, _, _, _, _, _, _, _, _) = mocks
+      val (biosampleRepo, _, _, _, _, _, _, _, _, _, _) = mocks
 
       val atUri = "at://did:plc:test123/com.decodingus.atmosphere.genotype/rkey1"
       val biosampleAtUri = "at://did:plc:test123/com.decodingus.atmosphere.biosample/nonexistent"
@@ -244,7 +248,7 @@ class AtmosphereEventHandlerSpec extends PlaySpec with MockitoSugar with ScalaFu
 
     "return validation error when test type code is invalid" in {
       val mocks = createMocks()
-      val (biosampleRepo, _, _, _, _, _, testTypeService, _, _, _) = mocks
+      val (biosampleRepo, _, _, _, _, _, testTypeService, _, _, _, _) = mocks
 
       val atUri = "at://did:plc:test123/com.decodingus.atmosphere.genotype/rkey1"
       val biosampleAtUri = "at://did:plc:test123/com.decodingus.atmosphere.biosample/sample1"
@@ -313,7 +317,7 @@ class AtmosphereEventHandlerSpec extends PlaySpec with MockitoSugar with ScalaFu
 
     "delete genotype successfully" in {
       val mocks = createMocks()
-      val (_, _, _, _, _, _, _, genotypeRepo, _, _) = mocks
+      val (_, _, _, _, _, _, _, genotypeRepo, _, _, _) = mocks
 
       val atUri = "at://did:plc:test123/com.decodingus.atmosphere.genotype/rkey1"
       val sampleGuid = UUID.randomUUID()
@@ -360,7 +364,7 @@ class AtmosphereEventHandlerSpec extends PlaySpec with MockitoSugar with ScalaFu
 
     "create a population breakdown with components successfully" in {
       val mocks = createMocks()
-      val (biosampleRepo, _, _, _, _, _, _, _, popRepo, _) = mocks
+      val (biosampleRepo, _, _, _, _, _, _, _, popRepo, _, _) = mocks
 
       val atUri = "at://did:plc:test123/com.decodingus.atmosphere.populationBreakdown/rkey1"
       val biosampleAtUri = "at://did:plc:test123/com.decodingus.atmosphere.biosample/sample1"
@@ -446,7 +450,7 @@ class AtmosphereEventHandlerSpec extends PlaySpec with MockitoSugar with ScalaFu
 
     "return validation error when biosample not found for population breakdown" in {
       val mocks = createMocks()
-      val (biosampleRepo, _, _, _, _, _, _, _, _, _) = mocks
+      val (biosampleRepo, _, _, _, _, _, _, _, _, _, _) = mocks
 
       val atUri = "at://did:plc:test123/com.decodingus.atmosphere.populationBreakdown/rkey1"
       val biosampleAtUri = "at://did:plc:test123/com.decodingus.atmosphere.biosample/nonexistent"
@@ -490,7 +494,7 @@ class AtmosphereEventHandlerSpec extends PlaySpec with MockitoSugar with ScalaFu
 
     "delete population breakdown successfully" in {
       val mocks = createMocks()
-      val (_, _, _, _, _, _, _, _, popRepo, _) = mocks
+      val (_, _, _, _, _, _, _, _, popRepo, _, _) = mocks
 
       val atUri = "at://did:plc:test123/com.decodingus.atmosphere.populationBreakdown/rkey1"
       val sampleGuid = UUID.randomUUID()
@@ -541,7 +545,7 @@ class AtmosphereEventHandlerSpec extends PlaySpec with MockitoSugar with ScalaFu
 
     "create a haplogroup reconciliation successfully" in {
       val mocks = createMocks()
-      val (_, _, _, _, donorRepo, _, _, _, _, reconRepo) = mocks
+      val (_, _, _, _, donorRepo, _, _, _, _, reconRepo, _) = mocks
 
       val atUri = "at://did:plc:test123/com.decodingus.atmosphere.haplogroupReconciliation/rkey1"
       val donorAtUri = "at://did:plc:test123/specimen-donor/donor1"
@@ -646,7 +650,7 @@ class AtmosphereEventHandlerSpec extends PlaySpec with MockitoSugar with ScalaFu
 
     "return validation error when specimen donor not found" in {
       val mocks = createMocks()
-      val (_, _, _, _, donorRepo, _, _, _, _, _) = mocks
+      val (_, _, _, _, donorRepo, _, _, _, _, _, _) = mocks
 
       val atUri = "at://did:plc:test123/com.decodingus.atmosphere.haplogroupReconciliation/rkey1"
       val donorAtUri = "at://did:plc:test123/specimen-donor/nonexistent"
@@ -694,7 +698,7 @@ class AtmosphereEventHandlerSpec extends PlaySpec with MockitoSugar with ScalaFu
 
     "delete haplogroup reconciliation successfully" in {
       val mocks = createMocks()
-      val (_, _, _, _, _, _, _, _, _, reconRepo) = mocks
+      val (_, _, _, _, _, _, _, _, _, reconRepo, _) = mocks
 
       val atUri = "at://did:plc:test123/com.decodingus.atmosphere.haplogroupReconciliation/rkey1"
 
@@ -750,7 +754,7 @@ class AtmosphereEventHandlerSpec extends PlaySpec with MockitoSugar with ScalaFu
 
     "create a project successfully" in {
       val mocks = createMocks()
-      val (_, _, _, _, _, projectRepo, _, _, _, _) = mocks
+      val (_, _, _, _, _, projectRepo, _, _, _, _, _) = mocks
 
       val atUri = "at://did:plc:admin/com.decodingus.atmosphere.project/rkey1"
 
@@ -790,7 +794,7 @@ class AtmosphereEventHandlerSpec extends PlaySpec with MockitoSugar with ScalaFu
 
     "delete project successfully" in {
       val mocks = createMocks()
-      val (_, _, _, _, _, projectRepo, _, _, _, _) = mocks
+      val (_, _, _, _, _, projectRepo, _, _, _, _, _) = mocks
 
       val atUri = "at://did:plc:admin/com.decodingus.atmosphere.project/rkey1"
 

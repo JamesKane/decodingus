@@ -27,7 +27,8 @@ class AtmosphereEventHandler @Inject()(
                                         testTypeService: TestTypeService,
                                         genotypeDataRepository: GenotypeDataRepository,
                                         populationBreakdownRepository: PopulationBreakdownRepository,
-                                        haplogroupReconciliationRepository: HaplogroupReconciliationRepository
+                                        haplogroupReconciliationRepository: HaplogroupReconciliationRepository,
+                                        instrumentObservationRepository: InstrumentObservationRepository
                                       )(implicit ec: ExecutionContext) extends Logging {
 
   def handle(event: FirehoseEvent): Future[FirehoseResult] = {
@@ -39,7 +40,7 @@ class AtmosphereEventHandler @Inject()(
       case e: GenotypeEvent => handleGenotype(e)
       case e: PopulationBreakdownEvent => handlePopulationBreakdown(e)
       case e: HaplogroupReconciliationEvent => handleHaplogroupReconciliation(e)
-      // Add other handlers as needed
+      case e: InstrumentObservationEvent => handleInstrumentObservation(e)
       case _ =>
         logger.warn(s"Unhandled event type: ${event.getClass.getSimpleName} for ${event.atUri}")
         Future.successful(FirehoseResult.Success(event.atUri, "", None, "Ignored (Not Implemented)"))
@@ -814,6 +815,86 @@ class AtmosphereEventHandler @Inject()(
           dateRangeEnd = None
         )
         specimenDonorRepository.create(newDonor).map(_.id)
+    }
+  }
+
+  // --- Instrument Observation Handling ---
+
+  private def handleInstrumentObservation(event: InstrumentObservationEvent): Future[FirehoseResult] = {
+    event.action match {
+      case FirehoseAction.Create => createInstrumentObservation(event)
+      case FirehoseAction.Update => updateInstrumentObservation(event)
+      case FirehoseAction.Delete => deleteInstrumentObservation(event)
+    }
+  }
+
+  private def createInstrumentObservation(event: InstrumentObservationEvent): Future[FirehoseResult] = {
+    event.payload match {
+      case Some(record) =>
+        instrumentObservationRepository.findByAtUri(record.atUri).flatMap {
+          case Some(_) =>
+            Future.successful(FirehoseResult.Conflict(event.atUri, "Instrument observation already exists"))
+          case None =>
+            val observation = InstrumentObservation(
+              atUri = record.atUri,
+              atCid = event.atCid,
+              instrumentId = record.instrumentId,
+              labName = record.labName,
+              biosampleRef = record.biosampleRef,
+              sequenceRunRef = record.sequenceRunRef,
+              platform = record.platform,
+              instrumentModel = record.instrumentModel,
+              flowcellId = record.flowcellId,
+              runDate = record.runDate.map(i => LocalDateTime.ofInstant(i, ZoneId.systemDefault())),
+              confidence = record.confidence
+                .map(ObservationConfidence.fromString)
+                .getOrElse(ObservationConfidence.Inferred)
+            )
+            instrumentObservationRepository.create(observation).map { created =>
+              logger.info(s"Created instrument observation for instrument ${record.instrumentId} at lab ${record.labName}")
+              FirehoseResult.Success(event.atUri, UUID.randomUUID().toString, None, "Instrument observation created")
+            }
+        }
+      case None =>
+        Future.successful(FirehoseResult.ValidationError(event.atUri, "Missing payload for InstrumentObservationEvent"))
+    }
+  }
+
+  private def updateInstrumentObservation(event: InstrumentObservationEvent): Future[FirehoseResult] = {
+    event.payload match {
+      case Some(record) =>
+        instrumentObservationRepository.findByAtUri(event.atUri).flatMap {
+          case Some(existing) =>
+            val updated = existing.copy(
+              atCid = event.atCid,
+              instrumentId = record.instrumentId,
+              labName = record.labName,
+              biosampleRef = record.biosampleRef,
+              sequenceRunRef = record.sequenceRunRef,
+              platform = record.platform,
+              instrumentModel = record.instrumentModel,
+              flowcellId = record.flowcellId,
+              runDate = record.runDate.map(i => LocalDateTime.ofInstant(i, ZoneId.systemDefault())),
+              confidence = record.confidence
+                .map(ObservationConfidence.fromString)
+                .getOrElse(existing.confidence)
+            )
+            instrumentObservationRepository.update(updated).map { success =>
+              if (success) FirehoseResult.Success(event.atUri, UUID.randomUUID().toString, None, "Instrument observation updated")
+              else FirehoseResult.Error(event.atUri, "Failed to update instrument observation")
+            }
+          case None =>
+            Future.successful(FirehoseResult.NotFound(event.atUri))
+        }
+      case None =>
+        Future.successful(FirehoseResult.ValidationError(event.atUri, "Missing payload for InstrumentObservationEvent"))
+    }
+  }
+
+  private def deleteInstrumentObservation(event: InstrumentObservationEvent): Future[FirehoseResult] = {
+    instrumentObservationRepository.deleteByAtUri(event.atUri).map { deleted =>
+      if (deleted) FirehoseResult.Success(event.atUri, "", None, "Instrument observation deleted")
+      else FirehoseResult.NotFound(event.atUri)
     }
   }
 
