@@ -81,6 +81,7 @@ object DatabaseSchema {
       val specimenDonors = TableQuery[SpecimenDonorsTable]
       val validationServices = TableQuery[ValidationServicesTable]
       val testTypeDefinition = TableQuery[TestTypeTable]
+      val testTypeTargetRegions = TableQuery[TestTypeTargetRegionTable]
 
       // Consolidated variant schema (replaces variant + variant_alias)
       val variantsV2 = TableQuery[VariantV2Table]

@@ -62,6 +62,10 @@ class BaseModule extends AbstractModule {
       .to(classOf[InstrumentProposalRepositoryImpl])
       .asEagerSingleton()
 
+    bind(classOf[TestTypeTargetRegionRepository])
+      .to(classOf[TestTypeTargetRegionRepositoryImpl])
+      .asEagerSingleton()
+
     bind(classOf[SequenceFileRepository])
       .to(classOf[SequenceFileRepositoryImpl])
       .asEagerSingleton()

@@ -7,7 +7,8 @@ import play.api.mvc.QueryStringBindable
  * This enum provides a structured way to classify genomic data based on how it was generated.
  */
 enum TestType {
-  case WGS, WES, TARGETED_Y, TARGETED_MT, SNP_ARRAY_23ANDME, SNP_ARRAY_ANCESTRY
+  case WGS, WES, TARGETED_Y, TARGETED_MT, SNP_ARRAY_23ANDME, SNP_ARRAY_ANCESTRY,
+       BIG_Y_700, BIG_Y_500, Y_ELITE, Y_PRIME, MT_FULL_SEQUENCE, MT_PLUS
 
   override def toString: String = this match {
     case WGS => "WGS"
@@ -16,6 +17,12 @@ enum TestType {
     case TARGETED_MT => "TARGETED_MT"
     case SNP_ARRAY_23ANDME => "SNP_ARRAY_23ANDME"
     case SNP_ARRAY_ANCESTRY => "SNP_ARRAY_ANCESTRY"
+    case BIG_Y_700 => "BIG_Y_700"
+    case BIG_Y_500 => "BIG_Y_500"
+    case Y_ELITE => "Y_ELITE"
+    case Y_PRIME => "Y_PRIME"
+    case MT_FULL_SEQUENCE => "MT_FULL_SEQUENCE"
+    case MT_PLUS => "MT_PLUS"
   }
 }
 
@@ -36,6 +43,12 @@ object TestType {
     case "TARGETED_MT" => Some(TARGETED_MT)
     case "SNP_ARRAY_23ANDME" => Some(SNP_ARRAY_23ANDME)
     case "SNP_ARRAY_ANCESTRY" => Some(SNP_ARRAY_ANCESTRY)
+    case "BIG_Y_700" => Some(BIG_Y_700)
+    case "BIG_Y_500" => Some(BIG_Y_500)
+    case "Y_ELITE" => Some(Y_ELITE)
+    case "Y_PRIME" => Some(Y_PRIME)
+    case "MT_FULL_SEQUENCE" => Some(MT_FULL_SEQUENCE)
+    case "MT_PLUS" => Some(MT_PLUS)
     case _ => None
   }
 
