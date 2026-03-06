@@ -129,5 +129,9 @@ class BaseModule extends AbstractModule {
     bind(classOf[CuratorActionRepository])
       .to(classOf[CuratorActionRepositoryImpl])
       .asEagerSingleton()
+
+    bind(classOf[BiosampleHaplogroupRepository])
+      .to(classOf[BiosampleHaplogroupRepositoryImpl])
+      .asEagerSingleton()
   }
 }

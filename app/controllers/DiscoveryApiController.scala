@@ -7,7 +7,7 @@ import models.domain.discovery.ProposedBranchStatus
 import play.api.Logging
 import play.api.libs.json.{Json, OFormat}
 import play.api.mvc.{Action, AnyContent, BaseController, ControllerComponents}
-import services.DiscoveryProposalService
+import services.{DiscoveryProposalService, TreeEvolutionService}
 
 import scala.concurrent.{ExecutionContext, Future}
 
@@ -19,7 +19,8 @@ import scala.concurrent.{ExecutionContext, Future}
 class DiscoveryApiController @Inject()(
   val controllerComponents: ControllerComponents,
   secureApi: ApiSecurityAction,
-  discoveryService: DiscoveryProposalService
+  discoveryService: DiscoveryProposalService,
+  treeEvolutionService: TreeEvolutionService
 )(implicit ec: ExecutionContext) extends BaseController with Logging {
 
   // Request DTOs
@@ -31,6 +32,9 @@ class DiscoveryApiController @Inject()(
 
   case class StartReviewRequest(curatorId: String)
   object StartReviewRequest { implicit val format: OFormat[StartReviewRequest] = Json.format }
+
+  case class PromoteProposalRequest(curatorId: String)
+  object PromoteProposalRequest { implicit val format: OFormat[PromoteProposalRequest] = Json.format }
 
   /**
    * List proposals with optional filters.
@@ -125,6 +129,25 @@ class DiscoveryApiController @Inject()(
           BadRequest(Json.obj("error" -> e.getMessage))
         case e: Exception =>
           logger.error(s"Error rejecting proposal $id: ${e.getMessage}", e)
+          InternalServerError(Json.obj("error" -> "An internal error occurred."))
+      }
+    }
+
+  /**
+   * Promote an accepted proposal to the canonical haplogroup tree.
+   * POST /api/v1/discovery/proposals/:id/promote
+   */
+  def promoteProposal(id: Int): Action[PromoteProposalRequest] =
+    secureApi.jsonAction[PromoteProposalRequest].async { request =>
+      treeEvolutionService.promoteProposal(id, request.body.curatorId).map { result =>
+        Ok(Json.toJson(result))
+      }.recover {
+        case e: NoSuchElementException =>
+          NotFound(Json.obj("error" -> e.getMessage))
+        case e: IllegalStateException =>
+          BadRequest(Json.obj("error" -> e.getMessage))
+        case e: Exception =>
+          logger.error(s"Error promoting proposal $id: ${e.getMessage}", e)
           InternalServerError(Json.obj("error" -> "An internal error occurred."))
       }
     }

@@ -211,6 +211,7 @@ GET           /api/v1/discovery/proposals/:id                                   
 POST          /api/v1/discovery/proposals/:id/start-review                                   controllers.DiscoveryApiController.startReview(id: Int)
 POST          /api/v1/discovery/proposals/:id/accept                                         controllers.DiscoveryApiController.acceptProposal(id: Int)
 POST          /api/v1/discovery/proposals/:id/reject                                         controllers.DiscoveryApiController.rejectProposal(id: Int)
+POST          /api/v1/discovery/proposals/:id/promote                                        controllers.DiscoveryApiController.promoteProposal(id: Int)
 GET           /api/v1/discovery/proposals/:id/audit                                          controllers.DiscoveryApiController.getAuditTrail(id: Int)
 
 # Curator Workflow
