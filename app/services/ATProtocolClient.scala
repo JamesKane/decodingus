@@ -343,12 +343,26 @@ object DidService {
 }
 
 /**
+ * Represents a verification method in a DID document, containing a public key.
+ */
+case class DidVerificationMethod(
+                                   id: String,
+                                   `type`: String,
+                                   controller: String,
+                                   publicKeyMultibase: Option[String] = None
+                                 )
+
+object DidVerificationMethod {
+  implicit val format: play.api.libs.json.Format[DidVerificationMethod] = Json.format[DidVerificationMethod]
+}
+
+/**
  * Represents a DID Document returned from PLC directory or did:web resolution.
- * Simplified to extract only what we need for PDS resolution.
  */
 case class DidDocument(
                         id: String,
                         alsoKnownAs: Option[Seq[String]] = None,
+                        verificationMethod: Option[Seq[DidVerificationMethod]] = None,
                         service: Option[Seq[DidService]] = None
                       ) {
   /**
