@@ -231,6 +231,84 @@ class BranchAgeEstimationService @Inject()(
   }
 
   /**
+   * Combine SNP and STR age estimates using inverse-variance weighting.
+   *
+   * P(t|all) proportional to P(t|SNPs) x P(t|STRs)
+   * Approximated by inverse-variance weighted mean of the two point estimates.
+   */
+  private[services] def combineSnpAndStrEstimates(
+    snpResult: AgeEstimateResult,
+    strResult: StrAgeEstimateResult
+  ): CombinedAgeEstimateResult = {
+    val snpEst = snpResult.estimate
+    val strEst = strResult.estimate
+
+    // If either has zero age, use the other
+    if (snpEst.ybp == 0 && strEst.ybp == 0) {
+      return CombinedAgeEstimateResult(
+        estimate = AgeEstimate(0, Some(0), Some(0)),
+        snpEstimate = snpResult,
+        strEstimate = Some(strResult),
+        method = "COMBINED_SNP_STR"
+      )
+    }
+    if (strEst.ybp == 0 || strResult.markerCount == 0) {
+      return CombinedAgeEstimateResult(
+        estimate = snpEst, snpEstimate = snpResult, strEstimate = Some(strResult),
+        method = "SNP_ONLY"
+      )
+    }
+    if (snpEst.ybp == 0 || snpResult.snpCount == 0) {
+      return CombinedAgeEstimateResult(
+        estimate = strEst, snpEstimate = snpResult, strEstimate = Some(strResult),
+        method = "STR_ONLY"
+      )
+    }
+
+    // Inverse-variance weighting
+    // Variance approximated from CI width: sigma ≈ (upper - lower) / (2 * 1.96)
+    val snpSigma = ciToSigma(snpEst)
+    val strSigma = ciToSigma(strEst)
+
+    if (snpSigma <= 0 || strSigma <= 0) {
+      // Fallback to simple average if CI is degenerate
+      val avg = (snpEst.ybp + strEst.ybp) / 2
+      return CombinedAgeEstimateResult(
+        estimate = AgeEstimate(avg, snpEst.ybpLower, snpEst.ybpUpper),
+        snpEstimate = snpResult, strEstimate = Some(strResult),
+        method = "COMBINED_SNP_STR"
+      )
+    }
+
+    val snpWeight = 1.0 / (snpSigma * snpSigma)
+    val strWeight = 1.0 / (strSigma * strSigma)
+    val totalWeight = snpWeight + strWeight
+
+    val combinedYbp = math.round((snpEst.ybp * snpWeight + strEst.ybp * strWeight) / totalWeight).toInt
+    val combinedSigma = math.sqrt(1.0 / totalWeight)
+    val combinedLower = math.max(0, math.round(combinedYbp - 1.96 * combinedSigma).toInt)
+    val combinedUpper = math.round(combinedYbp + 1.96 * combinedSigma).toInt
+
+    CombinedAgeEstimateResult(
+      estimate = AgeEstimate(combinedYbp, Some(combinedLower), Some(combinedUpper)),
+      snpEstimate = snpResult,
+      strEstimate = Some(strResult),
+      method = "COMBINED_SNP_STR"
+    )
+  }
+
+  /**
+   * Extract sigma from an AgeEstimate's confidence interval.
+   */
+  private def ciToSigma(est: AgeEstimate): Double = {
+    (est.ybpUpper, est.ybpLower) match {
+      case (Some(upper), Some(lower)) if upper > lower =>
+        (upper - lower).toDouble / (2 * 1.96)
+      case _ => 0.0
+    }
+  }
+
+  /**
    * Compute Poisson confidence interval for observed count m.
    * Uses the chi-squared relationship: 2*sum(Poisson) ~ chi-squared(2m)
    *
@@ -279,6 +357,16 @@ case class AgeEstimateResult(
   snpCount: Int,
   callableLoci: Long,
   mutationRate: Double,
+  method: String
+)
+
+/**
+ * Result of a combined SNP + STR age estimation.
+ */
+case class CombinedAgeEstimateResult(
+  estimate: AgeEstimate,
+  snpEstimate: AgeEstimateResult,
+  strEstimate: Option[StrAgeEstimateResult],
   method: String
 )
 

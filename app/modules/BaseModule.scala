@@ -137,5 +137,18 @@ class BaseModule extends AbstractModule {
     bind(classOf[BiosampleCallableLociRepository])
       .to(classOf[BiosampleCallableLociRepositoryImpl])
       .asEagerSingleton()
+
+    // STR age estimation
+    bind(classOf[StrMutationRateRepository])
+      .to(classOf[StrMutationRateRepositoryImpl])
+      .asEagerSingleton()
+
+    bind(classOf[BiosampleVariantCallRepository])
+      .to(classOf[BiosampleVariantCallRepositoryImpl])
+      .asEagerSingleton()
+
+    bind(classOf[HaplogroupCharacterStateRepository])
+      .to(classOf[HaplogroupCharacterStateRepositoryImpl])
+      .asEagerSingleton()
   }
 }
