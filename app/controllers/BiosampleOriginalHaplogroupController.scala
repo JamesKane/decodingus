@@ -3,7 +3,7 @@ package controllers
 import actions.ApiSecurityAction
 import jakarta.inject.Inject
 import models.api.{BiosampleOriginalHaplogroupUpdate, BiosampleOriginalHaplogroupView}
-import models.domain.publications.BiosampleOriginalHaplogroup
+import models.domain.genomics.OriginalHaplogroupEntry
 import play.api.Logging
 import play.api.libs.json.{JsValue, Json}
 import play.api.mvc.{AbstractController, Action, AnyContent, ControllerComponents}
@@ -32,30 +32,24 @@ class BiosampleOriginalHaplogroupController @Inject()(
               (for {
                 biosampleExists <- biosampleRepository.findById(biosampleId)
                 if biosampleExists.isDefined
-                existingHaplogroup <- haplogroupRepository.findByBiosampleAndPublication(
-                  biosampleId,
-                  publicationId
-                )
-                result <- existingHaplogroup match {
-                  case Some(existing) =>
-                    val updated = existing.copy(
-                      originalYHaplogroup = update.originalYHaplogroup.orElse(existing.originalYHaplogroup),
-                      originalMtHaplogroup = update.originalMtHaplogroup.orElse(existing.originalMtHaplogroup),
-                      notes = update.notes.orElse(existing.notes)
+                existing <- haplogroupRepository.findByBiosampleAndPublication(biosampleId, publicationId)
+                entry = existing match {
+                  case Some(e) =>
+                    e.copy(
+                      yHaplogroupResult = update.originalYHaplogroup.orElse(e.yHaplogroupResult),
+                      mtHaplogroupResult = update.originalMtHaplogroup.orElse(e.mtHaplogroupResult),
+                      notes = update.notes.orElse(e.notes)
                     )
-                    haplogroupRepository.update(updated).map(_ => updated)
                   case None =>
-                    val newHaplogroup = BiosampleOriginalHaplogroup(
-                      id = None,
-                      biosampleId = biosampleId,
+                    OriginalHaplogroupEntry(
                       publicationId = publicationId,
-                      originalYHaplogroup = update.originalYHaplogroup,
-                      originalMtHaplogroup = update.originalMtHaplogroup,
+                      yHaplogroupResult = update.originalYHaplogroup,
+                      mtHaplogroupResult = update.originalMtHaplogroup,
                       notes = update.notes
                     )
-                    haplogroupRepository.create(newHaplogroup)
                 }
-              } yield Ok(Json.toJson(BiosampleOriginalHaplogroupView.fromDomain(result)))).recover {
+                _ <- haplogroupRepository.upsert(biosampleId, entry)
+              } yield Ok(Json.toJson(BiosampleOriginalHaplogroupView.fromEntry(biosampleId, entry)))).recover {
                 case _: NoSuchElementException =>
                   NotFound(Json.obj("error" -> "Biosample not found"))
                 case e: Exception =>
@@ -71,7 +65,7 @@ class BiosampleOriginalHaplogroupController @Inject()(
   def getHaplogroup(biosampleId: Int, publicationId: Int): Action[AnyContent] =
     secureApi.async { request =>
       haplogroupRepository.findByBiosampleAndPublication(biosampleId, publicationId).map {
-        case Some(haplogroup) => Ok(Json.toJson(BiosampleOriginalHaplogroupView.fromDomain(haplogroup)))
+        case Some(entry) => Ok(Json.toJson(BiosampleOriginalHaplogroupView.fromEntry(biosampleId, entry)))
         case None => NotFound(Json.obj("error" -> "Haplogroup assignment not found"))
       }
     }
@@ -79,8 +73,8 @@ class BiosampleOriginalHaplogroupController @Inject()(
   def deleteHaplogroup(biosampleId: Int, publicationId: Int): Action[AnyContent] =
     secureApi.async { request =>
       haplogroupRepository.findByBiosampleAndPublication(biosampleId, publicationId).flatMap {
-        case Some(haplogroup) =>
-          haplogroupRepository.delete(haplogroup.id.get).map {
+        case Some(_) =>
+          haplogroupRepository.delete(biosampleId, publicationId).map {
             case true => NoContent
             case false => InternalServerError(Json.obj("error" -> "Failed to delete haplogroup assignment"))
           }
@@ -88,6 +82,4 @@ class BiosampleOriginalHaplogroupController @Inject()(
           Future.successful(NotFound(Json.obj("error" -> "Haplogroup assignment not found")))
       }
     }
-
-
 }

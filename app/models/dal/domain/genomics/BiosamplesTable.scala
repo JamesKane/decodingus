@@ -2,6 +2,7 @@ package models.dal.domain.genomics
 
 import models.dal.MyPostgresProfile.api.*
 import models.domain.genomics.Biosample
+import play.api.libs.json.JsValue
 
 import java.util.UUID
 
@@ -30,6 +31,8 @@ class BiosamplesTable(tag: Tag) extends Table[Biosample](tag, "biosample") {
 
   def sourcePlatform = column[Option[String]]("source_platform")
 
+  def originalHaplogroups = column[Option[JsValue]]("original_haplogroups")
+
   def * = (
     id.?,
     sampleGuid,
@@ -39,6 +42,7 @@ class BiosamplesTable(tag: Tag) extends Table[Biosample](tag, "biosample") {
     centerName,
     specimenDonorId,
     locked,
-    sourcePlatform
+    sourcePlatform,
+    originalHaplogroups
   ).mapTo[Biosample]
 }

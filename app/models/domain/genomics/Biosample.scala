@@ -1,22 +1,10 @@
 package models.domain.genomics
 
 import com.vividsolutions.jts.geom.Point
+import play.api.libs.json.{JsValue, Json, OFormat}
 
 import java.util.UUID
 
-/**
- * Represents a biosample with attributes describing its unique identifiers, source, and metadata.
- *
- * @param id              An optional unique identifier for the biosample, used for internal purposes.
- * @param sampleGuid      A globally unique identifier for the biosample.
- * @param sampleAccession A unique external accession for the biosample, often used for database references.
- * @param description     A textual description of the biosample.
- * @param alias           An optional short identifier or alias for the biosample, which may simplify referencing.
- * @param centerName      The name of the organization or center responsible for the biosample.
- * @param specimenDonorId An optional identifier linking the biosample to a specific specimen donor.
- * @param locked          A flag indicating whether the biosample is immutable or restricted from further edits.
- * @param sourcePlatform  An optional field specifying the platform or technology used to derive the biosample.
- */
 case class Biosample(
                       id: Option[Int] = None,
                       sampleGuid: UUID,
@@ -26,5 +14,34 @@ case class Biosample(
                       centerName: String,
                       specimenDonorId: Option[Int],
                       locked: Boolean = false,
-                      sourcePlatform: Option[String] = None
-                    )
+                      sourcePlatform: Option[String] = None,
+                      originalHaplogroups: Option[JsValue] = None
+                    ) {
+
+  def getOriginalHaplogroupEntries: Seq[OriginalHaplogroupEntry] =
+    originalHaplogroups.flatMap(_.asOpt[Seq[OriginalHaplogroupEntry]]).getOrElse(Seq.empty)
+
+  def findHaplogroupByPublication(publicationId: Int): Option[OriginalHaplogroupEntry] =
+    getOriginalHaplogroupEntries.find(_.publicationId == publicationId)
+
+  def withHaplogroupEntry(entry: OriginalHaplogroupEntry): Biosample = {
+    val existing = getOriginalHaplogroupEntries.filterNot(_.publicationId == entry.publicationId)
+    copy(originalHaplogroups = Some(Json.toJson(existing :+ entry)))
+  }
+
+  def withoutHaplogroupForPublication(publicationId: Int): Biosample = {
+    val remaining = getOriginalHaplogroupEntries.filterNot(_.publicationId == publicationId)
+    copy(originalHaplogroups = Some(Json.toJson(remaining)))
+  }
+}
+
+case class OriginalHaplogroupEntry(
+                                    publicationId: Int,
+                                    yHaplogroupResult: Option[HaplogroupResult] = None,
+                                    mtHaplogroupResult: Option[HaplogroupResult] = None,
+                                    notes: Option[String] = None
+                                  )
+
+object OriginalHaplogroupEntry {
+  implicit val format: OFormat[OriginalHaplogroupEntry] = Json.format[OriginalHaplogroupEntry]
+}

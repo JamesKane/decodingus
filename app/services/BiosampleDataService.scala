@@ -3,7 +3,8 @@ package services
 import jakarta.inject.{Inject, Singleton}
 import models.api.{FileInfo, LocationInfo, PublicationInfo, SequenceDataInfo}
 import models.domain.genomics.{SequenceFile, SequenceLibrary, SequenceFileAtpLocationJsonb, SequenceFileChecksumJsonb, SequenceFileHttpLocationJsonb}
-import models.domain.publications.{BiosampleOriginalHaplogroup, Publication, PublicationBiosample}
+import models.domain.genomics.OriginalHaplogroupEntry
+import models.domain.publications.{Publication, PublicationBiosample}
 import repositories.*
 
 import java.time.LocalDateTime
@@ -132,12 +133,10 @@ class BiosampleDataService @Inject()(
         biosampleId = biosample.id.get
       ))
       _ <- pubInfo.originalHaplogroups.map { haplogroupInfo =>
-        biosampleOriginalHaplogroupRepository.create(BiosampleOriginalHaplogroup(
-          id = None,
-          biosampleId = biosample.id.get,
+        biosampleOriginalHaplogroupRepository.upsert(biosample.id.get, OriginalHaplogroupEntry(
           publicationId = publication.id.get,
-          originalYHaplogroup = haplogroupInfo.yHaplogroup,
-          originalMtHaplogroup = haplogroupInfo.mtHaplogroup,
+          yHaplogroupResult = haplogroupInfo.yHaplogroup,
+          mtHaplogroupResult = haplogroupInfo.mtHaplogroup,
           notes = haplogroupInfo.notes
         ))
       }.getOrElse(Future.successful(()))
@@ -157,8 +156,8 @@ class BiosampleDataService @Inject()(
     for {
       // 1. Delete associated publication links
       _ <- publicationBiosampleRepository.deleteByBiosampleId(biosampleId)
-      // 2. Delete associated original haplogroup records
-      _ <- biosampleOriginalHaplogroupRepository.deleteByBiosampleId(biosampleId)
+      // 2. Clear embedded original haplogroup records
+      _ <- biosampleOriginalHaplogroupRepository.deleteAllByBiosampleId(biosampleId)
       // 3. Find and delete all sequence libraries and their files
       libraries <- sequenceLibraryRepository.findBySampleGuid(sampleGuid)
       _ <- Future.sequence(libraries.map { lib =>

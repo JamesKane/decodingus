@@ -3,7 +3,7 @@ package services
 import jakarta.inject.{Inject, Singleton}
 import models.api.{BiosampleUpdate, BiosampleView}
 import models.domain.genomics.{Biosample, BiosampleType, HaplogroupResult, SpecimenDonor}
-import models.domain.publications.BiosampleOriginalHaplogroup
+import models.domain.genomics.OriginalHaplogroupEntry
 import repositories.{BiosampleOriginalHaplogroupRepository, BiosampleRepository, PublicationBiosampleRepository, SpecimenDonorRepository}
 import utils.GeometryUtils
 
@@ -146,24 +146,23 @@ class BiosampleUpdateService @Inject()(
       for {
         pubBiosamples <- publicationBiosampleRepository.findByBiosampleId(biosampleId)
         existingHaplogroups <- biosampleOriginalHaplogroupRepository.findByBiosampleId(biosampleId)
-        existingByPub = existingHaplogroups.flatMap(h => Some(h.publicationId -> h)).toMap
+        existingByPub = existingHaplogroups.map(h => h.publicationId -> h).toMap
         _ <- Future.sequence(pubBiosamples.map { pubBiosample =>
-          existingByPub.get(pubBiosample.publicationId) match {
+          val entry = existingByPub.get(pubBiosample.publicationId) match {
             case Some(existing) =>
-              biosampleOriginalHaplogroupRepository.update(existing.copy(
-                originalYHaplogroup = update.yHaplogroup.orElse(existing.originalYHaplogroup),
-                originalMtHaplogroup = update.mtHaplogroup.orElse(existing.originalMtHaplogroup)
-              ))
+              existing.copy(
+                yHaplogroupResult = update.yHaplogroup.orElse(existing.yHaplogroupResult),
+                mtHaplogroupResult = update.mtHaplogroup.orElse(existing.mtHaplogroupResult)
+              )
             case None =>
-              biosampleOriginalHaplogroupRepository.create(BiosampleOriginalHaplogroup(
-                id = None,
-                biosampleId = biosampleId,
+              OriginalHaplogroupEntry(
                 publicationId = pubBiosample.publicationId,
-                originalYHaplogroup = update.yHaplogroup,
-                originalMtHaplogroup = update.mtHaplogroup,
+                yHaplogroupResult = update.yHaplogroup,
+                mtHaplogroupResult = update.mtHaplogroup,
                 notes = None
-              ))
+              )
           }
+          biosampleOriginalHaplogroupRepository.upsert(biosampleId, entry)
         })
       } yield ()
     } else {

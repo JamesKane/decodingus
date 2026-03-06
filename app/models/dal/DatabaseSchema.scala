@@ -154,8 +154,8 @@ object DatabaseSchema {
       val publicationBiosamples = TableQuery[PublicationBiosamplesTable]
       val publicationCitizenBiosamples = TableQuery[PublicationCitizenBiosamplesTable]
       val publicationGenomicStudies = TableQuery[PublicationEnaStudiesTable]
-      val biosampleOriginalHaplogroups = TableQuery[BiosampleOriginalHaplogroupTable]
-      val citizenBiosampleOriginalHaplogroups = TableQuery[CitizenBiosampleOriginalHaplogroupTable]
+
+
     }
 
     object ibd {

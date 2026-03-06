@@ -3,7 +3,7 @@ package services
 import helpers.ServiceSpec
 import models.api.*
 import models.domain.genomics.*
-import models.domain.publications.{BiosampleOriginalHaplogroup, Publication, PublicationBiosample}
+import models.domain.publications.{Publication, PublicationBiosample}
 import org.mockito.ArgumentMatchers.{any, anyInt, anyString}
 import org.mockito.Mockito.{never, reset, verify, when}
 import repositories.*
@@ -169,18 +169,16 @@ class BiosampleDataServiceSpec extends ServiceSpec {
       when(mockBiosampleRepo.findByGuid(sampleGuid)).thenReturn(Future.successful(Some((testBiosample, None))))
       when(mockPubRepo.findByDoi("10.1234/test")).thenReturn(Future.successful(Some(testPublication)))
       when(mockPubBiosampleRepo.create(any[PublicationBiosample])).thenReturn(Future.successful(PublicationBiosample(100, 1)))
-      when(mockHaplogroupRepo.create(any[BiosampleOriginalHaplogroup])).thenReturn(
-        Future.successful(BiosampleOriginalHaplogroup(Some(1), 1, 100, hapInfo.yHaplogroup, None, hapInfo.notes))
-      )
+      when(mockHaplogroupRepo.upsert(anyInt, any[OriginalHaplogroupEntry])).thenReturn(Future.successful(true))
 
       whenReady(service.linkPublication(sampleGuid, pubInfo)) { _ =>
-        verify(mockHaplogroupRepo).create(any[BiosampleOriginalHaplogroup])
+        verify(mockHaplogroupRepo).upsert(anyInt, any[OriginalHaplogroupEntry])
       }
     }
 
     "fullyDeleteBiosampleAndDependencies deletes in correct order" in {
       when(mockPubBiosampleRepo.deleteByBiosampleId(1)).thenReturn(Future.successful(1))
-      when(mockHaplogroupRepo.deleteByBiosampleId(1)).thenReturn(Future.successful(1))
+      when(mockHaplogroupRepo.deleteAllByBiosampleId(1)).thenReturn(Future.successful(true))
       when(mockLibraryRepo.findBySampleGuid(sampleGuid)).thenReturn(Future.successful(Seq(testLibrary)))
       when(mockFileRepo.deleteByLibraryId(10)).thenReturn(Future.successful(1))
       when(mockLibraryRepo.delete(10)).thenReturn(Future.successful(true))
@@ -188,7 +186,7 @@ class BiosampleDataServiceSpec extends ServiceSpec {
 
       whenReady(service.fullyDeleteBiosampleAndDependencies(1, sampleGuid)) { _ =>
         verify(mockPubBiosampleRepo).deleteByBiosampleId(1)
-        verify(mockHaplogroupRepo).deleteByBiosampleId(1)
+        verify(mockHaplogroupRepo).deleteAllByBiosampleId(1)
         verify(mockFileRepo).deleteByLibraryId(10)
         verify(mockLibraryRepo).delete(10)
         verify(mockBiosampleRepo).delete(1)

@@ -1,6 +1,6 @@
 package models.api
 
-import models.domain.genomics.HaplogroupResult
+import models.domain.genomics.{HaplogroupResult, OriginalHaplogroupEntry}
 import play.api.libs.json.{Format, Json}
 
 case class BiosampleOriginalHaplogroupUpdate(
@@ -14,7 +14,6 @@ object BiosampleOriginalHaplogroupUpdate {
 }
 
 case class BiosampleOriginalHaplogroupView(
-                                            id: Option[Int],
                                             biosampleId: Int,
                                             publicationId: Int,
                                             originalYHaplogroup: Option[HaplogroupResult],
@@ -25,13 +24,12 @@ case class BiosampleOriginalHaplogroupView(
 object BiosampleOriginalHaplogroupView {
   implicit val format: Format[BiosampleOriginalHaplogroupView] = Json.format
 
-  def fromDomain(domain: models.domain.publications.BiosampleOriginalHaplogroup): BiosampleOriginalHaplogroupView =
+  def fromEntry(biosampleId: Int, entry: OriginalHaplogroupEntry): BiosampleOriginalHaplogroupView =
     BiosampleOriginalHaplogroupView(
-      id = domain.id,
-      biosampleId = domain.biosampleId,
-      publicationId = domain.publicationId,
-      originalYHaplogroup = domain.originalYHaplogroup,
-      originalMtHaplogroup = domain.originalMtHaplogroup,
-      notes = domain.notes
+      biosampleId = biosampleId,
+      publicationId = entry.publicationId,
+      originalYHaplogroup = entry.yHaplogroupResult,
+      originalMtHaplogroup = entry.mtHaplogroupResult,
+      notes = entry.notes
     )
 }

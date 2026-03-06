@@ -3,8 +3,8 @@ package services
 import helpers.ServiceSpec
 import models.api.BiosampleUpdate
 import models.domain.genomics.*
-import models.domain.publications.{BiosampleOriginalHaplogroup, PublicationBiosample}
-import org.mockito.ArgumentMatchers.any
+import models.domain.publications.PublicationBiosample
+import org.mockito.ArgumentMatchers.{any, anyInt}
 import org.mockito.Mockito.{never, verify, when}
 import repositories.{BiosampleOriginalHaplogroupRepository, BiosampleRepository, PublicationBiosampleRepository, SpecimenDonorRepository}
 
@@ -163,25 +163,24 @@ class BiosampleUpdateServiceSpec extends ServiceSpec {
       }
     }
 
-    "update existing haplogroup record" in {
+    "update existing haplogroup record via upsert" in {
       val hapResult = HaplogroupResult("R-M269", 0.99, 100, 0, 50, 5, Seq("R", "R-M269"))
       val update = BiosampleUpdate(yHaplogroup = Some(hapResult))
 
-      val existingHg = BiosampleOriginalHaplogroup(
-        id = Some(1), biosampleId = 1, publicationId = 10,
-        originalYHaplogroup = None, originalMtHaplogroup = None, notes = None
+      val existingEntry = OriginalHaplogroupEntry(
+        publicationId = 10,
+        yHaplogroupResult = None, mtHaplogroupResult = None, notes = None
       )
 
       when(mockBiosampleRepo.findById(1)).thenReturn(Future.successful(Some((testBiosample, Some(testDonor)))))
       when(mockPubBiosampleRepo.findByBiosampleId(1)).thenReturn(Future.successful(Seq(PublicationBiosample(10, 1))))
-      when(mockHaplogroupRepo.findByBiosampleId(1)).thenReturn(Future.successful(Seq(existingHg)))
-      when(mockHaplogroupRepo.update(any[BiosampleOriginalHaplogroup])).thenReturn(Future.successful(true))
+      when(mockHaplogroupRepo.findByBiosampleId(1)).thenReturn(Future.successful(Seq(existingEntry)))
+      when(mockHaplogroupRepo.upsert(anyInt, any[OriginalHaplogroupEntry])).thenReturn(Future.successful(true))
       when(mockBiosampleRepo.update(any[Biosample])).thenReturn(Future.successful(true))
 
       whenReady(service.updateBiosample(1, update)) { result =>
         result.isRight mustBe true
-        verify(mockHaplogroupRepo).update(any[BiosampleOriginalHaplogroup])
-        verify(mockHaplogroupRepo, never()).create(any[BiosampleOriginalHaplogroup])
+        verify(mockHaplogroupRepo).upsert(anyInt, any[OriginalHaplogroupEntry])
       }
     }
 
@@ -192,15 +191,12 @@ class BiosampleUpdateServiceSpec extends ServiceSpec {
       when(mockBiosampleRepo.findById(1)).thenReturn(Future.successful(Some((testBiosample, Some(testDonor)))))
       when(mockPubBiosampleRepo.findByBiosampleId(1)).thenReturn(Future.successful(Seq(PublicationBiosample(10, 1))))
       when(mockHaplogroupRepo.findByBiosampleId(1)).thenReturn(Future.successful(Seq.empty))
-      when(mockHaplogroupRepo.create(any[BiosampleOriginalHaplogroup])).thenReturn(
-        Future.successful(BiosampleOriginalHaplogroup(Some(1), 1, 10, Some(hapResult), None, None))
-      )
+      when(mockHaplogroupRepo.upsert(anyInt, any[OriginalHaplogroupEntry])).thenReturn(Future.successful(true))
       when(mockBiosampleRepo.update(any[Biosample])).thenReturn(Future.successful(true))
 
       whenReady(service.updateBiosample(1, update)) { result =>
         result.isRight mustBe true
-        verify(mockHaplogroupRepo).create(any[BiosampleOriginalHaplogroup])
-        verify(mockHaplogroupRepo, never()).update(any[BiosampleOriginalHaplogroup])
+        verify(mockHaplogroupRepo).upsert(anyInt, any[OriginalHaplogroupEntry])
       }
     }
   }
