@@ -21,6 +21,7 @@ trait PublicationCandidateRepository {
   def bulkReject(ids: Seq[Int], reason: String, reviewedBy: UUID): Future[Int]
   def saveCandidates(candidates: Seq[PublicationCandidate]): Future[Seq[PublicationCandidate]]
   def countByStatus(): Future[Map[String, Int]]
+  def listReviewed(): Future[Seq[PublicationCandidate]]
 }
 
 @Singleton
@@ -130,5 +131,9 @@ class PublicationCandidateRepositoryImpl @Inject()(
     db.run(candidatesTable.groupBy(_.status).map { case (status, group) =>
       (status, group.length)
     }.result).map(_.toMap)
+  }
+
+  override def listReviewed(): Future[Seq[PublicationCandidate]] = {
+    db.run(candidatesTable.filter(c => c.status === "accepted" || c.status === "rejected").result)
   }
 }

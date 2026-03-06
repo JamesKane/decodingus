@@ -16,7 +16,8 @@ class PublicationDiscoveryService @Inject()(
                                              publicationRepository: PublicationRepository,
                                              publicationService: PublicationService,
                                              openAlexService: OpenAlexService,
-                                             relevanceScoringService: RelevanceScoringService
+                                             relevanceScoringService: RelevanceScoringService,
+                                             scoringFeedbackService: ScoringFeedbackService
                                            )(implicit ec: ExecutionContext) extends Logging {
 
   def acceptCandidate(candidateId: Int, reviewedBy: java.util.UUID): Future[Option[models.domain.publications.Publication]] = {
@@ -62,62 +63,68 @@ class PublicationDiscoveryService @Inject()(
     candidateRepository.bulkUpdateStatus(candidateIds, "deferred", reviewedBy, None)
   }
 
+  def refreshLearnedWeights(): Future[Option[LearnedWeights]] = {
+    scoringFeedbackService.computeLearnedWeights().map {
+      case Some(weights) =>
+        relevanceScoringService.applyLearnedWeights(weights)
+        Some(weights)
+      case None =>
+        relevanceScoringService.clearLearnedWeights()
+        None
+    }
+  }
+
   def runDiscovery(): Future[Unit] = {
     logger.info("Starting publication discovery run...")
-    
-    searchConfigRepository.getEnabledConfigs().flatMap { configs =>
-      logger.info(s"Found ${configs.size} enabled search configurations.")
-      
-      val runs = configs.map { config =>
-        val startTime = System.currentTimeMillis()
-        
-        // 1. Execute Search
-        openAlexService.searchWorks(config.searchQuery).flatMap { rawCandidates =>
-          
-          // 2. Deduplication
-          // Check against existing Publications
-          val existingDoisFuture = publicationRepository.getAllDois.map(_.toSet)
-          // We should also check against existing candidates to avoid duplicates in the queue
-          // For simplicity, let's assume candidateRepository.saveCandidates handles some level of checking
-          // or we check explicitly here. The repository implementation I wrote filters by OpenAlexId.
-          
-          existingDoisFuture.flatMap { existingDois =>
-            val newCandidates = rawCandidates.filterNot { c =>
-              c.doi.exists(existingDois.contains)
-            }
-            
-            // 3. Calculate Relevance Score using multi-signal scoring
-            val scoredCandidates = relevanceScoringService.scoreCandidates(newCandidates)
 
-            // 4. Save Candidates
-            candidateRepository.saveCandidates(scoredCandidates).flatMap { savedCandidates =>
-              val endTime = System.currentTimeMillis()
-              val duration = (endTime - startTime).toInt
-              
-              // 5. Log Run
-              val run = PublicationSearchRun(
-                id = None,
-                configId = config.id.get,
-                runAt = LocalDateTime.now(),
-                candidatesFound = rawCandidates.size,
-                newCandidates = savedCandidates.size,
-                queryUsed = Some(config.searchQuery),
-                durationMs = Some(duration)
-              )
-              
-              for {
-                _ <- runRepository.create(run)
-                _ <- searchConfigRepository.updateLastRun(config.id.get, LocalDateTime.now())
-              } yield ()
+    // Refresh learned weights from curator feedback before scoring new candidates
+    refreshLearnedWeights().flatMap { learnedWeights =>
+      learnedWeights.foreach(w => logger.info(s"Using learned weights from ${w.sampleSize} reviewed candidates."))
+
+      searchConfigRepository.getEnabledConfigs().flatMap { configs =>
+        logger.info(s"Found ${configs.size} enabled search configurations.")
+
+        val runs = configs.map { config =>
+          val startTime = System.currentTimeMillis()
+
+          openAlexService.searchWorks(config.searchQuery).flatMap { rawCandidates =>
+            val existingDoisFuture = publicationRepository.getAllDois.map(_.toSet)
+
+            existingDoisFuture.flatMap { existingDois =>
+              val newCandidates = rawCandidates.filterNot { c =>
+                c.doi.exists(existingDois.contains)
+              }
+
+              val scoredCandidates = relevanceScoringService.scoreCandidates(newCandidates)
+
+              candidateRepository.saveCandidates(scoredCandidates).flatMap { savedCandidates =>
+                val endTime = System.currentTimeMillis()
+                val duration = (endTime - startTime).toInt
+
+                val run = PublicationSearchRun(
+                  id = None,
+                  configId = config.id.get,
+                  runAt = LocalDateTime.now(),
+                  candidatesFound = rawCandidates.size,
+                  newCandidates = savedCandidates.size,
+                  queryUsed = Some(config.searchQuery),
+                  durationMs = Some(duration)
+                )
+
+                for {
+                  _ <- runRepository.create(run)
+                  _ <- searchConfigRepository.updateLastRun(config.id.get, LocalDateTime.now())
+                } yield ()
+              }
             }
+          }.recover {
+            case e: Exception =>
+              logger.error(s"Error running discovery for config '${config.name}' (ID: ${config.id}): ${e.getMessage}", e)
           }
-        }.recover {
-          case e: Exception =>
-            logger.error(s"Error running discovery for config '${config.name}' (ID: ${config.id}): ${e.getMessage}", e)
         }
+
+        Future.sequence(runs).map(_ => logger.info("Publication discovery run completed."))
       }
-      
-      Future.sequence(runs).map(_ => logger.info("Publication discovery run completed."))
     }
   }
 }

@@ -5,6 +5,7 @@ import models.domain.publications.PublicationCandidate
 import play.api.libs.json.{JsArray, JsValue}
 import play.api.{Configuration, Logging}
 
+import java.util.concurrent.atomic.AtomicReference
 import scala.concurrent.ExecutionContext
 
 /**
@@ -21,11 +22,38 @@ class RelevanceScoringService @Inject()(
   configuration: Configuration
 )(implicit ec: ExecutionContext) extends Logging {
 
-  // Weights for each scoring component (should sum to 1.0)
-  private val keywordWeight: Double = configuration.getOptional[Double]("publication-discovery.scoring.keywordWeight").getOrElse(0.35)
-  private val conceptWeight: Double = configuration.getOptional[Double]("publication-discovery.scoring.conceptWeight").getOrElse(0.25)
-  private val citationWeight: Double = configuration.getOptional[Double]("publication-discovery.scoring.citationWeight").getOrElse(0.20)
-  private val journalWeight: Double = configuration.getOptional[Double]("publication-discovery.scoring.journalWeight").getOrElse(0.20)
+  // Default weights for each scoring component (should sum to 1.0)
+  private val defaultKeywordWeight: Double = configuration.getOptional[Double]("publication-discovery.scoring.keywordWeight").getOrElse(0.35)
+  private val defaultConceptWeight: Double = configuration.getOptional[Double]("publication-discovery.scoring.conceptWeight").getOrElse(0.25)
+  private val defaultCitationWeight: Double = configuration.getOptional[Double]("publication-discovery.scoring.citationWeight").getOrElse(0.20)
+  private val defaultJournalWeight: Double = configuration.getOptional[Double]("publication-discovery.scoring.journalWeight").getOrElse(0.20)
+
+  // Learned weights from feedback loop (overrides defaults when set)
+  private val learnedWeightsRef: AtomicReference[Option[LearnedWeights]] = new AtomicReference(None)
+
+  def applyLearnedWeights(weights: LearnedWeights): Unit = {
+    learnedWeightsRef.set(Some(weights))
+    logger.info(s"Applied learned weights from ${weights.sampleSize} samples: " +
+      s"keyword=${f"${weights.keywordWeight}%.3f"}, concept=${f"${weights.conceptWeight}%.3f"}, " +
+      s"citation=${f"${weights.citationWeight}%.3f"}, journal=${f"${weights.journalWeight}%.3f"}")
+  }
+
+  def clearLearnedWeights(): Unit = {
+    learnedWeightsRef.set(None)
+    logger.info("Cleared learned weights, reverting to defaults.")
+  }
+
+  def getActiveWeights: (Double, Double, Double, Double) = {
+    learnedWeightsRef.get() match {
+      case Some(lw) => (lw.keywordWeight, lw.conceptWeight, lw.citationWeight, lw.journalWeight)
+      case None => (defaultKeywordWeight, defaultConceptWeight, defaultCitationWeight, defaultJournalWeight)
+    }
+  }
+
+  private def keywordWeight: Double = getActiveWeights._1
+  private def conceptWeight: Double = getActiveWeights._2
+  private def citationWeight: Double = getActiveWeights._3
+  private def journalWeight: Double = getActiveWeights._4
 
   // High-value keywords for genomics/phylogenetics domain
   private[services] val primaryKeywords: Set[String] = Set(
