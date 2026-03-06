@@ -2,8 +2,9 @@ package repositories
 
 import jakarta.inject.{Inject, Singleton}
 import models.dal.DatabaseSchema
-import models.domain.genomics.{AlignmentCoverage, AlignmentMetadata, MetricLevel}
+import models.domain.genomics.{AlignmentMetadata, EmbeddedCoverage, MetricLevel}
 import play.api.db.slick.DatabaseConfigProvider
+import play.api.libs.json.Json
 
 import scala.concurrent.{ExecutionContext, Future}
 
@@ -11,71 +12,20 @@ import scala.concurrent.{ExecutionContext, Future}
  * Repository interface for managing alignment metadata and coverage statistics.
  */
 trait AlignmentRepository {
-  /**
-   * Creates a new alignment metadata record.
-   *
-   * @param metadata The alignment metadata to create
-   * @return A future containing the created metadata with its assigned ID
-   */
   def createMetadata(metadata: AlignmentMetadata): Future[AlignmentMetadata]
 
-  /**
-   * Creates or updates coverage statistics for an alignment.
-   *
-   * @param coverage The coverage statistics to upsert
-   * @return A future containing the upserted coverage record
-   */
-  def upsertCoverage(coverage: AlignmentCoverage): Future[AlignmentCoverage]
+  def updateCoverage(metadataId: Long, coverage: EmbeddedCoverage): Future[Boolean]
 
-  /**
-   * Finds all alignment metadata for a specific sequence file.
-   *
-   * @param sequenceFileId The sequence file ID
-   * @return A future containing a sequence of alignment metadata records
-   */
   def findMetadataBySequenceFile(sequenceFileId: Long): Future[Seq[AlignmentMetadata]]
 
-  /**
-   * Finds alignment metadata for a specific contig.
-   *
-   * @param genbankContigId The GenBank contig ID
-   * @param metricLevel     Optional filter by metric level
-   * @return A future containing a sequence of alignment metadata records
-   */
   def findMetadataByContig(genbankContigId: Int, metricLevel: Option[MetricLevel] = None): Future[Seq[AlignmentMetadata]]
 
-  /**
-   * Retrieves alignment metadata with associated coverage statistics.
-   *
-   * @param metadataId The alignment metadata ID
-   * @return A future containing an optional tuple of (metadata, coverage)
-   */
-  def findMetadataWithCoverage(metadataId: Long): Future[Option[(AlignmentMetadata, Option[AlignmentCoverage])]]
+  def findMetadataById(metadataId: Long): Future[Option[AlignmentMetadata]]
 
-  /**
-   * Finds all alignment metadata and coverage for a sequence file.
-   *
-   * @param sequenceFileId The sequence file ID
-   * @return A future containing a sequence of tuples (metadata, coverage)
-   */
-  def findAllWithCoverageBySequenceFile(sequenceFileId: Long): Future[Seq[(AlignmentMetadata, Option[AlignmentCoverage])]]
+  def findAllBySequenceFile(sequenceFileId: Long): Future[Seq[AlignmentMetadata]]
 
-  /**
-   * Deletes alignment metadata and associated coverage by ID.
-   *
-   * @param metadataId The alignment metadata ID to delete
-   * @return A future containing the number of deleted records
-   */
   def deleteMetadata(metadataId: Long): Future[Int]
 
-  /**
-   * Finds regional alignment statistics for a specific genomic region.
-   *
-   * @param genbankContigId The GenBank contig ID
-   * @param startPos        Start position (1-based, inclusive)
-   * @param endPos          End position (1-based, inclusive)
-   * @return A future containing a sequence of regional alignment metadata
-   */
   def findRegionalMetadata(genbankContigId: Int, startPos: Long, endPos: Long): Future[Seq[AlignmentMetadata]]
 }
 
@@ -89,7 +39,6 @@ class AlignmentRepositoryImpl @Inject()(
   import models.dal.MyPostgresProfile.api.*
 
   private val metadataTable = DatabaseSchema.domain.genomics.alignmentMetadata
-  private val coverageTable = DatabaseSchema.domain.genomics.alignmentCoverages
 
   override def createMetadata(metadata: AlignmentMetadata): Future[AlignmentMetadata] = {
     val insertQuery = (metadataTable returning metadataTable.map(_.id)
@@ -99,12 +48,12 @@ class AlignmentRepositoryImpl @Inject()(
     db.run(insertQuery.transactionally)
   }
 
-  override def upsertCoverage(coverage: AlignmentCoverage): Future[AlignmentCoverage] = {
+  override def updateCoverage(metadataId: Long, coverage: EmbeddedCoverage): Future[Boolean] = {
     db.run(
-      coverageTable.insertOrUpdate(coverage)
-        .map(_ => coverage)
-        .transactionally
-    )
+      metadataTable.filter(_.id === metadataId)
+        .map(_.coverage)
+        .update(Some(Json.toJson(coverage)))
+    ).map(_ > 0)
   }
 
   override def findMetadataBySequenceFile(sequenceFileId: Long): Future[Seq[AlignmentMetadata]] = {
@@ -125,23 +74,19 @@ class AlignmentRepositoryImpl @Inject()(
     db.run(filteredQuery.result)
   }
 
-  override def findMetadataWithCoverage(metadataId: Long): Future[Option[(AlignmentMetadata, Option[AlignmentCoverage])]] = {
+  override def findMetadataById(metadataId: Long): Future[Option[AlignmentMetadata]] = {
     db.run(
       metadataTable
         .filter(_.id === metadataId)
-        .joinLeft(coverageTable)
-        .on(_.id === _.alignmentMetadataId)
         .result
         .headOption
     )
   }
 
-  override def findAllWithCoverageBySequenceFile(sequenceFileId: Long): Future[Seq[(AlignmentMetadata, Option[AlignmentCoverage])]] = {
+  override def findAllBySequenceFile(sequenceFileId: Long): Future[Seq[AlignmentMetadata]] = {
     db.run(
       metadataTable
         .filter(_.sequenceFileId === sequenceFileId)
-        .joinLeft(coverageTable)
-        .on(_.id === _.alignmentMetadataId)
         .result
     )
   }

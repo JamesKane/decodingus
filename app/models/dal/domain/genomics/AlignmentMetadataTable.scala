@@ -61,25 +61,27 @@ class AlignmentMetadataTable(tag: Tag) extends Table[AlignmentMetadata](tag, Som
 
   def metadata = column[Option[JsValue]]("metadata")
 
+  def coverage = column[Option[JsValue]]("coverage")
+
   def * = (
     (id.?, sequenceFileId, genbankContigId, metricLevel),
     (regionName, regionStartPos, regionEndPos, regionLengthBp),
     (referenceBuild, variantCaller, genomeTerritory, meanCoverage, medianCoverage, sdCoverage, pctExcDupe, pctExcMapq, pct10x, pct20x, pct30x, hetSnpSensitivity),
-    (metricsDate, analysisTool, analysisToolVersion, notes, metadata)
+    (metricsDate, analysisTool, analysisToolVersion, notes, metadata, coverage)
   ).shaped <> ( {
-    case ((id, seqId, contigId, lvl), (rName, rStart, rEnd, rLen), (refBuild, vCaller, gTerr, meanCov, medCov, sdCov, pDupe, pMapq, p10, p20, p30, hetSens), (mDate, tool, toolVer, notes, meta)) =>
+    case ((id, seqId, contigId, lvl), (rName, rStart, rEnd, rLen), (refBuild, vCaller, gTerr, meanCov, medCov, sdCov, pDupe, pMapq, p10, p20, p30, hetSens), (mDate, tool, toolVer, notes, meta, cov)) =>
       AlignmentMetadata(
         id, seqId, contigId, lvl,
         rName, rStart, rEnd, rLen,
         refBuild, vCaller, gTerr, meanCov, medCov, sdCov, pDupe, pMapq, p10, p20, p30, hetSens,
-        mDate, tool, toolVer, notes, meta
+        mDate, tool, toolVer, notes, meta, cov
       )
   }, { (m: AlignmentMetadata) =>
     Some((
       (m.id, m.sequenceFileId, m.genbankContigId, m.metricLevel),
       (m.regionName, m.regionStartPos, m.regionEndPos, m.regionLengthBp),
       (m.referenceBuild, m.variantCaller, m.genomeTerritory, m.meanCoverage, m.medianCoverage, m.sdCoverage, m.pctExcDupe, m.pctExcMapq, m.pct10x, m.pct20x, m.pct30x, m.hetSnpSensitivity),
-      (m.metricsDate, m.analysisTool, m.analysisToolVersion, m.notes, m.metadata)
+      (m.metricsDate, m.analysisTool, m.analysisToolVersion, m.notes, m.metadata, m.coverage)
     ))
   }
   )

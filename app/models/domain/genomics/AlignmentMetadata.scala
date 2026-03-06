@@ -75,9 +75,33 @@ case class AlignmentMetadata(
                               analysisTool: String,
                               analysisToolVersion: Option[String] = None,
                               notes: Option[String] = None,
-                              metadata: Option[JsValue] = None
-                            )
+                              metadata: Option[JsValue] = None,
+                              coverage: Option[JsValue] = None
+                            ) {
+
+  def embeddedCoverage: Option[EmbeddedCoverage] = coverage.flatMap(_.asOpt[EmbeddedCoverage])
+
+  def withCoverage(ec: EmbeddedCoverage): AlignmentMetadata = copy(coverage = Some(Json.toJson(ec)))
+}
 
 object AlignmentMetadata {
   implicit val format: OFormat[AlignmentMetadata] = Json.format[AlignmentMetadata]
+}
+
+case class EmbeddedCoverage(
+                             meanDepth: Option[Double] = None,
+                             medianDepth: Option[Double] = None,
+                             percentCoverageAt1x: Option[Double] = None,
+                             percentCoverageAt5x: Option[Double] = None,
+                             percentCoverageAt10x: Option[Double] = None,
+                             percentCoverageAt20x: Option[Double] = None,
+                             percentCoverageAt30x: Option[Double] = None,
+                             basesNoCoverage: Option[Long] = None,
+                             basesLowQualityMapping: Option[Long] = None,
+                             basesCallable: Option[Long] = None,
+                             meanMappingQuality: Option[Double] = None
+                           )
+
+object EmbeddedCoverage {
+  implicit val format: OFormat[EmbeddedCoverage] = Json.format[EmbeddedCoverage]
 }
