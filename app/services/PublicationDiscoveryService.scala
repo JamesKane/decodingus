@@ -14,8 +14,9 @@ class PublicationDiscoveryService @Inject()(
                                              candidateRepository: PublicationCandidateRepository,
                                              runRepository: PublicationSearchRunRepository,
                                              publicationRepository: PublicationRepository,
-                                             publicationService: PublicationService, // Injected
-                                             openAlexService: OpenAlexService
+                                             publicationService: PublicationService,
+                                             openAlexService: OpenAlexService,
+                                             relevanceScoringService: RelevanceScoringService
                                            )(implicit ec: ExecutionContext) extends Logging {
 
   def acceptCandidate(candidateId: Int, reviewedBy: java.util.UUID): Future[Option[models.domain.publications.Publication]] = {
@@ -85,13 +86,8 @@ class PublicationDiscoveryService @Inject()(
               c.doi.exists(existingDois.contains)
             }
             
-            // 3. Calculate Relevance Score (Placeholder logic)
-            // For now, let's just use 0.5 as a base score, or maybe look at citation counts if available in rawMetadata
-            val scoredCandidates = newCandidates.map { c =>
-              // extract simple score from raw metadata if possible, else default
-              val percentile = (c.rawMetadata.get \ "citation_normalized_percentile" \ "value").asOpt[Double]
-              c.copy(relevanceScore = percentile.orElse(Some(0.5)))
-            }
+            // 3. Calculate Relevance Score using multi-signal scoring
+            val scoredCandidates = relevanceScoringService.scoreCandidates(newCandidates)
 
             // 4. Save Candidates
             candidateRepository.saveCandidates(scoredCandidates).flatMap { savedCandidates =>

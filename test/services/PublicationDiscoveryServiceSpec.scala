@@ -18,15 +18,16 @@ class PublicationDiscoveryServiceSpec extends ServiceSpec {
   val mockPubRepo: PublicationRepository = mock[PublicationRepository]
   val mockPubService: PublicationService = mock[PublicationService]
   val mockOpenAlexService: OpenAlexService = mock[OpenAlexService]
+  val mockRelevanceScoringService: RelevanceScoringService = mock[RelevanceScoringService]
 
   val service = new PublicationDiscoveryService(
     mockSearchConfigRepo, mockCandidateRepo, mockRunRepo,
-    mockPubRepo, mockPubService, mockOpenAlexService
+    mockPubRepo, mockPubService, mockOpenAlexService, mockRelevanceScoringService
   )
 
   override def beforeEach(): Unit = {
     reset(mockSearchConfigRepo, mockCandidateRepo, mockRunRepo,
-      mockPubRepo, mockPubService, mockOpenAlexService)
+      mockPubRepo, mockPubService, mockOpenAlexService, mockRelevanceScoringService)
   }
 
   val reviewerId: UUID = UUID.randomUUID()
