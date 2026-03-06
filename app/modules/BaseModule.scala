@@ -151,9 +151,13 @@ class BaseModule extends AbstractModule {
       .to(classOf[HaplogroupCharacterStateRepositoryImpl])
       .asEagerSingleton()
 
-    // Genealogical anchors
+    // Age estimation — anchors and ancestral STR motifs
     bind(classOf[GenealogicalAnchorRepository])
       .to(classOf[GenealogicalAnchorRepositoryImpl])
+      .asEagerSingleton()
+
+    bind(classOf[HaplogroupAncestralStrRepository])
+      .to(classOf[HaplogroupAncestralStrRepositoryImpl])
       .asEagerSingleton()
   }
 }
