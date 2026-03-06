@@ -195,5 +195,10 @@ class BaseModule extends AbstractModule {
     bind(classOf[PdsSubmissionRepository])
       .to(classOf[PdsSubmissionRepositoryImpl])
       .asEagerSingleton()
+
+    // Billing / Patronage
+    bind(classOf[PatronSubscriptionRepository])
+      .to(classOf[PatronSubscriptionRepositoryImpl])
+      .asEagerSingleton()
   }
 }

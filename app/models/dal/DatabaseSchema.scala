@@ -197,4 +197,9 @@ object DatabaseSchema {
     import models.dal.curator.*
     val auditLog = TableQuery[AuditLogTable]
   }
+
+  object billing {
+    import models.dal.domain.billing.*
+    val patronSubscriptions = TableQuery[PatronSubscriptionTable]
+  }
 }
