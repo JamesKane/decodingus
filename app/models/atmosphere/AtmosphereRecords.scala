@@ -508,6 +508,141 @@ object HaplogroupAncestralStrRecord {
   implicit val format: OFormat[HaplogroupAncestralStrRecord] = Json.format[HaplogroupAncestralStrRecord]
 }
 
+// --- Group Project Records ---
+
+case class GroupProjectGovernance(
+                                   administrators: Seq[ProjectRoleAssignment],
+                                   coAdministrators: Option[Seq[ProjectRoleAssignment]] = None,
+                                   moderators: Option[Seq[ProjectRoleAssignment]] = None,
+                                   curators: Option[Seq[ProjectRoleAssignment]] = None,
+                                   successionPolicy: Option[String] = None
+                                 )
+
+object GroupProjectGovernance {
+  implicit val format: OFormat[GroupProjectGovernance] = Json.format[GroupProjectGovernance]
+}
+
+case class ProjectRoleAssignment(
+                                  citizenDid: String,
+                                  role: String,
+                                  permissions: Option[Seq[String]] = None,
+                                  appointedAt: Option[Instant] = None,
+                                  appointedBy: Option[String] = None
+                                )
+
+object ProjectRoleAssignment {
+  implicit val format: OFormat[ProjectRoleAssignment] = Json.format[ProjectRoleAssignment]
+}
+
+case class ProjectVisibilityPolicy(
+                                    publicTreeView: Option[Boolean] = None,
+                                    memberListVisibility: Option[String] = None,
+                                    strPolicy: Option[String] = None,
+                                    snpPolicy: Option[String] = None,
+                                    ancestorPolicy: Option[String] = None
+                                  )
+
+object ProjectVisibilityPolicy {
+  implicit val format: OFormat[ProjectVisibilityPolicy] = Json.format[ProjectVisibilityPolicy]
+}
+
+case class ProjectSubgroup(
+                             subgroupId: String,
+                             name: String,
+                             description: Option[String] = None,
+                             haplogroupFilter: Option[String] = None,
+                             color: Option[String] = None,
+                             sortOrder: Option[Int] = None
+                           )
+
+object ProjectSubgroup {
+  implicit val format: OFormat[ProjectSubgroup] = Json.format[ProjectSubgroup]
+}
+
+case class ProjectLink(
+                         title: Option[String] = None,
+                         url: Option[String] = None,
+                         category: Option[String] = None
+                       )
+
+object ProjectLink {
+  implicit val format: OFormat[ProjectLink] = Json.format[ProjectLink]
+}
+
+case class GroupProjectRecord(
+                               atUri: String,
+                               meta: RecordMeta,
+                               projectName: String,
+                               projectType: String,
+                               targetHaplogroup: Option[String] = None,
+                               targetLineage: Option[String] = None,
+                               description: Option[String] = None,
+                               backgroundInfo: Option[String] = None,
+                               governance: GroupProjectGovernance,
+                               visibilityPolicy: Option[ProjectVisibilityPolicy] = None,
+                               joinPolicy: Option[String] = None,
+                               haplogroupRequirement: Option[String] = None,
+                               subgroups: Option[Seq[ProjectSubgroup]] = None,
+                               links: Option[Seq[ProjectLink]] = None,
+                               createdAt: Option[Instant] = None
+                             )
+
+object GroupProjectRecord {
+  implicit val format: OFormat[GroupProjectRecord] = Json.format[GroupProjectRecord]
+}
+
+case class AncestorInfo(
+                          name: Option[String] = None,
+                          surname: Option[String] = None,
+                          birthYear: Option[Int] = None,
+                          birthCentury: Option[String] = None,
+                          birthDecade: Option[String] = None,
+                          birthCountry: Option[String] = None,
+                          birthRegion: Option[String] = None,
+                          birthPlace: Option[String] = None,
+                          additionalInfo: Option[String] = None
+                        )
+
+object AncestorInfo {
+  implicit val format: OFormat[AncestorInfo] = Json.format[AncestorInfo]
+}
+
+case class MemberVisibilityPrefs(
+                                   showInMemberList: Option[Boolean] = None,
+                                   showInTree: Option[Boolean] = None,
+                                   shareTerminalHaplogroup: Option[Boolean] = None,
+                                   shareFullLineagePath: Option[Boolean] = None,
+                                   sharePrivateVariants: Option[Boolean] = None,
+                                   ancestorVisibility: Option[String] = None,
+                                   strVisibility: Option[String] = None,
+                                   allowDirectContact: Option[Boolean] = None,
+                                   showDisplayName: Option[Boolean] = None
+                                 )
+
+object MemberVisibilityPrefs {
+  implicit val format: OFormat[MemberVisibilityPrefs] = Json.format[MemberVisibilityPrefs]
+}
+
+case class ProjectMembershipRecord(
+                                    atUri: String,
+                                    meta: RecordMeta,
+                                    projectRef: String,
+                                    biosampleRef: String,
+                                    status: String,
+                                    displayName: Option[String] = None,
+                                    kitId: Option[String] = None,
+                                    visibility: Option[MemberVisibilityPrefs] = None,
+                                    subgroupAssignments: Option[Seq[String]] = None,
+                                    earliestKnownAncestor: Option[AncestorInfo] = None,
+                                    contributionLevel: Option[String] = None,
+                                    joinedAt: Option[Instant] = None,
+                                    notes: Option[String] = None
+                                  )
+
+object ProjectMembershipRecord {
+  implicit val format: OFormat[ProjectMembershipRecord] = Json.format[ProjectMembershipRecord]
+}
+
 // --- Reconciliation Types ---
 
 case class ReconciliationStatus(

@@ -279,6 +279,40 @@ object WorkspaceEvent {
     )(WorkspaceEvent.apply, (e: WorkspaceEvent) => (e.atUri, e.atCid, e.action, e.payload))
 }
 
+case class GroupProjectEvent(
+                              atUri: String,
+                              atCid: Option[String],
+                              action: FirehoseAction,
+                              payload: Option[GroupProjectRecord]
+                            ) extends FirehoseEvent
+
+object GroupProjectEvent {
+  implicit val format: OFormat[GroupProjectEvent] = Json.format
+  implicit val formatWithDiscriminator: OFormat[GroupProjectEvent] = (
+    (JsPath \ "atUri").format[String] and
+      (JsPath \ "atCid").formatNullable[String] and
+      (JsPath \ "action").format[FirehoseAction] and
+      (JsPath \ "payload").formatNullable[GroupProjectRecord]
+    )(GroupProjectEvent.apply, (e: GroupProjectEvent) => (e.atUri, e.atCid, e.action, e.payload))
+}
+
+case class ProjectMembershipEvent(
+                                    atUri: String,
+                                    atCid: Option[String],
+                                    action: FirehoseAction,
+                                    payload: Option[ProjectMembershipRecord]
+                                  ) extends FirehoseEvent
+
+object ProjectMembershipEvent {
+  implicit val format: OFormat[ProjectMembershipEvent] = Json.format
+  implicit val formatWithDiscriminator: OFormat[ProjectMembershipEvent] = (
+    (JsPath \ "atUri").format[String] and
+      (JsPath \ "atCid").formatNullable[String] and
+      (JsPath \ "action").format[FirehoseAction] and
+      (JsPath \ "payload").formatNullable[ProjectMembershipRecord]
+    )(ProjectMembershipEvent.apply, (e: ProjectMembershipEvent) => (e.atUri, e.atCid, e.action, e.payload))
+}
+
 case class HaplogroupReconciliationEvent(
                                           atUri: String,
                                           atCid: Option[String],
@@ -314,6 +348,8 @@ object FirehoseEvent {
         case Some("StrProfileEvent") => json.validate[StrProfileEvent](StrProfileEvent.formatWithDiscriminator)
         case Some("HaplogroupAncestralStrEvent") => json.validate[HaplogroupAncestralStrEvent](HaplogroupAncestralStrEvent.formatWithDiscriminator)
         case Some("WorkspaceEvent") => json.validate[WorkspaceEvent](WorkspaceEvent.formatWithDiscriminator)
+        case Some("GroupProjectEvent") => json.validate[GroupProjectEvent](GroupProjectEvent.formatWithDiscriminator)
+        case Some("ProjectMembershipEvent") => json.validate[ProjectMembershipEvent](ProjectMembershipEvent.formatWithDiscriminator)
         case Some("HaplogroupReconciliationEvent") => json.validate[HaplogroupReconciliationEvent](HaplogroupReconciliationEvent.formatWithDiscriminator)
         case Some(unknown) => JsError(s"Unknown FirehoseEvent type: $unknown")
         case None => JsError("Missing '_type' discriminator field for FirehoseEvent")
@@ -336,6 +372,8 @@ object FirehoseEvent {
     case e: StrProfileEvent => Json.toJsObject(e)(StrProfileEvent.formatWithDiscriminator) + ("_type" -> JsString("StrProfileEvent"))
     case e: HaplogroupAncestralStrEvent => Json.toJsObject(e)(HaplogroupAncestralStrEvent.formatWithDiscriminator) + ("_type" -> JsString("HaplogroupAncestralStrEvent"))
     case e: WorkspaceEvent => Json.toJsObject(e)(WorkspaceEvent.formatWithDiscriminator) + ("_type" -> JsString("WorkspaceEvent"))
+    case e: GroupProjectEvent => Json.toJsObject(e)(GroupProjectEvent.formatWithDiscriminator) + ("_type" -> JsString("GroupProjectEvent"))
+    case e: ProjectMembershipEvent => Json.toJsObject(e)(ProjectMembershipEvent.formatWithDiscriminator) + ("_type" -> JsString("ProjectMembershipEvent"))
     case e: HaplogroupReconciliationEvent => Json.toJsObject(e)(HaplogroupReconciliationEvent.formatWithDiscriminator) + ("_type" -> JsString("HaplogroupReconciliationEvent"))
   }
 

@@ -2,11 +2,11 @@ package services.firehose
 
 import jakarta.inject.{Inject, Singleton}
 import models.atmosphere.*
-import models.domain.Project
+import models.domain.{GroupProject, GroupProjectMember, Project}
 import models.domain.genomics.*
 import play.api.Logging
 import repositories.*
-import services.TestTypeService // Added this import
+import services.TestTypeService
 
 import java.time.{LocalDateTime, ZoneId}
 import java.util.UUID
@@ -28,7 +28,9 @@ class AtmosphereEventHandler @Inject()(
                                         genotypeDataRepository: GenotypeDataRepository,
                                         populationBreakdownRepository: PopulationBreakdownRepository,
                                         haplogroupReconciliationRepository: HaplogroupReconciliationRepository,
-                                        instrumentObservationRepository: InstrumentObservationRepository
+                                        instrumentObservationRepository: InstrumentObservationRepository,
+                                        groupProjectRepository: GroupProjectRepository,
+                                        groupProjectMemberRepository: GroupProjectMemberRepository
                                       )(implicit ec: ExecutionContext) extends Logging {
 
   def handle(event: FirehoseEvent): Future[FirehoseResult] = {
@@ -41,6 +43,8 @@ class AtmosphereEventHandler @Inject()(
       case e: PopulationBreakdownEvent => handlePopulationBreakdown(e)
       case e: HaplogroupReconciliationEvent => handleHaplogroupReconciliation(e)
       case e: InstrumentObservationEvent => handleInstrumentObservation(e)
+      case e: GroupProjectEvent => handleGroupProject(e)
+      case e: ProjectMembershipEvent => handleProjectMembership(e)
       case _ =>
         logger.warn(s"Unhandled event type: ${event.getClass.getSimpleName} for ${event.atUri}")
         Future.successful(FirehoseResult.Success(event.atUri, "", None, "Ignored (Not Implemented)"))
@@ -896,6 +900,181 @@ class AtmosphereEventHandler @Inject()(
       if (deleted) FirehoseResult.Success(event.atUri, "", None, "Instrument observation deleted")
       else FirehoseResult.NotFound(event.atUri)
     }
+  }
+
+  // --- Group Project Handling ---
+
+  private def handleGroupProject(event: GroupProjectEvent): Future[FirehoseResult] = {
+    event.action match {
+      case FirehoseAction.Create => createGroupProject(event)
+      case FirehoseAction.Update => updateGroupProject(event)
+      case FirehoseAction.Delete => deleteGroupProject(event)
+    }
+  }
+
+  private def createGroupProject(event: GroupProjectEvent): Future[FirehoseResult] = {
+    event.payload match {
+      case Some(record) =>
+        val ownerDid = record.governance.administrators.headOption.map(_.citizenDid).getOrElse("")
+        if (ownerDid.isEmpty) {
+          Future.successful(FirehoseResult.ValidationError(event.atUri, "At least one administrator is required"))
+        } else {
+          val newAtCid = UUID.randomUUID().toString
+          val project = GroupProject(
+            projectName = record.projectName,
+            projectType = record.projectType,
+            targetHaplogroup = record.targetHaplogroup,
+            targetLineage = record.targetLineage,
+            description = record.description,
+            backgroundInfo = record.backgroundInfo,
+            joinPolicy = record.joinPolicy.getOrElse("APPROVAL_REQUIRED"),
+            haplogroupRequirement = record.haplogroupRequirement,
+            memberListVisibility = record.visibilityPolicy.flatMap(_.memberListVisibility).getOrElse("MEMBERS_ONLY"),
+            strPolicy = record.visibilityPolicy.flatMap(_.strPolicy).getOrElse("DISTANCE_ONLY"),
+            snpPolicy = record.visibilityPolicy.flatMap(_.snpPolicy).getOrElse("TERMINAL_ONLY"),
+            publicTreeView = record.visibilityPolicy.flatMap(_.publicTreeView).getOrElse(false),
+            successionPolicy = record.governance.successionPolicy,
+            ownerDid = ownerDid,
+            atUri = Some(record.atUri),
+            atCid = Some(newAtCid),
+            createdAt = LocalDateTime.ofInstant(record.meta.createdAt, ZoneId.systemDefault()),
+            updatedAt = LocalDateTime.now()
+          )
+          groupProjectRepository.create(project).flatMap { created =>
+            val adminMember = GroupProjectMember(
+              groupProjectId = created.id.get,
+              citizenDid = ownerDid,
+              role = "ADMIN",
+              status = "ACTIVE",
+              joinedAt = Some(LocalDateTime.now())
+            )
+            groupProjectMemberRepository.create(adminMember).map { _ =>
+              FirehoseResult.Success(event.atUri, newAtCid, None, "Group Project Created")
+            }
+          }
+        }
+      case None =>
+        Future.successful(FirehoseResult.ValidationError(event.atUri, "Payload required"))
+    }
+  }
+
+  private def updateGroupProject(event: GroupProjectEvent): Future[FirehoseResult] = {
+    event.payload match {
+      case Some(record) =>
+        groupProjectRepository.findByAtUri(event.atUri).flatMap {
+          case Some(existing) =>
+            val updated = existing.copy(
+              projectName = record.projectName,
+              description = record.description,
+              backgroundInfo = record.backgroundInfo,
+              joinPolicy = record.joinPolicy.getOrElse(existing.joinPolicy),
+              haplogroupRequirement = record.haplogroupRequirement.orElse(existing.haplogroupRequirement),
+              memberListVisibility = record.visibilityPolicy.flatMap(_.memberListVisibility).getOrElse(existing.memberListVisibility),
+              strPolicy = record.visibilityPolicy.flatMap(_.strPolicy).getOrElse(existing.strPolicy),
+              snpPolicy = record.visibilityPolicy.flatMap(_.snpPolicy).getOrElse(existing.snpPolicy),
+              publicTreeView = record.visibilityPolicy.flatMap(_.publicTreeView).getOrElse(existing.publicTreeView),
+              successionPolicy = record.governance.successionPolicy.orElse(existing.successionPolicy),
+              atCid = Some(UUID.randomUUID().toString)
+            )
+            groupProjectRepository.update(updated).map {
+              case true => FirehoseResult.Success(event.atUri, updated.atCid.getOrElse(""), None, "Group Project Updated")
+              case false => FirehoseResult.Conflict(event.atUri, "Update failed")
+            }
+          case None =>
+            Future.successful(FirehoseResult.NotFound(event.atUri))
+        }
+      case None =>
+        Future.successful(FirehoseResult.ValidationError(event.atUri, "Payload required"))
+    }
+  }
+
+  private def deleteGroupProject(event: GroupProjectEvent): Future[FirehoseResult] = {
+    groupProjectRepository.softDeleteByAtUri(event.atUri).map {
+      case true => FirehoseResult.Success(event.atUri, "", None, "Group Project Deleted")
+      case false => FirehoseResult.NotFound(event.atUri)
+    }
+  }
+
+  // --- Project Membership Handling ---
+
+  private def handleProjectMembership(event: ProjectMembershipEvent): Future[FirehoseResult] = {
+    event.action match {
+      case FirehoseAction.Create => createProjectMembership(event)
+      case FirehoseAction.Update => updateProjectMembership(event)
+      case FirehoseAction.Delete => deleteProjectMembership(event)
+    }
+  }
+
+  private def createProjectMembership(event: ProjectMembershipEvent): Future[FirehoseResult] = {
+    event.payload match {
+      case Some(record) =>
+        groupProjectRepository.findByAtUri(record.projectRef).flatMap {
+          case Some(project) =>
+            val status = if (project.joinPolicy == "OPEN") "ACTIVE" else record.status
+            val member = GroupProjectMember(
+              groupProjectId = project.id.get,
+              citizenDid = extractDidFromAtUri(record.atUri),
+              biosampleAtUri = Some(record.biosampleRef),
+              status = status,
+              displayName = record.displayName,
+              kitId = record.kitId,
+              subgroupIds = record.subgroupAssignments.getOrElse(Seq.empty).toList,
+              contributionLevel = record.contributionLevel,
+              joinedAt = if (status == "ACTIVE") Some(LocalDateTime.now()) else None,
+              atUri = Some(record.atUri),
+              atCid = Some(UUID.randomUUID().toString)
+            )
+            groupProjectMemberRepository.create(member).map { created =>
+              FirehoseResult.Success(event.atUri, created.atCid.getOrElse(""), None, "Project Membership Created")
+            }
+          case None =>
+            Future.successful(FirehoseResult.ValidationError(event.atUri, s"Group project not found: ${record.projectRef}"))
+        }
+      case None =>
+        Future.successful(FirehoseResult.ValidationError(event.atUri, "Payload required"))
+    }
+  }
+
+  private def updateProjectMembership(event: ProjectMembershipEvent): Future[FirehoseResult] = {
+    event.payload match {
+      case Some(record) =>
+        groupProjectMemberRepository.findByAtUri(event.atUri).flatMap {
+          case Some(existing) =>
+            val updated = existing.copy(
+              status = record.status,
+              displayName = record.displayName.orElse(existing.displayName),
+              kitId = record.kitId.orElse(existing.kitId),
+              subgroupIds = record.subgroupAssignments.map(_.toList).getOrElse(existing.subgroupIds),
+              contributionLevel = record.contributionLevel.orElse(existing.contributionLevel),
+              atCid = Some(UUID.randomUUID().toString)
+            )
+            groupProjectMemberRepository.update(updated).map {
+              case true => FirehoseResult.Success(event.atUri, updated.atCid.getOrElse(""), None, "Project Membership Updated")
+              case false => FirehoseResult.Conflict(event.atUri, "Update failed")
+            }
+          case None =>
+            Future.successful(FirehoseResult.NotFound(event.atUri))
+        }
+      case None =>
+        Future.successful(FirehoseResult.ValidationError(event.atUri, "Payload required"))
+    }
+  }
+
+  private def deleteProjectMembership(event: ProjectMembershipEvent): Future[FirehoseResult] = {
+    groupProjectMemberRepository.findByAtUri(event.atUri).flatMap {
+      case Some(existing) =>
+        groupProjectMemberRepository.updateStatus(existing.id.get, "LEFT").map {
+          case true => FirehoseResult.Success(event.atUri, "", None, "Project Membership Removed")
+          case false => FirehoseResult.NotFound(event.atUri)
+        }
+      case None =>
+        Future.successful(FirehoseResult.NotFound(event.atUri))
+    }
+  }
+
+  private def extractDidFromAtUri(atUri: String): String = {
+    // AT URI format: at://{DID}/{collection}/{rkey}
+    atUri.stripPrefix("at://").split("/").headOption.getOrElse("")
   }
 
 }

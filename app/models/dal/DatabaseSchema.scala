@@ -169,6 +169,8 @@ object DatabaseSchema {
 
     object project {
       val projects = TableQuery[ProjectTable]
+      val groupProjects = TableQuery[GroupProjectTable]
+      val groupProjectMembers = TableQuery[GroupProjectMemberTable]
     }
   }
 

@@ -170,5 +170,13 @@ class BaseModule extends AbstractModule {
     bind(classOf[CoverageExpectationProfileRepository])
       .to(classOf[CoverageExpectationProfileRepositoryImpl])
       .asEagerSingleton()
+
+    bind(classOf[GroupProjectRepository])
+      .to(classOf[GroupProjectRepositoryImpl])
+      .asEagerSingleton()
+
+    bind(classOf[GroupProjectMemberRepository])
+      .to(classOf[GroupProjectMemberRepositoryImpl])
+      .asEagerSingleton()
   }
 }
