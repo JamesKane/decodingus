@@ -4,7 +4,7 @@ import actions.ApiSecurityAction
 import jakarta.inject.{Inject, Singleton}
 import models.HaplogroupType
 import models.domain.haplogroups.{ChangeSetStatus, ChangeStatus}
-import play.api.Logger
+import play.api.Logging
 import play.api.libs.json.{Format, JsError, JsSuccess, Json, OFormat, Reads}
 import play.api.mvc.{Action, AnyContent, BaseController, ControllerComponents}
 import services.TreeVersioningService
@@ -21,9 +21,7 @@ class TreeVersioningApiController @Inject()(
     val controllerComponents: ControllerComponents,
     secureApi: ApiSecurityAction,
     treeVersioningService: TreeVersioningService
-)(implicit ec: ExecutionContext) extends BaseController {
-
-  private val logger = Logger(this.getClass)
+)(implicit ec: ExecutionContext) extends BaseController with Logging {
 
   // ============================================================================
   // Request/Response DTOs

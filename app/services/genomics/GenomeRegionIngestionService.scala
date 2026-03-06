@@ -5,7 +5,7 @@ import htsjdk.samtools.liftover.LiftOver
 import htsjdk.samtools.util.Interval
 import jakarta.inject.{Inject, Singleton}
 import models.domain.genomics.{GenomeRegion, RegionCoordinate}
-import play.api.Logger
+import play.api.Logging
 import play.api.libs.json.{JsObject, Json}
 import repositories.GenomeRegionsRepository
 
@@ -20,9 +20,7 @@ import scala.util.{Failure, Success, Using}
 class GenomeRegionIngestionService @Inject()(
   repository: GenomeRegionsRepository,
   genomicsConfig: GenomicsConfig
-)(implicit ec: ExecutionContext) {
-
-  private val logger = Logger(this.getClass)
+)(implicit ec: ExecutionContext) extends Logging {
 
   // Source URLs (hs1 / CHM13v2.0)
   private val sources = Map(

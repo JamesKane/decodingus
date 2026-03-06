@@ -95,7 +95,8 @@ trait VariantV2Repository {
 
   // === Bulk Operations ===
 
-  def streamAll(): Future[Seq[VariantV2]]
+  def countAll(): Future[Int]
+  def fetchBatch(offset: Int, limit: Int): Future[Seq[VariantV2]]
   def findByIds(ids: Seq[Int]): Future[Seq[VariantV2]]
 
   /**
@@ -632,7 +633,10 @@ class VariantV2RepositoryImpl @Inject()(
 
   // === Bulk Operations ===
 
-  override def streamAll(): Future[Seq[VariantV2]] = db.run(variantsV2.result)
+  override def countAll(): Future[Int] = db.run(variantsV2.length.result)
+
+  override def fetchBatch(offset: Int, limit: Int): Future[Seq[VariantV2]] =
+    db.run(variantsV2.sortBy(_.variantId).drop(offset).take(limit).result)
   override def findByIds(ids: Seq[Int]): Future[Seq[VariantV2]] = if (ids.isEmpty) Future.successful(Seq.empty) else db.run(variantsV2.filter(_.variantId.inSet(ids)).result)
 
   override def searchByNames(names: Seq[String]): Future[Map[String, Seq[VariantV2]]] = {

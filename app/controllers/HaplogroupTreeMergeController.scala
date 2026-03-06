@@ -3,7 +3,7 @@ package controllers
 import actions.ApiSecurityAction
 import jakarta.inject.{Inject, Singleton}
 import models.api.haplogroups.*
-import play.api.Logger
+import play.api.Logging
 import play.api.libs.json.Json
 import play.api.mvc.{Action, BaseController, ControllerComponents}
 import services.HaplogroupTreeMergeService
@@ -24,9 +24,7 @@ class HaplogroupTreeMergeController @Inject()(
   val controllerComponents: ControllerComponents,
   secureApi: ApiSecurityAction,
   mergeService: HaplogroupTreeMergeService
-)(implicit ec: ExecutionContext) extends BaseController {
-
-  private val logger = Logger(this.getClass)
+)(implicit ec: ExecutionContext) extends BaseController with Logging {
 
   /**
    * Merge a full haplogroup tree, replacing the existing tree for the given type.

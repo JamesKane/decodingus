@@ -30,9 +30,4 @@ trait TestTypeService {
    * Validate that a test type code is valid.
    */
   def isValidCode(code: String): Future[Boolean]
-
-  /**
-   * Get target regions for a test type.
-   */
-  // def getTargetRegions(testTypeId: Int): Future[Seq[TestTypeTargetRegion]] // TODO: Implement TestTypeTargetRegion
 }

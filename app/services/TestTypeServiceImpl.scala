@@ -32,6 +32,4 @@ class TestTypeServiceImpl @Inject()(
   override def isValidCode(code: String): Future[Boolean] = {
     testTypeRepository.findByCode(code).map(_.isDefined)
   }
-
-  // override def getTargetRegions(testTypeId: Int): Future[Seq[TestTypeTargetRegion]] = ??? // TODO: Implement
 }

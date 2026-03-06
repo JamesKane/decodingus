@@ -5,7 +5,7 @@ import htsjdk.samtools.liftover.LiftOver
 import htsjdk.samtools.util.Interval
 import jakarta.inject.{Inject, Singleton}
 import models.domain.genomics.{MutationType, NamingStatus, StrCoordinates, VariantAliases, VariantV2}
-import play.api.Logger
+import play.api.Logging
 import play.api.libs.json.Json
 import repositories.VariantV2Repository
 
@@ -19,9 +19,7 @@ import scala.util.{Failure, Success, Try}
 class HipStrReferenceIngestionService @Inject()(
   variantRepository: VariantV2Repository,
   genomicsConfig: GenomicsConfig
-)(implicit ec: ExecutionContext) {
-
-  private val logger = Logger(this.getClass)
+)(implicit ec: ExecutionContext) extends Logging {
 
   /**
    * Bootstraps STRs from the HipSTR reference catalog.

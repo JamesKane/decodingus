@@ -4,7 +4,7 @@ import actions.ApiSecurityAction
 import jakarta.inject.{Inject, Singleton}
 import models.api.*
 import models.domain.genomics.VariantV2
-import play.api.Logger
+import play.api.Logging
 import play.api.libs.json.{JsObject, Json}
 import play.api.mvc.{Action, AnyContent, BaseController, ControllerComponents}
 import repositories.VariantV2Repository
@@ -22,9 +22,7 @@ class VariantApiController @Inject()(
     val controllerComponents: ControllerComponents,
     secureApi: ApiSecurityAction,
     variantRepository: VariantV2Repository
-)(implicit ec: ExecutionContext) extends BaseController {
-
-  private val logger = Logger(this.getClass)
+)(implicit ec: ExecutionContext) extends BaseController with Logging {
 
   /**
    * Bulk add reference builds (coordinates) to existing variants.

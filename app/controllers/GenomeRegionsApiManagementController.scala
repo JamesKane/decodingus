@@ -3,7 +3,7 @@ package controllers
 import actions.ApiSecurityAction
 import jakarta.inject.{Inject, Singleton}
 import models.api.genomics.*
-import play.api.Logger
+import play.api.Logging
 import play.api.libs.json.Json
 import play.api.mvc.{Action, AnyContent, BaseController, ControllerComponents}
 import services.GenomeRegionsManagementService
@@ -22,9 +22,7 @@ class GenomeRegionsApiManagementController @Inject()(
   secureApi: ApiSecurityAction,
   managementService: GenomeRegionsManagementService,
   ingestionService: services.genomics.GenomeRegionIngestionService
-)(implicit ec: ExecutionContext) extends BaseController {
-
-  private val logger = Logger(this.getClass)
+)(implicit ec: ExecutionContext) extends BaseController with Logging {
 
   // ============================================================================
   // GenomeRegion Endpoints

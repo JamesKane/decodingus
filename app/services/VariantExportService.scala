@@ -124,58 +124,62 @@ class VariantExportService @Inject()(
     }
   }
 
+  private val ExportBatchSize = 10000
+
   /**
-   * Generate a new export file.
+   * Generate a new export file by fetching variants in batches to avoid loading
+   * the entire table into memory.
    */
   def generateExport(): Future[ExportResult] = {
     val startTime = System.currentTimeMillis()
     logger.info("Starting variant export generation")
 
-    variantV2Repository.streamAll().map { variants =>
-      try {
-        val tempFile = exportDir.resolve(s"$exportFileName.tmp")
-        val finalFile = getExportFilePath
+    val tempFile = exportDir.resolve(s"$exportFileName.tmp")
+    val finalFile = getExportFilePath
 
-        // Write variants to gzipped JSONL
-        val gzOut = new GZIPOutputStream(new BufferedOutputStream(new FileOutputStream(tempFile.toFile)))
-        val writer = new OutputStreamWriter(gzOut, "UTF-8")
+    variantV2Repository.countAll().flatMap { totalCount =>
+      val gzOut = new GZIPOutputStream(new BufferedOutputStream(new FileOutputStream(tempFile.toFile)))
+      val writer = new OutputStreamWriter(gzOut, "UTF-8")
 
-        try {
-          for (variant <- variants) {
-            val exportRecord = variantToExportRecord(variant)
-            writer.write(Json.stringify(Json.toJson(exportRecord)))
-            writer.write("\n")
+      val batches = (0 until totalCount by ExportBatchSize).toSeq
+
+      batches.foldLeft(Future.successful(0)) { (accFuture, offset) =>
+        accFuture.flatMap { written =>
+          variantV2Repository.fetchBatch(offset, ExportBatchSize).map { variants =>
+            for (variant <- variants) {
+              val exportRecord = variantToExportRecord(variant)
+              writer.write(Json.stringify(Json.toJson(exportRecord)))
+              writer.write("\n")
+            }
+            written + variants.size
           }
-        } finally {
-          writer.close()
         }
+      }.map { variantCount =>
+        writer.close()
 
-        // Atomically move temp file to final location
         Files.move(tempFile, finalFile, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
-
         val fileSizeBytes = Files.size(finalFile)
 
-        // Generate and save metadata
         val metadata = ExportMetadata(
           generatedAt = Instant.now(),
-          variantCount = variants.size,
+          variantCount = variantCount,
           fileSizeBytes = fileSizeBytes
         )
-
         Files.writeString(getMetadataFilePath, Json.stringify(Json.toJson(metadata)))
 
         val generationTimeMs = System.currentTimeMillis() - startTime
-        logger.info(s"Export generation complete: ${variants.size} variants in ${generationTimeMs}ms")
+        logger.info(s"Export generation complete: $variantCount variants in ${generationTimeMs}ms")
 
         ExportResult(
           success = true,
-          variantCount = variants.size,
+          variantCount = variantCount,
           fileSizeBytes = fileSizeBytes,
           error = None,
           generationTimeMs = generationTimeMs
         )
-      } catch {
+      }.recover {
         case e: java.io.IOException =>
+          writer.close()
           logger.error(s"Export generation failed due to I/O error: ${e.getMessage}", e)
           ExportResult(
             success = false,

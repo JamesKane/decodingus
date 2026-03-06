@@ -9,7 +9,7 @@ import htsjdk.variant.vcf.VCFFileReader
 import jakarta.inject.{Inject, Singleton}
 import models.dal.domain.genomics.*
 import models.domain.genomics.{MutationType, NamingStatus, VariantAliases, VariantV2}
-import play.api.Logger
+import play.api.Logging
 import play.api.libs.json.{JsObject, Json}
 import repositories.VariantV2Repository
 
@@ -31,9 +31,7 @@ import scala.collection.AbstractIterator
 class YBrowseVariantIngestionService @Inject()(
   variantV2Repository: VariantV2Repository,
   genomicsConfig: GenomicsConfig
-)(implicit ec: ExecutionContext) {
-
-  private val logger = Logger(this.getClass)
+)(implicit ec: ExecutionContext) extends Logging {
 
   // Lazy-load ReferenceSequenceFile for each configured reference genome
   private val referenceFastaFiles: Map[String, ReferenceSequenceFile] = genomicsConfig.fastaPaths.flatMap {
