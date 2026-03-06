@@ -94,6 +94,9 @@ object DatabaseSchema {
       val genotypeData = TableQuery[GenotypeDataTable]
       val haplogroupReconciliations = TableQuery[HaplogroupReconciliationTable]
 
+      // Per-sample callable loci for age estimation
+      val biosampleCallableLoci = TableQuery[BiosampleCallableLociTable]
+
       // Genome regions API tables
       val genomeRegions = TableQuery[GenomeRegionTable]
       val genomeRegionVersions = TableQuery[GenomeRegionVersionTable]

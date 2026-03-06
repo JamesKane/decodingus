@@ -2,25 +2,27 @@ package services
 
 import helpers.ServiceSpec
 import models.HaplogroupType
-import models.domain.genomics.{MutationType, VariantV2}
+import models.domain.genomics.{BiosampleCallableLoci, MutationType, VariantV2}
 import models.domain.haplogroups.{AgeEstimate, Haplogroup}
-import org.mockito.ArgumentMatchers.anyInt
+import org.mockito.ArgumentMatchers.{any, anyInt, anyString}
 import org.mockito.Mockito.{reset, when}
 import play.api.libs.json.Json
-import repositories.{HaplogroupCoreRepository, HaplogroupVariantRepository}
+import repositories.{BiosampleCallableLociRepository, HaplogroupCoreRepository, HaplogroupVariantRepository}
 
 import java.time.LocalDateTime
+import java.util.UUID
 import scala.concurrent.Future
 
 class BranchAgeEstimationServiceSpec extends ServiceSpec {
 
   val mockCoreRepo: HaplogroupCoreRepository = mock[HaplogroupCoreRepository]
   val mockVariantRepo: HaplogroupVariantRepository = mock[HaplogroupVariantRepository]
+  val mockCallableLociRepo: BiosampleCallableLociRepository = mock[BiosampleCallableLociRepository]
 
-  val service = new BranchAgeEstimationService(mockCoreRepo, mockVariantRepo)
+  val service = new BranchAgeEstimationService(mockCoreRepo, mockVariantRepo, mockCallableLociRepo)
 
   override def beforeEach(): Unit = {
-    reset(mockCoreRepo, mockVariantRepo)
+    reset(mockCoreRepo, mockVariantRepo, mockCallableLociRepo)
   }
 
   val now: LocalDateTime = LocalDateTime.of(2025, 6, 1, 12, 0)
@@ -198,6 +200,94 @@ class BranchAgeEstimationServiceSpec extends ServiceSpec {
     "return ~40 years/SNP for 30 Mbp coverage" in {
       val res = service.temporalResolution(30_000_000L)
       res mustBe 40.0 +- 3.0
+    }
+  }
+
+  "getCallableLociForSample" should {
+    val sampleGuid = UUID.randomUUID()
+
+    "return per-sample callable loci when available" in {
+      val loci = BiosampleCallableLoci(
+        id = Some(1), sampleType = "citizen", sampleId = 42,
+        sampleGuid = Some(sampleGuid), chromosome = "chrY",
+        totalCallableBp = 23_000_000L, regionCount = Some(150),
+        bedFileHash = Some("abc123"), computedAt = now,
+        sourceTestTypeId = Some(1),
+        yXdegenCallableBp = Some(10_000_000L),
+        yAmpliconicCallableBp = Some(8_000_000L),
+        yPalindromicCallableBp = Some(5_000_000L)
+      )
+      when(mockCallableLociRepo.findBySampleGuid(sampleGuid, "chrY"))
+        .thenReturn(Future.successful(Some(loci)))
+
+      whenReady(service.getCallableLociForSample(sampleGuid)) { result =>
+        result mustBe 23_000_000L
+      }
+    }
+
+    "fall back to default when no per-sample data exists" in {
+      when(mockCallableLociRepo.findBySampleGuid(sampleGuid, "chrY"))
+        .thenReturn(Future.successful(None))
+
+      whenReady(service.getCallableLociForSample(sampleGuid)) { result =>
+        result mustBe service.DefaultCallableLoci
+      }
+    }
+  }
+
+  "calculateAgeForSample" should {
+    val sampleGuid = UUID.randomUUID()
+
+    "use per-sample callable loci for more accurate estimate" in {
+      val hg = makeHaplogroup(100, "R-M269")
+      val variants = (1 to 10).map(makeVariant)
+
+      // Sample has 23 Mbp callable loci (Y Elite test)
+      val loci = BiosampleCallableLoci(
+        id = Some(1), sampleType = "citizen", sampleId = 42,
+        sampleGuid = Some(sampleGuid), chromosome = "chrY",
+        totalCallableBp = 23_000_000L, regionCount = None,
+        bedFileHash = None, computedAt = now,
+        sourceTestTypeId = None,
+        yXdegenCallableBp = None, yAmpliconicCallableBp = None, yPalindromicCallableBp = None
+      )
+      when(mockCallableLociRepo.findBySampleGuid(sampleGuid, "chrY"))
+        .thenReturn(Future.successful(Some(loci)))
+      when(mockCoreRepo.findById(100)).thenReturn(Future.successful(Some(hg)))
+      when(mockVariantRepo.getHaplogroupVariants(100)).thenReturn(Future.successful(variants))
+
+      whenReady(service.calculateAgeForSample(100, sampleGuid)) { resultOpt =>
+        resultOpt mustBe defined
+        val result = resultOpt.get
+        result.callableLoci mustBe 23_000_000L
+        result.snpCount mustBe 10
+        result.estimate.ybp must be > 0
+      }
+    }
+
+    "produce different estimate than default when callable loci differs" in {
+      val hg = makeHaplogroup(100, "R-M269")
+      val variants = (1 to 10).map(makeVariant)
+
+      // With 23 Mbp (more than default 15 Mbp) → younger estimate
+      val loci = BiosampleCallableLoci(
+        id = Some(1), sampleType = "citizen", sampleId = 42,
+        sampleGuid = Some(sampleGuid), chromosome = "chrY",
+        totalCallableBp = 23_000_000L, regionCount = None,
+        bedFileHash = None, computedAt = now,
+        sourceTestTypeId = None,
+        yXdegenCallableBp = None, yAmpliconicCallableBp = None, yPalindromicCallableBp = None
+      )
+      when(mockCallableLociRepo.findBySampleGuid(sampleGuid, "chrY"))
+        .thenReturn(Future.successful(Some(loci)))
+      when(mockCoreRepo.findById(100)).thenReturn(Future.successful(Some(hg)))
+      when(mockVariantRepo.getHaplogroupVariants(100)).thenReturn(Future.successful(variants))
+
+      val sampleResult = service.calculateAgeForSample(100, sampleGuid).futureValue.get
+      val defaultResult = service.calculateFromSnpCount(10, service.DefaultCallableLoci, service.DefaultMutationRate)
+
+      // More callable loci → younger age (same SNPs over larger search space)
+      sampleResult.estimate.ybp must be < defaultResult.estimate.ybp
     }
   }
 

@@ -4,8 +4,9 @@ import jakarta.inject.Inject
 import models.HaplogroupType
 import models.domain.haplogroups.{AgeEstimate, Haplogroup}
 import play.api.Logging
-import repositories.{HaplogroupCoreRepository, HaplogroupVariantRepository}
+import repositories.{BiosampleCallableLociRepository, HaplogroupCoreRepository, HaplogroupVariantRepository}
 
+import java.util.UUID
 import scala.concurrent.{ExecutionContext, Future}
 
 /**
@@ -23,7 +24,8 @@ import scala.concurrent.{ExecutionContext, Future}
  */
 class BranchAgeEstimationService @Inject()(
   haplogroupCoreRepo: HaplogroupCoreRepository,
-  haplogroupVariantRepo: HaplogroupVariantRepository
+  haplogroupVariantRepo: HaplogroupVariantRepository,
+  callableLociRepo: BiosampleCallableLociRepository
 )(implicit ec: ExecutionContext) extends Logging {
 
   // Default SNP mutation rate: ~8.33 × 10⁻¹⁰ SNPs/bp/year (Helgason 2015)
@@ -202,6 +204,30 @@ class BranchAgeEstimationService @Inject()(
         )
       }.toSeq
     } yield childResults.flatten ++ thisUpdate
+  }
+
+  /**
+   * Look up per-sample callable loci, falling back to the default if not available.
+   */
+  def getCallableLociForSample(sampleGuid: UUID, chromosome: String = "chrY"): Future[Long] = {
+    callableLociRepo.findBySampleGuid(sampleGuid, chromosome).map {
+      case Some(loci) => loci.totalCallableBp
+      case None => DefaultCallableLoci
+    }
+  }
+
+  /**
+   * Calculate age for a sample using its per-sample callable loci if available.
+   */
+  def calculateAgeForSample(
+    haplogroupId: Int,
+    sampleGuid: UUID,
+    mutationRate: Double = DefaultMutationRate
+  ): Future[Option[AgeEstimateResult]] = {
+    for {
+      callableLoci <- getCallableLociForSample(sampleGuid)
+      result <- calculateAge(haplogroupId, callableLoci, mutationRate)
+    } yield result
   }
 
   /**
