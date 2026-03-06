@@ -116,5 +116,14 @@ class BaseModule extends AbstractModule {
     bind(classOf[GenomeRegionsRepository])
       .to(classOf[GenomeRegionsRepositoryImpl])
       .asEagerSingleton()
+
+    // Discovery System
+    bind(classOf[PrivateVariantRepository])
+      .to(classOf[PrivateVariantRepositoryImpl])
+      .asEagerSingleton()
+
+    bind(classOf[ProposedBranchRepository])
+      .to(classOf[ProposedBranchRepositoryImpl])
+      .asEagerSingleton()
   }
 }

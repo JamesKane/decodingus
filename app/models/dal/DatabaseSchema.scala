@@ -35,6 +35,7 @@ object DatabaseSchema {
 
   object domain {
 
+    import models.dal.domain.discovery.*
     import models.dal.domain.genomics.*
     import models.dal.domain.haplogroups.*
     import models.dal.domain.ibd.*
@@ -116,6 +117,14 @@ object DatabaseSchema {
       val wipHaplogroupVariants = TableQuery[WipHaplogroupVariantTable]
       val wipReparents = TableQuery[WipReparentTable]
       val wipResolutions = TableQuery[WipResolutionTable]
+
+      // Discovery System
+      val biosamplePrivateVariants = TableQuery[BiosamplePrivateVariantTable]
+      val proposedBranches = TableQuery[ProposedBranchTable]
+      val proposedBranchVariants = TableQuery[ProposedBranchVariantTable]
+      val proposedBranchEvidence = TableQuery[ProposedBranchEvidenceTable]
+      val curatorActions = TableQuery[CuratorActionTable]
+      val discoveryConfig = TableQuery[DiscoveryConfigTable]
     }
 
     object pangenome {

@@ -111,6 +111,49 @@ trait MyPostgresProfile extends ExPostgresProfile
         throw new IllegalArgumentException(s"Invalid TargetType value: $s")
       ), quoteName = false)
 
+    // --- Discovery System Enum Mappers ---
+    import models.domain.discovery.*
+
+    implicit val biosampleSourceTypeMapper: JdbcType[BiosampleSourceType] =
+      MappedColumnType.base[BiosampleSourceType, String](
+        bst => bst.toString,
+        s => BiosampleSourceType.fromString(s).getOrElse(
+          throw new IllegalArgumentException(s"Invalid BiosampleSourceType: $s")
+        )
+      )
+
+    implicit val privateVariantStatusMapper: JdbcType[PrivateVariantStatus] =
+      MappedColumnType.base[PrivateVariantStatus, String](
+        pvs => pvs.toString,
+        s => PrivateVariantStatus.fromString(s).getOrElse(
+          throw new IllegalArgumentException(s"Invalid PrivateVariantStatus: $s")
+        )
+      )
+
+    implicit val proposedBranchStatusMapper: JdbcType[ProposedBranchStatus] =
+      MappedColumnType.base[ProposedBranchStatus, String](
+        pbs => pbs.toString,
+        s => ProposedBranchStatus.fromString(s).getOrElse(
+          throw new IllegalArgumentException(s"Invalid ProposedBranchStatus: $s")
+        )
+      )
+
+    implicit val curatorActionTypeMapper: JdbcType[CuratorActionType] =
+      MappedColumnType.base[CuratorActionType, String](
+        cat => cat.toString,
+        s => CuratorActionType.fromString(s).getOrElse(
+          throw new IllegalArgumentException(s"Invalid CuratorActionType: $s")
+        )
+      )
+
+    implicit val curatorTargetTypeMapper: JdbcType[CuratorTargetType] =
+      MappedColumnType.base[CuratorTargetType, String](
+        ctt => ctt.toString,
+        s => CuratorTargetType.fromString(s).getOrElse(
+          throw new IllegalArgumentException(s"Invalid CuratorTargetType: $s")
+        )
+      )
+
     // Custom Slick mapper for Array[Long] <-> bytea
     implicit val longArrayTypeMapper: BaseColumnType[Array[Long]] =
       MappedColumnType.base[Array[Long], Array[Byte]](
