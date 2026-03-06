@@ -82,6 +82,7 @@ object DatabaseSchema {
       val validationServices = TableQuery[ValidationServicesTable]
       val testTypeDefinition = TableQuery[TestTypeTable]
       val testTypeTargetRegions = TableQuery[TestTypeTargetRegionTable]
+      val coverageExpectationProfiles = TableQuery[CoverageExpectationProfileTable]
 
       // Consolidated variant schema (replaces variant + variant_alias)
       val variantsV2 = TableQuery[VariantV2Table]

@@ -166,5 +166,9 @@ class BaseModule extends AbstractModule {
     bind(classOf[HaplogroupAncestralStrRepository])
       .to(classOf[HaplogroupAncestralStrRepositoryImpl])
       .asEagerSingleton()
+
+    bind(classOf[CoverageExpectationProfileRepository])
+      .to(classOf[CoverageExpectationProfileRepositoryImpl])
+      .asEagerSingleton()
   }
 }
