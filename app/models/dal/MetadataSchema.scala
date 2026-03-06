@@ -2,11 +2,17 @@ package models.dal
 
 import models.PDSRegistration
 import models.dal.MyPostgresProfile.api.*
+import models.dal.domain.pds.*
 import slick.lifted.ProvenShape
 
 import java.time.ZonedDateTime
 
 object MetadataSchema {
+
+  val pdsNodes = TableQuery[PdsNodeTable]
+  val pdsHeartbeatLogs = TableQuery[PdsHeartbeatLogTable]
+  val pdsFleetConfigs = TableQuery[PdsFleetConfigTable]
+  val pdsSubmissions = TableQuery[PdsSubmissionTable]
 
   class PDSRegistrationsTable(tag: Tag) extends Table[PDSRegistration](tag, "pds_registrations") {
     def did = column[String]("did", O.PrimaryKey)

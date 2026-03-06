@@ -178,5 +178,22 @@ class BaseModule extends AbstractModule {
     bind(classOf[GroupProjectMemberRepository])
       .to(classOf[GroupProjectMemberRepositoryImpl])
       .asEagerSingleton()
+
+    // PDS Fleet Management
+    bind(classOf[PdsNodeRepository])
+      .to(classOf[PdsNodeRepositoryImpl])
+      .asEagerSingleton()
+
+    bind(classOf[PdsHeartbeatLogRepository])
+      .to(classOf[PdsHeartbeatLogRepositoryImpl])
+      .asEagerSingleton()
+
+    bind(classOf[PdsFleetConfigRepository])
+      .to(classOf[PdsFleetConfigRepositoryImpl])
+      .asEagerSingleton()
+
+    bind(classOf[PdsSubmissionRepository])
+      .to(classOf[PdsSubmissionRepositoryImpl])
+      .asEagerSingleton()
   }
 }
