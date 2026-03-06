@@ -8,7 +8,8 @@ import play.api.mvc.QueryStringBindable
  */
 enum TestType {
   case WGS, WES, TARGETED_Y, TARGETED_MT, SNP_ARRAY_23ANDME, SNP_ARRAY_ANCESTRY,
-       BIG_Y_700, BIG_Y_500, Y_ELITE, Y_PRIME, MT_FULL_SEQUENCE, MT_PLUS
+       BIG_Y_700, BIG_Y_500, Y_ELITE, Y_PRIME, MT_FULL_SEQUENCE, MT_PLUS,
+       ARRAY_23ANDME_V4, ARRAY_ANCESTRY_V1, ARRAY_MYHERITAGE, ARRAY_LIVINGDNA, ARRAY_CUSTOM
 
   override def toString: String = this match {
     case WGS => "WGS"
@@ -23,6 +24,11 @@ enum TestType {
     case Y_PRIME => "Y_PRIME"
     case MT_FULL_SEQUENCE => "MT_FULL_SEQUENCE"
     case MT_PLUS => "MT_PLUS"
+    case ARRAY_23ANDME_V4 => "ARRAY_23ANDME_V4"
+    case ARRAY_ANCESTRY_V1 => "ARRAY_ANCESTRY_V1"
+    case ARRAY_MYHERITAGE => "ARRAY_MYHERITAGE"
+    case ARRAY_LIVINGDNA => "ARRAY_LIVINGDNA"
+    case ARRAY_CUSTOM => "ARRAY_CUSTOM"
   }
 }
 
@@ -49,6 +55,11 @@ object TestType {
     case "Y_PRIME" => Some(Y_PRIME)
     case "MT_FULL_SEQUENCE" => Some(MT_FULL_SEQUENCE)
     case "MT_PLUS" => Some(MT_PLUS)
+    case "ARRAY_23ANDME_V4" => Some(ARRAY_23ANDME_V4)
+    case "ARRAY_ANCESTRY_V1" => Some(ARRAY_ANCESTRY_V1)
+    case "ARRAY_MYHERITAGE" => Some(ARRAY_MYHERITAGE)
+    case "ARRAY_LIVINGDNA" => Some(ARRAY_LIVINGDNA)
+    case "ARRAY_CUSTOM" => Some(ARRAY_CUSTOM)
     case _ => None
   }
 
