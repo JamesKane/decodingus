@@ -8,7 +8,7 @@ import play.api.libs.json.Json
 import play.api.mvc.{Action, AnyContent, BaseController, ControllerComponents}
 import repositories.PublicationCandidateRepository
 import services.PublicationDiscoveryService
-import org.webjars.play.WebJarsUtil // Added import
+import org.webjars.play.WebJarsUtil
 
 import scala.concurrent.{ExecutionContext, Future}
 
@@ -22,15 +22,18 @@ class PublicationCandidateController @Inject()(
                                                 roleAction: RoleAction
                                               )(implicit ec: ExecutionContext, webJarsUtil: WebJarsUtil) extends BaseController with I18nSupport with Logging {
 
-  // Combined action for authentication and RBAC
-  // Allowing both 'Curator' and 'Admin' roles
   private def CuratorAction = authenticatedAction andThen roleAction("Curator", "Admin")
 
-  // Renders the UI
-  def listCandidates(page: Int = 1, pageSize: Int = 20): Action[AnyContent] = CuratorAction.async { implicit request =>
-    // TODO: Fetch filters from request query string if needed
-    publicationCandidateRepository.listPending(page, pageSize).map { case (candidates, total) =>
-      Ok(views.html.publicationCandidates.list(candidates, page, pageSize, total.toInt))
+  private val validStatuses = Set("pending", "accepted", "rejected", "deferred")
+
+  def listCandidates(page: Int = 1, pageSize: Int = 20, status: String = "pending"): Action[AnyContent] = CuratorAction.async { implicit request =>
+    val effectiveStatus = if (validStatuses.contains(status)) status else "pending"
+
+    for {
+      (candidates, total) <- publicationCandidateRepository.listByStatus(effectiveStatus, page, pageSize)
+      statusCounts <- publicationCandidateRepository.countByStatus()
+    } yield {
+      Ok(views.html.publicationCandidates.list(candidates, page, pageSize, total.toInt, effectiveStatus, statusCounts))
     }
   }
 
@@ -64,6 +67,60 @@ class PublicationCandidateController @Inject()(
         logger.error(s"Error rejecting candidate $id: ${e.getMessage}", e)
         Redirect(routes.PublicationCandidateController.listCandidates())
           .flashing("error" -> messagesApi.preferred(request)("publicationCandidates.rejectError", e.getMessage))
+    }
+  }
+
+  def defer(id: Int): Action[AnyContent] = CuratorAction.async { implicit request =>
+    val reviewerId = request.user.id.get
+
+    publicationDiscoveryService.deferCandidate(id, reviewerId).map { success =>
+      if (success) Redirect(routes.PublicationCandidateController.listCandidates())
+        .flashing("success" -> messagesApi.preferred(request)("publicationCandidates.deferSuccess"))
+      else Redirect(routes.PublicationCandidateController.listCandidates())
+        .flashing("error" -> messagesApi.preferred(request)("publicationCandidates.deferFailed"))
+    }
+  }
+
+  def bulkAction(): Action[AnyContent] = CuratorAction.async { implicit request =>
+    val reviewerId = request.user.id.get
+    val formData = request.body.asFormUrlEncoded.getOrElse(Map.empty)
+    val ids = formData.getOrElse("candidateIds", Seq.empty).flatMap(_.split(",")).flatMap(_.toIntOption).toSeq
+    val action = formData.get("bulkAction").flatMap(_.headOption).getOrElse("")
+    val reason = formData.get("reason").flatMap(_.headOption)
+
+    if (ids.isEmpty) {
+      Future.successful(
+        Redirect(routes.PublicationCandidateController.listCandidates())
+          .flashing("error" -> messagesApi.preferred(request)("publicationCandidates.bulk.noSelection"))
+      )
+    } else {
+      val resultFuture = action match {
+        case "accept" =>
+          publicationDiscoveryService.bulkAcceptCandidates(ids, reviewerId).map { results =>
+            val accepted = results.count(_.isDefined)
+            messagesApi.preferred(request)("publicationCandidates.bulk.acceptSuccess", accepted.toString)
+          }
+        case "reject" =>
+          publicationDiscoveryService.bulkRejectCandidates(ids, reviewerId, reason).map { count =>
+            messagesApi.preferred(request)("publicationCandidates.bulk.rejectSuccess", count.toString)
+          }
+        case "defer" =>
+          publicationDiscoveryService.bulkDeferCandidates(ids, reviewerId).map { count =>
+            messagesApi.preferred(request)("publicationCandidates.bulk.deferSuccess", count.toString)
+          }
+        case _ =>
+          Future.successful(messagesApi.preferred(request)("publicationCandidates.bulk.unknownAction"))
+      }
+
+      resultFuture.map { message =>
+        Redirect(routes.PublicationCandidateController.listCandidates())
+          .flashing("success" -> message)
+      }.recover {
+        case e: Exception =>
+          logger.error(s"Error in bulk action '$action': ${e.getMessage}", e)
+          Redirect(routes.PublicationCandidateController.listCandidates())
+            .flashing("error" -> messagesApi.preferred(request)("publicationCandidates.bulk.error", e.getMessage))
+      }
     }
   }
 }

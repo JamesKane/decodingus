@@ -215,9 +215,11 @@ POST          /api/v1/discovery/proposals/:id/promote                           
 GET           /api/v1/discovery/proposals/:id/audit                                          controllers.DiscoveryApiController.getAuditTrail(id: Int)
 
 # Curator Workflow
-GET           /admin/publication-candidates                                                      controllers.PublicationCandidateController.listCandidates(page: Int ?= 1, pageSize: Int ?= 20)
+GET           /admin/publication-candidates                                                      controllers.PublicationCandidateController.listCandidates(page: Int ?= 1, pageSize: Int ?= 20, status: String ?= "pending")
 POST          /admin/publication-candidates/:id/accept                                           controllers.PublicationCandidateController.accept(id: Int)
 POST          /admin/publication-candidates/:id/reject                                           controllers.PublicationCandidateController.reject(id: Int)
+POST          /admin/publication-candidates/:id/defer                                            controllers.PublicationCandidateController.defer(id: Int)
+POST          /admin/publication-candidates/bulk                                                 controllers.PublicationCandidateController.bulkAction()
 
 # Curator Tools (requires TreeCurator or Admin role)
 GET           /curator                                                                           controllers.CuratorController.dashboard

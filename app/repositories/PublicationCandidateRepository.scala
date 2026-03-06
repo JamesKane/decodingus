@@ -15,9 +15,12 @@ trait PublicationCandidateRepository {
   def findById(id: Int): Future[Option[PublicationCandidate]]
   def findByOpenAlexId(id: String): Future[Option[PublicationCandidate]]
   def listPending(page: Int, pageSize: Int): Future[(Seq[PublicationCandidate], Long)]
+  def listByStatus(status: String, page: Int, pageSize: Int): Future[(Seq[PublicationCandidate], Long)]
   def updateStatus(id: Int, status: String, reviewedBy: Option[UUID], reason: Option[String]): Future[Boolean]
+  def bulkUpdateStatus(ids: Seq[Int], status: String, reviewedBy: UUID, reason: Option[String]): Future[Int]
   def bulkReject(ids: Seq[Int], reason: String, reviewedBy: UUID): Future[Int]
   def saveCandidates(candidates: Seq[PublicationCandidate]): Future[Seq[PublicationCandidate]]
+  def countByStatus(): Future[Map[String, Int]]
 }
 
 @Singleton
@@ -68,6 +71,30 @@ class PublicationCandidateRepositoryImpl @Inject()(
     db.run(updateAction).map(_ > 0)
   }
 
+  override def listByStatus(status: String, page: Int, pageSize: Int): Future[(Seq[PublicationCandidate], Long)] = {
+    val query = candidatesTable.filter(_.status === status)
+    val totalCountQuery = query.length.result
+
+    val pagedQuery = query
+      .sortBy(_.relevanceScore.desc.nullsLast)
+      .drop((page - 1) * pageSize)
+      .take(pageSize)
+      .result
+
+    for {
+      total <- db.run(totalCountQuery)
+      results <- db.run(pagedQuery)
+    } yield (results, total.toLong)
+  }
+
+  override def bulkUpdateStatus(ids: Seq[Int], status: String, reviewedBy: UUID, reason: Option[String]): Future[Int] = {
+    if (ids.isEmpty) return Future.successful(0)
+    val updateAction = candidatesTable.filter(_.id.inSet(ids))
+      .map(c => (c.status, c.reviewedBy, c.reviewedAt, c.rejectionReason))
+      .update((status, Some(reviewedBy), Some(LocalDateTime.now()), reason))
+    db.run(updateAction)
+  }
+
   override def bulkReject(ids: Seq[Int], reason: String, reviewedBy: UUID): Future[Int] = {
     val updateAction = candidatesTable.filter(_.id.inSet(ids))
       .map(c => (c.status, c.reviewedBy, c.reviewedAt, c.rejectionReason))
@@ -97,5 +124,11 @@ class PublicationCandidateRepositoryImpl @Inject()(
         Future.successful(Seq.empty)
       }
     } yield saved
+  }
+
+  override def countByStatus(): Future[Map[String, Int]] = {
+    db.run(candidatesTable.groupBy(_.status).map { case (status, group) =>
+      (status, group.length)
+    }.result).map(_.toMap)
   }
 }

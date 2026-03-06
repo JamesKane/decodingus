@@ -45,6 +45,22 @@ class PublicationDiscoveryService @Inject()(
     candidateRepository.updateStatus(candidateId, "rejected", Some(reviewedBy), reason)
   }
 
+  def deferCandidate(candidateId: Int, reviewedBy: java.util.UUID): Future[Boolean] = {
+    candidateRepository.updateStatus(candidateId, "deferred", Some(reviewedBy), None)
+  }
+
+  def bulkAcceptCandidates(candidateIds: Seq[Int], reviewedBy: java.util.UUID): Future[Seq[Option[models.domain.publications.Publication]]] = {
+    Future.sequence(candidateIds.map(id => acceptCandidate(id, reviewedBy)))
+  }
+
+  def bulkRejectCandidates(candidateIds: Seq[Int], reviewedBy: java.util.UUID, reason: Option[String]): Future[Int] = {
+    candidateRepository.bulkUpdateStatus(candidateIds, "rejected", reviewedBy, reason)
+  }
+
+  def bulkDeferCandidates(candidateIds: Seq[Int], reviewedBy: java.util.UUID): Future[Int] = {
+    candidateRepository.bulkUpdateStatus(candidateIds, "deferred", reviewedBy, None)
+  }
+
   def runDiscovery(): Future[Unit] = {
     logger.info("Starting publication discovery run...")
     

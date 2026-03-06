@@ -4,7 +4,7 @@
 @import play.twirl.api.Html
 @import org.webjars.play.WebJarsUtil
 
-@(candidates: Seq[PublicationCandidate], currentPage: Int, pageSize: Int, totalCandidates: Int)(implicit request: Request[AnyContent], messages: Messages, webJarsUtil: WebJarsUtil)
+@(candidates: Seq[PublicationCandidate], currentPage: Int, pageSize: Int, totalCandidates: Int, currentStatus: String, statusCounts: Map[String, Int])(implicit request: Request[AnyContent], messages: Messages, webJarsUtil: WebJarsUtil)
 
 @main(messages("publicationCandidates.title")) {
     <div class="container py-4">
@@ -12,70 +12,179 @@
 
         @views.html.fragments.flashMessages(request.flash)
 
+        @* Status filter tabs *@
+        <ul class="nav nav-tabs mb-3">
+            @for(status <- Seq("pending", "deferred", "accepted", "rejected")) {
+                <li class="nav-item">
+                    <a class="nav-link @if(currentStatus == status){active}"
+                       href="@controllers.routes.PublicationCandidateController.listCandidates(1, pageSize, status)">
+                        @messages(s"publicationCandidates.status.$status")
+                        <span class="badge bg-secondary ms-1">@statusCounts.getOrElse(status, 0)</span>
+                    </a>
+                </li>
+            }
+        </ul>
+
         @if(candidates.isEmpty) {
             <div class="alert alert-info" role="alert">
                 @messages("publicationCandidates.noCandidates")
             </div>
         } else {
-            <div class="table-responsive">
-                <table class="table table-striped table-hover">
-                    <thead>
-                        <tr>
-                            <th>@messages("publicationCandidates.table.title")</th>
-                            <th>@messages("publicationCandidates.table.journal")</th>
-                            <th>@messages("publicationCandidates.table.date")</th>
-                            <th>@messages("publicationCandidates.table.relevance")</th>
-                            <th>@messages("publicationCandidates.table.status")</th>
-                            <th>@messages("publicationCandidates.table.actions")</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @for(candidate <- candidates) {
+            <form id="bulkForm" action="@controllers.routes.PublicationCandidateController.bulkAction()" method="post">
+                @helper.CSRF.formField
+                <input type="hidden" name="candidateIds" id="candidateIds" value="">
+                <input type="hidden" name="bulkAction" id="bulkActionField" value="">
+                <input type="hidden" name="reason" id="bulkReasonField" value="">
+
+                @* Bulk action bar *@
+                @if(currentStatus == "pending" || currentStatus == "deferred") {
+                    <div class="d-flex align-items-center mb-3 gap-2">
+                        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="toggleAll(this)">
+                            @messages("publicationCandidates.bulk.selectAll")
+                        </button>
+                        <span class="text-muted" id="selectedCount">0 selected</span>
+                        <div class="ms-auto d-flex gap-1">
+                            <button type="button" class="btn btn-sm btn-success" onclick="submitBulk('accept')" disabled id="btnBulkAccept">
+                                @messages("publicationCandidates.bulk.accept")
+                            </button>
+                            <button type="button" class="btn btn-sm btn-warning" onclick="submitBulk('defer')" disabled id="btnBulkDefer">
+                                @messages("publicationCandidates.bulk.defer")
+                            </button>
+                            <button type="button" class="btn btn-sm btn-danger" onclick="submitBulkReject()" disabled id="btnBulkReject">
+                                @messages("publicationCandidates.bulk.reject")
+                            </button>
+                        </div>
+                    </div>
+                }
+
+                <div class="table-responsive">
+                    <table class="table table-striped table-hover">
+                        <thead>
                             <tr>
-                                <td><a href="https://openalex.org/@candidate.openAlexId" target="_blank" rel="noopener noreferrer">@candidate.title</a></td>
-                                <td>@candidate.journalName.getOrElse("-")</td>
-                                <td>@candidate.publicationDate.map(_.format(DateTimeFormatter.ISO_LOCAL_DATE)).getOrElse("-")</td>
-                                <td>@candidate.relevanceScore.map(s => f"${s}%.2f").getOrElse("-")</td>
-                                <td>@candidate.status</td>
-                                <td>
-                                    @if(candidate.status == "pending") {
-                                        <form action="@controllers.routes.PublicationCandidateController.accept(candidate.id.get)" method="post" style="display:inline;" onsubmit="return confirm('@messages("publicationCandidates.confirmAccept")');">
-                                            @helper.CSRF.formField
-                                            <button type="submit" class="btn btn-sm btn-success me-1">@messages("publicationCandidates.action.accept")</button>
-                                        </form>
-                                        <form action="@controllers.routes.PublicationCandidateController.reject(candidate.id.get)" method="post" style="display:inline;" onsubmit="
-                                            var reason = prompt('@messages("publicationCandidates.promptRejectReason")', '');
-                                            if (reason === null) {
-                                                return false; // User cancelled
-                                            }
-                                            if (reason.trim() === '') {
-                                                alert('@messages("publicationCandidates.emptyRejectReasonAlert")');
-                                                return false;
-                                            }
-                                            this.querySelector('input[name=\"reason\"]').value = reason;
-                                            return confirm('@messages("publicationCandidates.confirmReject")');
-                                        ">
-                                            @helper.CSRF.formField
-                                            <input type="hidden" name="reason" value="">
-                                            <button type="submit" class="btn btn-sm btn-danger">@messages("publicationCandidates.action.reject")</button>
-                                        </form>
-                                    } else {
-                                        <span class="text-muted">@messages("publicationCandidates.action.reviewed")</span>
-                                    }
-                                </td>
+                                @if(currentStatus == "pending" || currentStatus == "deferred") {
+                                    <th style="width: 30px;"><input type="checkbox" id="checkAll" onchange="toggleAll(this)"></th>
+                                }
+                                <th>@messages("publicationCandidates.table.title")</th>
+                                <th>@messages("publicationCandidates.table.journal")</th>
+                                <th>@messages("publicationCandidates.table.date")</th>
+                                <th>@messages("publicationCandidates.table.relevance")</th>
+                                <th>@messages("publicationCandidates.table.actions")</th>
                             </tr>
-                        }
-                    </tbody>
-                </table>
-            </div>
+                        </thead>
+                        <tbody>
+                            @for(candidate <- candidates) {
+                                <tr>
+                                    @if(currentStatus == "pending" || currentStatus == "deferred") {
+                                        <td><input type="checkbox" class="candidate-check" value="@candidate.id.get" onchange="updateSelection()"></td>
+                                    }
+                                    <td>
+                                        <a href="https://openalex.org/@candidate.openAlexId" target="_blank" rel="noopener noreferrer">@candidate.title</a>
+                                        @candidate.doi.map { doi =>
+                                            <br><small class="text-muted">DOI: <a href="https://doi.org/@doi" target="_blank" rel="noopener noreferrer">@doi</a></small>
+                                        }
+                                    </td>
+                                    <td>@candidate.journalName.getOrElse("-")</td>
+                                    <td>@candidate.publicationDate.map(_.format(DateTimeFormatter.ISO_LOCAL_DATE)).getOrElse("-")</td>
+                                    <td>
+                                        @candidate.relevanceScore.map { s =>
+                                            <span class="badge @if(s >= 0.7){bg-success}else if(s >= 0.4){bg-warning text-dark}else{bg-secondary}">@f"$s%.2f"</span>
+                                        }.getOrElse("-")
+                                    </td>
+                                    <td>
+                                        @if(currentStatus == "pending" || currentStatus == "deferred") {
+                                            <div class="btn-group btn-group-sm">
+                                                <form action="@controllers.routes.PublicationCandidateController.accept(candidate.id.get)" method="post" style="display:inline;">
+                                                    @helper.CSRF.formField
+                                                    <button type="submit" class="btn btn-success btn-sm" title="@messages("publicationCandidates.action.accept")">Accept</button>
+                                                </form>
+                                                @if(currentStatus == "pending") {
+                                                    <form action="@controllers.routes.PublicationCandidateController.defer(candidate.id.get)" method="post" style="display:inline;">
+                                                        @helper.CSRF.formField
+                                                        <button type="submit" class="btn btn-warning btn-sm" title="@messages("publicationCandidates.action.defer")">Defer</button>
+                                                    </form>
+                                                }
+                                                <form action="@controllers.routes.PublicationCandidateController.reject(candidate.id.get)" method="post" style="display:inline;" onsubmit="
+                                                    var reason = prompt('@messages("publicationCandidates.promptRejectReason")', '');
+                                                    if (reason === null) return false;
+                                                    if (reason.trim() === '') { alert('@messages("publicationCandidates.emptyRejectReasonAlert")'); return false; }
+                                                    this.querySelector('input[name=&quot;reason&quot;]').value = reason;
+                                                    return true;
+                                                ">
+                                                    @helper.CSRF.formField
+                                                    <input type="hidden" name="reason" value="">
+                                                    <button type="submit" class="btn btn-danger btn-sm" title="@messages("publicationCandidates.action.reject")">Reject</button>
+                                                </form>
+                                            </div>
+                                        } else {
+                                            <span class="text-muted">
+                                                @candidate.reviewedAt.map(_.format(DateTimeFormatter.ofPattern("yyyy-MM-dd"))).getOrElse("")
+                                                @candidate.rejectionReason.map { r => <br><small>@r</small> }
+                                            </span>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </form>
 
             @* Pagination *@
             @views.html.fragments.htmlPagination(
                 currentPage = currentPage,
                 totalPages = (totalCandidates + pageSize - 1) / pageSize,
                 pageSize = pageSize,
-                linkGenerator = (p, ps) => controllers.routes.PublicationCandidateController.listCandidates(p, ps)
+                linkGenerator = (p, ps) => controllers.routes.PublicationCandidateController.listCandidates(p, ps, currentStatus)
             )
         }
     </div>
+
+    <script>
+        function updateSelection() {
+            var checks = document.querySelectorAll('.candidate-check:checked');
+            var count = checks.length;
+            document.getElementById('selectedCount').textContent = count + ' selected';
+            var btns = ['btnBulkAccept', 'btnBulkDefer', 'btnBulkReject'];
+            btns.forEach(function(id) {
+                var btn = document.getElementById(id);
+                if (btn) btn.disabled = count === 0;
+            });
+        }
+
+        function toggleAll(el) {
+            var checked = el.checked !== undefined ? el.checked : true;
+            if (el.tagName === 'BUTTON') {
+                var first = document.querySelector('.candidate-check');
+                checked = first ? !first.checked : true;
+            }
+            document.querySelectorAll('.candidate-check').forEach(function(cb) { cb.checked = checked; });
+            var checkAll = document.getElementById('checkAll');
+            if (checkAll) checkAll.checked = checked;
+            updateSelection();
+        }
+
+        function getSelectedIds() {
+            return Array.from(document.querySelectorAll('.candidate-check:checked')).map(function(cb) { return cb.value; });
+        }
+
+        function submitBulk(action) {
+            var ids = getSelectedIds();
+            if (ids.length === 0) return;
+            document.getElementById('candidateIds').value = ids.join(',');
+            document.getElementById('bulkActionField').value = action;
+            document.getElementById('bulkForm').submit();
+        }
+
+        function submitBulkReject() {
+            var ids = getSelectedIds();
+            if (ids.length === 0) return;
+            var reason = prompt('Reason for rejecting ' + ids.length + ' candidates:', '');
+            if (reason === null) return;
+            if (reason.trim() === '') { alert('Rejection reason is required.'); return; }
+            document.getElementById('candidateIds').value = ids.join(',');
+            document.getElementById('bulkActionField').value = 'reject';
+            document.getElementById('bulkReasonField').value = reason;
+            document.getElementById('bulkForm').submit();
+        }
+    </script>
 }
