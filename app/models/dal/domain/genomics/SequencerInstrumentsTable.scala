@@ -19,6 +19,14 @@ class SequencerInstrumentsTable(tag: Tag) extends MyPostgresProfile.api.Table[Se
 
   def model = column[Option[String]]("model")
 
+  def source = column[Option[String]]("source")
+
+  def observationCount = column[Int]("observation_count")
+
+  def confidenceScore = column[Double]("confidence_score")
+
+  def lastObservedAt = column[Option[LocalDateTime]]("last_observed_at")
+
   def createdAt = column[LocalDateTime]("created_at")
 
   def updatedAt = column[Option[LocalDateTime]]("updated_at")
@@ -29,6 +37,10 @@ class SequencerInstrumentsTable(tag: Tag) extends MyPostgresProfile.api.Table[Se
     labId,
     manufacturer,
     model,
+    source,
+    observationCount,
+    confidenceScore,
+    lastObservedAt,
     createdAt,
     updatedAt
   ).mapTo[SequencerInstrument]

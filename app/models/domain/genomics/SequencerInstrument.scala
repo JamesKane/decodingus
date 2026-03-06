@@ -21,6 +21,10 @@ case class SequencerInstrument(
                                 labId: Int,
                                 manufacturer: Option[String] = None,
                                 model: Option[String] = None,
+                                source: Option[String] = Some("CURATOR"),
+                                observationCount: Int = 0,
+                                confidenceScore: Double = 1.0,
+                                lastObservedAt: Option[LocalDateTime] = None,
                                 createdAt: LocalDateTime = LocalDateTime.now(),
                                 updatedAt: Option[LocalDateTime] = None
                               )
