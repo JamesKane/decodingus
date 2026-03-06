@@ -125,5 +125,9 @@ class BaseModule extends AbstractModule {
     bind(classOf[ProposedBranchRepository])
       .to(classOf[ProposedBranchRepositoryImpl])
       .asEagerSingleton()
+
+    bind(classOf[CuratorActionRepository])
+      .to(classOf[CuratorActionRepositoryImpl])
+      .asEagerSingleton()
   }
 }

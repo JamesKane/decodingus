@@ -205,6 +205,14 @@ GET           /api/v1/manage/change-sets/:id/comments                           
 GET           /api/v1/manage/change-sets/:id/diff                                              controllers.TreeVersioningApiController.getTreeDiff(id: Int)
 GET           /api/v1/manage/tree-diff/:haplogroupType                                         controllers.TreeVersioningApiController.getActiveTreeDiff(haplogroupType: String)
 
+# Discovery Proposals API
+GET           /api/v1/discovery/proposals                                                    controllers.DiscoveryApiController.listProposals(type: Option[String], status: Option[String])
+GET           /api/v1/discovery/proposals/:id                                                controllers.DiscoveryApiController.getProposalDetails(id: Int)
+POST          /api/v1/discovery/proposals/:id/start-review                                   controllers.DiscoveryApiController.startReview(id: Int)
+POST          /api/v1/discovery/proposals/:id/accept                                         controllers.DiscoveryApiController.acceptProposal(id: Int)
+POST          /api/v1/discovery/proposals/:id/reject                                         controllers.DiscoveryApiController.rejectProposal(id: Int)
+GET           /api/v1/discovery/proposals/:id/audit                                          controllers.DiscoveryApiController.getAuditTrail(id: Int)
+
 # Curator Workflow
 GET           /admin/publication-candidates                                                      controllers.PublicationCandidateController.listCandidates(page: Int ?= 1, pageSize: Int ?= 20)
 POST          /admin/publication-candidates/:id/accept                                           controllers.PublicationCandidateController.accept(id: Int)
