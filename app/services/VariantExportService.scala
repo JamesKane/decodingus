@@ -112,8 +112,11 @@ class VariantExportService @Inject()(
         val content = Files.readString(metaPath)
         Some(Json.parse(content).as[ExportMetadata])
       } catch {
-        case e: Exception =>
-          logger.warn(s"Failed to read export metadata: ${e.getMessage}")
+        case e: java.io.IOException =>
+          logger.warn(s"Failed to read export metadata file: ${e.getMessage}")
+          None
+        case e: play.api.libs.json.JsResultException =>
+          logger.warn(s"Failed to parse export metadata JSON: ${e.getMessage}")
           None
       }
     } else {
@@ -172,13 +175,11 @@ class VariantExportService @Inject()(
           generationTimeMs = generationTimeMs
         )
       } catch {
-        case e: Exception =>
-          logger.error(s"Export generation failed: ${e.getMessage}", e)
+        case e: java.io.IOException =>
+          logger.error(s"Export generation failed due to I/O error: ${e.getMessage}", e)
           ExportResult(
             success = false,
-            variantCount = 0,
-            fileSizeBytes = 0,
-            error = Some(e.getMessage),
+            error = Some(s"I/O error: ${e.getMessage}"),
             generationTimeMs = System.currentTimeMillis() - startTime
           )
       }

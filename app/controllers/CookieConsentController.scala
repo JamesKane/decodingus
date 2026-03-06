@@ -7,7 +7,6 @@ import play.api.libs.json.{Json, OFormat}
 import play.api.mvc.{Action, AnyContent, BaseController, ControllerComponents}
 import repositories.CookieConsentRepository
 
-import java.security.MessageDigest
 import java.time.LocalDateTime
 import java.util.UUID
 import scala.concurrent.{ExecutionContext, Future}
@@ -66,7 +65,7 @@ class CookieConsentController @Inject()(
     val policyVersion = CookieConsent.CurrentPolicyVersion
     val now = LocalDateTime.now()
     val userAgent = request.headers.get("User-Agent")
-    val ipHash = hashIpAddress(request.remoteAddress)
+    val ipHash = utils.IpAddressUtils.hashIpAddress(request.remoteAddress)
 
     // Get or create session ID for anonymous users
     val sessionId = request.session.get(ConsentSessionKey).getOrElse(UUID.randomUUID().toString)
@@ -105,12 +104,4 @@ class CookieConsentController @Inject()(
     }
   }
 
-  /**
-   * Hash IP address for privacy-preserving storage.
-   */
-  private def hashIpAddress(ip: String): String = {
-    val digest = MessageDigest.getInstance("SHA-256")
-    val hash = digest.digest(ip.getBytes("UTF-8"))
-    hash.map("%02x".format(_)).mkString
-  }
 }

@@ -661,7 +661,7 @@ class CuratorController @Inject()(
           case Some(q) if q.nonEmpty => variantV2Repository.searchByName(q)
           case _ => Future.successful(Seq.empty)
         }
-        existingVariantIds <- haplogroupVariantRepository.getVariantsByHaplogroup(haplogroupId).map(_.flatMap(_.variantId).toSet)
+        existingVariantIds <- haplogroupVariantRepository.getHaplogroupVariants(haplogroupId).map(_.flatMap(_.variantId).toSet)
       } yield {
         // Filter out variants that are already associated
         val availableVariants = variants.filterNot(v => v.variantId.exists(existingVariantIds.contains))

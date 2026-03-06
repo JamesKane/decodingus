@@ -4,6 +4,7 @@ import actions.ApiSecurityAction
 import jakarta.inject.Inject
 import models.api.{BiosampleOriginalHaplogroupUpdate, BiosampleOriginalHaplogroupView}
 import models.domain.publications.BiosampleOriginalHaplogroup
+import play.api.Logging
 import play.api.libs.json.{JsValue, Json}
 import play.api.mvc.{AbstractController, Action, AnyContent, ControllerComponents}
 import repositories.{BiosampleOriginalHaplogroupRepository, BiosampleRepository}
@@ -15,7 +16,7 @@ class BiosampleOriginalHaplogroupController @Inject()(
                                                        secureApi: ApiSecurityAction,
                                                        haplogroupRepository: BiosampleOriginalHaplogroupRepository,
                                                        biosampleRepository: BiosampleRepository
-                                                     )(implicit ec: ExecutionContext) extends AbstractController(cc) {
+                                                     )(implicit ec: ExecutionContext) extends AbstractController(cc) with Logging {
 
   def updateOrCreateHaplogroup(biosampleId: Int, publicationId: Int): Action[JsValue] =
     Action.async(parse.json) { request =>
@@ -58,7 +59,8 @@ class BiosampleOriginalHaplogroupController @Inject()(
                 case _: NoSuchElementException =>
                   NotFound(Json.obj("error" -> "Biosample not found"))
                 case e: Exception =>
-                  InternalServerError(Json.obj("error" -> e.getMessage))
+                  logger.error("Error updating haplogroup", e)
+                  InternalServerError(Json.obj("error" -> "An internal error occurred."))
               }
             }
           }

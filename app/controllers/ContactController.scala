@@ -10,7 +10,6 @@ import play.api.{Configuration, Environment, Logging}
 import repositories.ContactMessageRepository
 import services.EmailService
 
-import java.security.MessageDigest
 import java.time.LocalDateTime
 import java.util.UUID
 import javax.inject.*
@@ -74,7 +73,7 @@ class ContactController @Inject()(
 
           case contact =>
             val now = LocalDateTime.now()
-            val ipHash = hashIpAddress(clientIpAddress)
+            val ipHash = utils.IpAddressUtils.hashIpAddress(clientIpAddress)
 
             val message = ContactMessage(
               id = None,
@@ -168,9 +167,4 @@ class ContactController @Inject()(
     }
   }
 
-  private def hashIpAddress(ip: String): String = {
-    val digest = MessageDigest.getInstance("SHA-256")
-    val hash = digest.digest(ip.getBytes("UTF-8"))
-    hash.map("%02x".format(_)).mkString
-  }
 }

@@ -91,7 +91,7 @@ class TreeVersioningApiController @Inject()(
     }.recover {
       case e: Exception =>
         logger.error(s"Error listing change sets: ${e.getMessage}", e)
-        InternalServerError(Json.obj("error" -> e.getMessage))
+        InternalServerError(Json.obj("error" -> "An internal error occurred."))
     }
   }
 
@@ -106,7 +106,7 @@ class TreeVersioningApiController @Inject()(
     }.recover {
       case e: Exception =>
         logger.error(s"Error getting change set $id: ${e.getMessage}", e)
-        InternalServerError(Json.obj("error" -> e.getMessage))
+        InternalServerError(Json.obj("error" -> "An internal error occurred."))
     }
   }
 
@@ -120,7 +120,7 @@ class TreeVersioningApiController @Inject()(
         if (success) {
           Ok(Json.obj("success" -> true, "message" -> s"Review started for change set $id"))
         } else {
-          BadRequest(Json.obj("success" -> false, "message" -> "Failed to start review"))
+          BadRequest(Json.obj("error" -> "Failed to start review"))
         }
       }.recover {
         case e: IllegalStateException =>
@@ -143,7 +143,7 @@ class TreeVersioningApiController @Inject()(
         if (success) {
           Ok(Json.obj("success" -> true, "message" -> s"Change set $id applied to Production"))
         } else {
-          BadRequest(Json.obj("success" -> false, "message" -> "Failed to apply change set"))
+          BadRequest(Json.obj("error" -> "Failed to apply change set"))
         }
       }.recover {
         case e: IllegalStateException =>
@@ -167,7 +167,7 @@ class TreeVersioningApiController @Inject()(
         if (success) {
           Ok(Json.obj("success" -> true, "message" -> s"Change set $id discarded"))
         } else {
-          BadRequest(Json.obj("success" -> false, "message" -> "Failed to discard change set"))
+          BadRequest(Json.obj("error" -> "Failed to discard change set"))
         }
       }.recover {
         case e: IllegalStateException =>
@@ -198,7 +198,7 @@ class TreeVersioningApiController @Inject()(
     }.recover {
       case e: Exception =>
         logger.error(s"Error getting pending changes for set $id: ${e.getMessage}", e)
-        InternalServerError(Json.obj("error" -> e.getMessage))
+        InternalServerError(Json.obj("error" -> "An internal error occurred."))
     }
   }
 
@@ -217,7 +217,7 @@ class TreeVersioningApiController @Inject()(
             if (success) {
               Ok(Json.obj("success" -> true, "message" -> s"Change $changeId reviewed as ${req.action}"))
             } else {
-              BadRequest(Json.obj("success" -> false, "message" -> "Failed to review change"))
+              BadRequest(Json.obj("error" -> "Failed to review change"))
             }
           }.recover {
             case e: IllegalArgumentException =>
@@ -274,7 +274,7 @@ class TreeVersioningApiController @Inject()(
     }.recover {
       case e: Exception =>
         logger.error(s"Error listing comments for set $id: ${e.getMessage}", e)
-        InternalServerError(Json.obj("error" -> e.getMessage))
+        InternalServerError(Json.obj("error" -> "An internal error occurred."))
     }
   }
 
@@ -292,7 +292,7 @@ class TreeVersioningApiController @Inject()(
     }.recover {
       case e: Exception =>
         logger.error(s"Error getting tree diff for set $id: ${e.getMessage}", e)
-        InternalServerError(Json.obj("error" -> e.getMessage))
+        InternalServerError(Json.obj("error" -> "An internal error occurred."))
     }
   }
 

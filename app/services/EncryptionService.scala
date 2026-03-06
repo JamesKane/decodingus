@@ -4,8 +4,9 @@ import jakarta.inject.{Inject, Singleton}
 import play.api.Logging
 
 import java.nio.charset.StandardCharsets
+import java.security.{GeneralSecurityException, InvalidKeyException}
 import java.util.Base64
-import javax.crypto.Cipher
+import javax.crypto.{BadPaddingException, Cipher, IllegalBlockSizeException}
 import javax.crypto.spec.SecretKeySpec
 
 @Singleton
@@ -30,8 +31,11 @@ class EncryptionService @Inject()(
         val encryptedBytes = cipher.doFinal(plainText.getBytes(StandardCharsets.UTF_8))
         Some(Base64.getEncoder.encodeToString(encryptedBytes))
       } catch {
-        case e: Exception =>
-          logger.error("Failed to encrypt data", e)
+        case e: InvalidKeyException =>
+          logger.error("Encryption failed: invalid key", e)
+          None
+        case e: GeneralSecurityException =>
+          logger.error("Encryption failed", e)
           None
       }
     }
@@ -53,8 +57,17 @@ class EncryptionService @Inject()(
         val decryptedBytes = cipher.doFinal(decodedBytes)
         Some(new String(decryptedBytes, StandardCharsets.UTF_8))
       } catch {
-        case e: Exception =>
-          logger.error("Failed to decrypt data", e)
+        case e: IllegalArgumentException =>
+          logger.error("Decryption failed: invalid Base64 input", e)
+          None
+        case e: InvalidKeyException =>
+          logger.error("Decryption failed: invalid key", e)
+          None
+        case e: (BadPaddingException | IllegalBlockSizeException) =>
+          logger.error("Decryption failed: corrupted data", e)
+          None
+        case e: GeneralSecurityException =>
+          logger.error("Decryption failed", e)
           None
       }
     }

@@ -31,14 +31,6 @@ trait HaplogroupVariantRepository {
   def countHaplogroupVariants(haplogroupId: Long): Future[Int]
 
   /**
-   * Retrieves a list of genetic variants associated with the given haplogroup.
-   *
-   * @param haplogroupId The unique identifier of the haplogroup for which the variants are being requested.
-   * @return A Future containing a sequence of VariantV2 objects associated with the specified haplogroup.
-   */
-  def getVariantsByHaplogroup(haplogroupId: Int): Future[Seq[VariantV2]]
-
-  /**
    * Retrieves a list of haplogroups associated with the specified variant.
    *
    * @param variantId The unique identifier of the variant for which haplogroups are to be retrieved.
@@ -244,15 +236,6 @@ class HaplogroupVariantRepositoryImpl @Inject()(
     } yield v.canonicalName
 
     runQuery(q.distinct.length.result)
-  }
-
-  override def getVariantsByHaplogroup(haplogroupId: Int): Future[Seq[VariantV2]] = {
-    val query = for {
-      hv <- haplogroupVariants if hv.haplogroupId === haplogroupId
-      variant <- variantsV2 if variant.variantId === hv.variantId
-    } yield variant
-
-    runQuery(query.result)
   }
 
   override def getHaplogroupsByVariant(variantId: Int): Future[Seq[Haplogroup]] = {

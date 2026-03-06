@@ -138,21 +138,49 @@ class HaplogroupRevisionRepositoryImpl @Inject()(
   }
 
   override def getAncestryAtRevision(haplogroupId: Int, revisionId: Int): Future[Seq[Haplogroup]] = {
-    def recursiveAncestors(currentId: Int, ancestors: Seq[Haplogroup] = Seq.empty): DBIO[Seq[Haplogroup]] = {
-      val query = for {
-        rel <- haplogroupRelationships if rel.childHaplogroupId === currentId &&
-          rel.revisionId === revisionId
-        parent <- haplogroups if parent.haplogroupId === rel.parentHaplogroupId &&
-          parent.revisionId === revisionId
-      } yield parent
+    import slick.jdbc.GetResult
 
-      query.result.flatMap { parents =>
-        if (parents.isEmpty) DBIO.successful(ancestors)
-        else recursiveAncestors(parents.head.id.get, ancestors ++ parents)
-      }
-    }
+    implicit val getHaplogroupResult: GetResult[Haplogroup] = GetResult(r =>
+      Haplogroup(
+        id = r.nextIntOption(),
+        name = r.nextString(),
+        lineage = r.nextStringOption(),
+        description = r.nextStringOption(),
+        haplogroupType = models.HaplogroupType.fromString(r.nextString())
+          .getOrElse(throw new IllegalArgumentException("Invalid haplogroup type")),
+        revisionId = r.nextInt(),
+        source = r.nextString(),
+        confidenceLevel = r.nextString(),
+        validFrom = r.nextTimestampOption().map(_.toLocalDateTime).orNull,
+        validUntil = r.nextTimestampOption().map(_.toLocalDateTime)
+      )
+    )
 
-    runQuery(recursiveAncestors(haplogroupId))
+    val query = sql"""
+      WITH RECURSIVE ancestor_tree AS (
+        SELECT h.*, 1 as level
+        FROM tree.haplogroup_relationship hr
+        JOIN tree.haplogroup h ON h.haplogroup_id = hr.parent_haplogroup_id
+          AND h.revision_id = $revisionId
+        WHERE hr.child_haplogroup_id = $haplogroupId
+          AND hr.revision_id = $revisionId
+
+        UNION
+
+        SELECT h.*, at.level + 1
+        FROM tree.haplogroup_relationship hr
+        JOIN tree.haplogroup h ON h.haplogroup_id = hr.parent_haplogroup_id
+          AND h.revision_id = $revisionId
+        JOIN ancestor_tree at ON hr.child_haplogroup_id = at.haplogroup_id
+        WHERE hr.revision_id = $revisionId
+      )
+      SELECT haplogroup_id, name, lineage, description, haplogroup_type,
+             revision_id, source, confidence_level, valid_from, valid_until
+      FROM ancestor_tree
+      ORDER BY level DESC
+    """.as[Haplogroup]
+
+    db.run(query)
   }
 
   override def countByType(haplogroupType: HaplogroupType): Future[Int] = {

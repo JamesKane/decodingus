@@ -60,137 +60,65 @@ class ExternalBiosampleService @Inject()(
       biosampleRepository.update(updatedBiosample).map(_ => existingBiosample.sampleGuid)
     }
 
-        def handleDataAssociation(guid: UUID, isUpdate: Boolean) = {
-
-          val publicationFuture = request.publication
-
-            .map(pub => biosampleDataService.linkPublication(guid, pub)
-
-              .recoverWith { case e =>
-
-                Future.failed(PublicationLinkageException(e.getMessage))
-
-              })
-
-            .getOrElse(Future.successful(()))
-
-    
-
-          val sequenceDataFuture = if (isUpdate) {
-
-            biosampleDataService.replaceSequenceData(guid, request.sequenceData)
-
-          } else {
-
-            biosampleDataService.addSequenceData(guid, request.sequenceData)
-
-          }
-
-    
-
-          for {
-
-            _ <- publicationFuture
-
-            _ <- sequenceDataFuture.recoverWith { case e =>
-
-              Future.failed(SequenceDataValidationException(e.getMessage))
-
-            }
-
-          } yield guid
-
-        }
-
-    
-
-        (for {
-
-          donorId <- biosampleService.createOrUpdateSpecimenDonor(
-
-            donorIdentifier = request.donorIdentifier.getOrElse(s"${utils.GenomicsConstants.DONOR_ID_PREFIX}${UUID.randomUUID().toString}"), // Use constant
-
-            originBiobank = request.centerName,
-
-            donorType = request.donorType.getOrElse(BiosampleType.Standard),
-
-            sex = request.sex,
-
-            latitude = request.latitude,
-
-            longitude = request.longitude,
-
-            atUri = request.citizenDid
-
-          )
-
-    
-
-          // Check for existing accession
-
-          existing <- biosampleRepository.findByAccession(request.sampleAccession)
-
-    
-
-          guid <- existing match {
-
-            case Some((existingBiosample, _)) =>
-
-              // Update existing
-
-              for {
-
-                guid <- updateBiosample(existingBiosample, donorId)
-
-                _ <- handleDataAssociation(guid, isUpdate = true)
-
-              } yield guid
-
-    
-
-            case None =>
-
-              // Create new
-
-              for {
-
-                created <- biosampleService.createBiosample(
-
-                  sampleGuid = sampleGuid,
-
-                  sampleAccession = request.sampleAccession,
-
-                  description = request.description,
-
-                  alias = request.alias,
-
-                  centerName = request.centerName,
-
-                  specimenDonorId = donorId,
-
-                  sourcePlatform = Some(request.sourceSystem)
-
-                )
-
-                guid <- handleDataAssociation(created.sampleGuid, isUpdate = false)
-
-              } yield guid
-
-          }
-
-    
-
-        } yield guid).recoverWith {
-
-          case e: BiosampleServiceException => Future.failed(e)
-
-          case e: Exception => Future.failed(new RuntimeException(
-
-            s"Failed to process biosample: ${e.getMessage}", e))
-
-        }
-
+    def handleDataAssociation(guid: UUID, isUpdate: Boolean) = {
+      val publicationFuture = request.publication
+        .map(pub => biosampleDataService.linkPublication(guid, pub)
+          .recoverWith { case e =>
+            Future.failed(PublicationLinkageException(e.getMessage))
+          })
+        .getOrElse(Future.successful(()))
+
+      val sequenceDataFuture = if (isUpdate) {
+        biosampleDataService.replaceSequenceData(guid, request.sequenceData)
+      } else {
+        biosampleDataService.addSequenceData(guid, request.sequenceData)
       }
+
+      for {
+        _ <- publicationFuture
+        _ <- sequenceDataFuture.recoverWith { case e =>
+          Future.failed(SequenceDataValidationException(e.getMessage))
+        }
+      } yield guid
+    }
+
+    (for {
+      donorId <- biosampleService.createOrUpdateSpecimenDonor(
+        donorIdentifier = request.donorIdentifier.getOrElse(s"${utils.GenomicsConstants.DONOR_ID_PREFIX}${UUID.randomUUID().toString}"),
+        originBiobank = request.centerName,
+        donorType = request.donorType.getOrElse(BiosampleType.Standard),
+        sex = request.sex,
+        latitude = request.latitude,
+        longitude = request.longitude,
+        atUri = request.citizenDid
+      )
+      existing <- biosampleRepository.findByAccession(request.sampleAccession)
+      guid <- existing match {
+        case Some((existingBiosample, _)) =>
+          for {
+            guid <- updateBiosample(existingBiosample, donorId)
+            _ <- handleDataAssociation(guid, isUpdate = true)
+          } yield guid
+        case None =>
+          for {
+            created <- biosampleService.createBiosample(
+              sampleGuid = sampleGuid,
+              sampleAccession = request.sampleAccession,
+              description = request.description,
+              alias = request.alias,
+              centerName = request.centerName,
+              specimenDonorId = donorId,
+              sourcePlatform = Some(request.sourceSystem)
+            )
+            guid <- handleDataAssociation(created.sampleGuid, isUpdate = false)
+          } yield guid
+      }
+    } yield guid).recoverWith {
+      case e: BiosampleServiceException => Future.failed(e)
+      case e: Exception => Future.failed(new RuntimeException(
+        s"Failed to process biosample: ${e.getMessage}", e))
+    }
+  }
 
   /**
    * Deletes a biosample and all its associated data by its sample accession and owner DID.

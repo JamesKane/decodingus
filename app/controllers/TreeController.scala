@@ -8,6 +8,7 @@ import models.domain.haplogroups.HaplogroupProvenance
 import models.view.TreeViewModel
 import org.webjars.play.WebJarsUtil
 import play.api.cache.{AsyncCacheApi, Cached}
+import play.api.Logging
 import play.api.i18n.I18nSupport
 import play.api.libs.json.Json
 import play.api.mvc.*
@@ -34,7 +35,7 @@ class TreeController @Inject()(val controllerComponents: MessagesControllerCompo
                                cached: Cached,
                                cache: AsyncCacheApi)
                               (using webJarsUtil: WebJarsUtil, ec: ExecutionContext)
-  extends BaseController with I18nSupport {
+  extends BaseController with I18nSupport with Logging {
 
   /**
    * Configuration for initializing and handling tree-based data structures
@@ -287,9 +288,10 @@ class TreeController @Inject()(val controllerComponents: MessagesControllerCompo
             case FragmentRoute => Ok(views.html.fragments.error(s"Haplogroup $haplogroupName not found"))
           }
         case e =>
+          logger.error(s"Error loading haplogroup tree", e)
           routeType match {
-            case ApiRoute => InternalServerError(Json.obj("error" -> e.getMessage))
-            case FragmentRoute => Ok(views.html.fragments.error(e.getMessage))
+            case ApiRoute => InternalServerError(Json.obj("error" -> "An internal error occurred."))
+            case FragmentRoute => Ok(views.html.fragments.error("An unexpected error occurred."))
           }
       }
   }

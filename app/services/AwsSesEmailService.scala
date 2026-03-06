@@ -7,7 +7,6 @@ import software.amazon.awssdk.services.ses.model.*
 
 import javax.inject.{Inject, Singleton}
 import scala.jdk.CollectionConverters.*
-import scala.util.Try
 
 /**
  * A concrete implementation of the EmailService trait that uses Amazon SES to send emails.
@@ -43,7 +42,7 @@ class AwsSesEmailService @Inject()(configuration: Configuration) extends EmailSe
                  body: String
                ): Either[String, Unit] = {
     logger.info(s"Sending Contact Request: ${(to, from, subject, body)}")
-    Try {
+    try {
       val destination = Destination.builder()
         .toAddresses(to.asJava)
         .build()
@@ -72,10 +71,15 @@ class AwsSesEmailService @Inject()(configuration: Configuration) extends EmailSe
       val response: SendEmailResponse = sesClient.sendEmail(request)
       logger.info(s"Email sent successfully. MessageId: ${response.messageId()}")
       Right(())
-    }.recover { case e: Exception =>
-      val errorMessage = s"Failed to send email: ${e.getMessage}"
-      logger.error(errorMessage, e)
-      Left(errorMessage)
-    }.get
+    } catch {
+      case e: MessageRejectedException =>
+        val msg = s"Email rejected by SES: ${e.getMessage}"
+        logger.error(msg, e)
+        Left(msg)
+      case e: SesException =>
+        val msg = s"SES service error: ${e.getMessage}"
+        logger.error(msg, e)
+        Left(msg)
+    }
   }
 }

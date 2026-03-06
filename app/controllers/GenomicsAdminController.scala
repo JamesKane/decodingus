@@ -98,9 +98,7 @@ class GenomicsAdminController @Inject()(
       case ex: Exception =>
         logger.error("YBrowse update request failed", ex)
         InternalServerError(Json.obj(
-          "success" -> false,
-          "variantsIngested" -> 0,
-          "message" -> "An internal error occurred while starting the update."
+          "error" -> "An internal error occurred while starting the update."
         ))
     }
   }
