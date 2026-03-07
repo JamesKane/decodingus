@@ -338,6 +338,34 @@ GET           /api/v1/patronage/is-patron/:userId                               
 GET           /api/v1/patronage/summary                                                          controllers.PatronageApiController.getPatronSummary
 POST          /api/v1/patronage/expire-overdue                                                   controllers.PatronageApiController.expireOverdue()
 
+# =============================================
+# IBD Match Discovery API (PDS-authenticated)
+# =============================================
++nocsrf
+GET           /api/v1/discovery/suggestions                                                      controllers.MatchDiscoveryController.getSuggestions(type: Option[String], limit: Int ?= 20)
++nocsrf
+POST          /api/v1/discovery/suggestions/:id/dismiss                                          controllers.MatchDiscoveryController.dismissSuggestion(id: Long)
++nocsrf
+GET           /api/v1/discovery/population/:sampleGuid                                           controllers.MatchDiscoveryController.getPopulationBreakdown(sampleGuid: java.util.UUID)
++nocsrf
+GET           /api/v1/discovery/population/overlap/:guid1/:guid2                                 controllers.MatchDiscoveryController.getPopulationOverlap(guid1: java.util.UUID, guid2: java.util.UUID)
+
+# =============================================
+# IBD Match Request & Consent API (PDS-authenticated)
+# =============================================
++nocsrf
+POST          /api/v1/matches/request                                                            controllers.MatchRequestController.createRequest()
++nocsrf
+GET           /api/v1/matches/requests/pending                                                   controllers.MatchRequestController.getPendingRequests()
++nocsrf
+GET           /api/v1/matches/requests/sent                                                      controllers.MatchRequestController.getSentRequests()
++nocsrf
+POST          /api/v1/matches/requests/:uri/cancel                                               controllers.MatchRequestController.cancelRequest(uri: String)
++nocsrf
+POST          /api/v1/matches/consent                                                            controllers.MatchRequestController.submitConsent()
++nocsrf
+GET           /api/v1/matches/consent/status/:requestUri                                         controllers.MatchRequestController.getConsentStatus(requestUri: String)
+
 # --- API Routes (Handled by Tapir, including Swagger UI) ---
 POST          /api/registerPDS                                                                   controllers.PDSRegistrationController.registerPDS()
 

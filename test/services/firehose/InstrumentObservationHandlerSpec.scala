@@ -28,11 +28,16 @@ class InstrumentObservationHandlerSpec extends ServiceSpec {
   val mockGroupProjectRepo: GroupProjectRepository = mock[GroupProjectRepository]
   val mockGroupProjectMemberRepo: GroupProjectMemberRepository = mock[GroupProjectMemberRepository]
 
+  val mockMatchConsentRepo: MatchConsentTrackingRepository = mock[MatchConsentTrackingRepository]
+  val mockMatchRequestRepo: MatchRequestTrackingRepository = mock[MatchRequestTrackingRepository]
+  val mockPopAnalysisService: services.ibd.PopulationAnalysisService = mock[services.ibd.PopulationAnalysisService]
+
   val handler = new AtmosphereEventHandler(
     mockCitizenBiosampleRepo, mockSeqLibraryRepo, mockSeqFileRepo,
     mockAlignmentRepo, mockDonorRepo, mockProjectRepo, mockTestTypeService,
     mockGenotypeRepo, mockPopBreakdownRepo, mockHgReconciliationRepo, mockInstrumentObsRepo,
-    mockGroupProjectRepo, mockGroupProjectMemberRepo
+    mockGroupProjectRepo, mockGroupProjectMemberRepo,
+    mockMatchConsentRepo, mockMatchRequestRepo, mockPopAnalysisService
   )
 
   override def beforeEach(): Unit = {

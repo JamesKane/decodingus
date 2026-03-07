@@ -19,6 +19,7 @@ import org.scalatestplus.play.PlaySpec
 import play.api.libs.json.Json
 import repositories.*
 import services.TestTypeService
+import services.ibd.PopulationAnalysisService
 
 import java.time.{Instant, LocalDateTime}
 import java.util.UUID
@@ -96,7 +97,10 @@ class AtmosphereEventHandlerSpec extends PlaySpec with MockitoSugar with ScalaFu
       reconRepo,
       instrObsRepo,
       gpRepo,
-      gpmRepo
+      gpmRepo,
+      mock[MatchConsentTrackingRepository],
+      mock[MatchRequestTrackingRepository],
+      mock[PopulationAnalysisService]
     )
   }
 

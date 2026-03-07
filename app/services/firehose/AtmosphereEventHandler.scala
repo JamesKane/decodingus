@@ -4,11 +4,13 @@ import jakarta.inject.{Inject, Singleton}
 import models.atmosphere.*
 import models.domain.{GroupProject, GroupProjectMember, Project}
 import models.domain.genomics.*
+import models.domain.ibd.{MatchConsentTracking, MatchRequestTracking}
 import play.api.Logging
 import repositories.*
 import services.TestTypeService
+import services.ibd.PopulationAnalysisService
 
-import java.time.{LocalDateTime, ZoneId}
+import java.time.{LocalDateTime, ZoneId, ZonedDateTime}
 import java.util.UUID
 import scala.concurrent.{ExecutionContext, Future}
 
@@ -30,7 +32,10 @@ class AtmosphereEventHandler @Inject()(
                                         haplogroupReconciliationRepository: HaplogroupReconciliationRepository,
                                         instrumentObservationRepository: InstrumentObservationRepository,
                                         groupProjectRepository: GroupProjectRepository,
-                                        groupProjectMemberRepository: GroupProjectMemberRepository
+                                        groupProjectMemberRepository: GroupProjectMemberRepository,
+                                        matchConsentTrackingRepository: MatchConsentTrackingRepository,
+                                        matchRequestTrackingRepository: MatchRequestTrackingRepository,
+                                        populationAnalysisService: PopulationAnalysisService
                                       )(implicit ec: ExecutionContext) extends Logging {
 
   def handle(event: FirehoseEvent): Future[FirehoseResult] = {
@@ -45,6 +50,8 @@ class AtmosphereEventHandler @Inject()(
       case e: InstrumentObservationEvent => handleInstrumentObservation(e)
       case e: GroupProjectEvent => handleGroupProject(e)
       case e: ProjectMembershipEvent => handleProjectMembership(e)
+      case e: MatchConsentEvent => handleMatchConsent(e)
+      case e: MatchRequestEvent => handleMatchRequest(e)
       case _ =>
         logger.warn(s"Unhandled event type: ${event.getClass.getSimpleName} for ${event.atUri}")
         Future.successful(FirehoseResult.Success(event.atUri, "", None, "Ignored (Not Implemented)"))
@@ -1075,6 +1082,88 @@ class AtmosphereEventHandler @Inject()(
   private def extractDidFromAtUri(atUri: String): String = {
     // AT URI format: at://{DID}/{collection}/{rkey}
     atUri.stripPrefix("at://").split("/").headOption.getOrElse("")
+  }
+
+  // --- Match Consent Handling ---
+
+  private def handleMatchConsent(event: MatchConsentEvent): Future[FirehoseResult] = {
+    event.action match {
+      case FirehoseAction.Create | FirehoseAction.Update =>
+        event.payload match {
+          case Some(record) =>
+            val did = extractDidFromAtUri(record.atUri)
+            citizenBiosampleRepository.findByAtUri(record.biosampleRef).flatMap {
+              case Some(biosample) =>
+                val consent = MatchConsentTracking(
+                  id = None,
+                  atUri = record.atUri,
+                  consentingDid = did,
+                  sampleGuid = biosample.sampleGuid,
+                  consentLevel = record.consentLevel,
+                  allowedMatchTypes = record.allowedMatchTypes.map(t => play.api.libs.json.Json.toJson(t)),
+                  shareContactInfo = record.shareContactInfo.getOrElse(false),
+                  consentedAt = record.consentedAt.map(i => ZonedDateTime.ofInstant(i, ZoneId.of("UTC"))).getOrElse(ZonedDateTime.now()),
+                  expiresAt = record.expiresAt.map(i => ZonedDateTime.ofInstant(i, ZoneId.of("UTC"))),
+                  revokedAt = None
+                )
+                matchConsentTrackingRepository.upsertFromFirehose(consent).map { saved =>
+                  FirehoseResult.Success(event.atUri, "", Some(biosample.sampleGuid), s"Match consent ${event.action}")
+                }
+              case None =>
+                Future.successful(FirehoseResult.NotFound(record.biosampleRef))
+            }
+          case None =>
+            Future.successful(FirehoseResult.ValidationError(event.atUri, "Payload required for match consent"))
+        }
+      case FirehoseAction.Delete =>
+        matchConsentTrackingRepository.deleteByAtUri(event.atUri).map {
+          case true => FirehoseResult.Success(event.atUri, "", None, "Match consent deleted")
+          case false => FirehoseResult.NotFound(event.atUri)
+        }
+    }
+  }
+
+  // --- Match Request Handling ---
+
+  private def handleMatchRequest(event: MatchRequestEvent): Future[FirehoseResult] = {
+    event.action match {
+      case FirehoseAction.Create | FirehoseAction.Update =>
+        event.payload match {
+          case Some(record) =>
+            val did = extractDidFromAtUri(record.atUri)
+            for {
+              fromBiosample <- citizenBiosampleRepository.findByAtUri(record.fromBiosampleRef)
+              toBiosample <- citizenBiosampleRepository.findByAtUri(record.toBiosampleRef)
+              result <- (fromBiosample, toBiosample) match {
+                case (Some(from), Some(to)) =>
+                  val tracking = MatchRequestTracking(
+                    id = None,
+                    atUri = record.atUri,
+                    requesterDid = did,
+                    fromSampleGuid = from.sampleGuid,
+                    toSampleGuid = to.sampleGuid,
+                    status = record.status,
+                    message = record.message,
+                    createdAt = ZonedDateTime.now(),
+                    updatedAt = ZonedDateTime.now(),
+                    expiresAt = record.expiresAt.map(i => ZonedDateTime.ofInstant(i, ZoneId.of("UTC")))
+                  )
+                  matchRequestTrackingRepository.upsertFromFirehose(tracking).map { saved =>
+                    FirehoseResult.Success(event.atUri, "", Some(from.sampleGuid), s"Match request ${event.action}")
+                  }
+                case _ =>
+                  Future.successful(FirehoseResult.NotFound(s"Biosample ref not found for ${record.fromBiosampleRef} or ${record.toBiosampleRef}"))
+              }
+            } yield result
+          case None =>
+            Future.successful(FirehoseResult.ValidationError(event.atUri, "Payload required for match request"))
+        }
+      case FirehoseAction.Delete =>
+        matchRequestTrackingRepository.updateStatus(event.atUri, "WITHDRAWN").map {
+          case true => FirehoseResult.Success(event.atUri, "", None, "Match request withdrawn")
+          case false => FirehoseResult.NotFound(event.atUri)
+        }
+    }
   }
 
 }

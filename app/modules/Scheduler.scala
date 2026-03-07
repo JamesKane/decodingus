@@ -1,7 +1,7 @@
 package modules
 
 import actors.PublicationUpdateActor.UpdateAllPublications
-import actors.{VariantExportActor, YBrowseVariantUpdateActor}
+import actors.{MatchDiscoveryActor, VariantExportActor, YBrowseVariantUpdateActor}
 import jakarta.inject.{Inject, Named, Singleton}
 import org.apache.pekko.actor.{ActorRef, ActorSystem}
 import org.apache.pekko.extension.quartz.QuartzSchedulerExtension
@@ -17,7 +17,8 @@ class Scheduler @Inject()(
                            @Named("publication-update-actor") publicationUpdateActor: ActorRef,
                            @Named("publication-discovery-actor") publicationDiscoveryActor: ActorRef,
                            @Named("ybrowse-variant-update-actor") ybrowseVariantUpdateActor: ActorRef,
-                           @Named("variant-export-actor") variantExportActor: ActorRef
+                           @Named("variant-export-actor") variantExportActor: ActorRef,
+                           @Named("match-discovery-actor") matchDiscoveryActor: ActorRef
                          ) extends Logging {
 
   private val quartz = QuartzSchedulerExtension(system)
@@ -56,5 +57,14 @@ class Scheduler @Inject()(
   } catch {
     case e: Exception =>
       logger.error(s"Failed to schedule 'VariantExport' job: ${e.getMessage}", e)
+  }
+
+  // Schedule the MatchDiscovery job
+  try {
+    quartz.schedule("MatchDiscovery", matchDiscoveryActor, MatchDiscoveryActor.RunDiscovery)
+    logger.info("Successfully scheduled 'MatchDiscovery' job.")
+  } catch {
+    case e: Exception =>
+      logger.error(s"Failed to schedule 'MatchDiscovery' job: ${e.getMessage}", e)
   }
 }

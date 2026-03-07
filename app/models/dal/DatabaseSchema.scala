@@ -165,6 +165,11 @@ object DatabaseSchema {
     object ibd {
       val ibdDiscoveryIndices = TableQuery[IbdDiscoveryIndicesTable]
       val ibdPdsAttestationsTable = TableQuery[IbdPdsAttestationsTable]
+      val matchSuggestions = TableQuery[MatchSuggestionsTable]
+      val populationBreakdownCache = TableQuery[PopulationBreakdownCacheTable]
+      val populationOverlapScores = TableQuery[PopulationOverlapScoresTable]
+      val matchRequestTracking = TableQuery[MatchRequestTrackingTable]
+      val matchConsentTracking = TableQuery[MatchConsentTrackingTable]
     }
 
     object project {
