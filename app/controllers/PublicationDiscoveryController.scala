@@ -1,5 +1,6 @@
 package controllers
 
+import actions.ApiSecurityAction
 import actors.PublicationDiscoveryActor
 import jakarta.inject.{Inject, Named, Singleton}
 import org.apache.pekko.actor.ActorRef
@@ -9,10 +10,11 @@ import play.api.mvc.{Action, AnyContent, BaseController, ControllerComponents}
 @Singleton
 class PublicationDiscoveryController @Inject()(
                                                 val controllerComponents: ControllerComponents,
+                                                secureApi: ApiSecurityAction,
                                                 @Named("publication-discovery-actor") publicationDiscoveryActor: ActorRef
                                               ) extends BaseController with Logging {
 
-  def triggerDiscovery(): Action[AnyContent] = Action {
+  def triggerDiscovery(): Action[AnyContent] = secureApi {
     logger.info("Manually triggering publication discovery via API.")
     publicationDiscoveryActor ! PublicationDiscoveryActor.RunDiscovery
     Ok("Publication discovery run triggered.")

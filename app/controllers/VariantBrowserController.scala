@@ -42,12 +42,14 @@ class VariantBrowserController @Inject()(
    */
   def listFragment(query: Option[String], page: Int, pageSize: Int): Action[AnyContent] = Action.async {
     implicit request: Request[AnyContent] =>
-      val offset = (page - 1) * pageSize
+      val safePage = Math.max(1, page)
+      val safePageSize = Math.max(1, Math.min(pageSize, 100))
+      val offset = (safePage - 1) * safePageSize
       for {
-        (variants, totalCount) <- getCachedSearchResults(query.getOrElse(""), offset, pageSize)
+        (variants, totalCount) <- getCachedSearchResults(query.getOrElse(""), offset, safePageSize)
       } yield {
-        val totalPages = Math.max(1, (totalCount + pageSize - 1) / pageSize)
-        Ok(views.html.variants.listFragment(variants, query, page, totalPages, pageSize, totalCount))
+        val totalPages = Math.max(1, (totalCount + safePageSize - 1) / safePageSize)
+        Ok(views.html.variants.listFragment(variants, query, safePage, totalPages, safePageSize, totalCount))
       }
   }
 

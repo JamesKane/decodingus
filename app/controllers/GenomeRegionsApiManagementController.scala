@@ -74,11 +74,17 @@ class GenomeRegionsApiManagementController @Inject()(
     }
   }
 
+  private val MaxBulkRegions = 1000
+
   def bulkCreateRegions(): Action[BulkCreateGenomeRegionsRequest] =
     secureApi.jsonAction[BulkCreateGenomeRegionsRequest].async { request =>
-      logger.info(s"API: Bulk creating ${request.body.regions.size} genome regions")
-      managementService.bulkCreateRegions(request.body, None).map { response =>
-        Ok(Json.toJson(response))
+      if (request.body.regions.size > MaxBulkRegions) {
+        Future.successful(BadRequest(Json.obj("error" -> s"Bulk create limited to $MaxBulkRegions regions per request")))
+      } else {
+        logger.info(s"API: Bulk creating ${request.body.regions.size} genome regions")
+        managementService.bulkCreateRegions(request.body, None).map { response =>
+          Ok(Json.toJson(response))
+        }
       }
     }
 }

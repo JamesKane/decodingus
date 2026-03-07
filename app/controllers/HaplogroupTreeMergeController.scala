@@ -116,8 +116,7 @@ class HaplogroupTreeMergeController @Inject()(
       }.recover { case e: Exception =>
         logger.error(s"Merge preview failed: ${e.getMessage}", e)
         InternalServerError(Json.obj(
-          "error" -> "Preview operation failed",
-          "details" -> e.getMessage
+          "error" -> "Preview operation failed"
         ))
       }
     }

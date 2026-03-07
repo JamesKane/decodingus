@@ -3,6 +3,7 @@ package filters
 import play.api.mvc.*
 import services.CachedSecretsManagerService
 
+import java.security.MessageDigest
 import javax.inject.Inject
 import scala.concurrent.{ExecutionContext, Future}
 
@@ -37,7 +38,7 @@ class ApiKeyFilter @Inject()(
         Some(Results.Unauthorized("API key missing"))
       case Some(providedKey) =>
         secretsManager.getCachedApiKey match {
-          case Some(storedKey) if providedKey == storedKey =>
+          case Some(storedKey) if MessageDigest.isEqual(providedKey.getBytes("UTF-8"), storedKey.getBytes("UTF-8")) =>
             None // Allow the request to proceed
           case _ =>
             Some(Results.Unauthorized("Invalid API key"))

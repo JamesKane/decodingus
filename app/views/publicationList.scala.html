@@ -4,7 +4,7 @@
     <div class="alert alert-info" role="alert">
     @searchQuery match {
         case Some(q) => {
-            @messages("publication.list.notFound", Html(s"<strong>$q</strong>"))
+            @messages("publication.list.notFound", q)
         }
         case None => {
             @messages("publication.list.empty")

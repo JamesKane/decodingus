@@ -231,7 +231,8 @@ class TreeController @Inject()(val controllerComponents: MessagesControllerCompo
         case _: IllegalArgumentException =>
           Ok(views.html.fragments.error(s"Haplogroup $haplogroupName not found"))
         case e =>
-          Ok(views.html.fragments.error(e.getMessage))
+          logger.error(s"Error loading tree fragment: ${e.getMessage}", e)
+          Ok(views.html.fragments.error("An unexpected error occurred while loading this view."))
       }
   }
 

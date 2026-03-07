@@ -84,7 +84,8 @@ class PublicationCandidateController @Inject()(
   def bulkAction(): Action[AnyContent] = CuratorAction.async { implicit request =>
     val reviewerId = request.user.id.get
     val formData = request.body.asFormUrlEncoded.getOrElse(Map.empty)
-    val ids = formData.getOrElse("candidateIds", Seq.empty).flatMap(_.split(",")).flatMap(_.toIntOption).toSeq
+    val MaxBulkSize = 500
+    val ids = formData.getOrElse("candidateIds", Seq.empty).flatMap(_.split(",")).flatMap(_.toIntOption).take(MaxBulkSize).toSeq
     val action = formData.get("bulkAction").flatMap(_.headOption).getOrElse("")
     val reason = formData.get("reason").flatMap(_.headOption)
 

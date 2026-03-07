@@ -52,9 +52,14 @@ class RoleAction @Inject()(authService: AuthService)(implicit ec: ExecutionConte
     override protected def executionContext: ExecutionContext = ec
 
     override protected def filter[A](request: AuthenticatedRequest[A]): Future[Option[Result]] = {
-      authService.hasAnyRole(request.user.id.get, requiredRoles).map { hasRole =>
-        if (hasRole) None
-        else Some(Results.Forbidden("You do not have the required permissions to access this resource."))
+      request.user.id match {
+        case Some(userId) =>
+          authService.hasAnyRole(userId, requiredRoles).map { hasRole =>
+            if (hasRole) None
+            else Some(Results.Forbidden("You do not have the required permissions to access this resource."))
+          }
+        case None =>
+          Future.successful(Some(Results.Forbidden("You do not have the required permissions to access this resource.")))
       }
     }
   }
@@ -70,9 +75,14 @@ class PermissionAction @Inject()(authService: AuthService)(implicit ec: Executio
     override protected def executionContext: ExecutionContext = ec
 
     override protected def filter[A](request: AuthenticatedRequest[A]): Future[Option[Result]] = {
-      authService.hasPermission(request.user.id.get, permission).map { hasPermission =>
-        if (hasPermission) None
-        else Some(Results.Forbidden(s"Missing required permission: $permission"))
+      request.user.id match {
+        case Some(userId) =>
+          authService.hasPermission(userId, permission).map { hasPermission =>
+            if (hasPermission) None
+            else Some(Results.Forbidden("You do not have the required permissions to access this resource."))
+          }
+        case None =>
+          Future.successful(Some(Results.Forbidden("You do not have the required permissions to access this resource.")))
       }
     }
   }

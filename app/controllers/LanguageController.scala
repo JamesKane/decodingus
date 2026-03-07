@@ -11,12 +11,14 @@ class LanguageController @Inject()(val controllerComponents: ControllerComponent
 
   def switchLanguage(lang: String): Action[AnyContent] = Action { implicit request =>
     val referer = request.headers.get(REFERER).getOrElse("/")
+    // Prevent open redirect: only allow relative paths
+    val safeTarget = if (referer.startsWith("/") && !referer.startsWith("//")) referer else "/"
     val supportedLangs = messagesApi.messages.keys.filter(_ != "default").toSet
 
     if (supportedLangs.contains(lang)) {
-      Redirect(referer).withLang(Lang(lang))
+      Redirect(safeTarget).withLang(Lang(lang))
     } else {
-      Redirect(referer)
+      Redirect(safeTarget)
     }
   }
 }

@@ -112,7 +112,7 @@ class ExternalBiosampleController @Inject()(
       case e: Exception =>
         InternalServerError(Json.obj(
           "error" -> "Internal server error",
-          "message" -> s"An unexpected error occurred while attempting to delete biosample with accession '$accession': ${e.getMessage}"
+          "message" -> s"An unexpected error occurred while attempting to delete biosample with accession '$accession'"
         ))
     }
   }

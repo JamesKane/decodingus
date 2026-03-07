@@ -28,25 +28,31 @@ class VariantApiController @Inject()(
    * Bulk add reference builds (coordinates) to existing variants.
    * Matches variants by name or rsId, then adds coordinates for the specified reference genome.
    */
+  private val MaxBulkSize = 1000
+
   def bulkAddBuilds(): Action[BulkAddVariantBuildsRequest] =
     secureApi.jsonAction[BulkAddVariantBuildsRequest].async { request =>
-      val requests = request.body.variants
-      logger.info(s"Bulk add builds request for ${requests.size} variants")
+      if (request.body.variants.size > MaxBulkSize) {
+        Future.successful(BadRequest(Json.obj("error" -> s"Bulk operations limited to $MaxBulkSize items per request")))
+      } else {
+        val requests = request.body.variants
+        logger.info(s"Bulk add builds request for ${requests.size} variants")
 
-      val resultFutures = requests.map(processAddBuildRequest)
+        val resultFutures = requests.map(processAddBuildRequest)
 
-      Future.sequence(resultFutures).map { results =>
-        val succeeded = results.count(_.status == "success")
-        val failed = results.count(_.status != "success")
+        Future.sequence(resultFutures).map { results =>
+          val succeeded = results.count(_.status == "success")
+          val failed = results.count(_.status != "success")
 
-        logger.info(s"Bulk add builds completed: $succeeded succeeded, $failed failed")
+          logger.info(s"Bulk add builds completed: $succeeded succeeded, $failed failed")
 
-        Ok(Json.toJson(BulkVariantOperationResponse(
-          total = results.size,
-          succeeded = succeeded,
-          failed = failed,
-          results = results
-        )))
+          Ok(Json.toJson(BulkVariantOperationResponse(
+            total = results.size,
+            succeeded = succeeded,
+            failed = failed,
+            results = results
+          )))
+        }
       }
     }
 
@@ -56,23 +62,27 @@ class VariantApiController @Inject()(
    */
   def bulkUpdateRsIds(): Action[BulkUpdateRsIdsRequest] =
     secureApi.jsonAction[BulkUpdateRsIdsRequest].async { request =>
-      val requests = request.body.variants
-      logger.info(s"Bulk update rsIds request for ${requests.size} variants")
+      if (request.body.variants.size > MaxBulkSize) {
+        Future.successful(BadRequest(Json.obj("error" -> s"Bulk operations limited to $MaxBulkSize items per request")))
+      } else {
+        val requests = request.body.variants
+        logger.info(s"Bulk update rsIds request for ${requests.size} variants")
 
-      val resultFutures = requests.map(processUpdateRsIdRequest)
+        val resultFutures = requests.map(processUpdateRsIdRequest)
 
-      Future.sequence(resultFutures).map { results =>
-        val succeeded = results.count(_.status == "success")
-        val failed = results.count(_.status != "success")
+        Future.sequence(resultFutures).map { results =>
+          val succeeded = results.count(_.status == "success")
+          val failed = results.count(_.status != "success")
 
-        logger.info(s"Bulk update rsIds completed: $succeeded succeeded, $failed failed")
+          logger.info(s"Bulk update rsIds completed: $succeeded succeeded, $failed failed")
 
-        Ok(Json.toJson(BulkVariantOperationResponse(
-          total = results.size,
-          succeeded = succeeded,
-          failed = failed,
-          results = results
-        )))
+          Ok(Json.toJson(BulkVariantOperationResponse(
+            total = results.size,
+            succeeded = succeeded,
+            failed = failed,
+            results = results
+          )))
+        }
       }
     }
 
@@ -138,7 +148,7 @@ class VariantApiController @Inject()(
                   name = req.name,
                   rsId = req.rsId,
                   status = "error",
-                  message = Some(s"Database error: ${e.getMessage}")
+                  message = Some("A database error occurred while processing this request")
                 )
               }
             }
@@ -184,7 +194,7 @@ class VariantApiController @Inject()(
         name = Some(req.name),
         rsId = Some(req.rsId),
         status = "error",
-        message = Some(s"Database error: ${e.getMessage}")
+        message = Some("A database error occurred while processing this request")
       )
     }
   }
@@ -218,7 +228,7 @@ class VariantApiController @Inject()(
             newSource = req.newSource,
             aliasesUpdated = 0,
             status = "error",
-            message = Some(s"Database error: ${e.getMessage}")
+            message = Some("A database error occurred while processing this request")
           )
         }
       }
@@ -305,28 +315,32 @@ class VariantApiController @Inject()(
    */
   def bulkAssignDuNames(): Action[BulkAssignDuNamesRequest] =
     secureApi.jsonAction[BulkAssignDuNamesRequest].async { request =>
-      val variantIds = request.body.variantIds
-      logger.info(s"Bulk assign DU names request for ${variantIds.size} variants")
+      if (request.body.variantIds.size > MaxBulkSize) {
+        Future.successful(BadRequest(Json.obj("error" -> s"Bulk operations limited to $MaxBulkSize items per request")))
+      } else {
+        val variantIds = request.body.variantIds
+        logger.info(s"Bulk assign DU names request for ${variantIds.size} variants")
 
-      // Process sequentially to maintain name ordering
-      variantIds.foldLeft(Future.successful(Seq.empty[DuNameAssignmentResult])) { (accFuture, variantId) =>
-        accFuture.flatMap { acc =>
-          processAssignDuName(variantId).map(result => acc :+ result)
-        }
-      }.map { results =>
-        val succeeded = results.count(_.status == "success")
-        val failed = results.count(_.status == "error")
-        val skipped = results.count(_.status == "skipped")
+        // Process sequentially to maintain name ordering
+        variantIds.foldLeft(Future.successful(Seq.empty[DuNameAssignmentResult])) { (accFuture, variantId) =>
+          accFuture.flatMap { acc =>
+            processAssignDuName(variantId).map(result => acc :+ result)
+          }
+        }.map { results =>
+          val succeeded = results.count(_.status == "success")
+          val failed = results.count(_.status == "error")
+          val skipped = results.count(_.status == "skipped")
 
-        logger.info(s"Bulk assign DU names completed: $succeeded succeeded, $failed failed, $skipped skipped")
+          logger.info(s"Bulk assign DU names completed: $succeeded succeeded, $failed failed, $skipped skipped")
 
-        Ok(Json.toJson(BulkDuNameAssignmentResponse(
-          total = results.size,
-          succeeded = succeeded,
-          failed = failed,
-          skipped = skipped,
+          Ok(Json.toJson(BulkDuNameAssignmentResponse(
+            total = results.size,
+            succeeded = succeeded,
+            failed = failed,
+            skipped = skipped,
           results = results
         )))
+        }
       }
     }
 

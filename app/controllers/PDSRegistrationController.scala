@@ -1,5 +1,6 @@
 package controllers
 
+import actions.ApiSecurityAction
 import api.PdsRegistrationRequest
 import play.api.libs.json.{JsError, JsSuccess, Json}
 import play.api.mvc.{Action, AnyContent, BaseController, ControllerComponents}
@@ -14,6 +15,7 @@ import scala.concurrent.{ExecutionContext, Future}
 @Singleton
 class PDSRegistrationController @Inject()(
                                            val controllerComponents: ControllerComponents,
+                                           secureApi: ApiSecurityAction,
                                            pdsRegistrationService: PDSRegistrationService,
                                            reputationService: ReputationService,
                                            userRepository: UserRepository
@@ -22,10 +24,11 @@ class PDSRegistrationController @Inject()(
   /**
    * Handles the registration of a new Personal Data Server (PDS).
    * Expects a JSON body containing PdsRegistrationRequest.
+   * Secured with X-API-Key authentication.
    *
    * @return An `Action` that processes the registration request.
    */
-  def registerPDS(): Action[play.api.libs.json.JsValue] = Action.async(parse.json) { implicit request =>
+  def registerPDS(): Action[play.api.libs.json.JsValue] = secureApi.async(parse.json) { implicit request =>
     request.body.validate[PdsRegistrationRequest] match {
       case JsSuccess(pdsRegistrationRequest, _) =>
         pdsRegistrationService.registerPDS(
