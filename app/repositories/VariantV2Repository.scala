@@ -267,15 +267,26 @@ class VariantV2RepositoryImpl @Inject()(
       .groupBy(v => v.getCoordinates("hs1").toString)
       .values.map(_.head).toSeq
 
-    def escapeSql(s: String): String = s.replace("'", "''")
+    // Sanitize strings for SQL: escape quotes, backslashes, and strip null bytes
+    def escapeSql(s: String): String =
+      s.replace("\u0000", "")
+       .replace("\\", "\\\\")
+       .replace("'", "''")
     def toJsonb(jsValue: play.api.libs.json.JsValue): String = escapeSql(Json.stringify(jsValue))
     def optString(s: Option[String]): String = s.map(v => s"'${escapeSql(v)}'").getOrElse("NULL")
     def optInt(i: Option[Int]): String = i.map(_.toString).getOrElse("NULL")
+    // Validate variant names: only allow alphanumeric, dots, dashes, underscores, slashes, parens
+    val validNamePattern = "^[A-Za-z0-9._\\-/()~*+# ]+$".r
+    def validateName(name: String): String = {
+      require(name.length <= 255, s"Variant name too long: ${name.length} chars")
+      require(validNamePattern.matches(name), s"Variant name contains invalid characters: $name")
+      name
+    }
 
     // === Named Variants Upsert ===
     val namedUpsertAction = if (namedVariants.nonEmpty) {
       val namedValues = namedVariants.map { v =>
-        val canonicalName = escapeSql(v.canonicalName.getOrElse(throw new IllegalArgumentException("Named variant must have a canonical name")))
+        val canonicalName = escapeSql(validateName(v.canonicalName.getOrElse(throw new IllegalArgumentException("Named variant must have a canonical name"))))
         val definingHaplogroupId = optInt(v.definingHaplogroupId)
         val mutationType = escapeSql(v.mutationType.dbValue)
         val namingStatus = escapeSql(v.namingStatus.dbValue)

@@ -137,22 +137,26 @@ class ContactController @Inject()(
     }
   }
 
+  /** Strip CR/LF to prevent email header injection */
+  private def sanitizeForEmail(s: String): String =
+    s.replaceAll("[\\r\\n]", " ").trim
+
   private def sendAdminNotification(message: ContactMessage, contact: Contact.ContactDTO): Unit = {
     val senderInfo = message.userId match {
-      case Some(_) => s"Authenticated User (ID: ${message.userId.get})"
-      case None => s"${contact.name} <${contact.email}>"
+      case Some(uid) => s"Authenticated User (ID: $uid)"
+      case None => s"${sanitizeForEmail(contact.name)} <${sanitizeForEmail(contact.email)}>"
     }
 
     emailService.sendEmail(
       to = Seq(recipientEmail),
       from = serviceEmail,
-      subject = s"[DecodingUs Contact] ${contact.subject}",
+      subject = s"[DecodingUs Contact] ${sanitizeForEmail(contact.subject)}",
       body =
         s"""
            |New contact message received:
            |
            |From: $senderInfo
-           |Subject: ${contact.subject}
+           |Subject: ${sanitizeForEmail(contact.subject)}
            |
            |Message:
            |${contact.message}

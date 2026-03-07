@@ -877,20 +877,35 @@ class CuratorController @Inject()(
                   }
 
                 case Some(newParent) =>
-                  // TODO: Check for cycles (newParent cannot be a descendant of haplogroup)
-                  for {
-                    oldParentOpt <- haplogroupRepository.getParent(id)
-                    _ <- haplogroupRepository.updateParent(id, data.newParentId, data.source)
-                    _ <- auditService.logHaplogroupReparent(
-                      request.user.id.get,
-                      haplogroup,
-                      oldParentOpt,
-                      newParent,
-                      data.reason
-                    )
-                  } yield {
-                    Redirect(routes.CuratorController.listHaplogroups(None, None, 1, 20))
-                      .flashing("success" -> s"${haplogroup.name} reparented under ${newParent.name}")
+                  // Check for cycles: newParent cannot be a descendant of haplogroup
+                  haplogroupRepository.getDescendants(id).flatMap { descendants =>
+                    if (descendants.exists(_.id == newParent.id)) {
+                      for {
+                        currentParent <- haplogroupRepository.getParent(id)
+                        siblings <- haplogroupRepository.search("", Some(haplogroup.haplogroupType), 10000, 0)
+                      } yield {
+                        val potentialParents = siblings.filterNot(_.id == haplogroup.id)
+                        val errorForm = reparentForm.fill(data).withGlobalError(
+                          "Cannot reparent: the selected parent is a descendant of this haplogroup (would create a cycle)"
+                        )
+                        BadRequest(views.html.curator.haplogroups.reparentForm(haplogroup, currentParent, potentialParents, errorForm))
+                      }
+                    } else {
+                      for {
+                        oldParentOpt <- haplogroupRepository.getParent(id)
+                        _ <- haplogroupRepository.updateParent(id, data.newParentId, data.source)
+                        _ <- auditService.logHaplogroupReparent(
+                          request.user.id.get,
+                          haplogroup,
+                          oldParentOpt,
+                          newParent,
+                          data.reason
+                        )
+                      } yield {
+                        Redirect(routes.CuratorController.listHaplogroups(None, None, 1, 20))
+                          .flashing("success" -> s"${haplogroup.name} reparented under ${newParent.name}")
+                      }
+                    }
                   }
               }
             }

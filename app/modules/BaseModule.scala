@@ -3,6 +3,7 @@ package modules
 import com.google.inject.AbstractModule
 import repositories.*
 import services.{AccessionNumberGenerator, BiosampleAccessionGenerator}
+import startup.SecurityStartupCheck
 
 /**
  * A Guice module for configuring bindings between repository interfaces and their concrete implementations.
@@ -16,6 +17,8 @@ import services.{AccessionNumberGenerator, BiosampleAccessionGenerator}
  */
 class BaseModule extends AbstractModule {
   override def configure(): Unit = {
+    // Eagerly bind security startup check so it runs at boot
+    bind(classOf[SecurityStartupCheck]).asEagerSingleton()
     bind(classOf[BiosampleRepository])
       .to(classOf[BiosampleRepositoryImpl])
       .asEagerSingleton()
