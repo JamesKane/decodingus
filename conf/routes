@@ -310,6 +310,37 @@ GET           /curator/genome-regions/:id/edit                                  
 POST          /curator/genome-regions/:id                                                        controllers.GenomeRegionsCuratorController.updateRegion(id: Int)
 DELETE        /curator/genome-regions/:id                                                        controllers.GenomeRegionsCuratorController.deleteRegion(id: Int)
 
+# =============================================
+# PDS Fleet Management API
+# =============================================
+# PDS-authenticated endpoints (signed by edge node private key)
++nocsrf
+POST          /api/v1/pds/heartbeat                                                              controllers.PdsFleetApiController.heartbeat()
++nocsrf
+POST          /api/v1/pds/submissions                                                            controllers.PdsFleetApiController.submitData()
+
+# Admin fleet management (X-API-Key secured)
+GET           /api/v1/pds/fleet/summary                                                          controllers.PdsFleetApiController.getFleetSummary
+GET           /api/v1/pds/fleet/nodes                                                            controllers.PdsFleetApiController.listNodes(status: Option[String])
+GET           /api/v1/pds/fleet/nodes/:did                                                       controllers.PdsFleetApiController.getNode(did: String)
+DELETE        /api/v1/pds/fleet/nodes/:did                                                       controllers.PdsFleetApiController.removeNode(did: String)
+POST          /api/v1/pds/fleet/mark-stale                                                       controllers.PdsFleetApiController.markStaleOffline()
+GET           /api/v1/pds/submissions/pending                                                    controllers.PdsFleetApiController.getPendingSubmissions(type: Option[String], limit: Int ?= 100)
+POST          /api/v1/pds/submissions/:id/accept                                                 controllers.PdsFleetApiController.acceptSubmission(id: Int)
+POST          /api/v1/pds/submissions/:id/reject                                                 controllers.PdsFleetApiController.rejectSubmission(id: Int)
+GET           /api/v1/pds/submissions/summary/:did                                               controllers.PdsFleetApiController.getNodeSubmissionSummary(did: String)
+
+# =============================================
+# Patronage API (X-API-Key secured)
+# =============================================
+POST          /api/v1/patronage/subscriptions                                                    controllers.PatronageApiController.createSubscription()
+POST          /api/v1/patronage/subscriptions/:id/cancel                                         controllers.PatronageApiController.cancelSubscription(id: Int)
+GET           /api/v1/patronage/subscriptions/user/:userId                                       controllers.PatronageApiController.getUserSubscriptions(userId: java.util.UUID)
+GET           /api/v1/patronage/subscriptions/active/:userId                                     controllers.PatronageApiController.getSubscription(userId: java.util.UUID)
+GET           /api/v1/patronage/is-patron/:userId                                                controllers.PatronageApiController.isPatron(userId: java.util.UUID)
+GET           /api/v1/patronage/summary                                                          controllers.PatronageApiController.getPatronSummary
+POST          /api/v1/patronage/expire-overdue                                                   controllers.PatronageApiController.expireOverdue()
+
 # --- API Routes (Handled by Tapir, including Swagger UI) ---
 POST          /api/registerPDS                                                                   controllers.PDSRegistrationController.registerPDS()
 
