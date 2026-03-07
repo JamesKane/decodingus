@@ -31,7 +31,8 @@ class ApiRouter @Inject()(cc: ControllerComponents, configuration: play.api.Conf
         ++ _root_.api.SequencerEndpoints.all ++ _root_.api.FirehoseEndpoints.all
         ++ _root_.api.ProjectEndpoints.all ++ _root_.api.VariantEndpoints.all
         ++ _root_.api.GenomeRegionsEndpoints.all
-        ++ _root_.api.MatchDiscoveryEndpoints.all ++ _root_.api.MatchRequestEndpoints.all,
+        ++ _root_.api.MatchDiscoveryEndpoints.all ++ _root_.api.MatchRequestEndpoints.all
+        ++ _root_.api.IbdRelayEndpoints.all,
       info = apiInfo
     )
 

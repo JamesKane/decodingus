@@ -203,5 +203,26 @@ class BaseModule extends AbstractModule {
     bind(classOf[PatronSubscriptionRepository])
       .to(classOf[PatronSubscriptionRepositoryImpl])
       .asEagerSingleton()
+
+    // IBD Match Discovery
+    bind(classOf[MatchSuggestionRepository])
+      .to(classOf[MatchSuggestionRepositoryImpl])
+      .asEagerSingleton()
+
+    bind(classOf[PopulationBreakdownCacheRepository])
+      .to(classOf[PopulationBreakdownCacheRepositoryImpl])
+      .asEagerSingleton()
+
+    bind(classOf[PopulationOverlapScoreRepository])
+      .to(classOf[PopulationOverlapScoreRepositoryImpl])
+      .asEagerSingleton()
+
+    bind(classOf[MatchRequestTrackingRepository])
+      .to(classOf[MatchRequestTrackingRepositoryImpl])
+      .asEagerSingleton()
+
+    bind(classOf[MatchConsentTrackingRepository])
+      .to(classOf[MatchConsentTrackingRepositoryImpl])
+      .asEagerSingleton()
   }
 }

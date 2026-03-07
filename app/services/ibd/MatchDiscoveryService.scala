@@ -18,6 +18,7 @@ trait MatchDiscoveryService {
 
   // Match requests
   def createMatchRequest(request: MatchRequestTracking): Future[MatchRequestTracking]
+  def getMatchRequest(atUri: String): Future[Option[MatchRequestTracking]]
   def getPendingRequests(sampleGuid: UUID): Future[Seq[MatchRequestTracking]]
   def getSentRequests(did: String): Future[Seq[MatchRequestTracking]]
   def cancelRequest(atUri: String): Future[Boolean]
@@ -110,6 +111,9 @@ class MatchDiscoveryServiceImpl @Inject()(
 
   override def createMatchRequest(request: MatchRequestTracking): Future[MatchRequestTracking] =
     requestRepo.create(request)
+
+  override def getMatchRequest(atUri: String): Future[Option[MatchRequestTracking]] =
+    requestRepo.findByAtUri(atUri)
 
   override def getPendingRequests(sampleGuid: UUID): Future[Seq[MatchRequestTracking]] =
     requestRepo.findPendingForSample(sampleGuid)

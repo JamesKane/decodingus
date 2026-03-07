@@ -366,6 +366,15 @@ POST          /api/v1/matches/consent                                           
 +nocsrf
 GET           /api/v1/matches/consent/status/:requestUri                                         controllers.MatchRequestController.getConsentStatus(requestUri: String)
 
+# =============================================
+# IBD Relay API (PDS-authenticated)
+# =============================================
++nocsrf
+POST          /api/v1/ibd/relay/session                                                          controllers.IbdRelayController.createSession()
++nocsrf
+GET           /api/v1/ibd/relay/session/:sessionId                                               controllers.IbdRelayController.getSessionStatus(sessionId: String)
+GET           /api/v1/ibd/relay/:sessionId                                                       controllers.IbdRelayController.relay(sessionId: String)
+
 # --- API Routes (Handled by Tapir, including Swagger UI) ---
 POST          /api/registerPDS                                                                   controllers.PDSRegistrationController.registerPDS()
 
