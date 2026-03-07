@@ -27,23 +27,15 @@ class TreeVersioningApiController @Inject()(
   // Request/Response DTOs
   // ============================================================================
 
-  case class StartReviewRequest(curatorId: String)
-  object StartReviewRequest {
-    implicit val format: OFormat[StartReviewRequest] = Json.format[StartReviewRequest]
-  }
+  // Audit identity for API-key-authenticated actions
+  private val ApiCuratorId = "api-system"
 
-  case class ApplyChangeSetRequest(curatorId: String)
-  object ApplyChangeSetRequest {
-    implicit val format: OFormat[ApplyChangeSetRequest] = Json.format[ApplyChangeSetRequest]
-  }
-
-  case class DiscardChangeSetRequest(curatorId: String, reason: String)
+  case class DiscardChangeSetRequest(reason: String)
   object DiscardChangeSetRequest {
     implicit val format: OFormat[DiscardChangeSetRequest] = Json.format[DiscardChangeSetRequest]
   }
 
   case class ReviewChangeRequest(
-    curatorId: String,
     action: String, // "APPLIED", "SKIPPED", "REVERTED"
     notes: Option[String] = None
   )
@@ -51,12 +43,7 @@ class TreeVersioningApiController @Inject()(
     implicit val format: OFormat[ReviewChangeRequest] = Json.format[ReviewChangeRequest]
   }
 
-  case class ApproveAllRequest(curatorId: String)
-  object ApproveAllRequest {
-    implicit val format: OFormat[ApproveAllRequest] = Json.format[ApproveAllRequest]
-  }
-
-  case class AddCommentRequest(author: String, content: String, treeChangeId: Option[Int] = None)
+  case class AddCommentRequest(content: String, treeChangeId: Option[Int] = None)
   object AddCommentRequest {
     implicit val format: OFormat[AddCommentRequest] = Json.format[AddCommentRequest]
   }
@@ -112,9 +99,9 @@ class TreeVersioningApiController @Inject()(
    * Start review of a change set.
    * POST /api/v1/manage/change-sets/:id/start-review
    */
-  def startReview(id: Int): Action[StartReviewRequest] =
-    secureApi.jsonAction[StartReviewRequest].async { request =>
-      treeVersioningService.startReview(id, request.body.curatorId).map { success =>
+  def startReview(id: Int): Action[AnyContent] =
+    secureApi.async { request =>
+      treeVersioningService.startReview(id, ApiCuratorId).map { success =>
         if (success) {
           Ok(Json.obj("success" -> true, "message" -> s"Review started for change set $id"))
         } else {
@@ -135,9 +122,9 @@ class TreeVersioningApiController @Inject()(
    * Apply a change set to Production.
    * POST /api/v1/manage/change-sets/:id/apply
    */
-  def applyChangeSet(id: Int): Action[ApplyChangeSetRequest] =
-    secureApi.jsonAction[ApplyChangeSetRequest].async { request =>
-      treeVersioningService.applyChangeSet(id, request.body.curatorId).map { success =>
+  def applyChangeSet(id: Int): Action[AnyContent] =
+    secureApi.async { request =>
+      treeVersioningService.applyChangeSet(id, ApiCuratorId).map { success =>
         if (success) {
           Ok(Json.obj("success" -> true, "message" -> s"Change set $id applied to Production"))
         } else {
@@ -161,7 +148,7 @@ class TreeVersioningApiController @Inject()(
   def discardChangeSet(id: Int): Action[DiscardChangeSetRequest] =
     secureApi.jsonAction[DiscardChangeSetRequest].async { request =>
       val req = request.body
-      treeVersioningService.discardChangeSet(id, req.curatorId, req.reason).map { success =>
+      treeVersioningService.discardChangeSet(id, ApiCuratorId, req.reason).map { success =>
         if (success) {
           Ok(Json.obj("success" -> true, "message" -> s"Change set $id discarded"))
         } else {
@@ -211,7 +198,7 @@ class TreeVersioningApiController @Inject()(
         case None =>
           Future.successful(BadRequest(Json.obj("error" -> s"Invalid action: ${req.action}")))
         case Some(action) =>
-          treeVersioningService.reviewChange(changeId, req.curatorId, action, req.notes).map { success =>
+          treeVersioningService.reviewChange(changeId, ApiCuratorId, action, req.notes).map { success =>
             if (success) {
               Ok(Json.obj("success" -> true, "message" -> s"Change $changeId reviewed as ${req.action}"))
             } else {
@@ -231,9 +218,9 @@ class TreeVersioningApiController @Inject()(
    * Approve all pending changes in a change set.
    * POST /api/v1/manage/change-sets/:id/approve-all
    */
-  def approveAllPending(id: Int): Action[ApproveAllRequest] =
-    secureApi.jsonAction[ApproveAllRequest].async { request =>
-      treeVersioningService.approveAllPending(id, request.body.curatorId).map { count =>
+  def approveAllPending(id: Int): Action[AnyContent] =
+    secureApi.async { request =>
+      treeVersioningService.approveAllPending(id, ApiCuratorId).map { count =>
         Ok(Json.obj("success" -> true, "approvedCount" -> count))
       }.recover {
         case e: Exception =>
@@ -253,7 +240,7 @@ class TreeVersioningApiController @Inject()(
   def addComment(id: Int): Action[AddCommentRequest] =
     secureApi.jsonAction[AddCommentRequest].async { request =>
       val req = request.body
-      treeVersioningService.addComment(id, req.author, req.content, req.treeChangeId).map { commentId =>
+      treeVersioningService.addComment(id, ApiCuratorId, req.content, req.treeChangeId).map { commentId =>
         Created(Json.obj("success" -> true, "commentId" -> commentId))
       }.recover {
         case e: Exception =>

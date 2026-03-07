@@ -23,18 +23,15 @@ class DiscoveryApiController @Inject()(
   treeEvolutionService: TreeEvolutionService
 )(implicit ec: ExecutionContext) extends BaseController with Logging {
 
+  // Audit identity for API-key-authenticated actions
+  private val ApiCuratorId = "api-system"
+
   // Request DTOs
-  case class AcceptProposalRequest(curatorId: String, proposedName: String, reason: Option[String] = None)
+  case class AcceptProposalRequest(proposedName: String, reason: Option[String] = None)
   object AcceptProposalRequest { implicit val format: OFormat[AcceptProposalRequest] = Json.format }
 
-  case class RejectProposalRequest(curatorId: String, reason: String)
+  case class RejectProposalRequest(reason: String)
   object RejectProposalRequest { implicit val format: OFormat[RejectProposalRequest] = Json.format }
-
-  case class StartReviewRequest(curatorId: String)
-  object StartReviewRequest { implicit val format: OFormat[StartReviewRequest] = Json.format }
-
-  case class PromoteProposalRequest(curatorId: String)
-  object PromoteProposalRequest { implicit val format: OFormat[PromoteProposalRequest] = Json.format }
 
   /**
    * List proposals with optional filters.
@@ -78,9 +75,9 @@ class DiscoveryApiController @Inject()(
    * Start review of a proposal.
    * POST /api/v1/discovery/proposals/:id/start-review
    */
-  def startReview(id: Int): Action[StartReviewRequest] =
-    secureApi.jsonAction[StartReviewRequest].async { request =>
-      discoveryService.startReview(id, request.body.curatorId).map { proposal =>
+  def startReview(id: Int): Action[AnyContent] =
+    secureApi.async { request =>
+      discoveryService.startReview(id, ApiCuratorId).map { proposal =>
         Ok(Json.toJson(proposal))
       }.recover {
         case e: NoSuchElementException =>
@@ -100,7 +97,7 @@ class DiscoveryApiController @Inject()(
   def acceptProposal(id: Int): Action[AcceptProposalRequest] =
     secureApi.jsonAction[AcceptProposalRequest].async { request =>
       val body = request.body
-      discoveryService.acceptProposal(id, body.curatorId, body.proposedName, body.reason).map { proposal =>
+      discoveryService.acceptProposal(id, ApiCuratorId, body.proposedName, body.reason).map { proposal =>
         Ok(Json.toJson(proposal))
       }.recover {
         case e: NoSuchElementException =>
@@ -120,7 +117,7 @@ class DiscoveryApiController @Inject()(
   def rejectProposal(id: Int): Action[RejectProposalRequest] =
     secureApi.jsonAction[RejectProposalRequest].async { request =>
       val body = request.body
-      discoveryService.rejectProposal(id, body.curatorId, body.reason).map { proposal =>
+      discoveryService.rejectProposal(id, ApiCuratorId, body.reason).map { proposal =>
         Ok(Json.toJson(proposal))
       }.recover {
         case e: NoSuchElementException =>
@@ -137,9 +134,9 @@ class DiscoveryApiController @Inject()(
    * Promote an accepted proposal to the canonical haplogroup tree.
    * POST /api/v1/discovery/proposals/:id/promote
    */
-  def promoteProposal(id: Int): Action[PromoteProposalRequest] =
-    secureApi.jsonAction[PromoteProposalRequest].async { request =>
-      treeEvolutionService.promoteProposal(id, request.body.curatorId).map { result =>
+  def promoteProposal(id: Int): Action[AnyContent] =
+    secureApi.async { request =>
+      treeEvolutionService.promoteProposal(id, ApiCuratorId).map { result =>
         Ok(Json.toJson(result))
       }.recover {
         case e: NoSuchElementException =>

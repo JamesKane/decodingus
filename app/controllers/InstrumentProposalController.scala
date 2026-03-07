@@ -21,8 +21,10 @@ class InstrumentProposalController @Inject()(
                                             )(implicit ec: ExecutionContext)
   extends BaseController with Logging {
 
+  // Audit identity for API-key-authenticated actions
+  private val ApiCuratorId = "api-system"
+
   case class AcceptProposalRequest(
-                                    curatorId: String,
                                     labName: String,
                                     manufacturer: Option[String] = None,
                                     model: Option[String] = None,
@@ -30,7 +32,7 @@ class InstrumentProposalController @Inject()(
                                   )
   object AcceptProposalRequest { implicit val format: OFormat[AcceptProposalRequest] = Json.format }
 
-  case class RejectProposalRequest(curatorId: String, reason: String)
+  case class RejectProposalRequest(reason: String)
   object RejectProposalRequest { implicit val format: OFormat[RejectProposalRequest] = Json.format }
 
   def listProposals(status: Option[String]): Action[AnyContent] = secureApi.async { _ =>
@@ -76,7 +78,7 @@ class InstrumentProposalController @Inject()(
   def acceptProposal(id: Int): Action[AcceptProposalRequest] =
     secureApi.jsonAction[AcceptProposalRequest].async { request =>
       val body = request.body
-      proposalService.acceptProposal(id, body.curatorId, body.labName, body.manufacturer, body.model, body.notes).map {
+      proposalService.acceptProposal(id, ApiCuratorId, body.labName, body.manufacturer, body.model, body.notes).map {
         case Right(proposal) => Ok(Json.toJson(proposal))
         case Left(error) => BadRequest(Json.obj("error" -> error))
       }.recover {
@@ -89,7 +91,7 @@ class InstrumentProposalController @Inject()(
   def rejectProposal(id: Int): Action[RejectProposalRequest] =
     secureApi.jsonAction[RejectProposalRequest].async { request =>
       val body = request.body
-      proposalService.rejectProposal(id, body.curatorId, body.reason).map {
+      proposalService.rejectProposal(id, ApiCuratorId, body.reason).map {
         case Right(proposal) => Ok(Json.toJson(proposal))
         case Left(error) => BadRequest(Json.obj("error" -> error))
       }.recover {
