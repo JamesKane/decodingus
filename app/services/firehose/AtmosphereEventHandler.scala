@@ -1136,17 +1136,22 @@ class AtmosphereEventHandler @Inject()(
               toBiosample <- citizenBiosampleRepository.findByAtUri(record.toBiosampleRef)
               result <- (fromBiosample, toBiosample) match {
                 case (Some(from), Some(to)) =>
+                  val targetDid = extractDidFromAtUri(record.toBiosampleRef)
                   val tracking = MatchRequestTracking(
                     id = None,
                     atUri = record.atUri,
                     requesterDid = did,
+                    targetDid = if (targetDid.nonEmpty) Some(targetDid) else None,
                     fromSampleGuid = from.sampleGuid,
                     toSampleGuid = to.sampleGuid,
+                    requestType = "FULL",
                     status = record.status,
+                    discoveryReason = None,
                     message = record.message,
                     createdAt = ZonedDateTime.now(),
                     updatedAt = ZonedDateTime.now(),
-                    expiresAt = record.expiresAt.map(i => ZonedDateTime.ofInstant(i, ZoneId.of("UTC")))
+                    expiresAt = record.expiresAt.map(i => ZonedDateTime.ofInstant(i, ZoneId.of("UTC"))),
+                    completedAt = None
                   )
                   matchRequestTrackingRepository.upsertFromFirehose(tracking).map { saved =>
                     FirehoseResult.Success(event.atUri, "", Some(from.sampleGuid), s"Match request ${event.action}")

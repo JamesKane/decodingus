@@ -22,6 +22,8 @@ class MatchRequestController @Inject()(
   case class MatchRequestPayload(
     fromSampleGuid: UUID,
     toSampleGuid: UUID,
+    requestType: Option[String] = None,
+    discoveryReason: Option[play.api.libs.json.JsValue] = None,
     message: Option[String] = None,
     expiresInDays: Option[Int] = None
   )
@@ -37,13 +39,17 @@ class MatchRequestController @Inject()(
       id = None,
       atUri = atUri,
       requesterDid = node.did,
+      targetDid = None,
       fromSampleGuid = payload.fromSampleGuid,
       toSampleGuid = payload.toSampleGuid,
+      requestType = payload.requestType.getOrElse("FULL"),
       status = "PENDING",
+      discoveryReason = payload.discoveryReason,
       message = payload.message,
       createdAt = now,
       updatedAt = now,
-      expiresAt = payload.expiresInDays.map(d => now.plusDays(d.toLong))
+      expiresAt = payload.expiresInDays.map(d => now.plusDays(d.toLong)),
+      completedAt = None
     )
 
     discoveryService.createMatchRequest(tracking).map { created =>
@@ -51,6 +57,7 @@ class MatchRequestController @Inject()(
         "atUri" -> created.atUri,
         "fromSampleGuid" -> created.fromSampleGuid,
         "toSampleGuid" -> created.toSampleGuid,
+        "requestType" -> created.requestType,
         "status" -> created.status,
         "createdAt" -> created.createdAt,
         "expiresAt" -> created.expiresAt
@@ -133,12 +140,16 @@ class MatchRequestController @Inject()(
   private def requestToJson(r: MatchRequestTracking) = Json.obj(
     "atUri" -> r.atUri,
     "requesterDid" -> r.requesterDid,
+    "targetDid" -> r.targetDid,
     "fromSampleGuid" -> r.fromSampleGuid,
     "toSampleGuid" -> r.toSampleGuid,
+    "requestType" -> r.requestType,
     "status" -> r.status,
+    "discoveryReason" -> r.discoveryReason,
     "message" -> r.message,
     "createdAt" -> r.createdAt,
     "updatedAt" -> r.updatedAt,
-    "expiresAt" -> r.expiresAt
+    "expiresAt" -> r.expiresAt,
+    "completedAt" -> r.completedAt
   )
 }

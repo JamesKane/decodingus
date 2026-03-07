@@ -29,6 +29,7 @@ class MatchRequestTrackingRepositoryImpl @Inject()(
     with Logging {
 
   import profile.api.*
+  import models.dal.MyPostgresProfile.api.playJsonTypeMapper
 
   private val requests = DatabaseSchema.domain.ibd.matchRequestTracking
 

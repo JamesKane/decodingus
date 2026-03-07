@@ -48,16 +48,21 @@ CREATE TABLE match_request_tracking (
     id              BIGSERIAL PRIMARY KEY,
     at_uri          VARCHAR(500) NOT NULL UNIQUE,
     requester_did   VARCHAR(255) NOT NULL,
+    target_did      VARCHAR(255),
     from_sample_guid UUID NOT NULL,
     to_sample_guid  UUID NOT NULL,
+    request_type    VARCHAR(30) NOT NULL DEFAULT 'FULL' CHECK (request_type IN ('AUTOSOMAL', 'Y_CHROMOSOME', 'MT_DNA', 'FULL')),
     status          VARCHAR(20) NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'ACCEPTED', 'DECLINED', 'EXPIRED', 'WITHDRAWN', 'CANCELLED')),
+    discovery_reason JSONB,
     message         TEXT,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    expires_at      TIMESTAMPTZ
+    expires_at      TIMESTAMPTZ,
+    completed_at    TIMESTAMPTZ
 );
 
 CREATE INDEX idx_match_req_requester ON match_request_tracking(requester_did, status);
+CREATE INDEX idx_match_req_target ON match_request_tracking(target_did, status);
 CREATE INDEX idx_match_req_to_sample ON match_request_tracking(to_sample_guid, status);
 CREATE INDEX idx_match_req_from_sample ON match_request_tracking(from_sample_guid, status);
 
@@ -83,7 +88,11 @@ ALTER TABLE ibd_discovery_index
     ADD COLUMN IF NOT EXISTS requester_did VARCHAR(255),
     ADD COLUMN IF NOT EXISTS target_did VARCHAR(255);
 
+CREATE INDEX idx_ibd_request_uri ON ibd_discovery_index(match_request_at_uri);
+
 # --- !Downs
+
+DROP INDEX IF EXISTS idx_ibd_request_uri;
 
 ALTER TABLE ibd_discovery_index
     DROP COLUMN IF EXISTS match_request_at_uri,
