@@ -41,7 +41,7 @@ rust/
     du-domain/    pure types + (planned) algorithms, no IO; JSONB payload structs
     du-db/        SQLx pool + per-aggregate query modules
     du-bio/       genomics file I/O (noodles) — scaffold
-    du-atproto/   AT Protocol / PDS federation — scaffold
+    du-atproto/   AT Protocol identity/crypto (did:key verify, DID/PDS resolution); OAuth client next
     du-external/  OpenAlex / ENA / AWS SES / Secrets — scaffold
     du-web/        Axum app: routes, Askama templates, i18n, HTMX, auth
     du-jobs/       scheduled workers — scaffold
@@ -180,7 +180,12 @@ for DB-less builds.
 - [ ] ETL: remaining aggregates (genomics, ibd, ident, fed, social, billing) —
       validate read SQL against the live EC2 schema
 - [ ] Genomics ingestion (`du-bio` / noodles) + scheduled jobs (`du-jobs`)
-- [ ] AT Protocol federation (`du-atproto`): DID login, firehose, PDS fleet
+- [x] AT Protocol identity/crypto core (`du-atproto`): DID/AT-URI parse, did:key
+      Ed25519 verification, DID-doc/PDS resolution
+- [ ] AT Protocol OAuth client + permission sets (PAR/DPoP/scopes) → PDS login.
+      Federation pivoted away from a custom private firehose toward protocol
+      permissions/OAuth + notify-then-fetch (private data bypasses the firehose);
+      group-private data spec is still maturing upstream
 - [ ] External clients (`du-external`): OpenAlex, ENA, AWS SES/Secrets
 - [ ] Tree-versioning change-sets; haplogroup↔variant association editing
 - [ ] Vendor remaining assets; full OpenAPI parity; cutover rehearsal

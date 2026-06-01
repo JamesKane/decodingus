@@ -59,6 +59,10 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 # URL/query encoding (language-switcher `next` param)
 percent-encoding = "2"
 
+# AT Protocol identity/crypto
+multibase = "0.9"
+base64 = "0.22"
+
 # CLI
 clap = { version = "4", features = ["derive"] }
 
