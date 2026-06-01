@@ -1,0 +1,48 @@
+# English message catalog. key=value, '#' comments. Ported subset (slice scope).
+app.name=Decoding Us
+nav.home=Home
+nav.ytree=Y-DNA Tree
+nav.mtree=mtDNA Tree
+nav.variants=Variants
+lang.label=Language
+lang.en=English
+lang.es=Español
+lang.fr=Français
+
+home.title=Decoding Us — genetic genealogy & population research
+home.heading=Decoding Us
+home.lead=A collaborative platform for genetic genealogy and population research — Y/mtDNA haplogroup trees, a public variant browser, and privacy-preserving relative discovery.
+home.cta.tree=Browse the Y-DNA tree
+home.cta.variants=Search variants
+
+variants.title=Variant Browser
+variants.search.placeholder=Search by name or alias (e.g. M269, rs9786153)…
+variants.col.name=Name
+variants.col.type=Type
+variants.col.status=Status
+variants.col.builds=Builds
+variants.none=No variants match.
+variants.detail.select=Select a variant to see details.
+variants.detail.naming=Naming status:
+variants.detail.aka=Also known as:
+variants.detail.rsids=rs IDs:
+variants.detail.coordinates=Coordinates
+variants.detail.nocoords=No mapped coordinates.
+variants.col.build=Build
+variants.col.contig=Contig
+variants.col.position=Position
+variants.col.change=Change
+
+pagination.previous=Previous
+pagination.next=Next
+pagination.page=Page
+pagination.of=of
+pagination.total=total
+
+tree.title.y=Y-DNA Tree
+tree.title.mt=mtDNA Tree
+tree.loading=Loading tree…
+tree.allRoots=← All roots
+tree.rootLineages=Root lineages
+tree.noChildren=No child haplogroups.
+tree.formed=formed

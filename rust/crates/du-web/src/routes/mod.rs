@@ -1,22 +1,37 @@
 //! Router assembly + top-level pages.
 
+use crate::i18n::{Lang, Locale, T};
 use crate::render::html;
 use crate::state::AppState;
+use axum::extract::{Path, Query};
+use axum::http::header::{LOCATION, SET_COOKIE};
 use axum::http::StatusCode;
-use axum::response::Response;
+use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::Router;
+use serde::Deserialize;
+use tower_http::services::ServeDir;
 
 pub mod tree;
 pub mod variants;
+
+/// Directory holding vendored static assets. Settable for deployment
+/// (Dockerfile sets DU_ASSETS_DIR=/app/assets); falls back to the crate's
+/// assets dir for local `cargo run`.
+fn assets_dir() -> String {
+    std::env::var("DU_ASSETS_DIR")
+        .unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/assets").to_string())
+}
 
 /// Full application router (requires a DB-backed AppState).
 pub fn app(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health))
         .route("/", get(index))
+        .route("/language/:lang", get(switch_language))
         .merge(variants::router())
         .merge(tree::router())
+        .nest_service("/assets", ServeDir::new(assets_dir()))
         .with_state(state)
 }
 
@@ -31,10 +46,37 @@ async fn health() -> (StatusCode, &'static str) {
 
 #[derive(askama::Template)]
 #[template(path = "index.html")]
-struct IndexTemplate;
+struct IndexTemplate {
+    t: T,
+    next: String,
+}
 
-async fn index() -> Response {
-    html(&IndexTemplate)
+async fn index(locale: Locale) -> Response {
+    html(&IndexTemplate { t: locale.t, next: locale.next })
+}
+
+#[derive(Deserialize)]
+struct NextQuery {
+    next: Option<String>,
+}
+
+/// Set the `lang` cookie and redirect back. Only same-site relative paths are
+/// honored as the redirect target (open-redirect guard, like the legacy app).
+async fn switch_language(Path(lang): Path<String>, Query(q): Query<NextQuery>) -> Response {
+    let chosen = Lang::parse(&lang).unwrap_or(Lang::En);
+    let next = q
+        .next
+        .filter(|n| n.starts_with('/') && !n.starts_with("//"))
+        .unwrap_or_else(|| "/".to_string());
+    let cookie = format!(
+        "lang={}; Path=/; Max-Age=31536000; SameSite=Lax",
+        chosen.code()
+    );
+    (
+        StatusCode::SEE_OTHER,
+        [(SET_COOKIE, cookie), (LOCATION, next)],
+    )
+        .into_response()
 }
 
 #[cfg(test)]

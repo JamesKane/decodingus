@@ -1,10 +1,9 @@
 {% extends "base.html" %}
-{% block title %}{{ title }} — Decoding Us{% endblock %}
+{% block title %}{{ title }} — {{ t.get("app.name") }}{% endblock %}
 {% block content %}
 <h1 class="h3 mb-3">{{ title }}</h1>
-<div id="tree-container"
-     hx-get="{{ base_path }}/fragment{% if let Some(r) = root %}?root={{ r }}{% endif %}"
-     hx-trigger="load">
-  <div class="spinner-border spinner-border-sm"></div> Loading tree…
+{# Current level embedded inline; HTMX swaps just this container thereafter. #}
+<div id="tree-container">
+  {% include "tree/fragment.html" %}
 </div>
 {% endblock %}

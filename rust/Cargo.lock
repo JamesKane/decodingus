@@ -587,6 +587,7 @@ dependencies = [
  "axum",
  "du-db",
  "du-domain",
+ "percent-encoding",
  "serde",
  "serde_json",
  "tokio",

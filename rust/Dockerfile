@@ -30,13 +30,15 @@ WORKDIR /app
 COPY --from=builder /build/target/release/decodingus /usr/local/bin/decodingus
 COPY --from=builder /build/target/release/decodingus-jobs /usr/local/bin/decodingus-jobs
 COPY --from=builder /build/target/release/decodingus-migrate /usr/local/bin/decodingus-migrate
-# Static assets + migrations shipped alongside the binary.
-COPY --chown=decodingus:decodingus assets ./assets
+# Vendored static assets + migrations shipped alongside the binary. (Askama
+# templates and locale catalogs are embedded into the binary at compile time.)
+COPY --chown=decodingus:decodingus crates/du-web/assets ./assets
 COPY --chown=decodingus:decodingus migrations ./migrations
 
 USER decodingus
 EXPOSE 9000
 ENV PORT=9000
+ENV DU_ASSETS_DIR=/app/assets
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
     CMD curl -fsS http://localhost:9000/health || exit 1

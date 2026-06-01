@@ -6,6 +6,8 @@
 use std::net::SocketAddr;
 
 mod error;
+mod htmx;
+mod i18n;
 mod render;
 mod routes;
 mod state;

@@ -56,6 +56,9 @@ rust_decimal = "1"
 # HTTP client (external APIs)
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 
+# URL/query encoding (language-switcher `next` param)
+percent-encoding = "2"
+
 # Errors / logging / config
 thiserror = "2"
 anyhow = "1"

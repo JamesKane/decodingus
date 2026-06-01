@@ -1,0 +1,48 @@
+# French message catalog.
+app.name=Decoding Us
+nav.home=Accueil
+nav.ytree=Arbre Y-ADN
+nav.mtree=Arbre ADNmt
+nav.variants=Variants
+lang.label=Langue
+lang.en=English
+lang.es=Español
+lang.fr=Français
+
+home.title=Decoding Us — généalogie génétique et recherche sur les populations
+home.heading=Decoding Us
+home.lead=Une plateforme collaborative pour la généalogie génétique et la recherche sur les populations : arbres d’haplogroupes Y/ADNmt, un explorateur public de variants et une découverte de parents respectueuse de la vie privée.
+home.cta.tree=Explorer l’arbre Y-ADN
+home.cta.variants=Rechercher des variants
+
+variants.title=Explorateur de variants
+variants.search.placeholder=Rechercher par nom ou alias (p. ex. M269, rs9786153)…
+variants.col.name=Nom
+variants.col.type=Type
+variants.col.status=Statut
+variants.col.builds=Assemblages
+variants.none=Aucun variant correspondant.
+variants.detail.select=Sélectionnez un variant pour voir les détails.
+variants.detail.naming=Statut de nomenclature :
+variants.detail.aka=Aussi connu sous le nom de :
+variants.detail.rsids=Identifiants rs :
+variants.detail.coordinates=Coordonnées
+variants.detail.nocoords=Aucune coordonnée cartographiée.
+variants.col.build=Assemblage
+variants.col.contig=Contig
+variants.col.position=Position
+variants.col.change=Changement
+
+pagination.previous=Précédent
+pagination.next=Suivant
+pagination.page=Page
+pagination.of=sur
+pagination.total=au total
+
+tree.title.y=Arbre Y-ADN
+tree.title.mt=Arbre ADNmt
+tree.loading=Chargement de l’arbre…
+tree.allRoots=← Toutes les racines
+tree.rootLineages=Lignées racines
+tree.noChildren=Aucun haplogroupe descendant.
+tree.formed=formé

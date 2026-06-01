@@ -1,16 +1,12 @@
 {% extends "base.html" %}
-{% block title %}Decoding Us — genetic genealogy & population research{% endblock %}
+{% block title %}{{ t.get("home.title") }}{% endblock %}
 {% block content %}
 <div class="px-4 py-5 text-center">
-  <h1 class="display-5 fw-bold">Decoding Us</h1>
-  <p class="lead col-lg-8 mx-auto">
-    A collaborative platform for genetic genealogy and population research —
-    Y/mtDNA haplogroup trees, a public variant browser, and privacy-preserving
-    relative discovery.
-  </p>
+  <h1 class="display-5 fw-bold">{{ t.get("home.heading") }}</h1>
+  <p class="lead col-lg-8 mx-auto">{{ t.get("home.lead") }}</p>
   <div class="d-grid gap-2 d-sm-flex justify-content-sm-center mt-4">
-    <a class="btn btn-primary btn-lg px-4" href="/ytree">Browse the Y-DNA tree</a>
-    <a class="btn btn-outline-secondary btn-lg px-4" href="/variants">Search variants</a>
+    <a class="btn btn-primary btn-lg px-4" href="/ytree">{{ t.get("home.cta.tree") }}</a>
+    <a class="btn btn-outline-secondary btn-lg px-4" href="/variants">{{ t.get("home.cta.variants") }}</a>
   </div>
 </div>
 {% endblock %}

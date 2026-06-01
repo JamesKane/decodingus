@@ -1,10 +1,16 @@
-{# Fragment: the variant results table + pager. Target of #variants-table. #}
+{# Fragment: results table + pager. Target of #variants-table; also included by
+   the browser page. References `t` and `list`. #}
 <table class="table table-hover table-sm align-middle">
   <thead>
-    <tr><th>Name</th><th>Type</th><th>Status</th><th>Builds</th></tr>
+    <tr>
+      <th>{{ t.get("variants.col.name") }}</th>
+      <th>{{ t.get("variants.col.type") }}</th>
+      <th>{{ t.get("variants.col.status") }}</th>
+      <th>{{ t.get("variants.col.builds") }}</th>
+    </tr>
   </thead>
   <tbody>
-    {% for r in rows %}
+    {% for r in list.rows %}
     <tr class="tree-node"
         hx-get="/variants/detail/{{ r.id }}"
         hx-target="#detail-panel"
@@ -15,21 +21,24 @@
       <td><small>{{ r.builds }}</small></td>
     </tr>
     {% else %}
-    <tr><td colspan="4" class="detail-empty">No variants match.</td></tr>
+    <tr><td colspan="4" class="detail-empty">{{ t.get("variants.none") }}</td></tr>
     {% endfor %}
   </tbody>
 </table>
 
-{% if total_pages > 1 %}
+{% if list.total_pages > 1 %}
 <nav class="d-flex justify-content-between align-items-center">
-  <button class="btn btn-sm btn-outline-secondary {% if page <= 1 %}disabled{% endif %}"
-          hx-get="/variants/list?query={{ query }}&page={{ page - 1 }}&page_size={{ page_size }}"
-          hx-target="#variants-table">Previous</button>
-  <small class="text-muted">Page {{ page }} of {{ total_pages }} ({{ total }} total)</small>
-  <button class="btn btn-sm btn-outline-secondary {% if page >= total_pages %}disabled{% endif %}"
-          hx-get="/variants/list?query={{ query }}&page={{ page + 1 }}&page_size={{ page_size }}"
-          hx-target="#variants-table">Next</button>
+  <button class="btn btn-sm btn-outline-secondary{% if list.page <= 1 %} disabled{% endif %}"
+          hx-get="/variants/list?query={{ list.query }}&page={{ list.page - 1 }}&page_size={{ list.page_size }}"
+          hx-target="#variants-table">{{ t.get("pagination.previous") }}</button>
+  <small class="text-muted">
+    {{ t.get("pagination.page") }} {{ list.page }} {{ t.get("pagination.of") }} {{ list.total_pages }}
+    ({{ list.total }} {{ t.get("pagination.total") }})
+  </small>
+  <button class="btn btn-sm btn-outline-secondary{% if list.page >= list.total_pages %} disabled{% endif %}"
+          hx-get="/variants/list?query={{ list.query }}&page={{ list.page + 1 }}&page_size={{ list.page_size }}"
+          hx-target="#variants-table">{{ t.get("pagination.next") }}</button>
 </nav>
 {% else %}
-<small class="text-muted">{{ total }} total</small>
+<small class="text-muted">{{ list.total }} {{ t.get("pagination.total") }}</small>
 {% endif %}

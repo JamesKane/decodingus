@@ -1,35 +1,31 @@
-//! Public Y/MT haplogroup tree navigation. `/ytree` and `/mtree` are full pages
-//! whose `#tree-container` lazy-loads a fragment; clicking a node swaps the
-//! fragment and pushes the URL (HATEOAS navigation, no client routing).
+//! Public Y/MT haplogroup tree navigation, unified into ONE handler per lineage
+//! (plan §4): a normal request returns the full page with the current level
+//! embedded inline; an HTMX swap of `#tree-container` returns just the fragment
+//! and sets `HX-Push-Url` server-side. History-restore and boosted navigations
+//! get the full page.
 
 use crate::error::AppError;
+use crate::htmx::{HxHeaders, HxRequest};
+use crate::i18n::{Locale, T};
 use crate::render::html;
 use crate::state::AppState;
 use axum::extract::{Query, State};
-use axum::response::Response;
+use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::Router;
 use du_domain::enums::DnaType;
 use serde::Deserialize;
 
+const TARGET: &str = "tree-container";
+
 pub fn router() -> Router<AppState> {
     Router::new()
-        .route("/ytree", get(ytree_page))
-        .route("/mtree", get(mtree_page))
-        .route("/ytree/fragment", get(ytree_fragment))
-        .route("/mtree/fragment", get(mtree_fragment))
+        .route("/ytree", get(ytree))
+        .route("/mtree", get(mtree))
 }
 
 #[derive(Deserialize)]
 struct RootQuery {
-    root: Option<String>,
-}
-
-#[derive(askama::Template)]
-#[template(path = "tree/page.html")]
-struct TreePageTemplate {
-    title: &'static str,
-    base_path: &'static str,
     root: Option<String>,
 }
 
@@ -39,34 +35,51 @@ struct NodeView {
 }
 
 #[derive(askama::Template)]
-#[template(path = "tree/fragment.html")]
-struct FragmentTemplate {
+#[template(path = "tree/page.html")]
+struct TreePageTemplate {
+    t: T,
+    next: String,
+    title: String,
     base_path: &'static str,
     current: Option<NodeView>,
     nodes: Vec<NodeView>,
 }
 
-async fn ytree_page(Query(q): Query<RootQuery>) -> Response {
-    html(&TreePageTemplate { title: "Y-DNA Tree", base_path: "/ytree", root: q.root })
+#[derive(askama::Template)]
+#[template(path = "tree/fragment.html")]
+struct FragmentTemplate {
+    t: T,
+    base_path: &'static str,
+    current: Option<NodeView>,
+    nodes: Vec<NodeView>,
 }
 
-async fn mtree_page(Query(q): Query<RootQuery>) -> Response {
-    html(&TreePageTemplate { title: "mtDNA Tree", base_path: "/mtree", root: q.root })
+async fn ytree(
+    st: State<AppState>,
+    hx: HxRequest,
+    locale: Locale,
+    q: Query<RootQuery>,
+) -> Result<Response, AppError> {
+    render_tree(st, hx, locale, q, DnaType::YDna, "/ytree", "tree.title.y").await
 }
 
-async fn ytree_fragment(st: State<AppState>, q: Query<RootQuery>) -> Result<Response, AppError> {
-    fragment(st, q, DnaType::YDna, "/ytree").await
+async fn mtree(
+    st: State<AppState>,
+    hx: HxRequest,
+    locale: Locale,
+    q: Query<RootQuery>,
+) -> Result<Response, AppError> {
+    render_tree(st, hx, locale, q, DnaType::MtDna, "/mtree", "tree.title.mt").await
 }
 
-async fn mtree_fragment(st: State<AppState>, q: Query<RootQuery>) -> Result<Response, AppError> {
-    fragment(st, q, DnaType::MtDna, "/mtree").await
-}
-
-async fn fragment(
+async fn render_tree(
     State(st): State<AppState>,
+    hx: HxRequest,
+    locale: Locale,
     Query(q): Query<RootQuery>,
     dna_type: DnaType,
     base_path: &'static str,
+    title_key: &str,
 ) -> Result<Response, AppError> {
     let to_view = |h: du_domain::haplogroup::Haplogroup| NodeView {
         name: h.name,
@@ -83,10 +96,26 @@ async fn fragment(
             (Some(cur), kids)
         }
     };
+    let current = current.map(to_view);
+    let nodes: Vec<NodeView> = nodes.into_iter().map(to_view).collect();
 
-    Ok(html(&FragmentTemplate {
-        base_path,
-        current: current.map(to_view),
-        nodes: nodes.into_iter().map(to_view).collect(),
-    }))
+    if hx.wants_fragment_for(TARGET) {
+        // Server drives the URL bar for the swap.
+        let push = match &current {
+            Some(n) => format!("{base_path}?root={}", n.name),
+            None => base_path.to_string(),
+        };
+        let frag = FragmentTemplate { t: locale.t, base_path, current, nodes };
+        Ok((HxHeaders::new().push_url(push), html(&frag)).into_response())
+    } else {
+        let page = TreePageTemplate {
+            t: locale.t,
+            next: locale.next,
+            title: locale.t.get(title_key).to_string(),
+            base_path,
+            current,
+            nodes,
+        };
+        Ok(html(&page))
+    }
 }

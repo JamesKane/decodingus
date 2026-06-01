@@ -1,0 +1,4 @@
+/* DecodingUs custom styles (vendored bootstrap handles the rest). */
+body { padding-top: 4.5rem; }
+.detail-empty { color: var(--bs-secondary-color); }
+.tree-node { cursor: pointer; }

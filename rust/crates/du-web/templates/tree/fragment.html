@@ -1,29 +1,28 @@
-{# Fragment: one tree level. Clicking a node swaps this container and pushes the
-   URL so browser back/forward navigates the tree (HATEOAS). #}
+{# Fragment: one tree level. Links hit the unified {base_path} endpoint targeting
+   #tree-container; the server returns this fragment and sets HX-Push-Url. The
+   href is the no-JS fallback. References `t`, `base_path`, `current`, `nodes`. #}
 {% if let Some(cur) = current %}
 <nav class="mb-2">
-  <a href="#" hx-get="{{ base_path }}/fragment" hx-target="#tree-container"
-     hx-push-url="{{ base_path }}">&larr; All roots</a>
+  <a href="{{ base_path }}" hx-get="{{ base_path }}" hx-target="#tree-container">{{ t.get("tree.allRoots") }}</a>
 </nav>
 <h2 class="h5">
   {{ cur.name }}
-  {% if let Some(ybp) = cur.formed_ybp %}<small class="text-muted">· formed ~{{ ybp }} ybp</small>{% endif %}
+  {% if let Some(ybp) = cur.formed_ybp %}<small class="text-muted">· {{ t.get("tree.formed") }} ~{{ ybp }} ybp</small>{% endif %}
 </h2>
 {% else %}
-<p class="text-muted">Root lineages</p>
+<p class="text-muted">{{ t.get("tree.rootLineages") }}</p>
 {% endif %}
 
 <div class="list-group">
   {% for n in nodes %}
   <a class="list-group-item list-group-item-action tree-node"
      href="{{ base_path }}?root={{ n.name }}"
-     hx-get="{{ base_path }}/fragment?root={{ n.name }}"
-     hx-target="#tree-container"
-     hx-push-url="{{ base_path }}?root={{ n.name }}">
+     hx-get="{{ base_path }}?root={{ n.name }}"
+     hx-target="#tree-container">
     {{ n.name }}
     {% if let Some(ybp) = n.formed_ybp %}<small class="text-muted">~{{ ybp }} ybp</small>{% endif %}
   </a>
   {% else %}
-  <div class="list-group-item detail-empty">No child haplogroups.</div>
+  <div class="list-group-item detail-empty">{{ t.get("tree.noChildren") }}</div>
   {% endfor %}
 </div>

@@ -5,25 +5,30 @@
     <span class="badge text-bg-secondary">{{ mutation_type }}</span>
   </div>
   <div class="card-body">
-    <p class="mb-2"><span class="text-muted">Naming status:</span> {{ naming_status }}</p>
+    <p class="mb-2"><span class="text-muted">{{ t.get("variants.detail.naming") }}</span> {{ naming_status }}</p>
 
     {% if !common_names.is_empty() %}
-    <p class="mb-1"><span class="text-muted">Also known as:</span>
+    <p class="mb-1"><span class="text-muted">{{ t.get("variants.detail.aka") }}</span>
       {% for n in common_names %}<span class="badge text-bg-light">{{ n }}</span> {% endfor %}
     </p>
     {% endif %}
     {% if !rs_ids.is_empty() %}
-    <p class="mb-2"><span class="text-muted">rs IDs:</span>
+    <p class="mb-2"><span class="text-muted">{{ t.get("variants.detail.rsids") }}</span>
       {% for r in rs_ids %}<span class="badge text-bg-light">{{ r }}</span> {% endfor %}
     </p>
     {% endif %}
 
-    <h6 class="mt-3">Coordinates</h6>
+    <h6 class="mt-3">{{ t.get("variants.detail.coordinates") }}</h6>
     {% if coords.is_empty() %}
-    <p class="detail-empty">No mapped coordinates.</p>
+    <p class="detail-empty">{{ t.get("variants.detail.nocoords") }}</p>
     {% else %}
     <table class="table table-sm">
-      <thead><tr><th>Build</th><th>Contig</th><th>Position</th><th>Change</th></tr></thead>
+      <thead><tr>
+        <th>{{ t.get("variants.col.build") }}</th>
+        <th>{{ t.get("variants.col.contig") }}</th>
+        <th>{{ t.get("variants.col.position") }}</th>
+        <th>{{ t.get("variants.col.change") }}</th>
+      </tr></thead>
       <tbody>
         {% for c in coords %}
         <tr>

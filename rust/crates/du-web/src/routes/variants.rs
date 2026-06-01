@@ -1,8 +1,9 @@
-//! Public variant browser. Demonstrates the HTMX two-panel + fragment pattern:
-//! a full page (`/variants`) that lazy-loads a list fragment (`/variants/list`),
-//! whose rows load a detail panel fragment (`/variants/detail/:id`).
+//! Public variant browser. The browser page embeds the first results page inline
+//! (no load round-trip); search/pagination and the detail panel are HTMX
+//! fragments targeting `#variants-table` / `#detail-panel`.
 
 use crate::error::AppError;
+use crate::i18n::{Locale, T};
 use crate::render::html;
 use crate::state::AppState;
 use axum::extract::{Path, Query, State};
@@ -51,21 +52,44 @@ impl RowView {
     }
 }
 
-#[derive(askama::Template)]
-#[template(path = "variants/browser.html")]
-struct BrowserTemplate {
-    query: String,
-}
-
-#[derive(askama::Template)]
-#[template(path = "variants/list.html")]
-struct ListTemplate {
+/// Shared list-fragment view data (also embedded by the browser page).
+struct ListView {
     query: String,
     rows: Vec<RowView>,
     page: i64,
     page_size: i64,
     total: i64,
     total_pages: i64,
+}
+
+async fn load_list(st: &AppState, q: &ListQuery) -> Result<ListView, AppError> {
+    let page_num = q.page.unwrap_or(1);
+    let page_size = q.page_size.unwrap_or(25);
+    let result: Page<Variant> =
+        du_db::variant::search(&st.pool, q.query.as_deref(), page_num, page_size).await?;
+    Ok(ListView {
+        query: q.query.clone().unwrap_or_default(),
+        rows: result.items.iter().map(RowView::from).collect(),
+        page: result.page,
+        page_size: result.page_size,
+        total: result.total,
+        total_pages: result.total_pages(),
+    })
+}
+
+#[derive(askama::Template)]
+#[template(path = "variants/browser.html")]
+struct BrowserTemplate {
+    t: T,
+    next: String,
+    list: ListView,
+}
+
+#[derive(askama::Template)]
+#[template(path = "variants/list.html")]
+struct ListTemplate {
+    t: T,
+    list: ListView,
 }
 
 struct CoordView {
@@ -78,6 +102,7 @@ struct CoordView {
 #[derive(askama::Template)]
 #[template(path = "variants/detail.html")]
 struct DetailTemplate {
+    t: T,
     name: String,
     mutation_type: String,
     naming_status: String,
@@ -86,27 +111,29 @@ struct DetailTemplate {
     coords: Vec<CoordView>,
 }
 
-async fn browser(Query(q): Query<ListQuery>) -> Response {
-    html(&BrowserTemplate { query: q.query.unwrap_or_default() })
+async fn browser(
+    State(st): State<AppState>,
+    locale: Locale,
+    Query(q): Query<ListQuery>,
+) -> Result<Response, AppError> {
+    let list = load_list(&st, &q).await?;
+    Ok(html(&BrowserTemplate { t: locale.t, next: locale.next, list }))
 }
 
-async fn list(State(st): State<AppState>, Query(q): Query<ListQuery>) -> Result<Response, AppError> {
-    let page_num = q.page.unwrap_or(1);
-    let page_size = q.page_size.unwrap_or(25);
-    let result: Page<Variant> =
-        du_db::variant::search(&st.pool, q.query.as_deref(), page_num, page_size).await?;
-    let rows = result.items.iter().map(RowView::from).collect();
-    Ok(html(&ListTemplate {
-        query: q.query.unwrap_or_default(),
-        rows,
-        page: result.page,
-        page_size: result.page_size,
-        total: result.total,
-        total_pages: result.total_pages(),
-    }))
+async fn list(
+    State(st): State<AppState>,
+    locale: Locale,
+    Query(q): Query<ListQuery>,
+) -> Result<Response, AppError> {
+    let list = load_list(&st, &q).await?;
+    Ok(html(&ListTemplate { t: locale.t, list }))
 }
 
-async fn detail(State(st): State<AppState>, Path(id): Path<i64>) -> Result<Response, AppError> {
+async fn detail(
+    State(st): State<AppState>,
+    locale: Locale,
+    Path(id): Path<i64>,
+) -> Result<Response, AppError> {
     let v = du_db::variant::get_by_id(&st.pool, VariantId(id))
         .await?
         .ok_or_else(|| AppError::NotFound(format!("variant {id}")))?;
@@ -128,6 +155,7 @@ async fn detail(State(st): State<AppState>, Path(id): Path<i64>) -> Result<Respo
     coords.sort_by(|a, b| a.build.cmp(&b.build));
 
     Ok(html(&DetailTemplate {
+        t: locale.t,
         name: v.canonical_name,
         mutation_type: v.mutation_type.label().to_string(),
         naming_status: v.naming_status.label().to_string(),
