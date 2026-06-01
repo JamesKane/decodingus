@@ -1,9 +1,9 @@
 //! VCF variant reader for the variant-ingest path (YBrowse/HipSTR-style inputs).
 //!
 //! VCF is line-oriented text, so the variant columns (CHROM POS ID REF ALT) are
-//! parsed directly here. Binary formats (BAM/CRAM) and full-spec VCF
-//! (genotypes/INFO typing) will use the `noodles` crate family when the
-//! ingestion jobs need them; this covers de-identified variant ingestion.
+//! parsed directly here — sufficient for de-identified variant-catalog ingest.
+//! Raw-read formats (BAM/CRAM) and variant *calling* are out of scope for the
+//! AppView (done in Navigator); full-spec VCF typing isn't needed for ingest.
 
 use crate::error::BioError;
 use std::io::BufRead;

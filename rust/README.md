@@ -27,7 +27,7 @@ pass**. Not yet production-complete — see [Roadmap](#roadmap).
 | Templates | **Askama** (compile-time typed, Twirl analog) |
 | Frontend | **HTMX** 2 + Bootstrap 5 (vendored), HATEOAS-first |
 | Database | **SQLx** 0.8 (Postgres, runtime-checked queries) |
-| Genomics I/O | **noodles** (pure Rust; replaces JVM htsjdk) — *planned* |
+| Genomics | `du-bio` — coordinate math + text parsing (VCF/BED/chain liftover). Raw reads (BAM/CRAM) + calling are out of scope (done in Navigator) |
 | Async | **tokio** |
 | Auth | Argon2 (bcrypt-verify fallback), signed-cookie sessions |
 | i18n | embedded `key=value` catalogs (en/es/fr) |
@@ -183,8 +183,9 @@ for DB-less builds.
 - [x] `du-jobs` scheduler harness (tokio; error-isolated jobs + run-on-start)
 - [x] YBrowse variant ingest: GRCh38 VCF → lift to GRCh37/hs1 (chain files) →
       multi-build `core.variant` upsert (`du-bio::ybrowse` + `du-jobs`, env-gated)
-- [ ] Remaining ingestion (HipSTR, genome regions); binary formats (BAM/CRAM) via
-      noodles; publication/match jobs once du-external lands
+- [ ] Remaining ingestion (HipSTR, genome regions); publication/match jobs once
+      du-external lands. (Raw reads BAM/CRAM + variant calling are out of scope —
+      Navigator does local calling; the AppView aggregates summaries/proposals.)
 - [x] AT Protocol identity/crypto core (`du-atproto`): DID/AT-URI parse, did:key
       Ed25519 verification, DID-doc/PDS resolution
 - [x] AT Protocol OAuth **client wiring** — confidential web client

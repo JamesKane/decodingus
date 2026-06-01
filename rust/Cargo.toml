@@ -81,8 +81,10 @@ bcrypt = "0.16"
 ed25519-dalek = "2"
 aes-gcm = "0.10"
 
-# Genomics (pure Rust — replaces htsjdk)
-noodles = { version = "0.85", features = ["vcf", "gff", "fasta", "bed"] }
+# NB: raw-read processing (BAM/CRAM) and variant calling are OUT OF SCOPE for the
+# AppView — Navigator (edge) does local calling and the AppView aggregates the
+# resulting summaries/proposals. du-bio here is text-format + coordinate math
+# (VCF variant ingest, BED callable loci, liftover), so no htslib/noodles dep.
 
 [profile.release]
 lto = "thin"

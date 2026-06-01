@@ -5,8 +5,9 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
-# Genomics file I/O (pure Rust, replaces htsjdk). noodles + a ported liftover
-# module are added when the genomics ingestion subsystem is implemented.
+# Genomics coordinate math + text-format parsing for AppView aggregation:
+# VCF variant ingest, BED callable-loci, UCSC-chain liftover. Raw-read formats
+# (BAM/CRAM) and variant calling are OUT OF SCOPE (done in Navigator/edge).
 [dependencies]
 du-domain = { workspace = true }
 thiserror = { workspace = true }
