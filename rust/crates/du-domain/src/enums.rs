@@ -103,6 +103,53 @@ impl ReferenceBuild {
     }
 }
 
+impl DnaType {
+    pub fn label(&self) -> &'static str {
+        match self {
+            DnaType::YDna => "Y_DNA",
+            DnaType::MtDna => "MT_DNA",
+        }
+    }
+}
+impl std::fmt::Display for DnaType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.label())
+    }
+}
+
+impl MutationType {
+    pub fn label(&self) -> &'static str {
+        match self {
+            MutationType::Snp => "SNP",
+            MutationType::Indel => "INDEL",
+            MutationType::Str => "STR",
+            MutationType::Del => "DEL",
+            MutationType::Ins => "INS",
+            MutationType::Mnp => "MNP",
+        }
+    }
+}
+impl std::fmt::Display for MutationType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.label())
+    }
+}
+
+impl NamingStatus {
+    pub fn label(&self) -> &'static str {
+        match self {
+            NamingStatus::Unnamed => "UNNAMED",
+            NamingStatus::PendingReview => "PENDING_REVIEW",
+            NamingStatus::Named => "NAMED",
+        }
+    }
+}
+impl std::fmt::Display for NamingStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.label())
+    }
+}
+
 /// Tree change-set lifecycle (legacy `tree.change_set_status`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]

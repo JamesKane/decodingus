@@ -1,0 +1,35 @@
+{# Fragment: the variant results table + pager. Target of #variants-table. #}
+<table class="table table-hover table-sm align-middle">
+  <thead>
+    <tr><th>Name</th><th>Type</th><th>Status</th><th>Builds</th></tr>
+  </thead>
+  <tbody>
+    {% for r in rows %}
+    <tr class="tree-node"
+        hx-get="/variants/detail/{{ r.id }}"
+        hx-target="#detail-panel"
+        hx-swap="innerHTML">
+      <td><code>{{ r.name }}</code></td>
+      <td>{{ r.mutation_type }}</td>
+      <td>{{ r.naming_status }}</td>
+      <td><small>{{ r.builds }}</small></td>
+    </tr>
+    {% else %}
+    <tr><td colspan="4" class="detail-empty">No variants match.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+{% if total_pages > 1 %}
+<nav class="d-flex justify-content-between align-items-center">
+  <button class="btn btn-sm btn-outline-secondary {% if page <= 1 %}disabled{% endif %}"
+          hx-get="/variants/list?query={{ query }}&page={{ page - 1 }}&page_size={{ page_size }}"
+          hx-target="#variants-table">Previous</button>
+  <small class="text-muted">Page {{ page }} of {{ total_pages }} ({{ total }} total)</small>
+  <button class="btn btn-sm btn-outline-secondary {% if page >= total_pages %}disabled{% endif %}"
+          hx-get="/variants/list?query={{ query }}&page={{ page + 1 }}&page_size={{ page_size }}"
+          hx-target="#variants-table">Next</button>
+</nav>
+{% else %}
+<small class="text-muted">{{ total }} total</small>
+{% endif %}

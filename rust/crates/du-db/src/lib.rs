@@ -3,7 +3,9 @@
 //! Status: scaffold. The pool + error type are wired; query modules
 //! (`biosample`, `variant`, `haplogroup`, …) land as each subsystem is ported.
 
-use sqlx::postgres::{PgPool, PgPoolOptions};
+/// Re-exported so downstream crates can hold a pool without depending on sqlx.
+pub use sqlx::postgres::PgPool;
+use sqlx::postgres::PgPoolOptions;
 use std::time::Duration;
 use thiserror::Error;
 

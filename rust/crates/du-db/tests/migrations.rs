@@ -91,7 +91,9 @@ async fn migrations_apply_and_variant_jsonb_roundtrips() {
         "INSERT INTO core.variant (canonical_name, mutation_type, coordinates)
          VALUES ($1, 'SNP', $2) RETURNING id",
     )
-    .bind("M269")
+    // Sentinel name so this never collides with seeded/real data (canonical_name
+    // is unique).
+    .bind("TESTMIG-M269")
     .bind(&coords_json)
     .fetch_one(&pool)
     .await

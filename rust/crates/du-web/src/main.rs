@@ -1,13 +1,16 @@
-//! DecodingUs web binary (Axum). HTML + JSON API + static assets + firehose.
+//! DecodingUs web binary (Axum). HTML + (later) JSON API + firehose.
 //!
-//! Scaffold: boots tracing, builds the router, serves `/health` (carried over
-//! from the Play app's load-balancer check). Subsystem routers are mounted as
-//! they are ported (plan §4, §10).
+//! Public vertical slice: home, variant browser, and Y/MT tree navigation,
+//! server-rendered with Askama and driven by HTMX fragments (plan §4).
 
-use axum::{routing::get, Router};
 use std::net::SocketAddr;
 
+mod error;
+mod render;
 mod routes;
+mod state;
+
+use state::AppState;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -18,7 +21,20 @@ async fn main() -> anyhow::Result<()> {
         )
         .init();
 
-    let app = build_router();
+    // Build the app. With a DATABASE_URL we connect, migrate, and serve the full
+    // site; without one we serve only /health (keeps the binary runnable bare).
+    let app = match std::env::var("DATABASE_URL").ok().filter(|s| !s.is_empty()) {
+        Some(url) => {
+            let pool = du_db::connect(&url, 8).await?;
+            du_db::run_migrations(&pool).await?;
+            tracing::info!("connected to database; migrations applied");
+            routes::app(AppState { pool })
+        }
+        None => {
+            tracing::warn!("DATABASE_URL not set — serving /health only");
+            routes::health_only()
+        }
+    };
 
     let port: u16 = std::env::var("PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(9000);
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
@@ -27,10 +43,4 @@ async fn main() -> anyhow::Result<()> {
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;
     Ok(())
-}
-
-/// Builds the application router. Split out so handler tests can exercise it
-/// without binding a socket.
-pub fn build_router() -> Router {
-    Router::new().route("/health", get(routes::health))
 }
