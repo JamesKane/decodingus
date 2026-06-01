@@ -187,3 +187,34 @@ pub async fn search(
         .collect::<Result<Vec<_>, _>>()?;
     Ok(Page { items, total, page: page.max(1), page_size: limit })
 }
+
+/// Variants currently associated with a haplogroup (by name), via the current
+/// `tree.haplogroup_variant` edges (`valid_until IS NULL`).
+pub async fn for_haplogroup_name(pool: &PgPool, name: &str) -> Result<Vec<Variant>, DbError> {
+    let rows: Vec<VariantRow> = sqlx::query_as(
+        "SELECT v.id, v.canonical_name, v.mutation_type::text AS mutation_type, \
+                v.naming_status::text AS naming_status, v.aliases, v.coordinates, v.annotations \
+         FROM core.variant v \
+         JOIN tree.haplogroup_variant hv ON hv.variant_id = v.id AND hv.valid_until IS NULL \
+         JOIN tree.haplogroup h ON h.id = hv.haplogroup_id \
+         WHERE h.name = $1 ORDER BY v.canonical_name",
+    )
+    .bind(name)
+    .fetch_all(pool)
+    .await?;
+    rows.into_iter().map(VariantRow::into_domain).collect()
+}
+
+/// Total variant count (for the export metadata endpoint).
+pub async fn count(pool: &PgPool) -> Result<i64, DbError> {
+    Ok(sqlx::query_scalar("SELECT count(*) FROM core.variant").fetch_one(pool).await?)
+}
+
+/// Every variant, ordered by canonical name (backs the live CSV export). Loads
+/// the full catalog into memory; fine at current scale.
+pub async fn export_all(pool: &PgPool) -> Result<Vec<Variant>, DbError> {
+    let rows: Vec<VariantRow> = sqlx::query_as(&format!("{SELECT} ORDER BY canonical_name"))
+        .fetch_all(pool)
+        .await?;
+    rows.into_iter().map(VariantRow::into_domain).collect()
+}

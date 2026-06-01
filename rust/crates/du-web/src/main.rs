@@ -9,6 +9,7 @@
 use std::net::SocketAddr;
 use tower_cookies::Key;
 
+mod api;
 mod auth;
 mod error;
 mod htmx;

@@ -17,6 +17,7 @@ pub mod haplogroup;
 pub mod pagination;
 pub mod proposal;
 pub mod publication;
+pub mod study;
 pub mod variant;
 
 pub use pagination::Page;

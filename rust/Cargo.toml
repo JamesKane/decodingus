@@ -46,6 +46,10 @@ sqlx = { version = "0.8", default-features = false, features = [
 # Templating (typed, compile-time — Twirl analog)
 askama = "0.12"
 
+# OpenAPI surface (Tapir analog): typed API descriptions + Swagger UI
+utoipa = { version = "5", features = ["axum_extras", "chrono", "uuid"] }
+utoipa-swagger-ui = { version = "8", features = ["axum"] }
+
 # Serialization / JSONB payloads
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

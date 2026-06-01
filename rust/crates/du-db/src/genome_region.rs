@@ -27,6 +27,28 @@ impl From<RegionRow> for GenomeRegion {
 
 const SELECT: &str = "SELECT id, region_type, name, coordinates, properties FROM core.genome_region";
 
+/// Distinct reference builds present across all regions' `coordinates` keys
+/// (e.g. ["GRCh37","GRCh38","hs1"]).
+pub async fn distinct_builds(pool: &PgPool) -> Result<Vec<String>, DbError> {
+    Ok(sqlx::query_scalar(
+        "SELECT DISTINCT jsonb_object_keys(coordinates) AS build FROM core.genome_region \
+         WHERE coordinates <> '{}'::jsonb ORDER BY build",
+    )
+    .fetch_all(pool)
+    .await?)
+}
+
+/// Regions that carry coordinates for the given build.
+pub async fn for_build(pool: &PgPool, build: &str) -> Result<Vec<GenomeRegion>, DbError> {
+    let rows: Vec<RegionRow> = sqlx::query_as(&format!(
+        "{SELECT} WHERE jsonb_exists(coordinates, $1) ORDER BY region_type, name"
+    ))
+    .bind(build)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows.into_iter().map(Into::into).collect())
+}
+
 pub async fn get_by_id(pool: &PgPool, id: i64) -> Result<Option<GenomeRegion>, DbError> {
     let row: Option<RegionRow> = sqlx::query_as(&format!("{SELECT} WHERE id = $1"))
         .bind(id)

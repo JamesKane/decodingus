@@ -200,6 +200,10 @@ for DB-less builds.
 - [x] Public read surface (trees, variants, references, map, coverage)
 - [x] Asset vendoring, i18n (en/es/fr), `HX-Request` negotiation
 - [x] Session auth + RBAC; curator CRUD (haplogroups, variants, regions)
+- [x] Public JSON API (`/api/v1/*`): tree (y/mt), coverage benchmarks,
+      references + per-publication biosamples, biosample studies, variant
+      search/detail/by-haplogroup, variant CSV export, genome-region builds —
+      clean DTOs, OpenAPI 3 spec + Swagger UI at `/api` (utoipa, Tapir analog)
 - [x] `du-migrate` ETL: catalog aggregates (donors, biosamples, variants, tree,
       studies, publications), **ident/auth** (users, RBAC, AT Protocol OAuth/PDS,
       consent, curator audit), and **genomics** (labs, instruments, test types,

@@ -214,3 +214,68 @@ pub async fn roots(pool: &PgPool, dna_type: DnaType) -> Result<Vec<Haplogroup>, 
     .await?;
     collect(rows)
 }
+
+/// A node in a subtree fetch: the haplogroup plus its current parent (`None` at
+/// the subtree root). The JSON tree API assembles the nesting in-process.
+#[derive(Debug, Clone)]
+pub struct SubtreeNode {
+    pub id: i64,
+    pub name: String,
+    pub parent_id: Option<i64>,
+    pub haplogroup_type: String,
+    pub formed_ybp: Option<i32>,
+    pub tmrca_ybp: Option<i32>,
+}
+
+/// All haplogroups in the subtree under `root_name` (or every root of the
+/// lineage when `None`), following current edges (`valid_until IS NULL`), as a
+/// flat list with parent linkage.
+pub async fn subtree(
+    pool: &PgPool,
+    dna_type: DnaType,
+    root_name: Option<&str>,
+) -> Result<Vec<SubtreeNode>, DbError> {
+    #[derive(sqlx::FromRow)]
+    struct SubRow {
+        id: i64,
+        name: String,
+        parent_id: Option<i64>,
+        haplogroup_type: String,
+        formed_ybp: Option<i32>,
+        tmrca_ybp: Option<i32>,
+    }
+    let rows: Vec<SubRow> = sqlx::query_as(
+        "WITH RECURSIVE sub AS ( \
+            SELECT h.id, h.name, NULL::bigint AS parent_id, h.haplogroup_type::text AS haplogroup_type, \
+                   h.formed_ybp, h.tmrca_ybp \
+            FROM tree.haplogroup h \
+            WHERE h.haplogroup_type::text = $1 AND ( \
+              ($2::text IS NULL AND NOT EXISTS ( \
+                 SELECT 1 FROM tree.haplogroup_relationship r \
+                 WHERE r.child_haplogroup_id = h.id AND r.parent_haplogroup_id IS NOT NULL \
+                   AND r.valid_until IS NULL)) \
+              OR ($2::text IS NOT NULL AND h.name = $2)) \
+          UNION ALL \
+            SELECT c.id, c.name, r.parent_haplogroup_id, c.haplogroup_type::text, c.formed_ybp, c.tmrca_ybp \
+            FROM tree.haplogroup c \
+            JOIN tree.haplogroup_relationship r \
+              ON r.child_haplogroup_id = c.id AND r.valid_until IS NULL \
+            JOIN sub ON sub.id = r.parent_haplogroup_id) \
+         SELECT id, name, parent_id, haplogroup_type, formed_ybp, tmrca_ybp FROM sub",
+    )
+    .bind(pg_enum_label(&dna_type)?)
+    .bind(root_name)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|r| SubtreeNode {
+            id: r.id,
+            name: r.name,
+            parent_id: r.parent_id,
+            haplogroup_type: r.haplogroup_type,
+            formed_ybp: r.formed_ybp,
+            tmrca_ybp: r.tmrca_ybp,
+        })
+        .collect())
+}
