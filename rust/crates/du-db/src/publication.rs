@@ -1,9 +1,97 @@
-//! Queries for `pubs.publication` (the references listing).
+//! Queries for `pubs.publication` (the references listing) + publication jobs
+//! (OpenAlex enrichment, discovery candidates).
 
 use crate::{DbError, Page};
+use chrono::NaiveDate;
 use du_domain::ids::PublicationId;
 use du_domain::publication::Publication;
 use sqlx::PgPool;
+
+/// Fields the OpenAlex enrichment job updates (COALESCE'd — nulls don't wipe).
+#[derive(Debug, Default, Clone)]
+pub struct OpenAlexUpdate {
+    pub openalex_id: Option<String>,
+    pub journal: Option<String>,
+    pub publication_date: Option<NaiveDate>,
+    pub cited_by_count: Option<i32>,
+    pub open_access_status: Option<String>,
+    pub abstract_summary: Option<String>,
+}
+
+/// All publications that have a DOI (the enrichment job's work-list).
+pub async fn dois(pool: &PgPool) -> Result<Vec<(PublicationId, String)>, DbError> {
+    let rows: Vec<(i64, String)> =
+        sqlx::query_as("SELECT id, doi FROM pubs.publication WHERE doi IS NOT NULL ORDER BY id")
+            .fetch_all(pool)
+            .await?;
+    Ok(rows.into_iter().map(|(id, doi)| (PublicationId(id), doi)).collect())
+}
+
+/// Apply OpenAlex enrichment (only overwrites a column when the new value is set).
+pub async fn update_openalex(pool: &PgPool, id: PublicationId, u: &OpenAlexUpdate) -> Result<bool, DbError> {
+    let affected = sqlx::query(
+        "UPDATE pubs.publication SET \
+           open_alex_id = COALESCE($2, open_alex_id), \
+           journal = COALESCE($3, journal), \
+           publication_date = COALESCE($4, publication_date), \
+           cited_by_count = COALESCE($5, cited_by_count), \
+           open_access_status = COALESCE($6, open_access_status), \
+           abstract_summary = COALESCE($7, abstract_summary), \
+           updated_at = now() \
+         WHERE id = $1",
+    )
+    .bind(id.0)
+    .bind(&u.openalex_id)
+    .bind(&u.journal)
+    .bind(u.publication_date)
+    .bind(u.cited_by_count)
+    .bind(&u.open_access_status)
+    .bind(&u.abstract_summary)
+    .execute(pool)
+    .await?
+    .rows_affected();
+    Ok(affected > 0)
+}
+
+/// Enabled discovery search queries.
+pub async fn enabled_search_configs(pool: &PgPool) -> Result<Vec<String>, DbError> {
+    let rows: Vec<String> = sqlx::query_scalar(
+        "SELECT search_query FROM pubs.publication_search_config WHERE enabled = true AND search_query IS NOT NULL",
+    )
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}
+
+/// Upsert a discovery candidate by OpenAlex id (preserves curator status/review).
+#[allow(clippy::too_many_arguments)]
+pub async fn upsert_candidate(
+    pool: &PgPool,
+    openalex_id: &str,
+    doi: Option<&str>,
+    title: Option<&str>,
+    abstract_summary: Option<&str>,
+    publication_date: Option<NaiveDate>,
+    journal_name: Option<&str>,
+) -> Result<(), DbError> {
+    sqlx::query(
+        "INSERT INTO pubs.publication_candidate \
+           (openalex_id, doi, title, abstract, publication_date, journal_name, status) \
+         VALUES ($1, $2, $3, $4, $5, $6, 'pending') \
+         ON CONFLICT (openalex_id) DO UPDATE SET doi = EXCLUDED.doi, title = EXCLUDED.title, \
+           abstract = EXCLUDED.abstract, publication_date = EXCLUDED.publication_date, \
+           journal_name = EXCLUDED.journal_name",
+    )
+    .bind(openalex_id)
+    .bind(doi)
+    .bind(title)
+    .bind(abstract_summary)
+    .bind(publication_date)
+    .bind(journal_name)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
 
 #[derive(sqlx::FromRow)]
 struct PublicationRow {

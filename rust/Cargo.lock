@@ -821,7 +821,9 @@ dependencies = [
 name = "du-external"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "du-domain",
+ "reqwest",
  "serde",
  "serde_json",
  "thiserror",
@@ -835,6 +837,7 @@ dependencies = [
  "du-bio",
  "du-db",
  "du-domain",
+ "du-external",
  "tokio",
  "tracing",
  "tracing-subscriber",

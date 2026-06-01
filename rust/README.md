@@ -186,6 +186,10 @@ for DB-less builds.
       validate read SQL against the live EC2 schema
 - [x] `du-bio` core: callable-loci (BED), liftover (UCSC chain), VCF reader
 - [x] `du-jobs` scheduler harness (tokio; error-isolated jobs + run-on-start)
+- [x] `du-external` OpenAlex + ENA clients (parsing unit-tested; abstract
+      reconstruction from the inverted index) + publication jobs
+      (`publication-update` enrichment by DOI, `publication-discovery` by search;
+      rate-limited, env-gated on `OPENALEX_MAILTO`) — verified live against OpenAlex
 - [x] YBrowse variant ingest: GRCh38 VCF → lift to GRCh37/hs1 (chain files) →
       multi-build `core.variant` upsert (`du-bio::ybrowse` + `du-jobs`, env-gated)
 - [ ] Remaining ingestion (HipSTR, genome regions); publication/match jobs once
@@ -214,7 +218,8 @@ for DB-less builds.
       **Follow-up:** push `decodingus-shared` to a remote, then flip the three deps
       to git deps (pinned tag) — also fixes the Docker build (path deps to a
       sibling aren't in the `rust/` build context).
-- [ ] External clients (`du-external`): OpenAlex, ENA, AWS SES/Secrets
+- [ ] `du-external` remaining: AWS SES (email) + Secrets Manager, reCAPTCHA;
+      wire ENA study enrichment into a job
 - [ ] Tree-versioning change-sets; haplogroup↔variant association editing
 - [ ] Vendor remaining assets; full OpenAPI parity; cutover rehearsal
 

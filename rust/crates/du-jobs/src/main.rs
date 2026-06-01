@@ -6,8 +6,10 @@
 //! their external clients land (du-external) and ingestion is built (du-bio). A
 //! DB heartbeat is registered now to exercise the harness end-to-end.
 
+use std::sync::Arc;
 use std::time::Duration;
 
+mod publications;
 mod scheduler;
 mod ybrowse;
 use scheduler::{Job, Scheduler};
@@ -55,8 +57,29 @@ async fn main() -> anyhow::Result<()> {
         tracing::info!("ybrowse-variant-ingest not configured (set YBROWSE_VCF + chain paths)");
     }
 
-    // TODO(jobs): as du-external lands, register publication-update/discovery
-    // (OpenAlex), variant-export, and match-discovery.
+    // Publication jobs (OpenAlex). Enabled when OPENALEX_MAILTO is set.
+    if let Some(cfg) = publications::Config::from_env() {
+        let client = Arc::new(du_external::openalex::OpenAlexClient::new(Some(cfg.mailto)));
+        {
+            let (pool, client) = (pool.clone(), client.clone());
+            sched.register(Job::new("publication-update", Duration::from_secs(86_400), move || {
+                let (pool, client) = (pool.clone(), client.clone());
+                async move { publications::update_all(&pool, &client).await }
+            }));
+        }
+        {
+            let (pool, client) = (pool.clone(), client.clone());
+            sched.register(Job::new("publication-discovery", Duration::from_secs(86_400), move || {
+                let (pool, client) = (pool.clone(), client.clone());
+                async move { publications::discover(&pool, &client).await }
+            }));
+        }
+        tracing::info!("publication jobs registered (OpenAlex)");
+    } else {
+        tracing::info!("publication jobs not configured (set OPENALEX_MAILTO)");
+    }
+
+    // TODO(jobs): variant-export, match-discovery; ENA study enrichment.
 
     let shutdown = async {
         let _ = tokio::signal::ctrl_c().await;

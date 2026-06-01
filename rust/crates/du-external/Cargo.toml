@@ -12,3 +12,5 @@ du-domain = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
+reqwest = { workspace = true }
+chrono = { workspace = true }

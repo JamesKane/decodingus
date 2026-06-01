@@ -15,6 +15,7 @@ path = "src/main.rs"
 du-db = { workspace = true }
 du-bio = { workspace = true }
 du-domain = { workspace = true }
+du-external = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }

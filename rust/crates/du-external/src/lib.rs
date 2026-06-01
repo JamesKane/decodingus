@@ -1,4 +1,9 @@
-//! External service clients (plan §7). Scaffold only.
-//!
-//! Planned: `openalex`, `ena`, `ses` (AWS SES email), `secrets` (AWS Secrets
-//! Manager with a 1h TTL cache), `recaptcha` (with a mock impl behind a config flag).
+//! External service clients (plan §7). OpenAlex (publication enrichment +
+//! discovery) and ENA (study metadata). HTTP via reqwest; JSON→domain parsing is
+//! pure and unit-tested. AWS SES/Secrets + reCAPTCHA land here later.
+
+pub mod ena;
+pub mod error;
+pub mod openalex;
+
+pub use error::ExternalError;
