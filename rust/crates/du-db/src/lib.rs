@@ -7,12 +7,43 @@ use sqlx::postgres::{PgPool, PgPoolOptions};
 use std::time::Duration;
 use thiserror::Error;
 
+pub mod biosample;
+pub mod haplogroup;
+pub mod pagination;
+pub mod publication;
+pub mod variant;
+
+pub use pagination::Page;
+
 #[derive(Debug, Error)]
 pub enum DbError {
     #[error("database error: {0}")]
     Sqlx(#[from] sqlx::Error),
     #[error("migration error: {0}")]
     Migrate(#[from] sqlx::migrate::MigrateError),
+    /// A row's text/JSONB column failed to decode into a domain type.
+    #[error("decode error: {0}")]
+    Decode(String),
+}
+
+/// Decode a Postgres enum label (fetched as `::text`) into a domain enum that
+/// derives `Deserialize` with matching SCREAMING_SNAKE_CASE variants. Keeps
+/// du-domain free of any sqlx dependency.
+pub(crate) fn parse_pg_enum<T: serde::de::DeserializeOwned>(
+    label: &str,
+    what: &str,
+) -> Result<T, DbError> {
+    serde_json::from_value(serde_json::Value::String(label.to_string()))
+        .map_err(|e| DbError::Decode(format!("{what} = {label:?}: {e}")))
+}
+
+/// Inverse of `parse_pg_enum`: a domain enum's SCREAMING_SNAKE_CASE label for
+/// binding against a `::text`-cast enum column.
+pub(crate) fn pg_enum_label<T: serde::Serialize>(value: &T) -> Result<String, DbError> {
+    match serde_json::to_value(value).map_err(|e| DbError::Decode(e.to_string()))? {
+        serde_json::Value::String(s) => Ok(s),
+        other => Err(DbError::Decode(format!("expected enum string, got {other}"))),
+    }
 }
 
 /// Connect and return a pool. `database_url` is the standard `postgres://` DSN

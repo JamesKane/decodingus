@@ -5,9 +5,12 @@
 //! structs so both `du-db` (persistence) and `du-web` (presentation) share one
 //! source of truth.
 
+pub mod biosample;
 pub mod enums;
 pub mod error;
+pub mod haplogroup;
 pub mod ids;
+pub mod publication;
 pub mod variant;
 
 pub use enums::*;
