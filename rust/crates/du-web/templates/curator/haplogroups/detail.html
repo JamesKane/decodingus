@@ -1,0 +1,25 @@
+{# Fragment: haplogroup detail + actions. Target of #hg-detail. #}
+<div class="card">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <strong>{{ hg.name }}</strong>
+    <span class="badge text-bg-secondary">{{ hg.dna }}</span>
+  </div>
+  <div class="card-body">
+    {% if let Some(err) = error %}<div class="alert alert-warning py-2">{{ err }}</div>{% endif %}
+    <dl class="row mb-2">
+      <dt class="col-5">{{ t.get("hg.field.lineage") }}</dt><dd class="col-7">{{ hg.lineage }}</dd>
+      <dt class="col-5">{{ t.get("hg.field.source") }}</dt><dd class="col-7">{{ hg.source }}</dd>
+      <dt class="col-5">{{ t.get("hg.field.formed") }}</dt><dd class="col-7">{{ hg.formed_ybp }}</dd>
+      <dt class="col-5">{{ t.get("hg.field.tmrca") }}</dt><dd class="col-7">{{ hg.tmrca_ybp }}</dd>
+    </dl>
+    <div class="d-flex gap-2">
+      <button class="btn btn-sm btn-outline-primary"
+              hx-get="/curator/haplogroups/{{ hg.id }}/edit" hx-target="#hg-detail">{{ t.get("hg.edit") }}</button>
+      {% if can_delete %}
+      <button class="btn btn-sm btn-outline-danger"
+              hx-delete="/curator/haplogroups/{{ hg.id }}" hx-target="#hg-detail"
+              hx-confirm="{{ t.get("hg.delete.confirm") }}">{{ t.get("hg.delete") }}</button>
+      {% endif %}
+    </div>
+  </div>
+</div>

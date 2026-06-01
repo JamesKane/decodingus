@@ -1,0 +1,48 @@
+{# Fragment: create/edit form. Posts to {action}, swaps #hg-detail with the saved
+   panel; the server's HX-Trigger then reloads the list. Target of #hg-detail. #}
+<div class="card">
+  <div class="card-header">{% if is_edit %}{{ t.get("hg.edit") }}{% else %}{{ t.get("hg.new") }}{% endif %}</div>
+  <div class="card-body">
+    <form hx-post="{{ action }}" hx-target="#hg-detail" hx-swap="innerHTML">
+      <div class="mb-2">
+        <label class="form-label">{{ t.get("hg.field.name") }}</label>
+        <input class="form-control" name="name" value="{{ name }}" required>
+      </div>
+      <div class="mb-2">
+        <label class="form-label">{{ t.get("hg.field.type") }}</label>
+        <select class="form-select" name="dna"{% if is_edit %} disabled{% endif %}>
+          <option value="Y_DNA"{% if dna == "Y_DNA" %} selected{% endif %}>Y-DNA</option>
+          <option value="MT_DNA"{% if dna == "MT_DNA" %} selected{% endif %}>mtDNA</option>
+        </select>
+      </div>
+      <div class="mb-2">
+        <label class="form-label">{{ t.get("hg.field.lineage") }}</label>
+        <input class="form-control" name="lineage" value="{{ lineage }}">
+      </div>
+      <div class="mb-2">
+        <label class="form-label">{{ t.get("hg.field.source") }}</label>
+        <input class="form-control" name="source" value="{{ source }}">
+      </div>
+      <div class="row">
+        <div class="col mb-2">
+          <label class="form-label">{{ t.get("hg.field.formed") }}</label>
+          <input class="form-control" name="formed_ybp" type="number" value="{{ formed_ybp }}">
+        </div>
+        <div class="col mb-2">
+          <label class="form-label">{{ t.get("hg.field.tmrca") }}</label>
+          <input class="form-control" name="tmrca_ybp" type="number" value="{{ tmrca_ybp }}">
+        </div>
+      </div>
+      <div class="d-flex gap-2 mt-2">
+        <button class="btn btn-sm btn-primary" type="submit">{{ t.get("hg.save") }}</button>
+        {% if is_edit %}
+        <button class="btn btn-sm btn-outline-secondary" type="button"
+                hx-get="/curator/haplogroups/{{ id }}/panel" hx-target="#hg-detail">{{ t.get("hg.cancel") }}</button>
+        {% else %}
+        <button class="btn btn-sm btn-outline-secondary" type="button"
+                onclick="document.getElementById('hg-detail').innerHTML=''">{{ t.get("hg.cancel") }}</button>
+        {% endif %}
+      </div>
+    </form>
+  </div>
+</div>

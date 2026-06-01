@@ -9,6 +9,7 @@ use sqlx::postgres::PgPoolOptions;
 use std::time::Duration;
 use thiserror::Error;
 
+pub mod auth;
 pub mod biosample;
 pub mod coverage;
 pub mod haplogroup;

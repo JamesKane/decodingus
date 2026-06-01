@@ -33,7 +33,7 @@ tokio = { version = "1", features = ["full"] }
 axum = { version = "0.7", features = ["macros"] }
 tower = "0.5"
 tower-http = { version = "0.6", features = ["fs", "trace", "compression-gzip", "catch-panic"] }
-tower-cookies = "0.10"
+tower-cookies = { version = "0.10", features = ["signed"] }
 
 # Database (runtime-checked queries for now; switch to compile-time macros + .sqlx
 # offline cache once a dev DB is reachable — see plan §3 / §9)
@@ -66,7 +66,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Crypto
-argon2 = "0.5"
+argon2 = { version = "0.5", features = ["std"] }
 bcrypt = "0.16"
 ed25519-dalek = "2"
 aes-gcm = "0.10"

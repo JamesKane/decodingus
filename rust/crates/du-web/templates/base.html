@@ -22,17 +22,28 @@
         <a class="nav-link" href="/biosamples/map" hx-boost="false">{{ t.get("nav.map") }}</a>
         <a class="nav-link" href="/coverage-benchmarks">{{ t.get("nav.coverage") }}</a>
       </div>
-      <div class="dropdown">
-        <button class="btn btn-sm btn-outline-light dropdown-toggle" data-bs-toggle="dropdown"
-                aria-expanded="false">{{ t.get("lang.label") }}</button>
-        <ul class="dropdown-menu dropdown-menu-end">
-          {% for o in t.languages() %}
-          <li>
-            <a class="dropdown-item{% if o.active %} active{% endif %}"
-               href="/language/{{ o.code }}?next={{ next }}">{{ o.label }}</a>
-          </li>
-          {% endfor %}
-        </ul>
+      <div class="d-flex align-items-center gap-2">
+        {% if let Some(u) = user %}
+        {% if u.is_curator %}<a class="nav-link" href="/curator">{{ t.get("nav.curator") }}</a>{% endif %}
+        <span class="navbar-text text-light small">{{ u.display_name }}</span>
+        <form method="post" action="/logout" hx-boost="false" class="m-0">
+          <button class="btn btn-sm btn-outline-light" type="submit">{{ t.get("nav.logout") }}</button>
+        </form>
+        {% else %}
+        <a class="nav-link" href="/login">{{ t.get("nav.login") }}</a>
+        {% endif %}
+        <div class="dropdown">
+          <button class="btn btn-sm btn-outline-light dropdown-toggle" data-bs-toggle="dropdown"
+                  aria-expanded="false">{{ t.get("lang.label") }}</button>
+          <ul class="dropdown-menu dropdown-menu-end">
+            {% for o in t.languages() %}
+            <li>
+              <a class="dropdown-item{% if o.active %} active{% endif %}"
+                 href="/language/{{ o.code }}?next={{ next }}">{{ o.label }}</a>
+            </li>
+            {% endfor %}
+          </ul>
+        </div>
       </div>
     </div>
   </nav>

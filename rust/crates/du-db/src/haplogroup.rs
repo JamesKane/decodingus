@@ -1,7 +1,7 @@
 //! Queries for `tree.haplogroup` + current parent/child edges. These back the
 //! Y/MT tree views. "Current" edges are those with `valid_until IS NULL`.
 
-use crate::{parse_pg_enum, pg_enum_label, DbError};
+use crate::{parse_pg_enum, pg_enum_label, DbError, Page};
 use du_domain::enums::DnaType;
 use du_domain::haplogroup::Haplogroup;
 use du_domain::ids::HaplogroupId;
@@ -81,6 +81,121 @@ pub async fn children(pool: &PgPool, parent: HaplogroupId) -> Result<Vec<Haplogr
     .fetch_all(pool)
     .await?;
     collect(rows)
+}
+
+/// Flat, paginated, optionally name-filtered / lineage-filtered list for the
+/// curator UI (the public tree views use roots/children instead).
+pub async fn list_paginated(
+    pool: &PgPool,
+    query: Option<&str>,
+    dna_type: Option<DnaType>,
+    page: i64,
+    page_size: i64,
+) -> Result<Page<Haplogroup>, DbError> {
+    let offset = Page::<()>::offset(page, page_size);
+    let limit = page_size.clamp(1, 200);
+    let like = query
+        .map(str::trim)
+        .filter(|q| !q.is_empty())
+        .map(|q| format!("%{q}%"));
+    let dna = dna_type.map(|d| pg_enum_label(&d)).transpose()?;
+
+    // $1 = name filter (NULL = any), $2 = dna label (NULL = any).
+    let where_sql = "WHERE ($1::text IS NULL OR h.name ILIKE $1) \
+                     AND ($2::text IS NULL OR h.haplogroup_type::text = $2)";
+
+    let total: i64 = sqlx::query_scalar(&format!(
+        "SELECT count(*) FROM tree.haplogroup h {where_sql}"
+    ))
+    .bind(&like)
+    .bind(&dna)
+    .fetch_one(pool)
+    .await?;
+
+    let rows: Vec<HaplogroupRow> = sqlx::query_as(&format!(
+        "SELECT {COLS} FROM tree.haplogroup h {where_sql} ORDER BY h.name LIMIT $3 OFFSET $4"
+    ))
+    .bind(&like)
+    .bind(&dna)
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(Page { items: collect(rows)?, total, page: page.max(1), page_size: limit })
+}
+
+/// Create a haplogroup; returns the new id.
+pub async fn create(
+    pool: &PgPool,
+    name: &str,
+    dna_type: DnaType,
+    lineage: Option<&str>,
+    source: Option<&str>,
+    formed_ybp: Option<i32>,
+    tmrca_ybp: Option<i32>,
+) -> Result<HaplogroupId, DbError> {
+    let id: i64 = sqlx::query_scalar(
+        "INSERT INTO tree.haplogroup (name, haplogroup_type, lineage, source, formed_ybp, tmrca_ybp) \
+         VALUES ($1, $2::core.dna_type, $3, $4, $5, $6) RETURNING id",
+    )
+    .bind(name)
+    .bind(pg_enum_label(&dna_type)?)
+    .bind(lineage)
+    .bind(source)
+    .bind(formed_ybp)
+    .bind(tmrca_ybp)
+    .fetch_one(pool)
+    .await?;
+    Ok(HaplogroupId(id))
+}
+
+/// Update editable haplogroup fields. Returns whether a row was affected.
+pub async fn update(
+    pool: &PgPool,
+    id: HaplogroupId,
+    name: &str,
+    lineage: Option<&str>,
+    source: Option<&str>,
+    formed_ybp: Option<i32>,
+    tmrca_ybp: Option<i32>,
+) -> Result<bool, DbError> {
+    let affected = sqlx::query(
+        "UPDATE tree.haplogroup SET name=$2, lineage=$3, source=$4, formed_ybp=$5, tmrca_ybp=$6 WHERE id=$1",
+    )
+    .bind(id.0)
+    .bind(name)
+    .bind(lineage)
+    .bind(source)
+    .bind(formed_ybp)
+    .bind(tmrca_ybp)
+    .execute(pool)
+    .await?
+    .rows_affected();
+    Ok(affected > 0)
+}
+
+/// Whether the haplogroup participates in any current relationship (a guard the
+/// curator UI uses before allowing deletion).
+pub async fn has_current_edges(pool: &PgPool, id: HaplogroupId) -> Result<bool, DbError> {
+    let n: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM tree.haplogroup_relationship \
+         WHERE (child_haplogroup_id = $1 OR parent_haplogroup_id = $1) AND valid_until IS NULL",
+    )
+    .bind(id.0)
+    .fetch_one(pool)
+    .await?;
+    Ok(n > 0)
+}
+
+/// Delete a haplogroup. Returns whether a row was removed.
+pub async fn delete(pool: &PgPool, id: HaplogroupId) -> Result<bool, DbError> {
+    let affected = sqlx::query("DELETE FROM tree.haplogroup WHERE id=$1")
+        .bind(id.0)
+        .execute(pool)
+        .await?
+        .rows_affected();
+    Ok(affected > 0)
 }
 
 /// Root haplogroups of a lineage: no current edge to a parent.

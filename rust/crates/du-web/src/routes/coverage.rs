@@ -30,6 +30,7 @@ struct BenchRow {
 struct CoverageTemplate {
     t: T,
     next: String,
+    user: Option<crate::auth::NavUser>,
     rows: Vec<BenchRow>,
 }
 
@@ -40,7 +41,11 @@ fn fmt_pct(v: Option<f64>) -> String {
     v.map(|d| format!("{d:.1}%")).unwrap_or_else(|| "—".into())
 }
 
-async fn benchmarks(State(st): State<AppState>, locale: Locale) -> Result<Response, AppError> {
+async fn benchmarks(
+    State(st): State<AppState>,
+    locale: Locale,
+    user: crate::auth::MaybeUser,
+) -> Result<Response, AppError> {
     let rows = du_db::coverage::benchmarks(&st.pool)
         .await?
         .into_iter()
@@ -61,5 +66,5 @@ async fn benchmarks(State(st): State<AppState>, locale: Locale) -> Result<Respon
         })
         .collect();
 
-    Ok(html(&CoverageTemplate { t: locale.t, next: locale.next, rows }))
+    Ok(html(&CoverageTemplate { t: locale.t, next: locale.next, user: user.nav(), rows }))
 }

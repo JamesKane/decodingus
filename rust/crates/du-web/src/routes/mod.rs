@@ -1,5 +1,6 @@
 //! Router assembly + top-level pages.
 
+use crate::auth::{MaybeUser, NavUser};
 use crate::i18n::{Lang, Locale, T};
 use crate::render::html;
 use crate::state::AppState;
@@ -10,9 +11,12 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::Router;
 use serde::Deserialize;
+use tower_cookies::CookieManagerLayer;
 use tower_http::services::ServeDir;
 
+pub mod auth_routes;
 pub mod coverage;
+pub mod curator;
 pub mod maps;
 pub mod references;
 pub mod tree;
@@ -37,7 +41,10 @@ pub fn app(state: AppState) -> Router {
         .merge(references::router())
         .merge(maps::router())
         .merge(coverage::router())
+        .merge(auth_routes::router())
+        .merge(curator::router())
         .nest_service("/assets", ServeDir::new(assets_dir()))
+        .layer(CookieManagerLayer::new())
         .with_state(state)
 }
 
@@ -55,10 +62,11 @@ async fn health() -> (StatusCode, &'static str) {
 struct IndexTemplate {
     t: T,
     next: String,
+    user: Option<NavUser>,
 }
 
-async fn index(locale: Locale) -> Response {
-    html(&IndexTemplate { t: locale.t, next: locale.next })
+async fn index(locale: Locale, user: MaybeUser) -> Response {
+    html(&IndexTemplate { t: locale.t, next: locale.next, user: user.nav() })
 }
 
 #[derive(Deserialize)]

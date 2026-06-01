@@ -80,6 +80,7 @@ async fn load_list(st: &AppState, q: &ListQuery) -> Result<PubListView, AppError
 struct ReferencesPageTemplate {
     t: T,
     next: String,
+    user: Option<crate::auth::NavUser>,
     list: PubListView,
 }
 
@@ -114,10 +115,11 @@ struct BiosamplesTemplate {
 async fn page(
     State(st): State<AppState>,
     locale: Locale,
+    user: crate::auth::MaybeUser,
     Query(q): Query<ListQuery>,
 ) -> Result<Response, AppError> {
     let list = load_list(&st, &q).await?;
-    Ok(html(&ReferencesPageTemplate { t: locale.t, next: locale.next, list }))
+    Ok(html(&ReferencesPageTemplate { t: locale.t, next: locale.next, user: user.nav(), list }))
 }
 
 async fn list(

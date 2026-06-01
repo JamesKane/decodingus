@@ -23,10 +23,11 @@ pub fn router() -> Router<AppState> {
 struct MapTemplate {
     t: T,
     next: String,
+    user: Option<crate::auth::NavUser>,
 }
 
-async fn map_page(locale: Locale) -> Response {
-    html(&MapTemplate { t: locale.t, next: locale.next })
+async fn map_page(locale: Locale, user: crate::auth::MaybeUser) -> Response {
+    html(&MapTemplate { t: locale.t, next: locale.next, user: user.nav() })
 }
 
 /// GeoJSON FeatureCollection of biosample locations for Leaflet.

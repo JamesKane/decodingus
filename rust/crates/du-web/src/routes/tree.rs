@@ -39,6 +39,7 @@ struct NodeView {
 struct TreePageTemplate {
     t: T,
     next: String,
+    user: Option<crate::auth::NavUser>,
     title: String,
     base_path: &'static str,
     current: Option<NodeView>,
@@ -58,24 +59,28 @@ async fn ytree(
     st: State<AppState>,
     hx: HxRequest,
     locale: Locale,
+    user: crate::auth::MaybeUser,
     q: Query<RootQuery>,
 ) -> Result<Response, AppError> {
-    render_tree(st, hx, locale, q, DnaType::YDna, "/ytree", "tree.title.y").await
+    render_tree(st, hx, locale, user, q, DnaType::YDna, "/ytree", "tree.title.y").await
 }
 
 async fn mtree(
     st: State<AppState>,
     hx: HxRequest,
     locale: Locale,
+    user: crate::auth::MaybeUser,
     q: Query<RootQuery>,
 ) -> Result<Response, AppError> {
-    render_tree(st, hx, locale, q, DnaType::MtDna, "/mtree", "tree.title.mt").await
+    render_tree(st, hx, locale, user, q, DnaType::MtDna, "/mtree", "tree.title.mt").await
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn render_tree(
     State(st): State<AppState>,
     hx: HxRequest,
     locale: Locale,
+    user: crate::auth::MaybeUser,
     Query(q): Query<RootQuery>,
     dna_type: DnaType,
     base_path: &'static str,
@@ -111,6 +116,7 @@ async fn render_tree(
         let page = TreePageTemplate {
             t: locale.t,
             next: locale.next,
+            user: user.nav(),
             title: locale.t.get(title_key).to_string(),
             base_path,
             current,
