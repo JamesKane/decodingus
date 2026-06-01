@@ -55,6 +55,19 @@ async fn main() -> anyhow::Result<()> {
     du_db::run_migrations(&target).await?;
 
     tracing::info!("ETL starting");
+    // ident first: users before any FK, roles/permissions before their links.
+    transform::users(&legacy, &target).await?;
+    transform::roles(&legacy, &target).await?;
+    transform::permissions(&legacy, &target).await?;
+    transform::role_permissions(&legacy, &target).await?;
+    transform::user_roles(&legacy, &target).await?;
+    transform::user_login_info(&legacy, &target).await?;
+    transform::user_oauth2_info(&legacy, &target).await?;
+    transform::user_pds_info(&legacy, &target).await?;
+    transform::cookie_consents(&legacy, &target).await?;
+    transform::atproto_metadata(&legacy, &target).await?;
+    transform::audit_log(&legacy, &target).await?;
+
     // Dependency order: donors before biosamples; variants/haplogroups before
     // their join tables; publications/studies before their links.
     transform::specimen_donor(&legacy, &target).await?;

@@ -102,7 +102,12 @@ transformers + a reconciliation pass. The transformers are written against the
 their `*_original_haplogroup` tables → unified `core.biosample` with `atproto`
 and `original_haplogroups` JSONB; `tree.haplogroup` age bounds → `provenance`
 JSONB; both publication↔(std|citizen)biosample link tables → one
-`pubs.publication_biosample` on `sample_guid`. Validated two ways: schema-only
+`pubs.publication_biosample` on `sample_guid`. The **ident/auth** group carries
+UUID PKs over 1:1 (`public.users`→`ident.users`, the `auth.*` RBAC/OAuth/PDS/
+consent tables, and `curator.audit_log`→`ident.audit_log`); pre-seeded base
+roles are relocated onto the legacy role UUIDs so `user_roles` FKs resolve, and
+`password_hash` stays NULL (production auth is AT Protocol OAuth, not passwords).
+Validated two ways: schema-only
 against `db.schema` (0 column errors) and end-to-end against a current-schema
 mock with seed data (all 10 aggregates reconcile; JSONB shapes spot-checked).
 See below.
@@ -190,8 +195,10 @@ for DB-less builds.
 - [x] Public read surface (trees, variants, references, map, coverage)
 - [x] Asset vendoring, i18n (en/es/fr), `HX-Request` negotiation
 - [x] Session auth + RBAC; curator CRUD (haplogroups, variants, regions)
-- [x] `du-migrate` ETL core aggregates (verified vs mock legacy DB)
-- [ ] ETL: remaining aggregates (genomics, ibd, ident, fed, social, billing) —
+- [x] `du-migrate` ETL: catalog aggregates (donors, biosamples, variants, tree,
+      studies, publications) + **ident/auth** (users, RBAC, AT Protocol
+      OAuth/PDS, consent, curator audit) — verified vs current-schema mock DB
+- [ ] ETL: remaining aggregates (genomics, ibd, fed, social, billing) —
       validate read SQL against the live EC2 schema
 - [x] `du-bio` core: callable-loci (BED), liftover (UCSC chain), VCF reader
 - [x] `du-jobs` scheduler harness (tokio; error-isolated jobs + run-on-start)

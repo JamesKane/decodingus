@@ -582,6 +582,367 @@ pub async fn publication_study(legacy: &PgPool, target: &PgPool) -> anyhow::Resu
     Ok(())
 }
 
+// ── ident: users, RBAC, AT Protocol identity/OAuth, consent, audit ───────────
+// All these legacy tables use UUID PKs, so ids carry over 1:1 (no OVERRIDING
+// SYSTEM VALUE). Legacy timestamps are `timestamp without time zone`, cast to
+// timestamptz so they decode into DateTime<Utc>. Auth is AT Protocol OAuth-only
+// in production (no password table), so password_hash stays NULL.
+
+#[derive(sqlx::FromRow)]
+struct UserRow {
+    id: Uuid,
+    email: Option<String>,
+    did: Option<String>,
+    handle: Option<String>,
+    display_name: Option<String>,
+    is_active: bool,
+    created_at: DateTime<Utc>,
+    updated_at: DateTime<Utc>,
+}
+
+pub async fn users(legacy: &PgPool, target: &PgPool) -> anyhow::Result<()> {
+    let rows: Vec<UserRow> = sqlx::query_as(
+        "SELECT id, email::text AS email, did, handle, display_name, is_active, \
+                created_at::timestamptz, updated_at::timestamptz FROM public.users",
+    )
+    .fetch_all(legacy)
+    .await?;
+    let n = rows.len();
+    let mut tx = target.begin().await?;
+    for r in rows {
+        sqlx::query(
+            "INSERT INTO ident.users (id, email, did, handle, display_name, is_active, created_at, updated_at) \
+             VALUES ($1,$2::citext,$3,$4,$5,$6,$7,$8) \
+             ON CONFLICT (id) DO UPDATE SET email=EXCLUDED.email, did=EXCLUDED.did, handle=EXCLUDED.handle, \
+               display_name=EXCLUDED.display_name, is_active=EXCLUDED.is_active, updated_at=EXCLUDED.updated_at",
+        )
+        .bind(r.id)
+        .bind(r.email)
+        .bind(r.did)
+        .bind(r.handle)
+        .bind(r.display_name)
+        .bind(r.is_active)
+        .bind(r.created_at)
+        .bind(r.updated_at)
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
+    tracing::info!(table = "users", rows = n, "migrated");
+    Ok(())
+}
+
+pub async fn roles(legacy: &PgPool, target: &PgPool) -> anyhow::Result<()> {
+    let rows = sqlx::query_as::<_, (Uuid, String, Option<String>, DateTime<Utc>, DateTime<Utc>)>(
+        "SELECT id, name, description, created_at::timestamptz, updated_at::timestamptz FROM auth.roles",
+    )
+    .fetch_all(legacy)
+    .await?;
+    let n = rows.len();
+    let mut tx = target.begin().await?;
+    for (id, name, desc, created, updated) in rows {
+        // The schema pre-seeds base roles (Admin/Curator/TreeCurator) with random
+        // UUIDs; relocate them to the legacy UUID so user_roles FKs resolve.
+        sqlx::query(
+            "INSERT INTO ident.roles (id, name, description, created_at, updated_at) VALUES ($1,$2,$3,$4,$5) \
+             ON CONFLICT (name) DO UPDATE SET id=EXCLUDED.id, description=EXCLUDED.description, \
+               updated_at=EXCLUDED.updated_at",
+        )
+        .bind(id)
+        .bind(name)
+        .bind(desc)
+        .bind(created)
+        .bind(updated)
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
+    tracing::info!(table = "roles", rows = n, "migrated");
+    Ok(())
+}
+
+pub async fn permissions(legacy: &PgPool, target: &PgPool) -> anyhow::Result<()> {
+    let rows = sqlx::query_as::<_, (Uuid, String, Option<String>, DateTime<Utc>, DateTime<Utc>)>(
+        "SELECT id, name, description, created_at::timestamptz, updated_at::timestamptz FROM auth.permissions",
+    )
+    .fetch_all(legacy)
+    .await?;
+    let n = rows.len();
+    let mut tx = target.begin().await?;
+    for (id, name, desc, created, updated) in rows {
+        sqlx::query(
+            "INSERT INTO ident.permissions (id, name, description, created_at, updated_at) VALUES ($1,$2,$3,$4,$5) \
+             ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, description=EXCLUDED.description, \
+               updated_at=EXCLUDED.updated_at",
+        )
+        .bind(id)
+        .bind(name)
+        .bind(desc)
+        .bind(created)
+        .bind(updated)
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
+    tracing::info!(table = "permissions", rows = n, "migrated");
+    Ok(())
+}
+
+pub async fn role_permissions(legacy: &PgPool, target: &PgPool) -> anyhow::Result<()> {
+    let rows = sqlx::query_as::<_, (Uuid, Uuid)>(
+        "SELECT role_id, permission_id FROM auth.role_permissions",
+    )
+    .fetch_all(legacy)
+    .await?;
+    let n = rows.len();
+    let mut tx = target.begin().await?;
+    for (role_id, perm_id) in rows {
+        sqlx::query(
+            "INSERT INTO ident.role_permissions (role_id, permission_id) VALUES ($1,$2) ON CONFLICT DO NOTHING",
+        )
+        .bind(role_id)
+        .bind(perm_id)
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
+    tracing::info!(table = "role_permissions", rows = n, "migrated");
+    Ok(())
+}
+
+pub async fn user_roles(legacy: &PgPool, target: &PgPool) -> anyhow::Result<()> {
+    let rows = sqlx::query_as::<_, (Uuid, Uuid)>("SELECT user_id, role_id FROM auth.user_roles")
+        .fetch_all(legacy)
+        .await?;
+    let n = rows.len();
+    let mut tx = target.begin().await?;
+    for (user_id, role_id) in rows {
+        sqlx::query(
+            "INSERT INTO ident.user_roles (user_id, role_id) VALUES ($1,$2) ON CONFLICT DO NOTHING",
+        )
+        .bind(user_id)
+        .bind(role_id)
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
+    tracing::info!(table = "user_roles", rows = n, "migrated");
+    Ok(())
+}
+
+pub async fn user_login_info(legacy: &PgPool, target: &PgPool) -> anyhow::Result<()> {
+    let rows = sqlx::query_as::<_, (Uuid, Uuid, String, String, DateTime<Utc>, DateTime<Utc>)>(
+        "SELECT id, user_id, provider_id, provider_key, created_at::timestamptz, updated_at::timestamptz \
+         FROM auth.user_login_info",
+    )
+    .fetch_all(legacy)
+    .await?;
+    let n = rows.len();
+    let mut tx = target.begin().await?;
+    for (id, user_id, pid, pkey, created, updated) in rows {
+        // password_hash NULL: production auth is AT Protocol OAuth, not passwords.
+        sqlx::query(
+            "INSERT INTO ident.user_login_info (id, user_id, provider_id, provider_key, password_hash, created_at, updated_at) \
+             VALUES ($1,$2,$3,$4,NULL,$5,$6) \
+             ON CONFLICT (id) DO UPDATE SET user_id=EXCLUDED.user_id, provider_id=EXCLUDED.provider_id, \
+               provider_key=EXCLUDED.provider_key, updated_at=EXCLUDED.updated_at",
+        )
+        .bind(id)
+        .bind(user_id)
+        .bind(pid)
+        .bind(pkey)
+        .bind(created)
+        .bind(updated)
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
+    tracing::info!(table = "user_login_info", rows = n, "migrated");
+    Ok(())
+}
+
+pub async fn user_oauth2_info(legacy: &PgPool, target: &PgPool) -> anyhow::Result<()> {
+    let rows = sqlx::query_as::<_, (Uuid, Uuid, String, Option<String>, Option<i64>, Option<String>, Option<String>, DateTime<Utc>, DateTime<Utc>)>(
+        "SELECT id, login_info_id, access_token, token_type, expires_in, refresh_token, scope, \
+                created_at::timestamptz, updated_at::timestamptz FROM auth.user_oauth2_info",
+    )
+    .fetch_all(legacy)
+    .await?;
+    let n = rows.len();
+    let mut tx = target.begin().await?;
+    for (id, lid, access, ttype, expires, refresh, scope, created, updated) in rows {
+        sqlx::query(
+            "INSERT INTO ident.user_oauth2_info (id, login_info_id, access_token, token_type, expires_in, \
+                refresh_token, scope, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) \
+             ON CONFLICT (id) DO UPDATE SET login_info_id=EXCLUDED.login_info_id, access_token=EXCLUDED.access_token, \
+               token_type=EXCLUDED.token_type, expires_in=EXCLUDED.expires_in, refresh_token=EXCLUDED.refresh_token, \
+               scope=EXCLUDED.scope, updated_at=EXCLUDED.updated_at",
+        )
+        .bind(id)
+        .bind(lid)
+        .bind(access)
+        .bind(ttype)
+        .bind(expires)
+        .bind(refresh)
+        .bind(scope)
+        .bind(created)
+        .bind(updated)
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
+    tracing::info!(table = "user_oauth2_info", rows = n, "migrated");
+    Ok(())
+}
+
+pub async fn user_pds_info(legacy: &PgPool, target: &PgPool) -> anyhow::Result<()> {
+    let rows = sqlx::query_as::<_, (Uuid, Uuid, String, String, Option<String>, DateTime<Utc>, DateTime<Utc>)>(
+        "SELECT id, user_id, pds_url, did, handle, created_at::timestamptz, updated_at::timestamptz \
+         FROM auth.user_pds_info",
+    )
+    .fetch_all(legacy)
+    .await?;
+    let n = rows.len();
+    let mut tx = target.begin().await?;
+    for (id, user_id, pds_url, did, handle, created, updated) in rows {
+        sqlx::query(
+            "INSERT INTO ident.user_pds_info (id, user_id, pds_url, did, handle, created_at, updated_at) \
+             VALUES ($1,$2,$3,$4,$5,$6,$7) \
+             ON CONFLICT (id) DO UPDATE SET user_id=EXCLUDED.user_id, pds_url=EXCLUDED.pds_url, \
+               did=EXCLUDED.did, handle=EXCLUDED.handle, updated_at=EXCLUDED.updated_at",
+        )
+        .bind(id)
+        .bind(user_id)
+        .bind(pds_url)
+        .bind(did)
+        .bind(handle)
+        .bind(created)
+        .bind(updated)
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
+    tracing::info!(table = "user_pds_info", rows = n, "migrated");
+    Ok(())
+}
+
+pub async fn cookie_consents(legacy: &PgPool, target: &PgPool) -> anyhow::Result<()> {
+    let rows = sqlx::query_as::<_, (Uuid, Option<Uuid>, Option<String>, Option<String>, bool, DateTime<Utc>, Option<String>, Option<String>, DateTime<Utc>)>(
+        "SELECT id, user_id, session_id, ip_address_hash, consent_given, consent_timestamp::timestamptz, \
+                policy_version, user_agent, created_at::timestamptz FROM auth.cookie_consents",
+    )
+    .fetch_all(legacy)
+    .await?;
+    let n = rows.len();
+    let mut tx = target.begin().await?;
+    for (id, user_id, session_id, iph, given, ts, ver, ua, created) in rows {
+        sqlx::query(
+            "INSERT INTO ident.cookie_consents (id, user_id, session_id, ip_address_hash, consent_given, \
+                consent_timestamp, policy_version, user_agent, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) \
+             ON CONFLICT (id) DO NOTHING",
+        )
+        .bind(id)
+        .bind(user_id)
+        .bind(session_id)
+        .bind(iph)
+        .bind(given)
+        .bind(ts)
+        .bind(ver)
+        .bind(ua)
+        .bind(created)
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
+    tracing::info!(table = "cookie_consents", rows = n, "migrated");
+    Ok(())
+}
+
+pub async fn atproto_metadata(legacy: &PgPool, target: &PgPool) -> anyhow::Result<()> {
+    // Authorization servers (legacy `client_id_metadata_document_supported` dropped).
+    let servers = sqlx::query_as::<_, (Uuid, String, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, DateTime<Utc>, DateTime<Utc>, DateTime<Utc>)>(
+        "SELECT id, issuer_url, authorization_endpoint, token_endpoint, \
+                pushed_authorization_request_endpoint, dpop_signing_alg_values_supported, scopes_supported, \
+                metadata_fetched_at::timestamptz, created_at::timestamptz, updated_at::timestamptz \
+         FROM auth.atprotocol_authorization_servers",
+    )
+    .fetch_all(legacy)
+    .await?;
+    let s = servers.len();
+    let mut tx = target.begin().await?;
+    for (id, issuer, az, tok, par, dpop, scopes, fetched, created, updated) in servers {
+        sqlx::query(
+            "INSERT INTO ident.atprotocol_authorization_servers (id, issuer_url, authorization_endpoint, \
+                token_endpoint, pushed_authorization_request_endpoint, dpop_signing_alg_values_supported, \
+                scopes_supported, metadata_fetched_at, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) \
+             ON CONFLICT (id) DO UPDATE SET issuer_url=EXCLUDED.issuer_url, \
+               authorization_endpoint=EXCLUDED.authorization_endpoint, token_endpoint=EXCLUDED.token_endpoint, \
+               pushed_authorization_request_endpoint=EXCLUDED.pushed_authorization_request_endpoint, \
+               dpop_signing_alg_values_supported=EXCLUDED.dpop_signing_alg_values_supported, \
+               scopes_supported=EXCLUDED.scopes_supported, metadata_fetched_at=EXCLUDED.metadata_fetched_at, \
+               updated_at=EXCLUDED.updated_at",
+        )
+        .bind(id).bind(issuer).bind(az).bind(tok).bind(par).bind(dpop).bind(scopes).bind(fetched).bind(created).bind(updated)
+        .execute(&mut *tx)
+        .await?;
+    }
+    // Client metadata (legacy `client_uri` dropped).
+    let clients = sqlx::query_as::<_, (Uuid, String, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, DateTime<Utc>, DateTime<Utc>)>(
+        "SELECT id, client_id_url, client_name, logo_uri, tos_uri, policy_uri, redirect_uris, \
+                created_at::timestamptz, updated_at::timestamptz FROM auth.atprotocol_client_metadata",
+    )
+    .fetch_all(legacy)
+    .await?;
+    let c = clients.len();
+    for (id, url, name, logo, tos, policy, redirects, created, updated) in clients {
+        sqlx::query(
+            "INSERT INTO ident.atprotocol_client_metadata (id, client_id_url, client_name, logo_uri, tos_uri, \
+                policy_uri, redirect_uris, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) \
+             ON CONFLICT (id) DO UPDATE SET client_id_url=EXCLUDED.client_id_url, client_name=EXCLUDED.client_name, \
+               logo_uri=EXCLUDED.logo_uri, tos_uri=EXCLUDED.tos_uri, policy_uri=EXCLUDED.policy_uri, \
+               redirect_uris=EXCLUDED.redirect_uris, updated_at=EXCLUDED.updated_at",
+        )
+        .bind(id).bind(url).bind(name).bind(logo).bind(tos).bind(policy).bind(redirects).bind(created).bind(updated)
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
+    tracing::info!(servers = s, clients = c, "migrated AT Protocol metadata caches");
+    Ok(())
+}
+
+/// Legacy `curator.audit_log` -> `ident.audit_log` (entity_id widened to bigint).
+pub async fn audit_log(legacy: &PgPool, target: &PgPool) -> anyhow::Result<()> {
+    let rows = sqlx::query_as::<_, (Uuid, Uuid, String, i32, String, Option<Value>, Option<Value>, Option<String>, DateTime<Utc>)>(
+        "SELECT id, user_id, entity_type, entity_id, action, old_value, new_value, comment, \
+                created_at::timestamptz FROM curator.audit_log",
+    )
+    .fetch_all(legacy)
+    .await?;
+    let n = rows.len();
+    let mut tx = target.begin().await?;
+    for (id, user_id, etype, eid, action, old, new, comment, created) in rows {
+        sqlx::query(
+            "INSERT INTO ident.audit_log (id, user_id, entity_type, entity_id, action, old_value, new_value, \
+                comment, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (id) DO NOTHING",
+        )
+        .bind(id)
+        .bind(user_id)
+        .bind(etype)
+        .bind(eid as i64)
+        .bind(action)
+        .bind(old)
+        .bind(new)
+        .bind(comment)
+        .bind(created)
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
+    tracing::info!(table = "audit_log", rows = n, "migrated");
+    Ok(())
+}
+
 // ── post-load: advance identity sequences past the copied max id ─────────────
 pub async fn fix_sequences(target: &PgPool) -> anyhow::Result<()> {
     for (schema, table) in [

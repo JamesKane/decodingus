@@ -29,6 +29,24 @@ const CHECKS: &[Check] = &[
         target_sql: "SELECT count(*) FROM pubs.publication_biosample",
     },
     Check { label: "publication_study", legacy_sql: "SELECT count(*) FROM public.publication_ena_study", target_sql: "SELECT count(*) FROM pubs.publication_study" },
+    // ident group. Note: ident.roles is pre-seeded with base roles (Admin/
+    // Curator/TreeCurator); if production lacks one a MISMATCH (target > legacy)
+    // is expected and benign.
+    Check { label: "users", legacy_sql: "SELECT count(*) FROM public.users", target_sql: "SELECT count(*) FROM ident.users" },
+    Check { label: "roles", legacy_sql: "SELECT count(*) FROM auth.roles", target_sql: "SELECT count(*) FROM ident.roles" },
+    Check { label: "permissions", legacy_sql: "SELECT count(*) FROM auth.permissions", target_sql: "SELECT count(*) FROM ident.permissions" },
+    Check { label: "role_permissions", legacy_sql: "SELECT count(*) FROM auth.role_permissions", target_sql: "SELECT count(*) FROM ident.role_permissions" },
+    Check { label: "user_roles", legacy_sql: "SELECT count(*) FROM auth.user_roles", target_sql: "SELECT count(*) FROM ident.user_roles" },
+    Check { label: "user_login_info", legacy_sql: "SELECT count(*) FROM auth.user_login_info", target_sql: "SELECT count(*) FROM ident.user_login_info" },
+    Check { label: "user_oauth2_info", legacy_sql: "SELECT count(*) FROM auth.user_oauth2_info", target_sql: "SELECT count(*) FROM ident.user_oauth2_info" },
+    Check { label: "user_pds_info", legacy_sql: "SELECT count(*) FROM auth.user_pds_info", target_sql: "SELECT count(*) FROM ident.user_pds_info" },
+    Check { label: "cookie_consents", legacy_sql: "SELECT count(*) FROM auth.cookie_consents", target_sql: "SELECT count(*) FROM ident.cookie_consents" },
+    Check {
+        label: "atproto_metadata",
+        legacy_sql: "SELECT (SELECT count(*) FROM auth.atprotocol_authorization_servers) + (SELECT count(*) FROM auth.atprotocol_client_metadata)",
+        target_sql: "SELECT (SELECT count(*) FROM ident.atprotocol_authorization_servers) + (SELECT count(*) FROM ident.atprotocol_client_metadata)",
+    },
+    Check { label: "audit_log", legacy_sql: "SELECT count(*) FROM curator.audit_log", target_sql: "SELECT count(*) FROM ident.audit_log" },
 ];
 
 pub async fn run(legacy: &PgPool, target: &PgPool) -> anyhow::Result<()> {
