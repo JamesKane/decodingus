@@ -195,8 +195,9 @@ for DB-less builds.
       (URI index) + on-demand coverage aggregation. Live handshake pending a test
       PDS. NB: the standard relay/Jetstream ingest stays (reads are out of OAuth
       scope); only the custom REST/Kafka relay is dropped.
-- [ ] Extract `du-domain`/`du-atproto`/`du-bio` to a shared crate location for
-      Navigator reuse (location TBD)
+- [ ] Extract `du-domain`/`du-atproto`/`du-bio` to a dedicated `decodingus-shared`
+      git repo (both decodingus + Navigator git-dep on it); haploid caller stays
+      Navigator-only
 - [ ] External clients (`du-external`): OpenAlex, ENA, AWS SES/Secrets
 - [ ] Tree-versioning change-sets; haplogroup↔variant association editing
 - [ ] Vendor remaining assets; full OpenAPI parity; cutover rehearsal

@@ -40,15 +40,15 @@ gone. Point-by-point below, then the decisions you asked us to make.
 
 ## Decisions you asked decodingus to make
 
-- **Shared-crate extraction (your ask #1):** pending a call from our side on
-  *where* the shared crates live (`decodingus-shared` repo vs path/git deps vs
-  publish). `du-domain`, `du-atproto`, `du-bio` are already cleanly separated
-  with no server/web coupling, so extraction is mechanical once located. We'll
-  confirm the location and open the move.
-- **Haploid variant caller (your ask #3):** leaning toward landing it in
-  **`du-bio`** (shared) so the AppView's curation/consensus side can reuse the
-  same calling logic that produced a proposal — pending the extraction decision
-  above. If it pulls in heavy/edge-only deps we'd reconsider a Navigator-only crate.
+- **Shared-crate extraction (your ask #1): DECIDED — a dedicated `decodingus-shared`
+  git repo.** We'll extract `du-domain`, `du-atproto`, `du-bio` there; both
+  decodingus and DUNavigator git-dep on it (fixes flow both ways, clear ownership).
+  They're already cleanly separated with no server/web coupling, so the move is
+  mechanical. Coordinating repo creation + remote next; we'll send the repo URL.
+- **Haploid variant caller (your ask #3): DECIDED — Navigator-only crate.** Keep
+  it in a Navigator-owned crate so any heavy/edge-only deps stay off the AppView;
+  `du-bio` stays I/O + liftover + callable. If the AppView later needs the same
+  calling logic we can promote a pure subset into `du-bio` then.
 
 ## What we're building next (AppView side)
 
