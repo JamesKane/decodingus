@@ -59,6 +59,9 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 # URL/query encoding (language-switcher `next` param)
 percent-encoding = "2"
 
+# CLI
+clap = { version = "4", features = ["derive"] }
+
 # Errors / logging / config
 thiserror = "2"
 anyhow = "1"
