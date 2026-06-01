@@ -1,0 +1,189 @@
+# DecodingUs — Rust port
+
+A work-in-progress rewrite of the DecodingUs platform (originally Play Framework
+/ Scala 3) in Rust. It coexists with the Scala app under `rust/` during the
+transition and will replace it at a single cutover.
+
+**Status:** foundation + public read surface + auth/curator + ETL are working and
+verified against a live PostGIS database. Workspace builds clean; **11/11 tests
+pass**. Not yet production-complete — see [Roadmap](#roadmap).
+
+---
+
+## Why the rewrite
+
+- Drop the JVM's memory/startup overhead for a single static binary.
+- Replace a sprawling, accreted schema (~84 tables across 6 schemas + a second
+  "metadata" DB) with a de-sprawled design that leans on Postgres **JSONB** for
+  document-shaped data.
+- Run fully **Docker-less for local dev/test** on Apple Silicon via Apple's
+  `container` CLI, while remaining Docker-deployable for production.
+
+## Stack
+
+| Concern | Choice |
+|---|---|
+| Web | **Axum** 0.7 (+ tower / tower-http / tower-cookies) |
+| Templates | **Askama** (compile-time typed, Twirl analog) |
+| Frontend | **HTMX** 2 + Bootstrap 5 (vendored), HATEOAS-first |
+| Database | **SQLx** 0.8 (Postgres, runtime-checked queries) |
+| Genomics I/O | **noodles** (pure Rust; replaces JVM htsjdk) — *planned* |
+| Async | **tokio** |
+| Auth | Argon2 (bcrypt-verify fallback), signed-cookie sessions |
+| i18n | embedded `key=value` catalogs (en/es/fr) |
+| Local Postgres | Apple `container` running `imresamu/postgis` (arm64) |
+
+## Workspace layout
+
+```
+rust/
+  crates/
+    du-domain/    pure types + (planned) algorithms, no IO; JSONB payload structs
+    du-db/        SQLx pool + per-aggregate query modules
+    du-bio/       genomics file I/O (noodles) — scaffold
+    du-atproto/   AT Protocol / PDS federation — scaffold
+    du-external/  OpenAlex / ENA / AWS SES / Secrets — scaffold
+    du-web/        Axum app: routes, Askama templates, i18n, HTMX, auth
+    du-jobs/       scheduled workers — scaffold
+    du-migrate/    one-time legacy -> new-schema ETL
+  migrations/     redesigned schema (0001–0009)
+  locales/        en / es / fr message catalogs
+  scripts/        test-db.sh (Apple container), mock-legacy.sql
+  Dockerfile, compose.yaml, .env.example
+```
+
+## Schema redesign (`migrations/0001`–`0009`)
+
+Ten Postgres schemas: `core`, `tree`, `genomics`, `pubs`, `ident`, `ibd`, `fed`,
+`social`, `support`, `billing`. Key de-sprawl moves:
+
+- **3 biosample tables → 1** `core.biosample` (a `source` enum discriminator +
+  `source_attrs` JSONB).
+- **Deprecated child tables folded into JSONB** on their parents (variant aliases
+  & coordinates, sequence-file checksums/locations, alignment coverage, original
+  haplogroups).
+- The legacy second **"metadata" database collapses into the `fed` schema**.
+- Scattered `at_uri`/`at_cid` columns → one consistent **`atproto` JSONB** column.
+- PostGIS (`geometry(Point,4326)`), `citext`, native enums, GIN/GiST/expression
+  indexes on queried JSONB paths.
+
+## What's implemented
+
+**Public surface** (server-rendered, HTMX, i18n en/es/fr):
+
+| Area | Routes |
+|---|---|
+| Home | `/` |
+| Variant browser | `/variants` (+ list/detail fragments; JSONB alias search) |
+| Y/MT tree | `/ytree` `/mtree` (unified page/fragment via `HX-Request`) |
+| References + biosample report | `/references` (+ list / per-publication report) |
+| Biosample map | `/biosamples/map` (PostGIS `ST_X/ST_Y` → Leaflet GeoJSON) |
+| Coverage benchmarks | `/coverage-benchmarks` (coverage-JSONB aggregation) |
+| Health | `/health` |
+
+**Auth & curator** (Argon2 + signed-cookie sessions, RBAC):
+
+- `/login` `/logout`; `Curator` route guard (`TreeCurator`/`Admin`).
+- Two-panel HTMX CRUD for **haplogroups**, **variants**, and **genome regions**
+  (the region editor edits the coordinates/properties JSONB as validated JSON).
+  Mutations are server-driven via `HX-Trigger` (the panel returns + the list
+  reloads), with delete guards for referenced rows.
+
+**ETL** (`du-migrate`): legacy → new schema, preserving PKs and `sample_guid` so
+FKs carry over 1:1; idempotent; reconciliation pass. Verified against a mock
+legacy DB (see below).
+
+## Getting started
+
+### Prerequisites
+
+- Rust (stable/nightly) — `cargo`.
+- **Apple `container`** for the local database. First run once:
+  ```sh
+  container system start        # installs the default Linux kernel on first run
+  ```
+  (No Docker required. Any `DATABASE_URL` also works as a fallback.)
+- *Optional:* `sqlx-cli` (`cargo install sqlx-cli --no-default-features --features postgres,rustls`)
+  to auto-apply migrations and, later, enable compile-time `query!` checking.
+
+### Run the app
+
+```sh
+# Start Postgres (PostGIS) and print the DATABASE_URL to export:
+eval "$(./scripts/test-db.sh up)"      # Apple container gives it its own IP
+
+# Run the web server (connects + applies migrations on startup):
+cargo run -p du-web --bin decodingus   # serves on http://localhost:9000
+```
+
+Apple `container` assigns each container its own IP (no `localhost` port
+forwarding), so `test-db.sh` discovers it and emits the right `DATABASE_URL`
+(e.g. `postgres://postgres:dev@192.168.64.2:5432/decodingus`). Stop it with
+`./scripts/test-db.sh down`.
+
+### Seed a curator (to use the curator tools)
+
+```sh
+HASH=$(cargo run -q -p du-web --bin decodingus -- hash-password 'yourpassword')
+# then insert ident.users + ident.user_login_info(provider_id='credentials',
+# provider_key='<handle>', password_hash=$HASH) + ident.user_roles('TreeCurator').
+```
+
+## Testing
+
+```sh
+eval "$(./scripts/test-db.sh up)"
+cargo test --workspace
+```
+
+Integration tests are gated on `DATABASE_URL`: with it set they run against the
+live PostGIS (migrations, JSONB round-trips, query modules); without it they skip
+and the suite stays green. The i18n test enforces that es/fr cover every English
+key.
+
+## Running the ETL
+
+The production source is a self-managed Postgres on EC2.
+
+```sh
+decodingus-migrate \
+  --legacy "postgres://user:pass@ec2-host:5432/decodingus?sslmode=require" \
+  --target "$DATABASE_URL"            # runs transformers + reconciliation
+
+decodingus-migrate --legacy ... --target ... --verify   # counts only
+```
+
+Verify the transformers locally first with the mock legacy DB:
+
+```sh
+# create decodingus_legacy + decodingus_etl, load scripts/mock-legacy.sql into the
+# former and the migrations into the latter, then run the ETL between them.
+```
+
+> ⚠️ The transformer `SELECT`s encode the *reconstructed* legacy column layout.
+> Validate them against the live EC2 schema before the production run.
+
+## Deploy
+
+Multi-stage `Dockerfile` builds a single binary on a slim runtime (no JRE, no C
+deps); `compose.yaml` runs it with `postgis/postgis`. `SQLX_OFFLINE=true` is set
+for DB-less builds.
+
+## Roadmap
+
+- [x] Workspace + redesigned schema (verified on live PostGIS)
+- [x] `du-db` query modules + read-side domain types
+- [x] Public read surface (trees, variants, references, map, coverage)
+- [x] Asset vendoring, i18n (en/es/fr), `HX-Request` negotiation
+- [x] Session auth + RBAC; curator CRUD (haplogroups, variants, regions)
+- [x] `du-migrate` ETL core aggregates (verified vs mock legacy DB)
+- [ ] ETL: remaining aggregates (genomics, ibd, ident, fed, social, billing) —
+      validate read SQL against the live EC2 schema
+- [ ] Genomics ingestion (`du-bio` / noodles) + scheduled jobs (`du-jobs`)
+- [ ] AT Protocol federation (`du-atproto`): DID login, firehose, PDS fleet
+- [ ] External clients (`du-external`): OpenAlex, ENA, AWS SES/Secrets
+- [ ] Tree-versioning change-sets; haplogroup↔variant association editing
+- [ ] Vendor remaining assets; full OpenAPI parity; cutover rehearsal
+
+> The tree-merge algorithm is a known-buggy area in the legacy app and will be
+> re-implemented (not faithfully ported) when that subsystem lands.
