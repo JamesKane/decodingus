@@ -29,6 +29,7 @@ pub fn router() -> Router<AppState> {
         .route("/curator/proposals/fragment", get(list))
         .route("/curator/proposals/:id/panel", get(panel))
         .route("/curator/proposals/:id/review", post(review))
+        .route("/curator/proposals/:id/promote", post(promote))
 }
 
 // ── intake (Navigator → AppView) ─────────────────────────────────────────────
@@ -187,6 +188,8 @@ struct DetailTemplate {
     evidence: Vec<String>,
     /// True while still open to a decision (PROPOSED / UNDER_REVIEW).
     open: bool,
+    /// True when ACCEPTED and not yet promoted (show the Promote button).
+    accepted: bool,
 }
 
 async fn detail_view(st: &AppState, t: T, id: i64) -> Result<Response, AppError> {
@@ -194,13 +197,14 @@ async fn detail_view(st: &AppState, t: T, id: i64) -> Result<Response, AppError>
         .await?
         .ok_or_else(|| AppError::NotFound(format!("proposal {id}")))?;
     let open = matches!(d.summary.status.as_str(), "PROPOSED" | "UNDER_REVIEW");
+    let accepted = d.summary.status == "ACCEPTED";
     let row = to_row(d.summary);
     let evidence = d
         .evidence
         .iter()
         .map(|v| serde_json::to_string_pretty(v).unwrap_or_default())
         .collect();
-    Ok(html(&DetailTemplate { t, row, evidence, open }))
+    Ok(html(&DetailTemplate { t, row, evidence, open, accepted }))
 }
 
 async fn panel(
@@ -232,4 +236,23 @@ async fn review(
     }
     let body = detail_view(&st, locale.t, id).await?;
     Ok((HxHeaders::new().trigger(CHANGED), body).into_response())
+}
+
+/// Promote an accepted proposal into the named catalog (new haplogroup branch +
+/// relationship + variant links). Conflicts (wrong status, name taken, no parent)
+/// surface as a 422 message.
+async fn promote(
+    Curator(s): Curator,
+    State(st): State<AppState>,
+    locale: Locale,
+    Path(id): Path<i64>,
+) -> Result<Response, AppError> {
+    match du_db::proposal::promote(&st.pool, id, &s.display_name).await {
+        Ok(_) => {
+            let body = detail_view(&st, locale.t, id).await?;
+            Ok((HxHeaders::new().trigger(CHANGED), body).into_response())
+        }
+        Err(du_db::DbError::Conflict(msg)) => Err(AppError::BadRequest(msg)),
+        Err(e) => Err(e.into()),
+    }
 }

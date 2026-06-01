@@ -163,6 +163,135 @@ pub async fn get(pool: &PgPool, id: i64) -> Result<Option<ProposalDetail>, DbErr
     Ok(Some(ProposalDetail { summary, evidence }))
 }
 
+/// A defining variant extracted from proposal evidence.
+struct DefiningVariant {
+    name: String,
+    position: Option<i64>,
+    reference: Option<String>,
+    alternate: Option<String>,
+}
+
+/// Pull distinct defining variants from the proposal's evidence JSONB. Each
+/// evidence object may carry `variant` (name) plus optional `pos`/`ref`/`alt`.
+fn defining_variants(evidence: &[Value]) -> Vec<DefiningVariant> {
+    let mut seen = std::collections::BTreeMap::new();
+    for e in evidence {
+        if let Some(name) = e.get("variant").and_then(Value::as_str) {
+            seen.entry(name.to_string()).or_insert_with(|| DefiningVariant {
+                name: name.to_string(),
+                position: e.get("pos").and_then(Value::as_i64),
+                reference: e.get("ref").and_then(Value::as_str).map(str::to_string),
+                alternate: e.get("alt").and_then(Value::as_str).map(str::to_string),
+            });
+        }
+    }
+    seen.into_values().collect()
+}
+
+/// Promote an ACCEPTED proposal into the named catalog: create the
+/// `tree.haplogroup` branch under its parent, a current relationship edge, and
+/// `core.variant` links from the evidence's defining variants. Sets the
+/// proposal status to `PROMOTED` and records a `PROMOTE` curator action.
+/// Returns the new haplogroup id. All in one transaction.
+pub async fn promote(pool: &PgPool, id: i64, action_by: &str) -> Result<i64, DbError> {
+    // Load proposal + evidence first (read-only).
+    let detail = get(pool, id).await?.ok_or_else(|| DbError::Conflict(format!("proposal {id} not found")))?;
+    if detail.summary.status != "ACCEPTED" {
+        return Err(DbError::Conflict(format!("proposal must be ACCEPTED to promote (is {})", detail.summary.status)));
+    }
+    let name = detail.summary.proposed_name.clone().filter(|n| !n.is_empty())
+        .ok_or_else(|| DbError::Conflict("proposal has no proposed_name".into()))?;
+
+    let mut tx = pool.begin().await?;
+
+    // Parent (and its lineage) is required to place the branch.
+    let parent: Option<(i64, String)> = sqlx::query_as(
+        "SELECT h.id, h.haplogroup_type::text FROM tree.proposed_branch pb \
+         JOIN tree.haplogroup h ON h.id = pb.parent_haplogroup_id WHERE pb.id = $1",
+    )
+    .bind(id)
+    .fetch_optional(&mut *tx)
+    .await?;
+    let (parent_id, dna) = parent.ok_or_else(|| DbError::Conflict("proposal has no parent haplogroup to attach under".into()))?;
+
+    // Name must not already exist for this lineage.
+    let exists: Option<i64> = sqlx::query_scalar(
+        "SELECT id FROM tree.haplogroup WHERE name = $1 AND haplogroup_type::text = $2",
+    )
+    .bind(&name)
+    .bind(&dna)
+    .fetch_optional(&mut *tx)
+    .await?;
+    if exists.is_some() {
+        return Err(DbError::Conflict(format!("'{name}' is already in the {dna} catalog")));
+    }
+
+    // Create the branch.
+    let new_id: i64 = sqlx::query_scalar(
+        "INSERT INTO tree.haplogroup (name, haplogroup_type, source, confidence_level) \
+         VALUES ($1, $2::core.dna_type, 'discovery', 'proposed') RETURNING id",
+    )
+    .bind(&name)
+    .bind(&dna)
+    .fetch_one(&mut *tx)
+    .await?;
+
+    // Edge under the parent.
+    sqlx::query(
+        "INSERT INTO tree.haplogroup_relationship (child_haplogroup_id, parent_haplogroup_id, source) \
+         VALUES ($1, $2, 'discovery')",
+    )
+    .bind(new_id)
+    .bind(parent_id)
+    .execute(&mut *tx)
+    .await?;
+
+    // Defining variants: get-or-create by name (promote UNNAMED -> NAMED), link.
+    for dv in defining_variants(&detail.evidence) {
+        let coords = match dv.position {
+            Some(pos) => serde_json::json!({ "GRCh38": {
+                "contig": "chrY", "position": pos,
+                "reference_allele": dv.reference, "alternate_allele": dv.alternate
+            }}),
+            None => serde_json::json!({}),
+        };
+        let variant_id: i64 = sqlx::query_scalar(
+            "INSERT INTO core.variant (canonical_name, mutation_type, naming_status, coordinates) \
+             VALUES ($1, 'SNP'::core.mutation_type, 'NAMED'::core.naming_status, $2) \
+             ON CONFLICT (canonical_name) DO UPDATE SET naming_status = \
+               CASE WHEN core.variant.naming_status = 'UNNAMED' THEN 'NAMED'::core.naming_status \
+                    ELSE core.variant.naming_status END \
+             RETURNING id",
+        )
+        .bind(&dv.name)
+        .bind(coords)
+        .fetch_one(&mut *tx)
+        .await?;
+        sqlx::query("INSERT INTO tree.haplogroup_variant (haplogroup_id, variant_id) VALUES ($1, $2)")
+            .bind(new_id)
+            .bind(variant_id)
+            .execute(&mut *tx)
+            .await?;
+    }
+
+    sqlx::query("UPDATE tree.proposed_branch SET status = 'PROMOTED' WHERE id = $1")
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query(
+        "INSERT INTO tree.curator_action (proposed_branch_id, action, notes, action_by) \
+         VALUES ($1, 'PROMOTE', $2, $3)",
+    )
+    .bind(id)
+    .bind(format!("promoted to haplogroup #{new_id}"))
+    .bind(action_by)
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+    Ok(new_id)
+}
+
 /// Curator decision. `action` is APPROVE / REJECT / DEFER; sets the proposal
 /// status (ACCEPTED / REJECTED / UNDER_REVIEW) and records a curator_action.
 /// (Catalog promotion — creating the named branch/variants — is a separate step.)

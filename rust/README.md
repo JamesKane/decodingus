@@ -201,9 +201,12 @@ for DB-less builds.
       OAuth bearer later) with pooling/consensus, and a curator **review queue**
       (`/curator/proposals`: list/detail/approve-reject-defer → `curator_action`).
       Manual sample-entry APIs intentionally **dropped** (curators work in Navigator).
-- [ ] Federated ingest, remaining: (b) **Jetstream/relay discovery** (URI index)
-      + on-demand coverage aggregation; promotion of an accepted proposal into the
-      named catalog (`core.variant`/`tree.haplogroup`). NB: standard relay/Jetstream
+- [x] **Promote** an accepted proposal into the named catalog: creates the
+      `tree.haplogroup` branch under its parent + relationship edge + `core.variant`
+      links from the evidence (status → PROMOTED, `curator_action` recorded);
+      the branch appears immediately in the public Y/MT tree.
+- [ ] Federated ingest, remaining: **Jetstream/relay discovery** (URI index)
+      + on-demand coverage aggregation. NB: standard relay/Jetstream
       ingest stays (reads are out of OAuth scope); only the custom REST/Kafka relay
       is dropped.
 - [x] Extracted `du-domain`/`du-atproto`/`du-bio` to the sibling `decodingus-shared`

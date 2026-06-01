@@ -111,6 +111,7 @@ prop.notes=Notas (opcional)
 prop.approve=Aprobar
 prop.reject=Rechazar
 prop.defer=Aplazar
+prop.promote=Promover al catálogo
 
 hg.title=Haplogrupos
 hg.new=Nuevo haplogrupo

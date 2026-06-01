@@ -30,6 +30,10 @@ pub enum DbError {
     /// A row's text/JSONB column failed to decode into a domain type.
     #[error("decode error: {0}")]
     Decode(String),
+    /// A precondition/uniqueness conflict surfaced to the caller (e.g. promoting
+    /// a proposal whose name is already in the catalog).
+    #[error("conflict: {0}")]
+    Conflict(String),
 }
 
 /// Decode a Postgres enum label (fetched as `::text`) into a domain enum that

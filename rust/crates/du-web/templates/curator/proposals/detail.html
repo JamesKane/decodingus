@@ -27,5 +27,11 @@
       </div>
     </form>
     {% endif %}
+    {% if accepted %}
+    <button class="btn btn-sm btn-primary mt-2"
+            hx-post="/curator/proposals/{{ row.id }}/promote" hx-target="#proposal-detail" hx-swap="innerHTML">
+      {{ t.get("prop.promote") }}
+    </button>
+    {% endif %}
   </div>
 </div>
