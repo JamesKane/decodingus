@@ -197,12 +197,15 @@ for DB-less builds.
       (`private_key_jwt`/DPoP/ES256, client-metadata + JWKS, PAR/token flow) **and**
       public-client builders (PKCE-only) for the Navigator desktop app to reuse.
       See `docs/atproto-oauth-findings.md` + `docs/atproto-edge-reply.md`.
-- [ ] Federated ingest per the Edge re-scope (AppView is **not** a network mirror):
-      (a) Navigator-authenticated **curation submission API** for variant/branch
-      proposals → consensus → curator → catalog; (b) **Jetstream/relay discovery**
-      (URI index) + on-demand coverage aggregation. Live handshake pending a test
-      PDS. NB: the standard relay/Jetstream ingest stays (reads are out of OAuth
-      scope); only the custom REST/Kafka relay is dropped.
+- [x] Curation **proposal intake** (`POST /api/v1/curation/proposals`, X-API-Key →
+      OAuth bearer later) with pooling/consensus, and a curator **review queue**
+      (`/curator/proposals`: list/detail/approve-reject-defer → `curator_action`).
+      Manual sample-entry APIs intentionally **dropped** (curators work in Navigator).
+- [ ] Federated ingest, remaining: (b) **Jetstream/relay discovery** (URI index)
+      + on-demand coverage aggregation; promotion of an accepted proposal into the
+      named catalog (`core.variant`/`tree.haplogroup`). NB: standard relay/Jetstream
+      ingest stays (reads are out of OAuth scope); only the custom REST/Kafka relay
+      is dropped.
 - [x] Extracted `du-domain`/`du-atproto`/`du-bio` to the sibling `decodingus-shared`
       repo (consumed via path deps for now); haploid caller stays Navigator-only.
       **Follow-up:** push `decodingus-shared` to a remote, then flip the three deps

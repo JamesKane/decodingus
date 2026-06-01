@@ -1,0 +1,33 @@
+{# Fragment: proposal rows. Target of #proposal-table. #}
+<table class="table table-hover table-sm align-middle">
+  <thead><tr>
+    <th>{{ t.get("prop.col.name") }}</th><th>{{ t.get("prop.col.parent") }}</th>
+    <th>{{ t.get("prop.col.status") }}</th>
+    <th class="text-end" title="{{ t.get("prop.col.evidence") }}/{{ t.get("prop.col.submitters") }}">E/S</th>
+    <th class="text-end">{{ t.get("prop.col.confidence") }}</th>
+  </tr></thead>
+  <tbody>
+    {% for r in list.rows %}
+    <tr class="tree-node" hx-get="/curator/proposals/{{ r.id }}/panel" hx-target="#proposal-detail" hx-swap="innerHTML">
+      <td><strong>{{ r.name }}</strong></td>
+      <td><small class="text-muted">{{ r.parent }}</small></td>
+      <td><span class="badge text-bg-light">{{ r.status }}</span></td>
+      <td class="text-end">{{ r.evidence_count }}/{{ r.submitter_count }}</td>
+      <td class="text-end">{{ r.confidence }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="5" class="detail-empty">{{ t.get("prop.none") }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% if list.total_pages > 1 %}
+<nav class="d-flex justify-content-between align-items-center">
+  <button class="btn btn-sm btn-outline-secondary{% if list.page <= 1 %} disabled{% endif %}"
+          hx-get="/curator/proposals/fragment?status={{ list.status }}&page={{ list.page - 1 }}" hx-target="#proposal-table">{{ t.get("pagination.previous") }}</button>
+  <small class="text-muted">{{ t.get("pagination.page") }} {{ list.page }} {{ t.get("pagination.of") }} {{ list.total_pages }} ({{ list.total }})</small>
+  <button class="btn btn-sm btn-outline-secondary{% if list.page >= list.total_pages %} disabled{% endif %}"
+          hx-get="/curator/proposals/fragment?status={{ list.status }}&page={{ list.page + 1 }}" hx-target="#proposal-table">{{ t.get("pagination.next") }}</button>
+</nav>
+{% else %}
+<small class="text-muted">{{ list.total }} {{ t.get("pagination.total") }}</small>
+{% endif %}

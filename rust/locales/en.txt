@@ -94,6 +94,23 @@ curator.roles=Roles
 curator.tool.haplogroups=Haplogroups
 curator.tool.variants=Variants
 curator.tool.regions=Genome regions
+curator.tool.proposals=Proposals
+
+prop.title=Curation Proposals
+prop.filter.all=All statuses
+prop.col.name=Proposed name
+prop.col.parent=Parent
+prop.col.status=Status
+prop.col.evidence=Evidence
+prop.col.submitters=Submitters
+prop.col.confidence=Confidence
+prop.none=No proposals match.
+prop.select=Select a proposal to review.
+prop.evidence=Evidence
+prop.notes=Notes (optional)
+prop.approve=Approve
+prop.reject=Reject
+prop.defer=Defer
 
 hg.title=Haplogroups
 hg.new=New haplogroup

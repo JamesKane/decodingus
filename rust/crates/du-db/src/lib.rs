@@ -15,6 +15,7 @@ pub mod coverage;
 pub mod genome_region;
 pub mod haplogroup;
 pub mod pagination;
+pub mod proposal;
 pub mod publication;
 pub mod variant;
 
