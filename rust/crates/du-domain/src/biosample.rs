@@ -6,6 +6,15 @@ use crate::enums::BiosampleSource;
 use crate::ids::SampleGuid;
 use serde::{Deserialize, Serialize};
 
+/// A mappable biosample location (from the donor's `geocoord`, WGS84).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GeoPoint {
+    pub lat: f64,
+    pub lon: f64,
+    pub accession: Option<String>,
+    pub source: BiosampleSource,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Biosample {
     pub sample_guid: SampleGuid,

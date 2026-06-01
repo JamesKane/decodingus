@@ -1,7 +1,7 @@
 //! Queries for the unified `core.biosample`.
 
 use crate::{parse_pg_enum, DbError, Page};
-use du_domain::biosample::Biosample;
+use du_domain::biosample::{Biosample, GeoPoint};
 use du_domain::ids::{PublicationId, SampleGuid};
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -44,6 +44,36 @@ pub async fn get_by_guid(pool: &PgPool, guid: SampleGuid) -> Result<Option<Biosa
         .fetch_optional(pool)
         .await?;
     row.map(BiosampleRow::into_domain).transpose()
+}
+
+/// All mappable biosample locations. PostGIS `ST_X`/`ST_Y` extract lon/lat from
+/// the donor's `geocoord` (geometry Point, 4326). Backs the biosample map.
+pub async fn geo_points(pool: &PgPool) -> Result<Vec<GeoPoint>, DbError> {
+    #[derive(sqlx::FromRow)]
+    struct GeoRow {
+        lat: f64,
+        lon: f64,
+        accession: Option<String>,
+        source: String,
+    }
+    let rows: Vec<GeoRow> = sqlx::query_as(
+        "SELECT ST_Y(d.geocoord) AS lat, ST_X(d.geocoord) AS lon, b.accession, \
+         b.source::text AS source \
+         FROM core.biosample b JOIN core.specimen_donor d ON d.id = b.donor_id \
+         WHERE d.geocoord IS NOT NULL AND b.deleted = false",
+    )
+    .fetch_all(pool)
+    .await?;
+    rows.into_iter()
+        .map(|r| {
+            Ok(GeoPoint {
+                lat: r.lat,
+                lon: r.lon,
+                accession: r.accession,
+                source: parse_pg_enum(&r.source, "source")?,
+            })
+        })
+        .collect()
 }
 
 /// Paginated biosamples linked to a publication (the biosample report).

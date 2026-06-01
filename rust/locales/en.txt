@@ -5,6 +5,7 @@ nav.ytree=Y-DNA Tree
 nav.mtree=mtDNA Tree
 nav.variants=Variants
 nav.references=References
+nav.map=Map
 lang.label=Language
 lang.en=English
 lang.es=Español
@@ -63,3 +64,7 @@ references.col.accession=Accession
 references.col.alias=Alias
 references.col.source=Source
 references.col.description=Description
+
+map.title=Biosample Map
+map.samples=samples
+map.loading=Loading map…
