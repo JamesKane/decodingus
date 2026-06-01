@@ -185,11 +185,18 @@ for DB-less builds.
       lands; binary formats (BAM/CRAM) via noodles
 - [x] AT Protocol identity/crypto core (`du-atproto`): DID/AT-URI parse, did:key
       Ed25519 verification, DID-doc/PDS resolution
-- [x] AT Protocol OAuth **client wiring** (PKCE/DPoP/ES256, client-metadata +
-      JWKS, PAR/token flow). Live handshake + permission sets are the joint step
-      with the Edge team — see `docs/atproto-oauth-findings.md`. Federation
-      pivoted from a custom private firehose to protocol permissions/OAuth +
-      notify-then-fetch (private data bypasses the firehose)
+- [x] AT Protocol OAuth **client wiring** — confidential web client
+      (`private_key_jwt`/DPoP/ES256, client-metadata + JWKS, PAR/token flow) **and**
+      public-client builders (PKCE-only) for the Navigator desktop app to reuse.
+      See `docs/atproto-oauth-findings.md` + `docs/atproto-edge-reply.md`.
+- [ ] Federated ingest per the Edge re-scope (AppView is **not** a network mirror):
+      (a) Navigator-authenticated **curation submission API** for variant/branch
+      proposals → consensus → curator → catalog; (b) **Jetstream/relay discovery**
+      (URI index) + on-demand coverage aggregation. Live handshake pending a test
+      PDS. NB: the standard relay/Jetstream ingest stays (reads are out of OAuth
+      scope); only the custom REST/Kafka relay is dropped.
+- [ ] Extract `du-domain`/`du-atproto`/`du-bio` to a shared crate location for
+      Navigator reuse (location TBD)
 - [ ] External clients (`du-external`): OpenAlex, ENA, AWS SES/Secrets
 - [ ] Tree-versioning change-sets; haplogroup↔variant association editing
 - [ ] Vendor remaining assets; full OpenAPI parity; cutover rehearsal

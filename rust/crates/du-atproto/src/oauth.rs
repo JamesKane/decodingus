@@ -266,6 +266,47 @@ pub fn par_form(
     form
 }
 
+/// PAR form for a **public client** (PKCE only, no `client_assertion`) — e.g.
+/// the Navigator desktop app. The auth method is established by PKCE + DPoP.
+pub fn par_form_public(
+    client_id: &str,
+    redirect_uri: &str,
+    scope: &str,
+    state: &str,
+    code_challenge: &str,
+    login_hint: Option<&str>,
+) -> Vec<(String, String)> {
+    let mut form = vec![
+        ("response_type".into(), "code".into()),
+        ("client_id".into(), client_id.into()),
+        ("redirect_uri".into(), redirect_uri.into()),
+        ("scope".into(), scope.into()),
+        ("state".into(), state.into()),
+        ("code_challenge".into(), code_challenge.into()),
+        ("code_challenge_method".into(), "S256".into()),
+    ];
+    if let Some(hint) = login_hint {
+        form.push(("login_hint".into(), hint.into()));
+    }
+    form
+}
+
+/// Token-exchange form for a **public client** (PKCE only, no `client_assertion`).
+pub fn token_form_public(
+    client_id: &str,
+    redirect_uri: &str,
+    code: &str,
+    code_verifier: &str,
+) -> Vec<(String, String)> {
+    vec![
+        ("grant_type".into(), "authorization_code".into()),
+        ("code".into(), code.into()),
+        ("redirect_uri".into(), redirect_uri.into()),
+        ("client_id".into(), client_id.into()),
+        ("code_verifier".into(), code_verifier.into()),
+    ]
+}
+
 /// Authorization-code token-exchange form body.
 pub fn token_form(
     client_id: &str,
@@ -367,6 +408,19 @@ mod tests {
         let b64 = key.to_base64();
         let restored = EcKey::from_base64(&b64).unwrap();
         assert_eq!(key.thumbprint(), restored.thumbprint());
+    }
+
+    #[test]
+    fn public_client_forms_omit_client_assertion() {
+        let par = par_form_public("nav-client", "http://127.0.0.1:0/callback", "atproto", "st8", "chal", Some("alice.test"));
+        assert!(par.iter().all(|(k, _)| k != "client_assertion"));
+        assert!(par.iter().any(|(k, v)| k == "code_challenge_method" && v == "S256"));
+        assert!(par.iter().any(|(k, v)| k == "login_hint" && v == "alice.test"));
+
+        let tok = token_form_public("nav-client", "http://127.0.0.1:0/callback", "code123", "verifier");
+        assert!(tok.iter().all(|(k, _)| k != "client_assertion"));
+        assert!(tok.iter().any(|(k, v)| k == "grant_type" && v == "authorization_code"));
+        assert!(tok.iter().any(|(k, v)| k == "code_verifier" && v == "verifier"));
     }
 
     #[test]
