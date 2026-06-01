@@ -40,11 +40,11 @@ rust/
   crates/
     du-domain/    pure types + (planned) algorithms, no IO; JSONB payload structs
     du-db/        SQLx pool + per-aggregate query modules
-    du-bio/       genomics file I/O (noodles) — scaffold
-    du-atproto/   AT Protocol identity/crypto (did:key verify, DID/PDS resolution); OAuth client next
+    du-bio/       genomics: callable-loci (BED), liftover (UCSC chain), VCF reader
+    du-atproto/   AT Protocol identity/crypto + OAuth client (PKCE/DPoP/metadata)
     du-external/  OpenAlex / ENA / AWS SES / Secrets — scaffold
-    du-web/        Axum app: routes, Askama templates, i18n, HTMX, auth
-    du-jobs/       scheduled workers — scaffold
+    du-web/        Axum app: routes, Askama templates, i18n, HTMX, auth, OAuth
+    du-jobs/       tokio scheduler harness + DB heartbeat (real jobs as clients land)
     du-migrate/    one-time legacy -> new-schema ETL
   migrations/     redesigned schema (0001–0009)
   locales/        en / es / fr message catalogs
@@ -179,13 +179,17 @@ for DB-less builds.
 - [x] `du-migrate` ETL core aggregates (verified vs mock legacy DB)
 - [ ] ETL: remaining aggregates (genomics, ibd, ident, fed, social, billing) —
       validate read SQL against the live EC2 schema
-- [ ] Genomics ingestion (`du-bio` / noodles) + scheduled jobs (`du-jobs`)
+- [x] `du-bio` core: callable-loci (BED), liftover (UCSC chain), VCF reader
+- [x] `du-jobs` scheduler harness (tokio; error-isolated jobs + run-on-start)
+- [ ] Genomics ingestion jobs (YBrowse/HipSTR → core.variant) once du-external
+      lands; binary formats (BAM/CRAM) via noodles
 - [x] AT Protocol identity/crypto core (`du-atproto`): DID/AT-URI parse, did:key
       Ed25519 verification, DID-doc/PDS resolution
-- [ ] AT Protocol OAuth client + permission sets (PAR/DPoP/scopes) → PDS login.
-      Federation pivoted away from a custom private firehose toward protocol
-      permissions/OAuth + notify-then-fetch (private data bypasses the firehose);
-      group-private data spec is still maturing upstream
+- [x] AT Protocol OAuth **client wiring** (PKCE/DPoP/ES256, client-metadata +
+      JWKS, PAR/token flow). Live handshake + permission sets are the joint step
+      with the Edge team — see `docs/atproto-oauth-findings.md`. Federation
+      pivoted from a custom private firehose to protocol permissions/OAuth +
+      notify-then-fetch (private data bypasses the firehose)
 - [ ] External clients (`du-external`): OpenAlex, ENA, AWS SES/Secrets
 - [ ] Tree-versioning change-sets; haplogroup↔variant association editing
 - [ ] Vendor remaining assets; full OpenAPI parity; cutover rehearsal
