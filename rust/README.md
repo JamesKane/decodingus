@@ -107,7 +107,12 @@ UUID PKs over 1:1 (`public.users`→`ident.users`, the `auth.*` RBAC/OAuth/PDS/
 consent tables, and `curator.audit_log`→`ident.audit_log`); pre-seeded base
 roles are relocated onto the legacy role UUIDs so `user_roles` FKs resolve, and
 `password_hash` stays NULL (production auth is AT Protocol OAuth, not passwords).
-Validated two ways: schema-only
+The **genomics** group folds the `alignment_coverage` /
+`pangenome_alignment_coverage` child tables (plus inline Picard metrics) into the
+`coverage`/`metadata` JSONB the coverage page reads (`meanDepth`,
+`percent_coverage_at_10x`), resolves `sequence_library.lab` names to migrated lab
+ids, dedups `sequencer_instrument` on `instrument_id`, and skips soft-deleted
+`genotype_data`. Validated two ways: schema-only
 against `db.schema` (0 column errors) and end-to-end against a current-schema
 mock with seed data (all 10 aggregates reconcile; JSONB shapes spot-checked).
 See below.
@@ -196,10 +201,13 @@ for DB-less builds.
 - [x] Asset vendoring, i18n (en/es/fr), `HX-Request` negotiation
 - [x] Session auth + RBAC; curator CRUD (haplogroups, variants, regions)
 - [x] `du-migrate` ETL: catalog aggregates (donors, biosamples, variants, tree,
-      studies, publications) + **ident/auth** (users, RBAC, AT Protocol
-      OAuth/PDS, consent, curator audit) — verified vs current-schema mock DB
-- [ ] ETL: remaining aggregates (genomics, ibd, fed, social, billing) —
-      validate read SQL against the live EC2 schema
+      studies, publications), **ident/auth** (users, RBAC, AT Protocol OAuth/PDS,
+      consent, curator audit), and **genomics** (labs, instruments, test types,
+      sequencing libraries/files, alignment + pangenome coverage, genotype data,
+      pangenome graph) — verified vs current-schema mock DB. This is the full
+      production ETL surface (ibd/fed/social/billing are not yet in production).
+- [ ] ETL: validate read SQL against a current-schema dump or read-only EC2
+      rehearsal before cutover
 - [x] `du-bio` core: callable-loci (BED), liftover (UCSC chain), VCF reader
 - [x] `du-jobs` scheduler harness (tokio; error-isolated jobs + run-on-start)
 - [x] `du-external` OpenAlex + ENA clients (parsing unit-tested; abstract

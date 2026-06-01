@@ -277,6 +277,223 @@ CREATE TABLE curator.audit_log (
     created_at timestamp without time zone DEFAULT now() NOT NULL
 );
 
+-- ── genomics (sequencing, coverage, pangenome) ──────────────────────────────
+CREATE TYPE public.data_generation_method AS ENUM ('SEQUENCING','GENOTYPING');
+CREATE TYPE public.target_type AS ENUM ('WHOLE_GENOME','Y_CHROMOSOME','MT_DNA','AUTOSOMAL','X_CHROMOSOME','MIXED');
+
+CREATE TABLE public.sequencing_lab (
+    id SERIAL PRIMARY KEY,
+    name varchar(255) NOT NULL,
+    is_d2c boolean DEFAULT false NOT NULL,
+    website_url varchar(255),
+    description_markdown text,
+    created_at timestamp without time zone DEFAULT now() NOT NULL,
+    updated_at timestamp without time zone
+);
+CREATE TABLE public.sequencer_instrument (
+    id SERIAL PRIMARY KEY,
+    instrument_id varchar(255) NOT NULL,
+    lab_id integer NOT NULL,
+    manufacturer varchar(255),
+    model varchar(255),
+    created_at timestamp without time zone DEFAULT now() NOT NULL,
+    updated_at timestamp without time zone
+);
+CREATE TABLE public.test_type_definition (
+    id SERIAL PRIMARY KEY,
+    code varchar(50) NOT NULL,
+    display_name varchar(100) NOT NULL,
+    category public.data_generation_method NOT NULL,
+    vendor varchar(100),
+    target_type public.target_type NOT NULL,
+    expected_min_depth double precision,
+    supports_haplogroup_y boolean DEFAULT false NOT NULL,
+    supports_haplogroup_mt boolean DEFAULT false NOT NULL,
+    supports_autosomal_ibd boolean DEFAULT false NOT NULL,
+    supports_ancestry boolean DEFAULT false NOT NULL,
+    typical_file_formats text[],
+    description text
+);
+CREATE TABLE public.pangenome_graph (
+    id BIGSERIAL PRIMARY KEY,
+    graph_name varchar(255) NOT NULL,
+    source_gfa_file varchar(255),
+    description text,
+    creation_date timestamp without time zone DEFAULT now() NOT NULL
+);
+CREATE TABLE public.pangenome_node (
+    id BIGSERIAL PRIMARY KEY,
+    graph_id bigint NOT NULL,
+    node_name varchar(255) NOT NULL,
+    sequence_length bigint
+);
+CREATE TABLE public.pangenome_path (
+    id BIGSERIAL PRIMARY KEY,
+    graph_id bigint NOT NULL,
+    path_name varchar(255) NOT NULL,
+    is_reference boolean DEFAULT false,
+    length_bp bigint,
+    description text
+);
+CREATE TABLE public.canonical_pangenome_variant (
+    id BIGSERIAL PRIMARY KEY,
+    pangenome_graph_id integer NOT NULL,
+    variant_type varchar(50) NOT NULL,
+    variant_nodes integer[] NOT NULL,
+    variant_edges integer[] DEFAULT '{}' NOT NULL,
+    reference_path_id integer,
+    reference_start_position integer,
+    reference_end_position integer,
+    reference_allele_sequence text,
+    alternate_allele_sequence text,
+    canonical_hash varchar(255) NOT NULL,
+    description text,
+    creation_date timestamp without time zone DEFAULT now() NOT NULL
+);
+CREATE TABLE public.sequence_library (
+    id SERIAL PRIMARY KEY,
+    sample_guid uuid NOT NULL,
+    lab varchar(255) NOT NULL,
+    run_date timestamp without time zone NOT NULL,
+    instrument varchar(255) NOT NULL,
+    reads bigint NOT NULL,
+    read_length integer NOT NULL,
+    paired_end boolean NOT NULL,
+    insert_size integer,
+    created_at timestamp without time zone NOT NULL,
+    updated_at timestamp without time zone,
+    at_uri varchar(255),
+    at_cid varchar(255),
+    test_type_id integer NOT NULL
+);
+CREATE TABLE public.sequence_file (
+    id SERIAL PRIMARY KEY,
+    library_id integer NOT NULL,
+    file_name varchar(255) NOT NULL,
+    file_size_bytes bigint NOT NULL,
+    file_format varchar(255) NOT NULL,
+    aligner varchar(255) NOT NULL,
+    target_reference varchar(255) NOT NULL,
+    created_at timestamp without time zone NOT NULL,
+    updated_at timestamp without time zone,
+    pangenome_graph_id integer,
+    checksums jsonb DEFAULT '[]'::jsonb,
+    http_locations jsonb DEFAULT '[]'::jsonb,
+    atp_location jsonb
+);
+CREATE TABLE public.alignment_metadata (
+    id BIGSERIAL PRIMARY KEY,
+    sequence_file_id bigint NOT NULL,
+    genbank_contig_id integer NOT NULL,
+    metric_level varchar(50) NOT NULL,
+    region_name varchar(255),
+    region_start_pos bigint,
+    region_end_pos bigint,
+    region_length_bp bigint,
+    metrics_date timestamp without time zone DEFAULT now() NOT NULL,
+    analysis_tool varchar(255) NOT NULL,
+    analysis_tool_version varchar(50),
+    notes text,
+    metadata jsonb,
+    reference_build varchar(255),
+    variant_caller varchar(255),
+    genome_territory bigint,
+    mean_coverage double precision,
+    median_coverage double precision,
+    sd_coverage double precision,
+    pct_exc_dupe double precision,
+    pct_exc_mapq double precision,
+    pct_10x double precision,
+    pct_20x double precision,
+    pct_30x double precision,
+    het_snp_sensitivity double precision
+);
+CREATE TABLE public.alignment_coverage (
+    alignment_metadata_id bigint NOT NULL,
+    mean_depth double precision,
+    median_depth double precision,
+    percent_coverage_at_1x double precision,
+    percent_coverage_at_5x double precision,
+    percent_coverage_at_10x double precision,
+    percent_coverage_at_20x double precision,
+    percent_coverage_at_30x double precision,
+    bases_no_coverage bigint,
+    bases_low_quality_mapping bigint,
+    bases_callable bigint,
+    mean_mapping_quality double precision
+);
+CREATE TABLE public.pangenome_alignment_metadata (
+    id BIGSERIAL PRIMARY KEY,
+    sequence_file_id bigint NOT NULL,
+    pangenome_graph_id integer NOT NULL,
+    metric_level varchar(50) NOT NULL,
+    pangenome_path_id integer,
+    pangenome_node_id integer,
+    region_start_node_id integer,
+    region_end_node_id integer,
+    region_name varchar(255),
+    region_length_bp bigint,
+    metrics_date timestamp without time zone DEFAULT now() NOT NULL,
+    analysis_tool varchar(255) NOT NULL,
+    analysis_tool_version varchar(50),
+    notes text,
+    metadata jsonb
+);
+CREATE TABLE public.pangenome_alignment_coverage (
+    alignment_metadata_id bigint NOT NULL,
+    mean_depth double precision,
+    median_depth double precision,
+    percent_coverage_at_1x double precision,
+    percent_coverage_at_5x double precision,
+    percent_coverage_at_10x double precision,
+    percent_coverage_at_20x double precision,
+    percent_coverage_at_30x double precision,
+    bases_no_coverage bigint,
+    bases_low_quality_mapping bigint,
+    bases_callable bigint,
+    mean_mapping_quality double precision
+);
+CREATE TABLE public.reported_variant_pangenome (
+    id BIGSERIAL PRIMARY KEY,
+    sample_guid uuid NOT NULL,
+    graph_id integer NOT NULL,
+    variant_type varchar(50) NOT NULL,
+    reference_path_id integer,
+    reference_start_position integer,
+    reference_end_position integer,
+    variant_nodes integer[] NOT NULL,
+    variant_edges integer[] DEFAULT '{}' NOT NULL,
+    alternate_allele_sequence text,
+    reference_allele_sequence text,
+    reference_repeat_count integer,
+    alternate_repeat_count integer,
+    allele_fraction double precision,
+    depth integer,
+    reported_date timestamp without time zone DEFAULT now() NOT NULL,
+    provenance varchar(255) NOT NULL,
+    confidence_score double precision NOT NULL,
+    notes text,
+    status varchar(255) NOT NULL,
+    zygosity varchar(10),
+    haplotype_information jsonb
+);
+CREATE TABLE public.genotype_data (
+    id SERIAL PRIMARY KEY,
+    at_uri varchar,
+    at_cid varchar,
+    sample_guid uuid NOT NULL,
+    test_type_id integer,
+    provider varchar,
+    chip_version varchar,
+    build_version varchar,
+    source_file_hash varchar,
+    metrics jsonb DEFAULT '{}'::jsonb NOT NULL,
+    population_breakdown_id integer,
+    deleted boolean DEFAULT false,
+    created_at timestamp without time zone DEFAULT now(),
+    updated_at timestamp without time zone DEFAULT now()
+);
+
 -- ── seed ─────────────────────────────────────────────────────────────────────
 INSERT INTO public.specimen_donor (donor_identifier, origin_biobank, sex, donor_type, geocoord) VALUES
  ('D1','Biobank A','male','Standard', ST_SetSRID(ST_MakePoint(-0.12,51.50),4326)),
@@ -356,3 +573,39 @@ INSERT INTO auth.atprotocol_client_metadata (client_id_url, client_name, client_
 INSERT INTO curator.audit_log (user_id, entity_type, entity_id, action, old_value, new_value, comment) VALUES
  ('aaaaaaaa-0000-0000-0000-000000000001','variant',1,'UPDATE','{"common_name":null}'::jsonb,'{"common_name":"M269"}'::jsonb,'Named terminal SNP'),
  ('aaaaaaaa-0000-0000-0000-000000000002','haplogroup',2,'CREATE',NULL,'{"name":"R1b"}'::jsonb,'Added R1b');
+
+-- genomics seed (sequencing run on the standard biosample 1111...).
+INSERT INTO public.sequencing_lab (name, is_d2c, website_url) VALUES
+ ('Dante Labs', true, 'https://dantelabs.com');
+-- two rows, same instrument_id across labs -> dedups to one on migration.
+INSERT INTO public.sequencer_instrument (instrument_id, lab_id, manufacturer, model) VALUES
+ ('A00123', 1, 'Illumina', 'NovaSeq 6000'),
+ ('A00123', 1, 'Illumina', 'NovaSeq 6000');
+INSERT INTO public.test_type_definition (code, display_name, category, vendor, target_type, expected_min_depth, supports_haplogroup_y, typical_file_formats, description) VALUES
+ ('WGS30','Whole Genome 30x','SEQUENCING','Dante','WHOLE_GENOME',30,true,'{BAM,VCF}','30x WGS');
+INSERT INTO public.pangenome_graph (graph_name, source_gfa_file, description) VALUES
+ ('HPRC-v1','hprc-v1.gfa','Human Pangenome Reference Consortium v1');
+INSERT INTO public.pangenome_node (graph_id, node_name, sequence_length) VALUES (1,'n1',128),(1,'n2',64);
+INSERT INTO public.pangenome_path (graph_id, path_name, is_reference, length_bp) VALUES (1,'GRCh38#chrY', true, 57227415);
+INSERT INTO public.canonical_pangenome_variant (pangenome_graph_id, variant_type, variant_nodes, variant_edges, reference_path_id, reference_allele_sequence, canonical_hash) VALUES
+ (1,'SNP','{1,2}','{1}',1,'T','hash-canon-1');
+INSERT INTO public.sequence_library (sample_guid, lab, run_date, instrument, reads, read_length, paired_end, insert_size, created_at, at_uri, at_cid, test_type_id) VALUES
+ ('11111111-1111-1111-1111-111111111111','Dante Labs','2023-05-01 00:00:00','A00123',900000000,150,true,350,'2023-05-02 00:00:00','at://did:plc:lab/app.decodingus.seqlib/abc','bafyseqlib1',1);
+INSERT INTO public.sequence_file (library_id, file_name, file_size_bytes, file_format, aligner, target_reference, created_at, pangenome_graph_id, checksums, http_locations, atp_location) VALUES
+ (1,'sample1.bam',64000000000,'BAM','bwa-mem2','GRCh38','2023-05-02 00:00:00',1,
+  '[{"algorithm":"sha256","checksum":"deadbeef","verified_at":"2023-05-03"}]'::jsonb,
+  '[{"file_url":"https://store/sample1.bam","file_index_url":"https://store/sample1.bam.bai"}]'::jsonb,
+  '{"repo_did":"did:plc:lab","record_cid":"bafyfile1","record_path":"app.decodingus.file/1"}'::jsonb);
+INSERT INTO public.alignment_metadata (sequence_file_id, genbank_contig_id, metric_level, reference_build, variant_caller, analysis_tool, analysis_tool_version, genome_territory, mean_coverage, median_coverage, pct_10x, pct_20x, pct_30x) VALUES
+ (1,1,'CONTIG_OVERALL','GRCh38','DeepVariant','Picard','3.0',57227415,31.2,30.0,99.1,97.5,90.2);
+INSERT INTO public.alignment_coverage (alignment_metadata_id, mean_depth, median_depth, percent_coverage_at_1x, percent_coverage_at_10x, percent_coverage_at_30x, bases_callable, mean_mapping_quality) VALUES
+ (1,32.5,31.0,99.9,98.7,91.0,56000000,58.4);
+INSERT INTO public.pangenome_alignment_metadata (sequence_file_id, pangenome_graph_id, metric_level, pangenome_path_id, region_name, analysis_tool, analysis_tool_version, metadata) VALUES
+ (1,1,'GRAPH_OVERALL',1,'whole-graph','vg','1.50','{"graphAlignedReads":880000000}'::jsonb);
+INSERT INTO public.pangenome_alignment_coverage (alignment_metadata_id, mean_depth, percent_coverage_at_10x) VALUES
+ (1,29.8,97.3);
+INSERT INTO public.reported_variant_pangenome (sample_guid, graph_id, variant_type, reference_path_id, variant_nodes, variant_edges, allele_fraction, depth, provenance, confidence_score, status, zygosity, haplotype_information) VALUES
+ ('11111111-1111-1111-1111-111111111111',1,'SNP',1,'{1,2}','{1}',0.99,34,'Navigator',0.97,'CONFIRMED','HET','{"phase_set":12}'::jsonb);
+INSERT INTO public.genotype_data (at_uri, at_cid, sample_guid, test_type_id, provider, chip_version, build_version, source_file_hash, metrics, deleted) VALUES
+ ('at://did:plc:chip/app.decodingus.genotype/g1','bafygeno1','11111111-1111-1111-1111-111111111111',1,'23andMe','v5','GRCh37','sha256:chip1','{"callRate":0.987,"totalMarkersCalled":630000}'::jsonb, false),
+ (NULL,NULL,'11111111-1111-1111-1111-111111111111',1,'DeletedProvider','v4','GRCh37','sha256:chip2','{}'::jsonb, true);

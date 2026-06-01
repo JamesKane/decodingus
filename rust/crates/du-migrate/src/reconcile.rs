@@ -47,6 +47,21 @@ const CHECKS: &[Check] = &[
         target_sql: "SELECT (SELECT count(*) FROM ident.atprotocol_authorization_servers) + (SELECT count(*) FROM ident.atprotocol_client_metadata)",
     },
     Check { label: "audit_log", legacy_sql: "SELECT count(*) FROM curator.audit_log", target_sql: "SELECT count(*) FROM ident.audit_log" },
+    // genomics group. sequencer_instrument may show target<legacy (instrument_id
+    // de-duplication); genotype_data target<=legacy (soft-deleted rows skipped).
+    Check { label: "genbank_contig", legacy_sql: "SELECT count(*) FROM public.genbank_contig", target_sql: "SELECT count(*) FROM genomics.genbank_contig" },
+    Check { label: "sequencing_lab", legacy_sql: "SELECT count(*) FROM public.sequencing_lab", target_sql: "SELECT count(*) FROM genomics.sequencing_lab" },
+    Check { label: "sequencer_instrument", legacy_sql: "SELECT count(DISTINCT instrument_id) FROM public.sequencer_instrument", target_sql: "SELECT count(*) FROM genomics.sequencer_instrument" },
+    Check { label: "test_type_definition", legacy_sql: "SELECT count(*) FROM public.test_type_definition", target_sql: "SELECT count(*) FROM genomics.test_type_definition" },
+    Check { label: "pangenome_graph", legacy_sql: "SELECT count(*) FROM public.pangenome_graph", target_sql: "SELECT count(*) FROM genomics.pangenome_graph" },
+    Check { label: "pangenome_path", legacy_sql: "SELECT count(*) FROM public.pangenome_path", target_sql: "SELECT count(*) FROM genomics.pangenome_path" },
+    Check { label: "canonical_pangenome_variant", legacy_sql: "SELECT count(*) FROM public.canonical_pangenome_variant", target_sql: "SELECT count(*) FROM genomics.canonical_pangenome_variant" },
+    Check { label: "sequence_library", legacy_sql: "SELECT count(*) FROM public.sequence_library", target_sql: "SELECT count(*) FROM genomics.sequence_library" },
+    Check { label: "sequence_file", legacy_sql: "SELECT count(*) FROM public.sequence_file", target_sql: "SELECT count(*) FROM genomics.sequence_file" },
+    Check { label: "alignment_metadata", legacy_sql: "SELECT count(*) FROM public.alignment_metadata", target_sql: "SELECT count(*) FROM genomics.alignment_metadata" },
+    Check { label: "pangenome_alignment_metadata", legacy_sql: "SELECT count(*) FROM public.pangenome_alignment_metadata", target_sql: "SELECT count(*) FROM genomics.pangenome_alignment_metadata" },
+    Check { label: "reported_variant_pangenome", legacy_sql: "SELECT count(*) FROM public.reported_variant_pangenome", target_sql: "SELECT count(*) FROM genomics.reported_variant_pangenome" },
+    Check { label: "genotype_data", legacy_sql: "SELECT count(*) FROM public.genotype_data WHERE deleted IS NOT TRUE", target_sql: "SELECT count(*) FROM genomics.genotype_data" },
 ];
 
 pub async fn run(legacy: &PgPool, target: &PgPool) -> anyhow::Result<()> {

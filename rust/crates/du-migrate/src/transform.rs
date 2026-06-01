@@ -943,6 +943,528 @@ pub async fn audit_log(legacy: &PgPool, target: &PgPool) -> anyhow::Result<()> {
     Ok(())
 }
 
+// ── genomics: contigs, labs, instruments, test types, pangenome, sequencing ──
+// Validated against db.schema. The legacy `alignment_coverage` /
+// `pangenome_alignment_coverage` child tables and assorted non-columnar fields
+// fold into the redesigned `coverage`/`metadata` JSONB. The coverage page reads
+// `coverage->>'meanDepth'` and `->>'percent_coverage_at_10x'`, so those keys are
+// always populated when a source value exists. Tables with no production source
+// are skipped (instrument_observation, instrument_association_proposal,
+// coverage_expectation_profile, biosample_callable_loci — Navigator populates
+// them going forward); `pangenome_node` is dropped (folded into node-id arrays).
+
+pub async fn genbank_contig(legacy: &PgPool, target: &PgPool) -> anyhow::Result<()> {
+    let rows = sqlx::query_as::<_, (i64, String, Option<String>, Option<String>, Option<i64>)>(
+        "SELECT genbank_contig_id::bigint, accession, common_name, reference_genome, seq_length::bigint \
+         FROM public.genbank_contig",
+    )
+    .fetch_all(legacy)
+    .await?;
+    let n = rows.len();
+    let mut tx = target.begin().await?;
+    for (id, acc, common, refg, len) in rows {
+        sqlx::query(
+            "INSERT INTO genomics.genbank_contig (id, accession, common_name, reference_genome, seq_length) \
+             OVERRIDING SYSTEM VALUE VALUES ($1,$2,$3,COALESCE($4,'GRCh38'),$5) \
+             ON CONFLICT (id) DO UPDATE SET accession=EXCLUDED.accession, common_name=EXCLUDED.common_name, \
+               reference_genome=EXCLUDED.reference_genome, seq_length=EXCLUDED.seq_length",
+        )
+        .bind(id).bind(acc).bind(common).bind(refg).bind(len)
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
+    tracing::info!(table = "genbank_contig", rows = n, "migrated");
+    Ok(())
+}
+
+pub async fn sequencing_lab(legacy: &PgPool, target: &PgPool) -> anyhow::Result<()> {
+    let rows = sqlx::query_as::<_, (i64, String, bool, Option<String>, Option<String>)>(
+        "SELECT id::bigint, name, is_d2c, website_url, description_markdown FROM public.sequencing_lab",
+    )
+    .fetch_all(legacy)
+    .await?;
+    let n = rows.len();
+    let mut tx = target.begin().await?;
+    for (id, name, d2c, web, desc) in rows {
+        sqlx::query(
+            "INSERT INTO genomics.sequencing_lab (id, name, is_d2c, website_url, description_markdown) \
+             OVERRIDING SYSTEM VALUE VALUES ($1,$2,$3,$4,$5) \
+             ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, is_d2c=EXCLUDED.is_d2c, \
+               website_url=EXCLUDED.website_url, description_markdown=EXCLUDED.description_markdown",
+        )
+        .bind(id).bind(name).bind(d2c).bind(web).bind(desc)
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
+    tracing::info!(table = "sequencing_lab", rows = n, "migrated");
+    Ok(())
+}
+
+pub async fn sequencer_instrument(legacy: &PgPool, target: &PgPool) -> anyhow::Result<()> {
+    // Redesign drops the per-lab tie and makes instrument_id UNIQUE; dedup to the
+    // first row per instrument_id (target<legacy here is benign de-duplication).
+    let rows = sqlx::query_as::<_, (i64, String, Option<String>, Option<String>)>(
+        "SELECT DISTINCT ON (instrument_id) id::bigint, instrument_id, model, manufacturer \
+         FROM public.sequencer_instrument ORDER BY instrument_id, id",
+    )
+    .fetch_all(legacy)
+    .await?;
+    let n = rows.len();
+    let mut tx = target.begin().await?;
+    for (id, iid, model, manuf) in rows {
+        sqlx::query(
+            "INSERT INTO genomics.sequencer_instrument (id, instrument_id, model_name, manufacturer) \
+             OVERRIDING SYSTEM VALUE VALUES ($1,$2,$3,$4) ON CONFLICT (instrument_id) DO NOTHING",
+        )
+        .bind(id).bind(iid).bind(model).bind(manuf)
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
+    tracing::info!(table = "sequencer_instrument", rows = n, "migrated");
+    Ok(())
+}
+
+#[derive(sqlx::FromRow)]
+struct TestTypeRow {
+    id: i64,
+    code: String,
+    display_name: String,
+    category: String,
+    vendor: Option<String>,
+    target_type: Option<String>,
+    expected_min_depth: Option<f64>,
+    supports_haplogroup_y: bool,
+    supports_haplogroup_mt: bool,
+    supports_autosomal_ibd: bool,
+    supports_ancestry: bool,
+    typical_file_formats: Vec<String>,
+    description: Option<String>,
+}
+
+pub async fn test_type_definition(legacy: &PgPool, target: &PgPool) -> anyhow::Result<()> {
+    let rows: Vec<TestTypeRow> = sqlx::query_as(
+        "SELECT id::bigint, code, display_name, category::text AS category, vendor, \
+                target_type::text AS target_type, expected_min_depth, supports_haplogroup_y, \
+                supports_haplogroup_mt, supports_autosomal_ibd, supports_ancestry, \
+                COALESCE(typical_file_formats, '{}') AS typical_file_formats, description \
+         FROM public.test_type_definition",
+    )
+    .fetch_all(legacy)
+    .await?;
+    let n = rows.len();
+    let mut tx = target.begin().await?;
+    for r in rows {
+        sqlx::query(
+            "INSERT INTO genomics.test_type_definition (id, code, display_name, category, vendor, target_type, \
+                expected_min_depth, supports_haplogroup_y, supports_haplogroup_mt, supports_autosomal_ibd, \
+                supports_ancestry, typical_file_formats, description) OVERRIDING SYSTEM VALUE \
+             VALUES ($1,$2,$3,$4::core.data_generation_method,$5,$6::core.target_type,$7,$8,$9,$10,$11,$12,$13) \
+             ON CONFLICT (id) DO UPDATE SET code=EXCLUDED.code, display_name=EXCLUDED.display_name, \
+               category=EXCLUDED.category, vendor=EXCLUDED.vendor, target_type=EXCLUDED.target_type, \
+               expected_min_depth=EXCLUDED.expected_min_depth, supports_haplogroup_y=EXCLUDED.supports_haplogroup_y, \
+               supports_haplogroup_mt=EXCLUDED.supports_haplogroup_mt, supports_autosomal_ibd=EXCLUDED.supports_autosomal_ibd, \
+               supports_ancestry=EXCLUDED.supports_ancestry, typical_file_formats=EXCLUDED.typical_file_formats, \
+               description=EXCLUDED.description",
+        )
+        .bind(r.id).bind(r.code).bind(r.display_name).bind(r.category).bind(r.vendor)
+        .bind(r.target_type).bind(r.expected_min_depth).bind(r.supports_haplogroup_y)
+        .bind(r.supports_haplogroup_mt).bind(r.supports_autosomal_ibd).bind(r.supports_ancestry)
+        .bind(r.typical_file_formats).bind(r.description)
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
+    tracing::info!(table = "test_type_definition", rows = n, "migrated");
+    Ok(())
+}
+
+pub async fn pangenome_graph(legacy: &PgPool, target: &PgPool) -> anyhow::Result<()> {
+    let rows = sqlx::query_as::<_, (i64, String, Option<String>, Option<String>, DateTime<Utc>)>(
+        "SELECT id::bigint, graph_name, source_gfa_file, description, creation_date::timestamptz \
+         FROM public.pangenome_graph",
+    )
+    .fetch_all(legacy)
+    .await?;
+    let n = rows.len();
+    let mut tx = target.begin().await?;
+    for (id, name, gfa, desc, created) in rows {
+        sqlx::query(
+            "INSERT INTO genomics.pangenome_graph (id, graph_name, source_gfa_file, description, creation_date) \
+             OVERRIDING SYSTEM VALUE VALUES ($1,$2,$3,$4,$5) \
+             ON CONFLICT (id) DO UPDATE SET graph_name=EXCLUDED.graph_name, source_gfa_file=EXCLUDED.source_gfa_file, \
+               description=EXCLUDED.description, creation_date=EXCLUDED.creation_date",
+        )
+        .bind(id).bind(name).bind(gfa).bind(desc).bind(created)
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
+    tracing::info!(table = "pangenome_graph", rows = n, "migrated");
+    Ok(())
+}
+
+pub async fn pangenome_path(legacy: &PgPool, target: &PgPool) -> anyhow::Result<()> {
+    let rows = sqlx::query_as::<_, (i64, i64, String, Option<bool>, Option<i64>)>(
+        "SELECT id::bigint, graph_id::bigint, path_name, is_reference, length_bp FROM public.pangenome_path",
+    )
+    .fetch_all(legacy)
+    .await?;
+    let n = rows.len();
+    let mut tx = target.begin().await?;
+    for (id, graph, name, isref, len) in rows {
+        sqlx::query(
+            "INSERT INTO genomics.pangenome_path (id, graph_id, path_name, is_reference, length_bp) \
+             OVERRIDING SYSTEM VALUE VALUES ($1,$2,$3,COALESCE($4,false),$5) \
+             ON CONFLICT (id) DO UPDATE SET graph_id=EXCLUDED.graph_id, path_name=EXCLUDED.path_name, \
+               is_reference=EXCLUDED.is_reference, length_bp=EXCLUDED.length_bp",
+        )
+        .bind(id).bind(graph).bind(name).bind(isref).bind(len)
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
+    tracing::info!(table = "pangenome_path", rows = n, "migrated");
+    Ok(())
+}
+
+#[derive(sqlx::FromRow)]
+struct CanonRow {
+    id: i64,
+    pangenome_graph_id: i64,
+    variant_type: Option<String>,
+    variant_nodes: Vec<i32>,
+    variant_edges: Vec<i32>,
+    reference_path_id: Option<i64>,
+    reference_allele_sequence: Option<String>,
+    canonical_hash: String,
+}
+
+pub async fn canonical_pangenome_variant(legacy: &PgPool, target: &PgPool) -> anyhow::Result<()> {
+    let rows: Vec<CanonRow> = sqlx::query_as(
+        "SELECT id::bigint, pangenome_graph_id::bigint, variant_type, variant_nodes, variant_edges, \
+                reference_path_id::bigint, reference_allele_sequence, canonical_hash \
+         FROM public.canonical_pangenome_variant",
+    )
+    .fetch_all(legacy)
+    .await?;
+    let n = rows.len();
+    let mut tx = target.begin().await?;
+    for r in rows {
+        sqlx::query(
+            "INSERT INTO genomics.canonical_pangenome_variant (id, pangenome_graph_id, variant_type, variant_nodes, \
+                variant_edges, reference_path_id, reference_allele_sequence, canonical_hash) OVERRIDING SYSTEM VALUE \
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8) \
+             ON CONFLICT (id) DO UPDATE SET pangenome_graph_id=EXCLUDED.pangenome_graph_id, \
+               variant_type=EXCLUDED.variant_type, variant_nodes=EXCLUDED.variant_nodes, \
+               variant_edges=EXCLUDED.variant_edges, reference_path_id=EXCLUDED.reference_path_id, \
+               reference_allele_sequence=EXCLUDED.reference_allele_sequence, canonical_hash=EXCLUDED.canonical_hash",
+        )
+        .bind(r.id).bind(r.pangenome_graph_id).bind(r.variant_type).bind(r.variant_nodes)
+        .bind(r.variant_edges).bind(r.reference_path_id).bind(r.reference_allele_sequence).bind(r.canonical_hash)
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
+    tracing::info!(table = "canonical_pangenome_variant", rows = n, "migrated");
+    Ok(())
+}
+
+#[derive(sqlx::FromRow)]
+struct SeqLibRow {
+    id: i64,
+    sample_guid: Uuid,
+    test_type_id: Option<i64>,
+    lab_id: Option<i64>,
+    run_date: Option<NaiveDate>,
+    instrument: Option<String>,
+    reads: Option<i64>,
+    read_length: Option<i32>,
+    paired_end: Option<bool>,
+    insert_size: Option<i32>,
+    atproto: Option<Value>,
+    created_at: DateTime<Utc>,
+    updated_at: Option<DateTime<Utc>>,
+}
+
+pub async fn sequence_library(legacy: &PgPool, target: &PgPool) -> anyhow::Result<()> {
+    // Legacy stores the lab as a name string; resolve it to the migrated lab id.
+    let rows: Vec<SeqLibRow> = sqlx::query_as(
+        "SELECT sl.id::bigint, sl.sample_guid, sl.test_type_id::bigint, lab_t.id::bigint AS lab_id, \
+                sl.run_date::date AS run_date, sl.instrument, sl.reads, sl.read_length, sl.paired_end, sl.insert_size, \
+                CASE WHEN sl.at_uri IS NOT NULL \
+                     THEN jsonb_strip_nulls(jsonb_build_object('uri', sl.at_uri, 'cid', sl.at_cid)) END AS atproto, \
+                sl.created_at::timestamptz, sl.updated_at::timestamptz \
+         FROM public.sequence_library sl LEFT JOIN public.sequencing_lab lab_t ON lab_t.name = sl.lab",
+    )
+    .fetch_all(legacy)
+    .await?;
+    let n = rows.len();
+    let mut tx = target.begin().await?;
+    for r in rows {
+        sqlx::query(
+            "INSERT INTO genomics.sequence_library (id, sample_guid, test_type_id, lab_id, run_date, instrument, \
+                reads, read_length, paired_end, insert_size, atproto, created_at, updated_at) OVERRIDING SYSTEM VALUE \
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,COALESCE($13, now())) \
+             ON CONFLICT (id) DO UPDATE SET sample_guid=EXCLUDED.sample_guid, test_type_id=EXCLUDED.test_type_id, \
+               lab_id=EXCLUDED.lab_id, run_date=EXCLUDED.run_date, instrument=EXCLUDED.instrument, reads=EXCLUDED.reads, \
+               read_length=EXCLUDED.read_length, paired_end=EXCLUDED.paired_end, insert_size=EXCLUDED.insert_size, \
+               atproto=EXCLUDED.atproto, updated_at=EXCLUDED.updated_at",
+        )
+        .bind(r.id).bind(r.sample_guid).bind(r.test_type_id).bind(r.lab_id).bind(r.run_date)
+        .bind(r.instrument).bind(r.reads).bind(r.read_length).bind(r.paired_end).bind(r.insert_size)
+        .bind(r.atproto).bind(r.created_at).bind(r.updated_at)
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
+    tracing::info!(table = "sequence_library", rows = n, "migrated");
+    Ok(())
+}
+
+#[derive(sqlx::FromRow)]
+struct SeqFileRow {
+    id: i64,
+    library_id: i64,
+    file_name: String,
+    file_size_bytes: Option<i64>,
+    file_format: Option<String>,
+    aligner: Option<String>,
+    target_reference: Option<String>,
+    pangenome_graph_id: Option<i64>,
+    checksums: Value,
+    http_locations: Value,
+    atp_location: Option<Value>,
+    created_at: DateTime<Utc>,
+}
+
+pub async fn sequence_file(legacy: &PgPool, target: &PgPool) -> anyhow::Result<()> {
+    let rows: Vec<SeqFileRow> = sqlx::query_as(
+        "SELECT id::bigint, library_id::bigint, file_name, file_size_bytes, file_format, aligner, target_reference, \
+                pangenome_graph_id::bigint, COALESCE(checksums, '[]'::jsonb) AS checksums, \
+                COALESCE(http_locations, '[]'::jsonb) AS http_locations, atp_location, created_at::timestamptz \
+         FROM public.sequence_file",
+    )
+    .fetch_all(legacy)
+    .await?;
+    let n = rows.len();
+    let mut tx = target.begin().await?;
+    for r in rows {
+        sqlx::query(
+            "INSERT INTO genomics.sequence_file (id, library_id, file_name, file_size_bytes, file_format, aligner, \
+                target_reference, pangenome_graph_id, checksums, http_locations, atp_location, created_at) \
+             OVERRIDING SYSTEM VALUE VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) \
+             ON CONFLICT (id) DO UPDATE SET library_id=EXCLUDED.library_id, file_name=EXCLUDED.file_name, \
+               file_size_bytes=EXCLUDED.file_size_bytes, file_format=EXCLUDED.file_format, aligner=EXCLUDED.aligner, \
+               target_reference=EXCLUDED.target_reference, pangenome_graph_id=EXCLUDED.pangenome_graph_id, \
+               checksums=EXCLUDED.checksums, http_locations=EXCLUDED.http_locations, atp_location=EXCLUDED.atp_location",
+        )
+        .bind(r.id).bind(r.library_id).bind(r.file_name).bind(r.file_size_bytes).bind(r.file_format)
+        .bind(r.aligner).bind(r.target_reference).bind(r.pangenome_graph_id).bind(r.checksums)
+        .bind(r.http_locations).bind(r.atp_location).bind(r.created_at)
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
+    tracing::info!(table = "sequence_file", rows = n, "migrated");
+    Ok(())
+}
+
+#[derive(sqlx::FromRow)]
+struct AlignRow {
+    id: i64,
+    sequence_file_id: i64,
+    genbank_contig_id: Option<i64>,
+    metric_level: String,
+    region_name: Option<String>,
+    region_start_pos: Option<i64>,
+    region_end_pos: Option<i64>,
+    reference_build: Option<String>,
+    variant_caller: Option<String>,
+    coverage: Value,
+}
+
+pub async fn alignment_metadata(legacy: &PgPool, target: &PgPool) -> anyhow::Result<()> {
+    // Fold the 1:1 alignment_coverage child + inline Picard metrics + analysis
+    // provenance into one coverage JSONB; meanDepth/percent_coverage_at_10x are
+    // the keys the coverage page aggregates on.
+    let rows: Vec<AlignRow> = sqlx::query_as(
+        "SELECT am.id::bigint, am.sequence_file_id::bigint, am.genbank_contig_id::bigint, am.metric_level, \
+                am.region_name, am.region_start_pos, am.region_end_pos, am.reference_build, am.variant_caller, \
+                (COALESCE(am.metadata, '{}'::jsonb) || jsonb_strip_nulls(jsonb_build_object( \
+                    'meanDepth', COALESCE(ac.mean_depth, am.mean_coverage), \
+                    'medianDepth', COALESCE(ac.median_depth, am.median_coverage), \
+                    'percent_coverage_at_1x', ac.percent_coverage_at_1x, \
+                    'percent_coverage_at_5x', ac.percent_coverage_at_5x, \
+                    'percent_coverage_at_10x', COALESCE(ac.percent_coverage_at_10x, am.pct_10x), \
+                    'percent_coverage_at_20x', COALESCE(ac.percent_coverage_at_20x, am.pct_20x), \
+                    'percent_coverage_at_30x', COALESCE(ac.percent_coverage_at_30x, am.pct_30x), \
+                    'basesNoCoverage', ac.bases_no_coverage, 'basesLowQualityMapping', ac.bases_low_quality_mapping, \
+                    'basesCallable', ac.bases_callable, 'meanMappingQuality', ac.mean_mapping_quality, \
+                    'genomeTerritory', am.genome_territory, 'sdCoverage', am.sd_coverage, \
+                    'pctExcDupe', am.pct_exc_dupe, 'pctExcMapq', am.pct_exc_mapq, \
+                    'hetSnpSensitivity', am.het_snp_sensitivity, \
+                    'analysis', NULLIF(jsonb_strip_nulls(jsonb_build_object('tool', am.analysis_tool, \
+                        'tool_version', am.analysis_tool_version, 'notes', am.notes, \
+                        'metrics_date', am.metrics_date::text, 'region_length_bp', am.region_length_bp)), '{}'::jsonb) \
+                ))) AS coverage \
+         FROM public.alignment_metadata am \
+         LEFT JOIN public.alignment_coverage ac ON ac.alignment_metadata_id = am.id",
+    )
+    .fetch_all(legacy)
+    .await?;
+    let n = rows.len();
+    let mut tx = target.begin().await?;
+    for r in rows {
+        sqlx::query(
+            "INSERT INTO genomics.alignment_metadata (id, sequence_file_id, genbank_contig_id, metric_level, \
+                region_name, region_start_pos, region_end_pos, reference_build, variant_caller, coverage) \
+             OVERRIDING SYSTEM VALUE VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) \
+             ON CONFLICT (id) DO UPDATE SET sequence_file_id=EXCLUDED.sequence_file_id, \
+               genbank_contig_id=EXCLUDED.genbank_contig_id, metric_level=EXCLUDED.metric_level, \
+               region_name=EXCLUDED.region_name, region_start_pos=EXCLUDED.region_start_pos, \
+               region_end_pos=EXCLUDED.region_end_pos, reference_build=EXCLUDED.reference_build, \
+               variant_caller=EXCLUDED.variant_caller, coverage=EXCLUDED.coverage",
+        )
+        .bind(r.id).bind(r.sequence_file_id).bind(r.genbank_contig_id).bind(r.metric_level)
+        .bind(r.region_name).bind(r.region_start_pos).bind(r.region_end_pos).bind(r.reference_build)
+        .bind(r.variant_caller).bind(r.coverage)
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
+    tracing::info!(table = "alignment_metadata", rows = n, "migrated");
+    Ok(())
+}
+
+pub async fn pangenome_alignment_metadata(legacy: &PgPool, target: &PgPool) -> anyhow::Result<()> {
+    let rows = sqlx::query_as::<_, (i64, i64, i64, String, Value)>(
+        "SELECT pam.id::bigint, pam.sequence_file_id::bigint, pam.pangenome_graph_id::bigint, pam.metric_level, \
+                (COALESCE(pam.metadata, '{}'::jsonb) || jsonb_strip_nulls(jsonb_build_object( \
+                    'meanDepth', pac.mean_depth, 'medianDepth', pac.median_depth, \
+                    'percent_coverage_at_1x', pac.percent_coverage_at_1x, \
+                    'percent_coverage_at_5x', pac.percent_coverage_at_5x, \
+                    'percent_coverage_at_10x', pac.percent_coverage_at_10x, \
+                    'percent_coverage_at_20x', pac.percent_coverage_at_20x, \
+                    'percent_coverage_at_30x', pac.percent_coverage_at_30x, \
+                    'basesNoCoverage', pac.bases_no_coverage, 'basesLowQualityMapping', pac.bases_low_quality_mapping, \
+                    'basesCallable', pac.bases_callable, 'meanMappingQuality', pac.mean_mapping_quality, \
+                    'pangenome_path_id', pam.pangenome_path_id, 'pangenome_node_id', pam.pangenome_node_id, \
+                    'region_start_node_id', pam.region_start_node_id, 'region_end_node_id', pam.region_end_node_id, \
+                    'region_name', pam.region_name, 'region_length_bp', pam.region_length_bp, \
+                    'analysis', NULLIF(jsonb_strip_nulls(jsonb_build_object('tool', pam.analysis_tool, \
+                        'tool_version', pam.analysis_tool_version, 'notes', pam.notes, \
+                        'metrics_date', pam.metrics_date::text)), '{}'::jsonb) \
+                ))) AS metadata \
+         FROM public.pangenome_alignment_metadata pam \
+         LEFT JOIN public.pangenome_alignment_coverage pac ON pac.alignment_metadata_id = pam.id",
+    )
+    .fetch_all(legacy)
+    .await?;
+    let n = rows.len();
+    let mut tx = target.begin().await?;
+    for (id, sfid, gid, level, metadata) in rows {
+        sqlx::query(
+            "INSERT INTO genomics.pangenome_alignment_metadata (id, sequence_file_id, pangenome_graph_id, \
+                metric_level, metadata) OVERRIDING SYSTEM VALUE VALUES ($1,$2,$3,$4,$5) \
+             ON CONFLICT (id) DO UPDATE SET sequence_file_id=EXCLUDED.sequence_file_id, \
+               pangenome_graph_id=EXCLUDED.pangenome_graph_id, metric_level=EXCLUDED.metric_level, \
+               metadata=EXCLUDED.metadata",
+        )
+        .bind(id).bind(sfid).bind(gid).bind(level).bind(metadata)
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
+    tracing::info!(table = "pangenome_alignment_metadata", rows = n, "migrated");
+    Ok(())
+}
+
+#[derive(sqlx::FromRow)]
+struct RvpRow {
+    id: i64,
+    sample_guid: Uuid,
+    graph_id: i64,
+    variant_type: Option<String>,
+    variant_nodes: Vec<i32>,
+    variant_edges: Vec<i32>,
+    allele_fraction: Option<f64>,
+    depth: Option<i32>,
+    zygosity: Option<String>,
+    haplotype_information: Value,
+}
+
+pub async fn reported_variant_pangenome(legacy: &PgPool, target: &PgPool) -> anyhow::Result<()> {
+    let rows: Vec<RvpRow> = sqlx::query_as(
+        "SELECT id::bigint, sample_guid, graph_id::bigint, variant_type, variant_nodes, variant_edges, \
+                allele_fraction, depth, zygosity, \
+                (COALESCE(haplotype_information, '{}'::jsonb) || jsonb_strip_nulls(jsonb_build_object( \
+                    'provenance', provenance, 'confidence_score', confidence_score, 'status', status, 'notes', notes, \
+                    'reference_path_id', reference_path_id, 'reference_start_position', reference_start_position, \
+                    'reference_end_position', reference_end_position, 'alternate_allele_sequence', alternate_allele_sequence, \
+                    'reference_allele_sequence', reference_allele_sequence, 'reference_repeat_count', reference_repeat_count, \
+                    'alternate_repeat_count', alternate_repeat_count, 'reported_date', reported_date::text \
+                ))) AS haplotype_information \
+         FROM public.reported_variant_pangenome",
+    )
+    .fetch_all(legacy)
+    .await?;
+    let n = rows.len();
+    let mut tx = target.begin().await?;
+    for r in rows {
+        sqlx::query(
+            "INSERT INTO genomics.reported_variant_pangenome (id, sample_guid, graph_id, variant_type, variant_nodes, \
+                variant_edges, allele_fraction, depth, zygosity, haplotype_information) OVERRIDING SYSTEM VALUE \
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) \
+             ON CONFLICT (id) DO UPDATE SET sample_guid=EXCLUDED.sample_guid, graph_id=EXCLUDED.graph_id, \
+               variant_type=EXCLUDED.variant_type, variant_nodes=EXCLUDED.variant_nodes, \
+               variant_edges=EXCLUDED.variant_edges, allele_fraction=EXCLUDED.allele_fraction, depth=EXCLUDED.depth, \
+               zygosity=EXCLUDED.zygosity, haplotype_information=EXCLUDED.haplotype_information",
+        )
+        .bind(r.id).bind(r.sample_guid).bind(r.graph_id).bind(r.variant_type).bind(r.variant_nodes)
+        .bind(r.variant_edges).bind(r.allele_fraction).bind(r.depth).bind(r.zygosity).bind(r.haplotype_information)
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
+    tracing::info!(table = "reported_variant_pangenome", rows = n, "migrated");
+    Ok(())
+}
+
+pub async fn genotype_data(legacy: &PgPool, target: &PgPool) -> anyhow::Result<()> {
+    // Skip soft-deleted rows; fold chip/build/hash/atproto into the metrics JSONB.
+    let rows = sqlx::query_as::<_, (i64, Uuid, Option<i64>, Option<String>, Value, DateTime<Utc>)>(
+        "SELECT id::bigint, sample_guid, test_type_id::bigint, provider, \
+                (COALESCE(metrics, '{}'::jsonb) || jsonb_strip_nulls(jsonb_build_object( \
+                    'chip_version', chip_version, 'build_version', build_version, 'source_file_hash', source_file_hash, \
+                    'atproto', CASE WHEN at_uri IS NOT NULL \
+                        THEN jsonb_strip_nulls(jsonb_build_object('uri', at_uri, 'cid', at_cid)) END \
+                ))) AS metrics, \
+                COALESCE(created_at, now())::timestamptz AS created_at \
+         FROM public.genotype_data WHERE deleted IS NOT TRUE",
+    )
+    .fetch_all(legacy)
+    .await?;
+    let n = rows.len();
+    let mut tx = target.begin().await?;
+    for (id, guid, ttid, provider, metrics, created) in rows {
+        sqlx::query(
+            "INSERT INTO genomics.genotype_data (id, sample_guid, test_type_id, provider, metrics, created_at) \
+             OVERRIDING SYSTEM VALUE VALUES ($1,$2,$3,$4,$5,$6) \
+             ON CONFLICT (id) DO UPDATE SET sample_guid=EXCLUDED.sample_guid, test_type_id=EXCLUDED.test_type_id, \
+               provider=EXCLUDED.provider, metrics=EXCLUDED.metrics",
+        )
+        .bind(id).bind(guid).bind(ttid).bind(provider).bind(metrics).bind(created)
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
+    tracing::info!(table = "genotype_data", rows = n, "migrated");
+    Ok(())
+}
+
 // ── post-load: advance identity sequences past the copied max id ─────────────
 pub async fn fix_sequences(target: &PgPool) -> anyhow::Result<()> {
     for (schema, table) in [
@@ -953,6 +1475,19 @@ pub async fn fix_sequences(target: &PgPool) -> anyhow::Result<()> {
         ("tree", "haplogroup_variant"),
         ("pubs", "genomic_study"),
         ("pubs", "publication"),
+        ("genomics", "genbank_contig"),
+        ("genomics", "sequencing_lab"),
+        ("genomics", "sequencer_instrument"),
+        ("genomics", "test_type_definition"),
+        ("genomics", "pangenome_graph"),
+        ("genomics", "pangenome_path"),
+        ("genomics", "canonical_pangenome_variant"),
+        ("genomics", "sequence_library"),
+        ("genomics", "sequence_file"),
+        ("genomics", "alignment_metadata"),
+        ("genomics", "pangenome_alignment_metadata"),
+        ("genomics", "reported_variant_pangenome"),
+        ("genomics", "genotype_data"),
     ] {
         let qualified = format!("{schema}.{table}");
         let sql = format!(

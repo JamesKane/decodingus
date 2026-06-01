@@ -81,6 +81,22 @@ async fn main() -> anyhow::Result<()> {
     transform::publication_biosample(&legacy, &target).await?;
     transform::publication_study(&legacy, &target).await?;
 
+    // genomics: reference data first, then runs/files/coverage that depend on
+    // core.biosample(sample_guid) (already migrated above) + the labs/test types.
+    transform::genbank_contig(&legacy, &target).await?;
+    transform::sequencing_lab(&legacy, &target).await?;
+    transform::sequencer_instrument(&legacy, &target).await?;
+    transform::test_type_definition(&legacy, &target).await?;
+    transform::pangenome_graph(&legacy, &target).await?;
+    transform::pangenome_path(&legacy, &target).await?;
+    transform::canonical_pangenome_variant(&legacy, &target).await?;
+    transform::sequence_library(&legacy, &target).await?;
+    transform::sequence_file(&legacy, &target).await?;
+    transform::alignment_metadata(&legacy, &target).await?;
+    transform::pangenome_alignment_metadata(&legacy, &target).await?;
+    transform::reported_variant_pangenome(&legacy, &target).await?;
+    transform::genotype_data(&legacy, &target).await?;
+
     transform::fix_sequences(&target).await?;
     tracing::info!("ETL complete; reconciling");
     reconcile::run(&legacy, &target).await?;
