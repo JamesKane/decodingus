@@ -35,6 +35,38 @@ pub async fn find_credential(pool: &PgPool, provider_key: &str) -> Result<Option
     }))
 }
 
+/// Find-or-create a user by AT Protocol DID (the OAuth login path), ensuring an
+/// `atproto` login_info row. Returns the user id.
+pub async fn upsert_user_by_did(
+    pool: &PgPool,
+    did: &str,
+    handle: Option<&str>,
+    display_name: Option<&str>,
+) -> Result<UserId, DbError> {
+    let id: Uuid = sqlx::query_scalar(
+        "INSERT INTO ident.users (did, handle, display_name) VALUES ($1,$2,$3) \
+         ON CONFLICT (did) DO UPDATE SET \
+           handle = COALESCE(EXCLUDED.handle, ident.users.handle), \
+           display_name = COALESCE(EXCLUDED.display_name, ident.users.display_name), \
+           updated_at = now() \
+         RETURNING id",
+    )
+    .bind(did)
+    .bind(handle)
+    .bind(display_name)
+    .fetch_one(pool)
+    .await?;
+    sqlx::query(
+        "INSERT INTO ident.user_login_info (user_id, provider_id, provider_key) \
+         VALUES ($1, 'atproto', $2) ON CONFLICT (provider_id, provider_key) DO NOTHING",
+    )
+    .bind(id)
+    .bind(did)
+    .execute(pool)
+    .await?;
+    Ok(UserId(id))
+}
+
 /// The display name + role names for a user (for the session).
 pub async fn session_info(pool: &PgPool, user_id: UserId) -> Result<(Option<String>, Vec<String>), DbError> {
     let display_name: Option<String> =

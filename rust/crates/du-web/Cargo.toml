@@ -13,6 +13,7 @@ path = "src/main.rs"
 [dependencies]
 du-domain = { workspace = true }
 du-db = { workspace = true }
+du-atproto = { workspace = true }
 axum = { workspace = true }
 tokio = { workspace = true }
 tower = { workspace = true }
@@ -22,6 +23,7 @@ askama = { workspace = true }
 percent-encoding = { workspace = true }
 argon2 = { workspace = true }
 bcrypt = { workspace = true }
+reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 uuid = { workspace = true }

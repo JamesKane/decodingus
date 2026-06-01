@@ -14,6 +14,7 @@ mod error;
 mod htmx;
 mod i18n;
 mod render;
+mod oauth;
 mod routes;
 mod state;
 
@@ -53,8 +54,9 @@ async fn main() -> anyhow::Result<()> {
         Some(url) => {
             let pool = du_db::connect(&url, 8).await?;
             du_db::run_migrations(&pool).await?;
-            tracing::info!("connected to database; migrations applied");
-            routes::app(AppState { pool, key: cookie_key() })
+            let oauth = oauth::OauthClient::from_env();
+            tracing::info!(oauth = oauth.is_some(), "connected to database; migrations applied");
+            routes::app(AppState { pool, key: cookie_key(), oauth })
         }
         None => {
             tracing::warn!("DATABASE_URL not set — serving /health only");

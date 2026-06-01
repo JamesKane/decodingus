@@ -9,11 +9,19 @@ pub enum AppError {
     Forbidden,
     /// A user-facing validation/conflict message rendered as 422.
     BadRequest(String),
+    /// An upstream/federation call failed (DID resolution, PDS, OAuth) — 502.
+    Upstream(String),
 }
 
 impl From<du_db::DbError> for AppError {
     fn from(e: du_db::DbError) -> Self {
         AppError::Db(e)
+    }
+}
+
+impl From<du_atproto::AtprotoError> for AppError {
+    fn from(e: du_atproto::AtprotoError) -> Self {
+        AppError::Upstream(e.to_string())
     }
 }
 
@@ -27,6 +35,10 @@ impl IntoResponse for AppError {
             AppError::NotFound(what) => (StatusCode::NOT_FOUND, format!("not found: {what}")).into_response(),
             AppError::Forbidden => (StatusCode::FORBIDDEN, "forbidden").into_response(),
             AppError::BadRequest(msg) => (StatusCode::UNPROCESSABLE_ENTITY, msg).into_response(),
+            AppError::Upstream(msg) => {
+                tracing::warn!(error = %msg, "upstream/federation error");
+                (StatusCode::BAD_GATEWAY, "upstream error").into_response()
+            }
         }
     }
 }

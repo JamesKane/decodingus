@@ -47,6 +47,7 @@ pub fn app(state: AppState) -> Router {
         .merge(curator::router())
         .merge(curator_variants::router())
         .merge(curator_regions::router())
+        .merge(crate::oauth::router())
         .nest_service("/assets", ServeDir::new(assets_dir()))
         .layer(CookieManagerLayer::new())
         .with_state(state)

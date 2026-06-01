@@ -62,6 +62,9 @@ percent-encoding = "2"
 # AT Protocol identity/crypto
 multibase = "0.9"
 base64 = "0.22"
+sha2 = "0.10"
+p256 = { version = "0.13", features = ["ecdsa"] }
+rand_core = { version = "0.6", features = ["getrandom"] }
 
 # CLI
 clap = { version = "4", features = ["derive"] }

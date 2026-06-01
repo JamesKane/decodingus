@@ -8,6 +8,7 @@
 
 pub mod did;
 pub mod error;
+pub mod oauth;
 pub mod resolve;
 pub mod signature;
 
