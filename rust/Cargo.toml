@@ -3,15 +3,14 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/du-domain",
     "crates/du-db",
-    "crates/du-bio",
-    "crates/du-atproto",
     "crates/du-external",
     "crates/du-web",
     "crates/du-jobs",
     "crates/du-migrate",
 ]
+# du-domain, du-atproto, du-bio live in the sibling `decodingus-shared` repo
+# (shared with Navigator) and are pulled in via the path deps below.
 
 [workspace.package]
 version = "0.1.0"
@@ -21,11 +20,14 @@ license = "BSD-3-Clause"
 repository = "https://github.com/decodingus/decodingus"
 
 [workspace.dependencies]
-# Internal crates
-du-domain = { path = "crates/du-domain" }
+# Shared crates (sibling decodingus-shared repo). Path deps for local
+# co-development; switch to git deps (pinned tag/rev) once that repo is pushed:
+#   du-domain = { git = "https://github.com/decodingus/decodingus-shared", tag = "v0.1.0" }
+du-domain = { path = "../../decodingus-shared/crates/du-domain" }
+du-atproto = { path = "../../decodingus-shared/crates/du-atproto" }
+du-bio = { path = "../../decodingus-shared/crates/du-bio" }
+# Internal (decodingus-only) crates
 du-db = { path = "crates/du-db" }
-du-bio = { path = "crates/du-bio" }
-du-atproto = { path = "crates/du-atproto" }
 du-external = { path = "crates/du-external" }
 
 # Async runtime + web

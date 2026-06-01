@@ -9,6 +9,11 @@ FROM rust:1-bookworm AS builder
 WORKDIR /build
 
 # Cache dependencies: copy manifests first, then sources.
+# NB: du-domain/du-atproto/du-bio live in the sibling `decodingus-shared` repo
+# and are currently path deps (../../decodingus-shared/crates/*), which are NOT
+# in this build context. Before building the image, switch those three to git
+# deps (see rust/Cargo.toml) once decodingus-shared is pushed — then this builds
+# self-contained. (Alternatively, build from a parent context containing both.)
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
 COPY migrations ./migrations

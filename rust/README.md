@@ -35,13 +35,18 @@ pass**. Not yet production-complete — see [Roadmap](#roadmap).
 
 ## Workspace layout
 
+Shared crates live in the sibling **`decodingus-shared`** repo (also used by
+Navigator); decodingus pulls them via path deps (→ git deps once pushed):
+
 ```
-rust/
-  crates/
-    du-domain/    pure types + (planned) algorithms, no IO; JSONB payload structs
-    du-db/        SQLx pool + per-aggregate query modules
-    du-bio/       genomics: callable-loci (BED), liftover (UCSC chain), VCF reader
+../decodingus-shared/crates/
+    du-domain/    pure types/enums/IDs + JSONB payload structs, no IO
     du-atproto/   AT Protocol identity/crypto + OAuth client (PKCE/DPoP/metadata)
+    du-bio/       genomics: callable-loci (BED), liftover (UCSC chain), VCF, YBrowse
+
+rust/                          (this repo — AppView/server-specific)
+  crates/
+    du-db/        SQLx pool + per-aggregate query modules
     du-external/  OpenAlex / ENA / AWS SES / Secrets — scaffold
     du-web/        Axum app: routes, Askama templates, i18n, HTMX, auth, OAuth
     du-jobs/       tokio scheduler harness + DB heartbeat (real jobs as clients land)
@@ -198,9 +203,11 @@ for DB-less builds.
       (URI index) + on-demand coverage aggregation. Live handshake pending a test
       PDS. NB: the standard relay/Jetstream ingest stays (reads are out of OAuth
       scope); only the custom REST/Kafka relay is dropped.
-- [ ] Extract `du-domain`/`du-atproto`/`du-bio` to a dedicated `decodingus-shared`
-      git repo (both decodingus + Navigator git-dep on it); haploid caller stays
-      Navigator-only
+- [x] Extracted `du-domain`/`du-atproto`/`du-bio` to the sibling `decodingus-shared`
+      repo (consumed via path deps for now); haploid caller stays Navigator-only.
+      **Follow-up:** push `decodingus-shared` to a remote, then flip the three deps
+      to git deps (pinned tag) — also fixes the Docker build (path deps to a
+      sibling aren't in the `rust/` build context).
 - [ ] External clients (`du-external`): OpenAlex, ENA, AWS SES/Secrets
 - [ ] Tree-versioning change-sets; haplogroup↔variant association editing
 - [ ] Vendor remaining assets; full OpenAPI parity; cutover rehearsal
