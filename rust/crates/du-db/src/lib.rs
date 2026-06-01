@@ -10,6 +10,7 @@ use std::time::Duration;
 use thiserror::Error;
 
 pub mod biosample;
+pub mod coverage;
 pub mod haplogroup;
 pub mod pagination;
 pub mod publication;

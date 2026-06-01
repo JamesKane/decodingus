@@ -12,6 +12,7 @@ use axum::Router;
 use serde::Deserialize;
 use tower_http::services::ServeDir;
 
+pub mod coverage;
 pub mod maps;
 pub mod references;
 pub mod tree;
@@ -35,6 +36,7 @@ pub fn app(state: AppState) -> Router {
         .merge(tree::router())
         .merge(references::router())
         .merge(maps::router())
+        .merge(coverage::router())
         .nest_service("/assets", ServeDir::new(assets_dir()))
         .with_state(state)
 }

@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}{{ t.get("coverage.title") }} — {{ t.get("app.name") }}{% endblock %}
+{% block content %}
+<h1 class="h3 mb-3">{{ t.get("coverage.title") }}</h1>
+<table class="table table-striped align-middle">
+  <thead>
+    <tr>
+      <th>{{ t.get("coverage.col.lab") }}</th>
+      <th>{{ t.get("coverage.col.testType") }}</th>
+      <th class="text-end">{{ t.get("coverage.col.libraries") }}</th>
+      <th class="text-end">{{ t.get("coverage.col.meanDepth") }}</th>
+      <th class="text-end">{{ t.get("coverage.col.cov10x") }}</th>
+      <th class="text-end">{{ t.get("coverage.col.expectedDepth") }}</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for r in rows %}
+    <tr>
+      <td>{{ r.lab }}</td>
+      <td>{{ r.test_type }}</td>
+      <td class="text-end">{{ r.libraries }}</td>
+      <td class="text-end">
+        {{ r.mean_depth }}
+        {% if r.meets %}<i class="text-success">✓</i>{% else %}<i class="text-warning">!</i>{% endif %}
+      </td>
+      <td class="text-end">{{ r.cov_10x }}</td>
+      <td class="text-end text-muted">{{ r.expected }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="6" class="detail-empty">{{ t.get("coverage.none") }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

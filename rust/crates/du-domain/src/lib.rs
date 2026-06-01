@@ -6,6 +6,7 @@
 //! source of truth.
 
 pub mod biosample;
+pub mod coverage;
 pub mod enums;
 pub mod error;
 pub mod haplogroup;
