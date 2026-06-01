@@ -832,7 +832,9 @@ name = "du-jobs"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "du-bio",
  "du-db",
+ "du-domain",
  "tokio",
  "tracing",
  "tracing-subscriber",

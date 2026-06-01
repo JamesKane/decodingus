@@ -181,8 +181,10 @@ for DB-less builds.
       validate read SQL against the live EC2 schema
 - [x] `du-bio` core: callable-loci (BED), liftover (UCSC chain), VCF reader
 - [x] `du-jobs` scheduler harness (tokio; error-isolated jobs + run-on-start)
-- [ ] Genomics ingestion jobs (YBrowse/HipSTR → core.variant) once du-external
-      lands; binary formats (BAM/CRAM) via noodles
+- [x] YBrowse variant ingest: GRCh38 VCF → lift to GRCh37/hs1 (chain files) →
+      multi-build `core.variant` upsert (`du-bio::ybrowse` + `du-jobs`, env-gated)
+- [ ] Remaining ingestion (HipSTR, genome regions); binary formats (BAM/CRAM) via
+      noodles; publication/match jobs once du-external lands
 - [x] AT Protocol identity/crypto core (`du-atproto`): DID/AT-URI parse, did:key
       Ed25519 verification, DID-doc/PDS resolution
 - [x] AT Protocol OAuth **client wiring** — confidential web client

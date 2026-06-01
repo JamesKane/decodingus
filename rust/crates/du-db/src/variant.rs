@@ -5,7 +5,7 @@
 use crate::{parse_pg_enum, pg_enum_label, DbError, Page};
 use du_domain::enums::{MutationType, NamingStatus};
 use du_domain::ids::VariantId;
-use du_domain::variant::{Aliases, Annotations, Coordinates, Variant};
+use du_domain::variant::{Aliases, Annotations, Coordinates, NewVariant, Variant};
 use sqlx::types::Json;
 use sqlx::PgPool;
 
@@ -92,6 +92,28 @@ pub async fn update(
     .await?
     .rows_affected();
     Ok(affected > 0)
+}
+
+/// Upsert a variant by canonical name (the ingestion path, e.g. YBrowse).
+/// Updates mutation_type, aliases, and the multi-build coordinates; preserves
+/// the existing `naming_status` (curator-owned). Returns the variant id.
+pub async fn upsert_by_name(pool: &PgPool, v: &NewVariant) -> Result<VariantId, DbError> {
+    let aliases = serde_json::to_value(&v.aliases).map_err(|e| DbError::Decode(e.to_string()))?;
+    let coords = serde_json::to_value(&v.coordinates).map_err(|e| DbError::Decode(e.to_string()))?;
+    let id: i64 = sqlx::query_scalar(
+        "INSERT INTO core.variant (canonical_name, mutation_type, aliases, coordinates) \
+         VALUES ($1, $2::core.mutation_type, $3, $4) \
+         ON CONFLICT (canonical_name) DO UPDATE SET mutation_type = EXCLUDED.mutation_type, \
+           aliases = EXCLUDED.aliases, coordinates = EXCLUDED.coordinates, updated_at = now() \
+         RETURNING id",
+    )
+    .bind(&v.canonical_name)
+    .bind(pg_enum_label(&v.mutation_type)?)
+    .bind(aliases)
+    .bind(coords)
+    .fetch_one(pool)
+    .await?;
+    Ok(VariantId(id))
 }
 
 /// Whether the variant is referenced by a current haplogroup association

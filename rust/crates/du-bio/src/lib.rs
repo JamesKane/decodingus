@@ -3,11 +3,13 @@
 //!
 //! - `callable`: BED interval merge + callable-loci summary.
 //! - `liftover`: UCSC chain-file parse + cross-build position liftover.
-//! - `vcf`: VCF parsing via the noodles crate.
+//! - `vcf`: VCF variant reader.
+//! - `ybrowse`: GRCh38 variant ingestion with multi-build liftover.
 
 pub mod callable;
 pub mod error;
 pub mod liftover;
 pub mod vcf;
+pub mod ybrowse;
 
 pub use error::BioError;

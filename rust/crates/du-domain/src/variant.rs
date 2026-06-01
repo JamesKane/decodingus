@@ -59,6 +59,16 @@ pub struct Annotations {
     pub str_overlaps: Vec<String>,
 }
 
+/// A variant to ingest/upsert (no DB id). Produced by ingestion (e.g. YBrowse)
+/// and upserted by canonical name; carries multi-build `coordinates`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NewVariant {
+    pub canonical_name: String,
+    pub mutation_type: MutationType,
+    pub aliases: Aliases,
+    pub coordinates: Coordinates,
+}
+
 /// A fully-hydrated variant (scalar columns + decoded JSONB payloads).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Variant {

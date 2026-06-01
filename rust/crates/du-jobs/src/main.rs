@@ -9,6 +9,7 @@
 use std::time::Duration;
 
 mod scheduler;
+mod ybrowse;
 use scheduler::{Job, Scheduler};
 
 #[tokio::main]
@@ -40,12 +41,22 @@ async fn main() -> anyhow::Result<()> {
         }));
     }
 
-    // TODO(jobs): as du-external / du-bio land, register:
-    //   - publication-update     (OpenAlex, ~6.7 req/s)
-    //   - publication-discovery   (OpenAlex search configs)
-    //   - ybrowse-variant-ingest  (du-bio VCF/GFF + liftover -> core.variant)
-    //   - variant-export
-    //   - match-discovery         (O(n^2) population overlap)
+    // YBrowse variant ingest (GRCh38 VCF -> lift to GRCh37/hs1 -> core.variant).
+    // Registered only when configured (YBROWSE_VCF + chain paths).
+    if let Some(cfg) = ybrowse::Config::from_env() {
+        let pool = pool.clone();
+        sched.register(Job::new("ybrowse-variant-ingest", Duration::from_secs(86_400), move || {
+            let pool = pool.clone();
+            let cfg = cfg.clone();
+            async move { ybrowse::run(&pool, &cfg).await }
+        }));
+        tracing::info!("ybrowse-variant-ingest registered");
+    } else {
+        tracing::info!("ybrowse-variant-ingest not configured (set YBROWSE_VCF + chain paths)");
+    }
+
+    // TODO(jobs): as du-external lands, register publication-update/discovery
+    // (OpenAlex), variant-export, and match-discovery.
 
     let shutdown = async {
         let _ = tokio::signal::ctrl_c().await;
