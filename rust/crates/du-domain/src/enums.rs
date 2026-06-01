@@ -117,6 +117,23 @@ impl std::fmt::Display for DnaType {
     }
 }
 
+impl BiosampleSource {
+    pub fn label(&self) -> &'static str {
+        match self {
+            BiosampleSource::Standard => "STANDARD",
+            BiosampleSource::Citizen => "CITIZEN",
+            BiosampleSource::Pgp => "PGP",
+            BiosampleSource::External => "EXTERNAL",
+            BiosampleSource::Ancient => "ANCIENT",
+        }
+    }
+}
+impl std::fmt::Display for BiosampleSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.label())
+    }
+}
+
 impl MutationType {
     pub fn label(&self) -> &'static str {
         match self {

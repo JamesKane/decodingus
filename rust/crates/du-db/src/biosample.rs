@@ -1,8 +1,8 @@
 //! Queries for the unified `core.biosample`.
 
-use crate::{parse_pg_enum, DbError};
+use crate::{parse_pg_enum, DbError, Page};
 use du_domain::biosample::Biosample;
-use du_domain::ids::SampleGuid;
+use du_domain::ids::{PublicationId, SampleGuid};
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -44,6 +44,46 @@ pub async fn get_by_guid(pool: &PgPool, guid: SampleGuid) -> Result<Option<Biosa
         .fetch_optional(pool)
         .await?;
     row.map(BiosampleRow::into_domain).transpose()
+}
+
+/// Paginated biosamples linked to a publication (the biosample report).
+pub async fn for_publication(
+    pool: &PgPool,
+    publication_id: PublicationId,
+    page: i64,
+    page_size: i64,
+) -> Result<Page<Biosample>, DbError> {
+    let offset = Page::<()>::offset(page, page_size);
+    let limit = page_size.clamp(1, 200);
+
+    let total: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM pubs.publication_biosample pb \
+         JOIN core.biosample b ON b.sample_guid = pb.sample_guid \
+         WHERE pb.publication_id = $1 AND b.deleted = false",
+    )
+    .bind(publication_id.0)
+    .fetch_one(pool)
+    .await?;
+
+    let rows: Vec<BiosampleRow> = sqlx::query_as(
+        "SELECT b.sample_guid, b.source::text AS source, b.accession, b.alias, b.description, \
+         b.center_name, b.locked, b.source_attrs, b.atproto \
+         FROM pubs.publication_biosample pb \
+         JOIN core.biosample b ON b.sample_guid = pb.sample_guid \
+         WHERE pb.publication_id = $1 AND b.deleted = false \
+         ORDER BY b.accession NULLS LAST, b.sample_guid LIMIT $2 OFFSET $3",
+    )
+    .bind(publication_id.0)
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(pool)
+    .await?;
+
+    let items = rows
+        .into_iter()
+        .map(BiosampleRow::into_domain)
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(Page { items, total, page: page.max(1), page_size: limit })
 }
 
 /// Lookup by accession or alias (the private biosample search).
