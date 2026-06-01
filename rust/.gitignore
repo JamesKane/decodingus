@@ -1,0 +1,3 @@
+/target
+.env
+# SQLx offline query cache is committed once a dev DB exists; ignore until then.

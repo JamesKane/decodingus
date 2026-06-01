@@ -1,0 +1,14 @@
+[package]
+name = "du-external"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+# External integrations: OpenAlex + ENA (reqwest), AWS SES + Secrets Manager,
+# reCAPTCHA. HTTP + AWS SDK deps added during implementation.
+[dependencies]
+du-domain = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }

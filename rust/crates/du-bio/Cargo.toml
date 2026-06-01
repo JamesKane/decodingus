@@ -1,0 +1,12 @@
+[package]
+name = "du-bio"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+# Genomics file I/O (pure Rust, replaces htsjdk). noodles + a ported liftover
+# module are added when the genomics ingestion subsystem is implemented.
+[dependencies]
+du-domain = { workspace = true }
+thiserror = { workspace = true }

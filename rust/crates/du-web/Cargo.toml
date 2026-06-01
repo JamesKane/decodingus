@@ -1,0 +1,25 @@
+[package]
+name = "du-web"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "decodingus"
+path = "src/main.rs"
+
+# Axum web app: routers, extractors, Askama templates, i18n, HTMX fragments.
+[dependencies]
+du-domain = { workspace = true }
+du-db = { workspace = true }
+axum = { workspace = true }
+tokio = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+askama = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }

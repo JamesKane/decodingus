@@ -1,0 +1,77 @@
+# DecodingUs — Rust workspace (rewrite of the Play/Scala 3 app)
+# See /Users/jkane/.claude/plans/robust-knitting-lampson.md
+[workspace]
+resolver = "2"
+members = [
+    "crates/du-domain",
+    "crates/du-db",
+    "crates/du-bio",
+    "crates/du-atproto",
+    "crates/du-external",
+    "crates/du-web",
+    "crates/du-jobs",
+    "crates/du-migrate",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.80"
+license = "BSD-3-Clause"
+repository = "https://github.com/decodingus/decodingus"
+
+[workspace.dependencies]
+# Internal crates
+du-domain = { path = "crates/du-domain" }
+du-db = { path = "crates/du-db" }
+du-bio = { path = "crates/du-bio" }
+du-atproto = { path = "crates/du-atproto" }
+du-external = { path = "crates/du-external" }
+
+# Async runtime + web
+tokio = { version = "1", features = ["full"] }
+axum = { version = "0.7", features = ["macros"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["fs", "trace", "compression-gzip", "catch-panic"] }
+tower-cookies = "0.10"
+
+# Database (runtime-checked queries for now; switch to compile-time macros + .sqlx
+# offline cache once a dev DB is reachable — see plan §3 / §9)
+sqlx = { version = "0.8", default-features = false, features = [
+    "runtime-tokio-rustls", "postgres", "uuid", "chrono", "json", "macros", "migrate",
+] }
+
+# Templating (typed, compile-time — Twirl analog)
+askama = "0.12"
+
+# Serialization / JSONB payloads
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Common types
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+rust_decimal = "1"
+
+# HTTP client (external APIs)
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+
+# Errors / logging / config
+thiserror = "2"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Crypto
+argon2 = "0.5"
+bcrypt = "0.16"
+ed25519-dalek = "2"
+aes-gcm = "0.10"
+
+# Genomics (pure Rust — replaces htsjdk)
+noodles = { version = "0.85", features = ["vcf", "gff", "fasta", "bed"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true

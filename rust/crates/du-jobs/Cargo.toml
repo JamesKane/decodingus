@@ -1,0 +1,19 @@
+[package]
+name = "du-jobs"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "decodingus-jobs"
+path = "src/main.rs"
+
+# Scheduled background workers (plan §7): publication update/discovery, YBrowse
+# ingest, variant export, match discovery. Scheduler + job deps added on impl.
+[dependencies]
+du-db = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }

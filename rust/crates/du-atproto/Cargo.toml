@@ -1,0 +1,14 @@
+[package]
+name = "du-atproto"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+# AT Protocol: DID/handle resolution, Ed25519 signature verification, firehose
+# decode, PDS client/fleet. Crypto + HTTP deps added during implementation.
+[dependencies]
+du-domain = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
