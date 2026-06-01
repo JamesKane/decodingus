@@ -50,6 +50,10 @@ async fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
+    // Ensure the redesigned schema exists on the target (idempotent).
+    tracing::info!("applying target migrations");
+    du_db::run_migrations(&target).await?;
+
     tracing::info!("ETL starting");
     // Dependency order: donors before biosamples; variants/haplogroups before
     // their join tables; publications/studies before their links.
@@ -62,6 +66,7 @@ async fn main() -> anyhow::Result<()> {
     transform::genomic_study(&legacy, &target).await?;
     transform::publication(&legacy, &target).await?;
     transform::publication_biosample(&legacy, &target).await?;
+    transform::publication_study(&legacy, &target).await?;
 
     transform::fix_sequences(&target).await?;
     tracing::info!("ETL complete; reconciling");

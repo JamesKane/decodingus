@@ -15,7 +15,7 @@ CREATE TABLE pubs.genomic_study (
     molecule        TEXT,
     topology        TEXT,
     taxonomy_id     INTEGER,
-    version         INTEGER,
+    version         TEXT,            -- legacy genomic_studies.version is varchar
     submission_date DATE,
     details         JSONB NOT NULL DEFAULT '{}'::jsonb
 );

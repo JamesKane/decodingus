@@ -95,8 +95,17 @@ Ten Postgres schemas: `core`, `tree`, `genomics`, `pubs`, `ident`, `ibd`, `fed`,
   reloads), with delete guards for referenced rows.
 
 **ETL** (`du-migrate`): legacy → new schema, preserving PKs and `sample_guid` so
-FKs carry over 1:1; idempotent; reconciliation pass. Verified against a mock
-legacy DB (see below).
+FKs carry over 1:1; idempotent; applies target migrations then runs the
+transformers + a reconciliation pass. The transformers are written against the
+**current production schema** (`db.schema`): positional `public.variant` +
+`variant_alias` → JSONB `coordinates`/`aliases`; the three biosample tables +
+their `*_original_haplogroup` tables → unified `core.biosample` with `atproto`
+and `original_haplogroups` JSONB; `tree.haplogroup` age bounds → `provenance`
+JSONB; both publication↔(std|citizen)biosample link tables → one
+`pubs.publication_biosample` on `sample_guid`. Validated two ways: schema-only
+against `db.schema` (0 column errors) and end-to-end against a current-schema
+mock with seed data (all 10 aggregates reconcile; JSONB shapes spot-checked).
+See below.
 
 ## Getting started
 

@@ -11,23 +11,24 @@ struct Check {
 }
 
 const CHECKS: &[Check] = &[
-    Check { label: "specimen_donor", legacy_sql: "SELECT count(*) FROM specimen_donor", target_sql: "SELECT count(*) FROM core.specimen_donor" },
+    Check { label: "specimen_donor", legacy_sql: "SELECT count(*) FROM public.specimen_donor", target_sql: "SELECT count(*) FROM core.specimen_donor" },
     Check {
         label: "biosample",
-        legacy_sql: "SELECT (SELECT count(*) FROM biosample) + (SELECT count(*) FROM citizen_biosample) + (SELECT count(*) FROM pgp_biosample)",
+        legacy_sql: "SELECT (SELECT count(*) FROM public.biosample) + (SELECT count(*) FROM public.citizen_biosample) + (SELECT count(*) FROM public.pgp_biosample)",
         target_sql: "SELECT count(*) FROM core.biosample",
     },
-    Check { label: "variant", legacy_sql: "SELECT count(*) FROM variant_v2", target_sql: "SELECT count(*) FROM core.variant" },
+    Check { label: "variant", legacy_sql: "SELECT count(*) FROM public.variant", target_sql: "SELECT count(*) FROM core.variant" },
     Check { label: "haplogroup", legacy_sql: "SELECT count(*) FROM tree.haplogroup", target_sql: "SELECT count(*) FROM tree.haplogroup" },
     Check { label: "haplogroup_relationship", legacy_sql: "SELECT count(*) FROM tree.haplogroup_relationship", target_sql: "SELECT count(*) FROM tree.haplogroup_relationship" },
     Check { label: "haplogroup_variant", legacy_sql: "SELECT count(*) FROM tree.haplogroup_variant", target_sql: "SELECT count(*) FROM tree.haplogroup_variant" },
-    Check { label: "genomic_study", legacy_sql: "SELECT count(*) FROM genomic_studies", target_sql: "SELECT count(*) FROM pubs.genomic_study" },
-    Check { label: "publication", legacy_sql: "SELECT count(*) FROM publication", target_sql: "SELECT count(*) FROM pubs.publication" },
+    Check { label: "genomic_study", legacy_sql: "SELECT count(*) FROM public.genomic_studies", target_sql: "SELECT count(*) FROM pubs.genomic_study" },
+    Check { label: "publication", legacy_sql: "SELECT count(*) FROM public.publication", target_sql: "SELECT count(*) FROM pubs.publication" },
     Check {
         label: "publication_biosample",
-        legacy_sql: "SELECT (SELECT count(*) FROM publication_biosample) + (SELECT count(*) FROM publication_citizen_biosample)",
+        legacy_sql: "SELECT (SELECT count(*) FROM public.publication_biosample) + (SELECT count(*) FROM public.publication_citizen_biosample)",
         target_sql: "SELECT count(*) FROM pubs.publication_biosample",
     },
+    Check { label: "publication_study", legacy_sql: "SELECT count(*) FROM public.publication_ena_study", target_sql: "SELECT count(*) FROM pubs.publication_study" },
 ];
 
 pub async fn run(legacy: &PgPool, target: &PgPool) -> anyhow::Result<()> {
