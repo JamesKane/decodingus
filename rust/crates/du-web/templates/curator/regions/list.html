@@ -1,0 +1,26 @@
+{# Fragment: region rows + pager. Target of #region-table. #}
+<table class="table table-hover table-sm align-middle">
+  <thead><tr><th>{{ t.get("region.col.type") }}</th><th>{{ t.get("region.col.name") }}</th><th>{{ t.get("region.col.builds") }}</th></tr></thead>
+  <tbody>
+    {% for r in list.rows %}
+    <tr class="tree-node" hx-get="/curator/regions/{{ r.id }}/panel" hx-target="#region-detail" hx-swap="innerHTML">
+      <td><span class="badge text-bg-light">{{ r.region_type }}</span></td>
+      <td>{{ r.name }}</td>
+      <td><small class="text-muted">{{ r.builds }}</small></td>
+    </tr>
+    {% else %}
+    <tr><td colspan="3" class="detail-empty">{{ t.get("region.none") }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% if list.total_pages > 1 %}
+<nav class="d-flex justify-content-between align-items-center">
+  <button class="btn btn-sm btn-outline-secondary{% if list.page <= 1 %} disabled{% endif %}"
+          hx-get="/curator/regions/fragment?query={{ list.query }}&page={{ list.page - 1 }}" hx-target="#region-table">{{ t.get("pagination.previous") }}</button>
+  <small class="text-muted">{{ t.get("pagination.page") }} {{ list.page }} {{ t.get("pagination.of") }} {{ list.total_pages }} ({{ list.total }})</small>
+  <button class="btn btn-sm btn-outline-secondary{% if list.page >= list.total_pages %} disabled{% endif %}"
+          hx-get="/curator/regions/fragment?query={{ list.query }}&page={{ list.page + 1 }}" hx-target="#region-table">{{ t.get("pagination.next") }}</button>
+</nav>
+{% else %}
+<small class="text-muted">{{ list.total }} {{ t.get("pagination.total") }}</small>
+{% endif %}

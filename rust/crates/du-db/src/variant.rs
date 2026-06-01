@@ -2,7 +2,8 @@
 //! enum columns are fetched as `::text` and parsed via serde; JSONB columns are
 //! read through `sqlx::types::Json<T>` into the du-domain payload structs.
 
-use crate::{parse_pg_enum, DbError, Page};
+use crate::{parse_pg_enum, pg_enum_label, DbError, Page};
+use du_domain::enums::{MutationType, NamingStatus};
 use du_domain::ids::VariantId;
 use du_domain::variant::{Aliases, Annotations, Coordinates, Variant};
 use sqlx::types::Json;
@@ -42,6 +43,76 @@ pub async fn get_by_id(pool: &PgPool, id: VariantId) -> Result<Option<Variant>, 
         .fetch_optional(pool)
         .await?;
     row.map(VariantRow::into_domain).transpose()
+}
+
+/// Create a variant (scalar fields + aliases; coordinates/annotations default
+/// empty and are managed elsewhere). Returns the new id.
+pub async fn create(
+    pool: &PgPool,
+    canonical_name: &str,
+    mutation_type: MutationType,
+    naming_status: NamingStatus,
+    aliases: &Aliases,
+) -> Result<VariantId, DbError> {
+    let aliases_json = serde_json::to_value(aliases).map_err(|e| DbError::Decode(e.to_string()))?;
+    let id: i64 = sqlx::query_scalar(
+        "INSERT INTO core.variant (canonical_name, mutation_type, naming_status, aliases) \
+         VALUES ($1, $2::core.mutation_type, $3::core.naming_status, $4) RETURNING id",
+    )
+    .bind(canonical_name)
+    .bind(pg_enum_label(&mutation_type)?)
+    .bind(pg_enum_label(&naming_status)?)
+    .bind(aliases_json)
+    .fetch_one(pool)
+    .await?;
+    Ok(VariantId(id))
+}
+
+/// Update a variant's scalar fields + aliases. Coordinates and annotations are
+/// left untouched. Returns whether a row was affected.
+pub async fn update(
+    pool: &PgPool,
+    id: VariantId,
+    canonical_name: &str,
+    mutation_type: MutationType,
+    naming_status: NamingStatus,
+    aliases: &Aliases,
+) -> Result<bool, DbError> {
+    let aliases_json = serde_json::to_value(aliases).map_err(|e| DbError::Decode(e.to_string()))?;
+    let affected = sqlx::query(
+        "UPDATE core.variant SET canonical_name=$2, mutation_type=$3::core.mutation_type, \
+         naming_status=$4::core.naming_status, aliases=$5, updated_at=now() WHERE id=$1",
+    )
+    .bind(id.0)
+    .bind(canonical_name)
+    .bind(pg_enum_label(&mutation_type)?)
+    .bind(pg_enum_label(&naming_status)?)
+    .bind(aliases_json)
+    .execute(pool)
+    .await?
+    .rows_affected();
+    Ok(affected > 0)
+}
+
+/// Whether the variant is referenced by a current haplogroup association
+/// (a guard before deletion).
+pub async fn is_referenced(pool: &PgPool, id: VariantId) -> Result<bool, DbError> {
+    let n: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM tree.haplogroup_variant WHERE variant_id = $1 AND valid_until IS NULL",
+    )
+    .bind(id.0)
+    .fetch_one(pool)
+    .await?;
+    Ok(n > 0)
+}
+
+pub async fn delete(pool: &PgPool, id: VariantId) -> Result<bool, DbError> {
+    let affected = sqlx::query("DELETE FROM core.variant WHERE id=$1")
+        .bind(id.0)
+        .execute(pool)
+        .await?
+        .rows_affected();
+    Ok(affected > 0)
 }
 
 /// Paginated search by canonical name OR any alias in the `common_names`/`rs_ids`

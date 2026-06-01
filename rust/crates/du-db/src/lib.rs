@@ -12,6 +12,7 @@ use thiserror::Error;
 pub mod auth;
 pub mod biosample;
 pub mod coverage;
+pub mod genome_region;
 pub mod haplogroup;
 pub mod pagination;
 pub mod publication;

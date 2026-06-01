@@ -1,0 +1,35 @@
+{# Fragment: region create/edit form with JSON textareas. Target of #region-detail. #}
+<div class="card">
+  <div class="card-header">{% if is_edit %}{{ t.get("region.edit") }}{% else %}{{ t.get("region.new") }}{% endif %}</div>
+  <div class="card-body">
+    {% if let Some(err) = error %}<div class="alert alert-danger py-2">{{ err }}</div>{% endif %}
+    <form hx-post="{{ action }}" hx-target="#region-detail" hx-swap="innerHTML">
+      <div class="row">
+        <div class="col mb-2">
+          <label class="form-label">{{ t.get("region.field.type") }}</label>
+          <input class="form-control" name="region_type" value="{{ region_type }}" required>
+        </div>
+        <div class="col mb-2">
+          <label class="form-label">{{ t.get("region.field.name") }}</label>
+          <input class="form-control" name="name" value="{{ name }}" required>
+        </div>
+      </div>
+      <div class="mb-2">
+        <label class="form-label">{{ t.get("region.field.coordinates") }}</label>
+        <textarea class="form-control font-monospace" name="coordinates" rows="5">{{ coordinates }}</textarea>
+      </div>
+      <div class="mb-2">
+        <label class="form-label">{{ t.get("region.field.properties") }}</label>
+        <textarea class="form-control font-monospace" name="properties" rows="3">{{ properties }}</textarea>
+      </div>
+      <div class="d-flex gap-2 mt-2">
+        <button class="btn btn-sm btn-primary" type="submit">{{ t.get("region.save") }}</button>
+        {% if is_edit %}
+        <button class="btn btn-sm btn-outline-secondary" type="button" hx-get="/curator/regions/{{ id }}/panel" hx-target="#region-detail">{{ t.get("region.cancel") }}</button>
+        {% else %}
+        <button class="btn btn-sm btn-outline-secondary" type="button" onclick="document.getElementById('region-detail').innerHTML=''">{{ t.get("region.cancel") }}</button>
+        {% endif %}
+      </div>
+    </form>
+  </div>
+</div>

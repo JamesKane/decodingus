@@ -9,6 +9,7 @@ pub mod biosample;
 pub mod coverage;
 pub mod enums;
 pub mod error;
+pub mod genome_region;
 pub mod haplogroup;
 pub mod ids;
 pub mod publication;

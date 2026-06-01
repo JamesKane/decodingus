@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}{{ t.get("var.title") }} — {{ t.get("app.name") }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h1 class="h3 mb-0">{{ t.get("var.title") }}</h1>
+  <button class="btn btn-sm btn-primary" hx-get="/curator/variants/new" hx-target="#variant-detail">
+    + {{ t.get("var.new") }}
+  </button>
+</div>
+<div class="row">
+  <div class="col-lg-7">
+    <input type="search" name="query" class="form-control mb-3" id="variant-q"
+           placeholder="{{ t.get("var.search") }}" value="{{ list.query }}"
+           hx-get="/curator/variants/fragment" hx-target="#variant-table"
+           hx-trigger="input changed delay:300ms, search">
+    <div id="variant-table"
+         hx-get="/curator/variants/fragment"
+         hx-trigger="load, variant-changed from:body"
+         hx-include="#variant-q">
+      {% include "curator/variants/list.html" %}
+    </div>
+  </div>
+  <div class="col-lg-5">
+    <div id="variant-detail"><p class="detail-empty">{{ t.get("var.select") }}</p></div>
+  </div>
+</div>
+{% endblock %}

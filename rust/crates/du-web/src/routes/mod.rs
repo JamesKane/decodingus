@@ -17,6 +17,8 @@ use tower_http::services::ServeDir;
 pub mod auth_routes;
 pub mod coverage;
 pub mod curator;
+pub mod curator_regions;
+pub mod curator_variants;
 pub mod maps;
 pub mod references;
 pub mod tree;
@@ -43,6 +45,8 @@ pub fn app(state: AppState) -> Router {
         .merge(coverage::router())
         .merge(auth_routes::router())
         .merge(curator::router())
+        .merge(curator_variants::router())
+        .merge(curator_regions::router())
         .nest_service("/assets", ServeDir::new(assets_dir()))
         .layer(CookieManagerLayer::new())
         .with_state(state)
