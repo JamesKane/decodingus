@@ -190,6 +190,11 @@ for DB-less builds.
       reconstruction from the inverted index) + publication jobs
       (`publication-update` enrichment by DOI, `publication-discovery` by search;
       rate-limited, env-gated on `OPENALEX_MAILTO`) — verified live against OpenAlex
+- [x] `du-external` transactional email (`Mailer`) + secrets (`CachedSecrets`,
+      1h TTL): logging mailer + env-secret source by default (testable/lean);
+      Amazon SES v2 + Secrets Manager behind the optional `aws` feature
+      (compiles; prod builds with `--features aws`). Consumers wired as the
+      contact/patron flows + secret-backed config land.
 - [x] YBrowse variant ingest: GRCh38 VCF → lift to GRCh37/hs1 (chain files) →
       multi-build `core.variant` upsert (`du-bio::ybrowse` + `du-jobs`, env-gated)
 - [ ] Remaining ingestion (HipSTR, genome regions); publication/match jobs once
@@ -218,8 +223,8 @@ for DB-less builds.
       **Follow-up:** push `decodingus-shared` to a remote, then flip the three deps
       to git deps (pinned tag) — also fixes the Docker build (path deps to a
       sibling aren't in the `rust/` build context).
-- [ ] `du-external` remaining: AWS SES (email) + Secrets Manager, reCAPTCHA;
-      wire ENA study enrichment into a job
+- [ ] `du-external` remaining: reCAPTCHA (contact form); wire ENA study
+      enrichment + the SES mailer / secret-backed config into their consumers
 - [ ] Tree-versioning change-sets; haplogroup↔variant association editing
 - [ ] Vendor remaining assets; full OpenAPI parity; cutover rehearsal
 
