@@ -14,7 +14,7 @@ use crate::state::AppState;
 use axum::extract::{Path, Query, State};
 use axum::http::{header, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::{Json, Router};
 use du_domain::enums::DnaType;
 use serde::{Deserialize, Serialize};
@@ -309,6 +309,35 @@ impl From<du_db::ystr::SignatureMarker> for StrSignatureMarkerDto {
     }
 }
 
+/// STR→branch prediction request: a query profile in the lexicon's
+/// `strMarkerValue[]` shape (the same markers Navigator publishes).
+#[derive(Deserialize, ToSchema)]
+pub struct StrPredictRequest {
+    #[schema(value_type = Object)]
+    pub markers: serde_json::Value,
+    /// Provenance of the query STRs; drives the WGS-upgrade recommendation.
+    pub source: Option<String>,
+    pub top_n: Option<i64>,
+}
+
+/// One ranked predicted branch.
+#[derive(Serialize, ToSchema)]
+pub struct StrPredictionDto {
+    pub haplogroup: String,
+    pub distance: i32,
+    pub compared_markers: i64,
+    pub signature_markers: i64,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct StrPredictResponseDto {
+    pub query_markers: i64,
+    pub predictions: Vec<StrPredictionDto>,
+    /// True unless the query STRs are WGS-derived — the STR-panel→WGS nudge.
+    pub wgs_upgrade_recommended: bool,
+    pub note: String,
+}
+
 // ── query params ─────────────────────────────────────────────────────────────
 
 #[derive(Deserialize, IntoParams)]
@@ -405,6 +434,43 @@ async fn haplogroup_str_signature(
 ) -> Result<Json<Vec<StrSignatureMarkerDto>>, AppError> {
     let rows = du_db::ystr::branch_signature(&st.pool, &name).await?;
     Ok(Json(rows.into_iter().map(StrSignatureMarkerDto::from).collect()))
+}
+
+#[utoipa::path(post, path = "/api/v1/str/predict", tag = "tree", request_body = StrPredictRequest,
+    responses((status = 200, description = "STR→branch predictions (ranked by genetic distance)", body = StrPredictResponseDto)))]
+async fn str_predict(
+    State(st): State<AppState>,
+    Json(req): Json<StrPredictRequest>,
+) -> Result<Json<StrPredictResponseDto>, AppError> {
+    let query = du_db::ystr::parse_markers(&req.markers);
+    if query.is_empty() {
+        return Err(AppError::BadRequest("no parseable STR markers in request".into()));
+    }
+    let top_n = req.top_n.unwrap_or(10).clamp(1, 50);
+    // Require meaningful marker overlap (up to 8) so a branch can't rank off one marker.
+    let min_compared = query.len().clamp(1, 8);
+    let preds = du_db::ystr::predict(&st.pool, &query, top_n, min_compared).await?;
+
+    let wgs_derived = matches!(req.source.as_deref(), Some("WGS_DERIVED") | Some("BIG_Y_DERIVED"));
+    let note = if wgs_derived {
+        "Predicted from WGS-derived STRs; SNP calls supersede STR prediction.".to_string()
+    } else {
+        "STR-based predictions are probabilistic. Upgrade to WGS / Big Y for SNP-confirmed branch placement.".to_string()
+    };
+    Ok(Json(StrPredictResponseDto {
+        query_markers: query.len() as i64,
+        predictions: preds
+            .into_iter()
+            .map(|p| StrPredictionDto {
+                haplogroup: p.haplogroup,
+                distance: p.distance,
+                compared_markers: p.compared_markers as i64,
+                signature_markers: p.signature_markers as i64,
+            })
+            .collect(),
+        wgs_upgrade_recommended: !wgs_derived,
+        note,
+    }))
 }
 
 #[utoipa::path(get, path = "/api/v1/reports/coverage", tag = "reports",
@@ -571,12 +637,13 @@ fn csv_field(s: &str) -> String {
         list_variants, get_variant, variants_by_haplogroup, export_metadata, export_variants,
         list_region_builds, regions_by_build,
         reports_coverage, reports_ancestry, reports_haplogroups,
-        haplogroup_str_signature,
+        haplogroup_str_signature, str_predict,
     ),
     components(schemas(
         VariantDto, HaplogroupNodeDto, TreeDto, CoverageBenchmarkDto, PublicationDto, BiosampleDto,
         GenomeRegionDto, StudyDto, ExportMetadataDto, Page<VariantDto>, Page<PublicationDto>, Page<BiosampleDto>,
         FedCoverageByBuildDto, AncestryShareDto, HaplogroupCountDto, StrSignatureMarkerDto,
+        StrPredictRequest, StrPredictionDto, StrPredictResponseDto,
     )),
     tags(
         (name = "tree", description = "Y/MT haplogroup trees"),
@@ -606,6 +673,7 @@ pub fn router() -> Router<AppState> {
         .route("/api/v1/variants/:variant_id", get(get_variant))
         .route("/api/v1/haplogroups/:haplogroup_name/variants", get(variants_by_haplogroup))
         .route("/api/v1/haplogroups/:haplogroup_name/str-signature", get(haplogroup_str_signature))
+        .route("/api/v1/str/predict", post(str_predict))
         .route("/api/v1/genome-regions", get(list_region_builds))
         .route("/api/v1/genome-regions/:build", get(regions_by_build))
         .merge(SwaggerUi::new("/api").url("/api/openapi.json", ApiDoc::openapi()))

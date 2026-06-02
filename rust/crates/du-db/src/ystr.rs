@@ -58,11 +58,9 @@ impl ScoreKey {
     }
 }
 
-/// Parse one `strMarkerValue` JSON object into `(marker, value)`.
-fn parse_marker(m: &Value) -> Option<(String, StrValue)> {
-    let marker = m.get("marker")?.as_str()?.to_string();
-    let v = m.get("value")?;
-    let value = match v.get("type").and_then(Value::as_str)? {
+/// Parse a lexicon `strValue` object (`{type, repeats|copies|alleles}`).
+fn parse_value(v: &Value) -> Option<StrValue> {
+    Some(match v.get("type").and_then(Value::as_str)? {
         "simple" => StrValue::Simple(v.get("repeats")?.as_i64()? as i32),
         "multiCopy" => {
             let copies = v.get("copies")?.as_array()?.iter().filter_map(|x| x.as_i64().map(|n| n as i32)).collect();
@@ -70,8 +68,13 @@ fn parse_marker(m: &Value) -> Option<(String, StrValue)> {
         }
         "complex" => StrValue::Complex(v.clone()),
         _ => return None,
-    };
-    Some((marker, value))
+    })
+}
+
+/// Parse one `strMarkerValue` JSON object into `(marker, value)`.
+fn parse_marker(m: &Value) -> Option<(String, StrValue)> {
+    let marker = m.get("marker")?.as_str()?.to_string();
+    Some((marker, parse_value(m.get("value")?)?))
 }
 
 /// Parse a profile's `markers` JSONB array into typed `(marker, value)` pairs.
@@ -248,6 +251,74 @@ pub async fn branch_signature(pool: &PgPool, haplogroup: &str) -> Result<Vec<Sig
     .fetch_all(pool)
     .await?;
     Ok(rows)
+}
+
+/// A ranked STR→branch prediction.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Prediction {
+    pub haplogroup: String,
+    /// Total stepwise genetic distance to the branch's modal signature.
+    pub distance: i32,
+    /// Markers compared (present + scoreable in both query and signature).
+    pub compared_markers: usize,
+    /// Markers in the branch's stored signature (coverage context).
+    pub signature_markers: usize,
+}
+
+/// Predict the most likely Y branches for a query STR profile by genetic distance
+/// to each branch's modal signature. Branches sharing fewer than `min_compared`
+/// scoreable markers with the query are excluded (avoids confident-looking calls
+/// off one or two markers). Ranked: distance asc, then more-compared, then name.
+pub async fn predict(
+    pool: &PgPool,
+    query: &[(String, StrValue)],
+    top_n: i64,
+    min_compared: usize,
+) -> Result<Vec<Prediction>, DbError> {
+    let rows: Vec<(String, String, Option<i32>, Option<Value>)> = sqlx::query_as(
+        "SELECT h.name, s.marker_name, s.ancestral_value, s.ancestral_json \
+         FROM tree.haplogroup_ancestral_str s \
+         JOIN tree.haplogroup h ON h.id = s.haplogroup_id \
+              AND h.haplogroup_type::text = 'Y_DNA' AND h.valid_until IS NULL",
+    )
+    .fetch_all(pool)
+    .await?;
+
+    // Reconstruct each branch's modal profile (Simple via the int column,
+    // multi-copy/complex via the JSON column).
+    let mut sigs: BTreeMap<String, Vec<(String, StrValue)>> = BTreeMap::new();
+    for (hg, marker, av, aj) in rows {
+        let value = match (av, aj) {
+            (Some(n), _) => StrValue::Simple(n),
+            (None, Some(j)) => match parse_value(&j) {
+                Some(v) => v,
+                None => continue,
+            },
+            _ => continue,
+        };
+        sigs.entry(hg).or_default().push((marker, value));
+    }
+
+    let mut preds: Vec<Prediction> = sigs
+        .into_iter()
+        .filter_map(|(hg, markers)| {
+            let (distance, compared) = distance(query, &markers)?;
+            (compared >= min_compared).then_some(Prediction {
+                haplogroup: hg,
+                distance,
+                compared_markers: compared,
+                signature_markers: markers.len(),
+            })
+        })
+        .collect();
+    preds.sort_by(|a, b| {
+        a.distance
+            .cmp(&b.distance)
+            .then(b.compared_markers.cmp(&a.compared_markers))
+            .then(a.haplogroup.cmp(&b.haplogroup))
+    });
+    preds.truncate(top_n.max(0) as usize);
+    Ok(preds)
 }
 
 #[cfg(test)]

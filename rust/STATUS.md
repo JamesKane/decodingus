@@ -108,9 +108,11 @@ APP_SECRET="<any 32+ char string>"   # signs session cookies
   simple + multi-copy; complex preserved unscored) → `tree.haplogroup_ancestral_str`
   (widened, mig 0013) via the `str-signature-recompute` job, joined through
   `fed.biosample.y_haplogroup`. Read at `GET /api/v1/haplogroups/:name/str-signature`.
-  MANUAL overrides survive recompute. Unit + live-DB tested. **Phase 2 (⬜):**
-  STR→branch prediction (genetic distance — `ystr::distance` is ready) + the
-  STR-only→WGS upgrade nudge.
+  MANUAL overrides survive recompute. **Phase 2 DONE:** STR→branch prediction
+  (`ystr::predict` — ranks branches by stepwise genetic distance to each modal
+  signature, min-compared gate) at `POST /api/v1/str/predict` (lexicon markers in
+  → ranked branches + `wgs_upgrade_recommended` nudge, true unless WGS-derived).
+  Unit + live-DB tested (aggregate, predict-ranking, nudge); endpoints smoke-checked.
 - **`du-jobs`** — tokio scheduler; jobs: `db-heartbeat`, `ybrowse-variant-ingest`,
   `publication-update`, `publication-discovery`, `ena-study-enrichment`,
   `publication-pubmed-update`, `str-signature-recompute`; plus the Jetstream
