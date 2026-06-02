@@ -236,4 +236,5 @@ cutover: get a **current-schema dump** or do a **read-only EC2 rehearsal**
 - Prod schema (authoritative for ETL): `~/db.schema`
 - Old data dump (stale): `/Volumes/nas/stuff/dump.sql`
 - AT Proto notes: `docs/atproto-oauth-findings.md`, `docs/atproto-edge-reply.md`
-- Navigator atmosphere docs: `/Users/jkane/Development/scala/DUNavigator/documents/atmosphere`
+- **Scala↔Rust functional diff catalog: `docs/scala-vs-rust-diff.md`**
+- Navigator atmosphere docs: `/Users/jkane/Development/DUNavigator/documents/atmosphere`
