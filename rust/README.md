@@ -205,8 +205,14 @@ for DB-less builds.
       an apply engine that writes the production tree via the temporal edge model
       (CREATE/UPDATE/DELETE/REPARENT/VARIANT_EDIT) — curator-gated management API
       at `/api/v1/manage/change-sets/*`; apply engine integration-tested
-- [ ] Tree merge (Identify-Match-Graft) — re-implementation against curated
-      fixtures (legacy is buggy); produces change-sets + WIP staging rows
+- [x] Tree merge (Identify-Match-Graft) — pure `du-domain::merge` re-implementation
+      against curated fixtures (legacy was buggy): subtree-scoped matching
+      (recurrent-SNP guard), FULL_MATCH / node-contraction-with-downflow /
+      descendant-insert / new-subtree, ambiguity-flagged-not-guessed. Emits a
+      reviewable `MergePlan` (placeholder-chained ops + ambiguities)
+- [ ] Tree merge wiring: materialize a `MergePlan` into a change-set + WIP
+      staging rows, the WIP apply path (placeholder→id resolution + conflict
+      resolutions), and the merge/preview endpoints
 - [x] Public JSON API (`/api/v1/*`): tree (y/mt), coverage benchmarks,
       references + per-publication biosamples, biosample studies, variant
       search/detail/by-haplogroup, variant CSV export, genome-region builds —
