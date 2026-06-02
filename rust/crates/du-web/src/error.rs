@@ -15,7 +15,12 @@ pub enum AppError {
 
 impl From<du_db::DbError> for AppError {
     fn from(e: du_db::DbError) -> Self {
-        AppError::Db(e)
+        // A surfaced precondition/uniqueness conflict is a client error (422),
+        // not a 500.
+        match e {
+            du_db::DbError::Conflict(msg) => AppError::BadRequest(msg),
+            other => AppError::Db(other),
+        }
     }
 }
 

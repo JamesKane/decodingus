@@ -24,6 +24,7 @@ pub mod maps;
 pub mod references;
 pub mod tree;
 pub mod variants;
+pub mod versioning;
 
 /// Directory holding vendored static assets. Settable for deployment
 /// (Dockerfile sets DU_ASSETS_DIR=/app/assets); falls back to the crate's
@@ -49,6 +50,7 @@ pub fn app(state: AppState) -> Router {
         .merge(curator_variants::router())
         .merge(curator_regions::router())
         .merge(curation::router())
+        .merge(versioning::router())
         .merge(crate::oauth::router())
         .merge(crate::api::router())
         .nest_service("/assets", ServeDir::new(assets_dir()))

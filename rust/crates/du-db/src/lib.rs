@@ -11,6 +11,7 @@ use thiserror::Error;
 
 pub mod auth;
 pub mod biosample;
+pub mod change_set;
 pub mod coverage;
 pub mod genome_region;
 pub mod haplogroup;

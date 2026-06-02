@@ -74,7 +74,7 @@ pub async fn children(pool: &PgPool, parent: HaplogroupId) -> Result<Vec<Haplogr
     let rows: Vec<HaplogroupRow> = sqlx::query_as(&format!(
         "SELECT {COLS} FROM tree.haplogroup h \
          JOIN tree.haplogroup_relationship r ON r.child_haplogroup_id = h.id \
-         WHERE r.parent_haplogroup_id = $1 AND r.valid_until IS NULL \
+         WHERE r.parent_haplogroup_id = $1 AND r.valid_until IS NULL AND h.valid_until IS NULL \
          ORDER BY h.name"
     ))
     .bind(parent.0)
@@ -202,7 +202,7 @@ pub async fn delete(pool: &PgPool, id: HaplogroupId) -> Result<bool, DbError> {
 pub async fn roots(pool: &PgPool, dna_type: DnaType) -> Result<Vec<Haplogroup>, DbError> {
     let rows: Vec<HaplogroupRow> = sqlx::query_as(&format!(
         "SELECT {COLS} FROM tree.haplogroup h \
-         WHERE h.haplogroup_type::text = $1 \
+         WHERE h.haplogroup_type::text = $1 AND h.valid_until IS NULL \
            AND NOT EXISTS ( \
              SELECT 1 FROM tree.haplogroup_relationship r \
              WHERE r.child_haplogroup_id = h.id AND r.parent_haplogroup_id IS NOT NULL \
@@ -249,7 +249,7 @@ pub async fn subtree(
             SELECT h.id, h.name, NULL::bigint AS parent_id, h.haplogroup_type::text AS haplogroup_type, \
                    h.formed_ybp, h.tmrca_ybp \
             FROM tree.haplogroup h \
-            WHERE h.haplogroup_type::text = $1 AND ( \
+            WHERE h.haplogroup_type::text = $1 AND h.valid_until IS NULL AND ( \
               ($2::text IS NULL AND NOT EXISTS ( \
                  SELECT 1 FROM tree.haplogroup_relationship r \
                  WHERE r.child_haplogroup_id = h.id AND r.parent_haplogroup_id IS NOT NULL \
@@ -260,7 +260,8 @@ pub async fn subtree(
             FROM tree.haplogroup c \
             JOIN tree.haplogroup_relationship r \
               ON r.child_haplogroup_id = c.id AND r.valid_until IS NULL \
-            JOIN sub ON sub.id = r.parent_haplogroup_id) \
+            JOIN sub ON sub.id = r.parent_haplogroup_id \
+            WHERE c.valid_until IS NULL) \
          SELECT id, name, parent_id, haplogroup_type, formed_ybp, tmrca_ybp FROM sub",
     )
     .bind(pg_enum_label(&dna_type)?)

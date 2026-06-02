@@ -200,6 +200,13 @@ for DB-less builds.
 - [x] Public read surface (trees, variants, references, map, coverage)
 - [x] Asset vendoring, i18n (en/es/fr), `HX-Request` negotiation
 - [x] Session auth + RBAC; curator CRUD (haplogroups, variants, regions)
+- [x] Tree versioning: change-set lifecycle (DRAFT→READY_FOR_REVIEW→
+      UNDER_REVIEW→APPLIED/DISCARDED), per-change review/approve-all, diff, and
+      an apply engine that writes the production tree via the temporal edge model
+      (CREATE/UPDATE/DELETE/REPARENT/VARIANT_EDIT) — curator-gated management API
+      at `/api/v1/manage/change-sets/*`; apply engine integration-tested
+- [ ] Tree merge (Identify-Match-Graft) — re-implementation against curated
+      fixtures (legacy is buggy); produces change-sets + WIP staging rows
 - [x] Public JSON API (`/api/v1/*`): tree (y/mt), coverage benchmarks,
       references + per-publication biosamples, biosample studies, variant
       search/detail/by-haplogroup, variant CSV export, genome-region builds —
