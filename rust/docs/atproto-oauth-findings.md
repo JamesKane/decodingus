@@ -81,6 +81,10 @@ Stood up the official PDS in a local container and validated the live
 **discovery + PAR** path (the browser redirect + token exchange still needs HTTPS
 identity infra — see "remaining" below).
 
+> **Navigator team:** the shared, client-facing version of this runbook — incl.
+> test-account creation and the public/loopback-client gotchas — lives in
+> `DUNavigator/documents/atmosphere/13-Local-PDS-Testing.md`.
+
 ### Runbook
 
 ```sh
