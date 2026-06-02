@@ -15,6 +15,7 @@ use tower_cookies::CookieManagerLayer;
 use tower_http::services::ServeDir;
 
 pub mod auth_routes;
+pub mod change_sets;
 pub mod coverage;
 pub mod curation;
 pub mod curator;
@@ -50,6 +51,7 @@ pub fn app(state: AppState) -> Router {
         .merge(curator_variants::router())
         .merge(curator_regions::router())
         .merge(curation::router())
+        .merge(change_sets::router())
         .merge(versioning::router())
         .merge(crate::oauth::router())
         .merge(crate::api::router())

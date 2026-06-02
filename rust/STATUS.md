@@ -74,7 +74,8 @@ APP_SECRET="<any 32+ char string>"   # signs session cookies
   change-set lifecycle (DRAFT→READY_FOR_REVIEW→UNDER_REVIEW→APPLIED/DISCARDED),
   per-change review/approve-all, diff, and a temporal apply engine
   (CREATE/UPDATE/DELETE/REPARENT/VARIANT_EDIT). Curator-gated management API at
-  `/api/v1/manage/change-sets/*`. Integration-tested.
+  `/api/v1/manage/change-sets/*` (machine callers) **plus a two-panel HTMX review
+  UI** at `/curator/change-sets` (`du-web/routes/change_sets.rs`). Integration-tested.
 - **Tree merge** (`du-domain/merge.rs` + `du-db/merge.rs`) — pure Identify-Match-
   Graft re-implementation (subtree-scoped matching = recurrent-SNP guard;
   full-match / contraction+downflow / descendant / new / ambiguity-flagged).
@@ -127,8 +128,12 @@ Roughly in priority order:
 3. **Remaining scheduled jobs** — `variant-export`, `match-discovery`, ENA study
    enrichment (`du-jobs/src/main.rs:82` TODO). `variant-export` could back a file
    artifact, but `/api/v1/variants/export` already streams CSV live.
-4. **Curator HTML UI for change-sets/merge review** — only the JSON management API
-   exists; the two-panel HTMX review screens aren't built.
+4. **Curator HTML UI for change-sets/merge review — DONE.** Two-panel HTMX screen
+   at `/curator/change-sets` (`du-web/routes/change_sets.rs` + templates/curator/
+   change-sets/*): list w/ status filter, review panel with diff summary+entries,
+   per-change approve/reject, comments, and the lifecycle actions (start-review,
+   approve-all, apply, discard) gated by status — mirrors the proposals screen.
+   The JSON management API in `versioning.rs` remains for machine callers.
 5. **Secondary web surfaces** — profile, contact/support + my-messages, cookie-
    consent UI, app-password help, static pages (home/FAQ/terms/privacy),
    sitemap.xml/robots.txt.
