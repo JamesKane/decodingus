@@ -50,8 +50,8 @@ legacy subsystems deliberately gone.
 | Cookie consent | 🟡 | Rust: `POST /cookie-consent` + JS banner. Scala also had `GET /cookies/check`; Rust checks the cookie client-side |
 | Profile view | 🟡 | Rust `/profile` is **read-only**; Scala also had `POST /profile` (update display name) — not ported |
 | Language switch | ✅ | `/language/:lang` |
-| Y/MT tree + HTMX fragments + tree API | ✅ | `/ytree /mtree …/fragment`, `/api/v1/{y,mt}-tree` |
-| SNP sidebar fragment | 🟡 | Scala had a dedicated `/haplogroups/snp-sidebar/*`; Rust folds variant detail into the tree page |
+| Y/MT tree — two SVG cladogram render modes (horizontal + vertical) | ✅ | **Rewritten 2026-06** (`du-web/tree_layout.rs` ports `TreeLayoutService`): server-computed inline SVG, breadcrumb re-root, `?orient=h\|v` toggle persisted to `tree_orient` cookie, search-by-name-or-variant, backbone/recent node coloring + legend, fixed depth window (re-root descends) replacing the legacy backbone-collapse. `/ytree /mtree`, HTMX `#tree-container` fragment, `/api/v1/{y,mt}-tree` |
+| SNP sidebar fragment | ✅ | `GET /{y,mt}tree/snp/:name` → HTMX `#snpSidebar`; lists defining variants (name/type/aliases/coords) |
 | Variant browser + fragments + by-id + by-haplogroup API | ✅ | |
 | Variant export | 🔁 | Scala: daily **gzipped JSONL** file artifact + metadata. Rust: **live CSV** stream `/api/v1/variants/export` + `/export/metadata` |
 | References/publications list + API | ✅ | |

@@ -59,7 +59,10 @@ APP_SECRET="<any 32+ char string>"   # signs session cookies
 - **`du-db`** — query modules for every aggregate (variant, haplogroup,
   biosample, publication, genome_region, coverage, proposal, study, change_set,
   merge, auth).
-- **Public HTML/HTMX** (`du-web/routes`) — variants browser, Y/MT tree,
+- **Public HTML/HTMX** (`du-web/routes`) — variants browser, **Y/MT tree as
+  two server-rendered SVG cladograms** (horizontal + vertical, `tree_layout.rs`;
+  breadcrumb re-root, orientation cookie toggle, name/variant search, SNP-detail
+  sidebar, backbone/recent coloring + legend, fixed depth window),
   references + per-pub biosamples, biosample map (PostGIS), coverage benchmarks;
   i18n (en/es/fr), `HX-Request` fragment negotiation, vendored assets.
 - **Auth + curator** — signed-cookie sessions, `Curator` RBAC extractor, curator

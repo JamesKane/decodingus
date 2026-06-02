@@ -1,4 +1,66 @@
 /* DecodingUs custom styles (vendored bootstrap handles the rest). */
 body { padding-top: 4.5rem; }
 .detail-empty { color: var(--bs-secondary-color); }
-.tree-node { cursor: pointer; }
+
+/* ── Phylogenetic tree (SVG cladogram) ─────────────────────────────────────── */
+.tree-scroll-container {
+  overflow: auto;
+  max-height: 78vh;
+  border: 1px solid var(--bs-border-color);
+  border-radius: .375rem;
+  background:
+    linear-gradient(90deg, rgba(0,0,0,.02) 1px, transparent 1px) 0 0 / 24px 24px,
+    linear-gradient(rgba(0,0,0,.02) 1px, transparent 1px) 0 0 / 24px 24px;
+}
+.phylo-tree { display: block; }
+
+.tree-link { fill: none; stroke: var(--bs-border-color, #ccc); stroke-width: 1.5; }
+
+.tree-node-rect {
+  stroke: #888;
+  stroke-width: 1;
+  cursor: pointer;
+  transition: filter .12s ease;
+}
+.tree-node-rect:hover,
+.tree-node-rect:focus {
+  filter: drop-shadow(0 2px 3px rgba(0,0,0,.25));
+  stroke-width: 1.5;
+  outline: none;
+}
+.tree-node-rect.node-backbone { fill: #d4edda; stroke: #2e7d32; }
+.tree-node-rect.node-recent   { fill: #ffeeba; stroke: #e65100; stroke-dasharray: 4 2; }
+.tree-node-rect.node-default  { fill: #f8f9fa; stroke: #6c757d; }
+
+.tree-node-name {
+  text-anchor: middle;
+  font-weight: 600;
+  font-size: 13px;
+  fill: #212529;
+  pointer-events: none;
+}
+.tree-variant-link {
+  text-anchor: middle;
+  font-size: 11px;
+  fill: #0d6efd;
+  cursor: pointer;
+}
+.tree-variant-link:hover { text-decoration: underline; }
+.tree-node-age {
+  text-anchor: middle;
+  font-size: 10px;
+  fill: var(--bs-secondary-color, #6c757d);
+  pointer-events: none;
+}
+
+/* Legend swatches mirror the node fills. */
+.legend-swatch {
+  display: inline-block;
+  width: .9rem; height: .9rem;
+  vertical-align: -2px;
+  border-radius: 2px;
+  border: 1px solid #888;
+}
+.legend-swatch.node-backbone { background: #d4edda; border-color: #2e7d32; }
+.legend-swatch.node-recent   { background: #ffeeba; border-color: #e65100; }
+.legend-swatch.node-default  { background: #f8f9fa; border-color: #6c757d; }

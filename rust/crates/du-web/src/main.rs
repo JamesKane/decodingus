@@ -18,6 +18,7 @@ mod render;
 mod oauth;
 mod routes;
 mod state;
+mod tree_layout;
 
 use state::AppState;
 

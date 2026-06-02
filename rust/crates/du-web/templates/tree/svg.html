@@ -1,0 +1,46 @@
+{# One tree window as an inline SVG cladogram. The node `<rect>`s re-root via
+   HTMX (swap #tree-container); variant labels open the SNP sidebar.
+   References: t, base_path, root_name, crumbs, laid (Option<Laid>). #}
+<nav aria-label="breadcrumb" class="mb-2">
+  <ol class="breadcrumb mb-0">
+    {% for c in crumbs %}
+    {% if c.href.is_empty() %}
+    <li class="breadcrumb-item active" aria-current="page">{{ c.name }}</li>
+    {% else %}
+    <li class="breadcrumb-item">
+      <a href="{{ c.href }}" hx-get="{{ c.href }}" hx-target="#tree-container" hx-push-url="true">{{ c.name }}</a>
+    </li>
+    {% endif %}
+    {% endfor %}
+  </ol>
+</nav>
+
+{% if let Some(l) = laid %}
+<div class="tree-scroll-container">
+  <svg class="phylo-tree" width="{{ l.width }}" height="{{ l.height }}"
+       viewBox="0 0 {{ l.width }} {{ l.height }}" xmlns="http://www.w3.org/2000/svg">
+    {% for link in l.links %}
+    <path class="tree-link" d="{{ link.path }}"></path>
+    {% endfor %}
+    {% for n in l.nodes %}
+    <g class="tree-node">
+      <rect class="tree-node-rect {{ n.fill_class }}" x="{{ n.rect_x }}" y="{{ n.rect_y }}"
+            width="150" height="80" rx="5" ry="5" tabindex="0" role="button"
+            hx-get="{{ base_path }}?root={{ n.name }}" hx-target="#tree-container" hx-push-url="true">
+        <title>{{ n.name }}{% if let Some(tm) = n.tmrca %} · TMRCA {{ tm }}{% endif %}</title>
+      </rect>
+      <text class="tree-node-name" x="{{ n.cx }}" y="{{ n.name_y }}">{% if n.is_backbone %}✓ {% else if n.is_recent %}★ {% endif %}{{ n.name }}{% if n.has_hidden %} +{% endif %}</text>
+      <text class="tree-variant-link" x="{{ n.cx }}" y="{{ n.count_y }}"
+            hx-get="{{ base_path }}/snp/{{ n.name }}" hx-target="#snpSidebar">{{ n.variant_count }} {{ t.get("tree.variants") }} ▸</text>
+      {% if let Some(f) = n.formed %}
+      <text class="tree-node-age" x="{{ n.cx }}" y="{{ n.age_y }}">{{ t.get("tree.formed") }} {{ f }}</text>
+      {% else if let Some(tm) = n.tmrca %}
+      <text class="tree-node-age" x="{{ n.cx }}" y="{{ n.age_y }}">TMRCA {{ tm }}</text>
+      {% endif %}
+    </g>
+    {% endfor %}
+  </svg>
+</div>
+{% else %}
+<p class="text-muted">{{ t.get("tree.noChildren") }}</p>
+{% endif %}

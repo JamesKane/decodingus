@@ -293,6 +293,186 @@ pub async fn existing_tree(
     Ok(roots.into_iter().map(|r| build(r, 0, &name_of, &vars_of, &children_of)).collect())
 }
 
+/// Ancestor chain of a haplogroup, ordered root → immediate parent (the node
+/// itself is excluded). Backs the tree-view breadcrumb trail.
+pub async fn ancestors(pool: &PgPool, id: HaplogroupId) -> Result<Vec<(HaplogroupId, String)>, DbError> {
+    // Walk parent edges upward, tagging each step with its distance so we can
+    // return them root-first.
+    let rows: Vec<(i64, String, i32)> = sqlx::query_as(
+        "WITH RECURSIVE up AS ( \
+            SELECT r.parent_haplogroup_id AS id, 1 AS dist \
+            FROM tree.haplogroup_relationship r \
+            WHERE r.child_haplogroup_id = $1 AND r.parent_haplogroup_id IS NOT NULL AND r.valid_until IS NULL \
+          UNION ALL \
+            SELECT r.parent_haplogroup_id, up.dist + 1 \
+            FROM tree.haplogroup_relationship r \
+            JOIN up ON up.id = r.child_haplogroup_id \
+            WHERE r.parent_haplogroup_id IS NOT NULL AND r.valid_until IS NULL AND up.dist < 1000) \
+         SELECT h.id, h.name, up.dist FROM up JOIN tree.haplogroup h ON h.id = up.id \
+         WHERE h.valid_until IS NULL ORDER BY up.dist DESC",
+    )
+    .bind(id.0)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows.into_iter().map(|(id, name, _)| (HaplogroupId(id), name)).collect())
+}
+
+/// One node of a depth-bounded tree window for the public tree view.
+#[derive(Debug, Clone)]
+pub struct WindowNode {
+    pub id: i64,
+    pub name: String,
+    pub parent_id: Option<i64>,
+    pub depth: i32,
+    pub formed_ybp: Option<i32>,
+    pub tmrca_ybp: Option<i32>,
+    /// `source == 'backbone'` — the established spine, rendered green.
+    pub is_backbone: bool,
+    /// Edited within the last year — rendered amber.
+    pub is_recent: bool,
+    /// Defining-variant count (current links).
+    pub variant_count: i64,
+    /// True when this node sits at the window boundary AND has children that
+    /// were not included — the view shows a "+" affordance to re-root into it.
+    pub has_hidden: bool,
+}
+
+/// The subtree under `root_name`, limited to `max_depth` levels below the root
+/// (root = depth 0). Follows current edges. Returns a flat list with parent
+/// linkage, per-node variant counts, backbone/recency flags, and a `has_hidden`
+/// marker on boundary nodes whose children were clipped. The web layer nests it.
+pub async fn subtree_window(
+    pool: &PgPool,
+    dna_type: DnaType,
+    root_name: &str,
+    max_depth: i32,
+) -> Result<Vec<WindowNode>, DbError> {
+    #[derive(sqlx::FromRow)]
+    struct WinRow {
+        id: i64,
+        name: String,
+        parent_id: Option<i64>,
+        depth: i32,
+        formed_ybp: Option<i32>,
+        tmrca_ybp: Option<i32>,
+        is_backbone: bool,
+        is_recent: bool,
+        variant_count: i64,
+        has_hidden: bool,
+    }
+    let rows: Vec<WinRow> = sqlx::query_as(
+        "WITH RECURSIVE sub AS ( \
+            SELECT h.id, h.name, NULL::bigint AS parent_id, 0 AS depth \
+            FROM tree.haplogroup h \
+            WHERE h.haplogroup_type::text = $1 AND h.valid_until IS NULL AND h.name = $2 \
+          UNION ALL \
+            SELECT c.id, c.name, r.parent_haplogroup_id, sub.depth + 1 \
+            FROM tree.haplogroup c \
+            JOIN tree.haplogroup_relationship r \
+              ON r.child_haplogroup_id = c.id AND r.valid_until IS NULL \
+            JOIN sub ON sub.id = r.parent_haplogroup_id \
+            WHERE c.valid_until IS NULL AND sub.depth < $3) \
+         SELECT s.id, s.name, s.parent_id, s.depth, h.formed_ybp, h.tmrca_ybp, \
+                (h.source = 'backbone') AS is_backbone, \
+                (h.valid_from > now() - interval '1 year') AS is_recent, \
+                (SELECT count(*) FROM tree.haplogroup_variant hv \
+                   WHERE hv.haplogroup_id = s.id AND hv.valid_until IS NULL) AS variant_count, \
+                (s.depth >= $3 AND EXISTS ( \
+                   SELECT 1 FROM tree.haplogroup_relationship r2 \
+                   WHERE r2.parent_haplogroup_id = s.id AND r2.valid_until IS NULL)) AS has_hidden \
+         FROM sub s JOIN tree.haplogroup h ON h.id = s.id \
+         ORDER BY s.depth, s.name",
+    )
+    .bind(pg_enum_label(&dna_type)?)
+    .bind(root_name)
+    .bind(max_depth)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|r| WindowNode {
+            id: r.id,
+            name: r.name,
+            parent_id: r.parent_id,
+            depth: r.depth,
+            formed_ybp: r.formed_ybp,
+            tmrca_ybp: r.tmrca_ybp,
+            is_backbone: r.is_backbone,
+            is_recent: r.is_recent,
+            variant_count: r.variant_count,
+            has_hidden: r.has_hidden,
+        })
+        .collect())
+}
+
+/// Resolve a tree-search query to a haplogroup name: try a direct name match
+/// first, then treat the query as a defining-variant name (canonical or alias)
+/// and return the most-recent haplogroup carrying it. `None` if nothing matches.
+pub async fn resolve_name_or_variant(
+    pool: &PgPool,
+    query: &str,
+    dna_type: DnaType,
+) -> Result<Option<String>, DbError> {
+    let dna = pg_enum_label(&dna_type)?;
+    let q = query.trim();
+    // Direct name hit.
+    if let Some(h) = get_by_name(pool, q, dna_type).await? {
+        return Ok(Some(h.name));
+    }
+    // Variant name → defining haplogroup (latest by valid_from).
+    let name: Option<String> = sqlx::query_scalar(
+        "SELECT h.name FROM tree.haplogroup h \
+         JOIN tree.haplogroup_variant hv ON hv.haplogroup_id = h.id AND hv.valid_until IS NULL \
+         JOIN core.variant v ON v.id = hv.variant_id \
+         WHERE h.haplogroup_type::text = $1 AND h.valid_until IS NULL \
+           AND lower(v.canonical_name) = lower($2) \
+         ORDER BY h.valid_from DESC LIMIT 1",
+    )
+    .bind(&dna)
+    .bind(q)
+    .fetch_optional(pool)
+    .await?;
+    Ok(name)
+}
+
+/// A defining variant of a haplogroup, for the SNP-detail sidebar.
+#[derive(Debug, Clone)]
+pub struct VariantInfo {
+    pub canonical_name: String,
+    pub mutation_type: String,
+    pub aliases: serde_json::Value,
+    pub coordinates: serde_json::Value,
+}
+
+/// All current defining variants of the named haplogroup, ordered by name.
+pub async fn variants_of(
+    pool: &PgPool,
+    name: &str,
+    dna_type: DnaType,
+) -> Result<Vec<VariantInfo>, DbError> {
+    let rows: Vec<(String, String, serde_json::Value, serde_json::Value)> = sqlx::query_as(
+        "SELECT v.canonical_name, v.mutation_type::text, v.aliases, v.coordinates \
+         FROM core.variant v \
+         JOIN tree.haplogroup_variant hv ON hv.variant_id = v.id AND hv.valid_until IS NULL \
+         JOIN tree.haplogroup h ON h.id = hv.haplogroup_id \
+         WHERE h.name = $1 AND h.haplogroup_type::text = $2 AND h.valid_until IS NULL \
+         ORDER BY v.canonical_name",
+    )
+    .bind(name)
+    .bind(pg_enum_label(&dna_type)?)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|(canonical_name, mutation_type, aliases, coordinates)| VariantInfo {
+            canonical_name,
+            mutation_type,
+            aliases,
+            coordinates,
+        })
+        .collect())
+}
+
 /// A node in a subtree fetch: the haplogroup plus its current parent (`None` at
 /// the subtree root). The JSON tree API assembles the nesting in-process.
 #[derive(Debug, Clone)]
