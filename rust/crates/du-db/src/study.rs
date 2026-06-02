@@ -16,6 +16,56 @@ pub struct StudyWithSamples {
     pub samples: serde_json::Value,
 }
 
+/// An ENA study that still lacks enriched metadata (title/center).
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct EnaCandidate {
+    pub id: i64,
+    pub accession: String,
+}
+
+/// ENA studies missing a title or center name (oldest first), capped at `limit`.
+/// The enrichment job fetches these from the ENA portal and fills the gaps.
+pub async fn needing_ena_enrichment(pool: &PgPool, limit: i64) -> Result<Vec<EnaCandidate>, DbError> {
+    let rows: Vec<EnaCandidate> = sqlx::query_as(
+        "SELECT id, accession FROM pubs.genomic_study \
+         WHERE source = 'ENA' AND (title IS NULL OR center_name IS NULL) \
+         ORDER BY id LIMIT $1",
+    )
+    .bind(limit.clamp(1, 500))
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}
+
+/// Fill a study's gaps from ENA metadata. `COALESCE` only fills empty columns
+/// (never clobbers curated values); `first_public` lands in `details` since it is
+/// not the same as `submission_date`. Returns whether a row was updated.
+pub async fn apply_ena_metadata(
+    pool: &PgPool,
+    id: i64,
+    title: Option<&str>,
+    center_name: Option<&str>,
+    first_public: Option<chrono::NaiveDate>,
+) -> Result<bool, DbError> {
+    let n = sqlx::query(
+        "UPDATE pubs.genomic_study SET \
+           title = COALESCE(title, $2), \
+           center_name = COALESCE(center_name, $3), \
+           details = CASE WHEN $4::date IS NOT NULL \
+                          THEN jsonb_set(details, '{ena_first_public}', to_jsonb($4::date::text)) \
+                          ELSE details END \
+         WHERE id = $1",
+    )
+    .bind(id)
+    .bind(title)
+    .bind(center_name)
+    .bind(first_public)
+    .execute(pool)
+    .await?
+    .rows_affected();
+    Ok(n > 0)
+}
+
 pub async fn with_samples(pool: &PgPool) -> Result<Vec<StudyWithSamples>, DbError> {
     let rows: Vec<StudyWithSamples> = sqlx::query_as(
         "SELECT s.id, s.accession, s.title, s.center_name, \

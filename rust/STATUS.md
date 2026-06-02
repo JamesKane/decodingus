@@ -135,9 +135,13 @@ Roughly in priority order:
    browser-gated) → `code` → token; the public token-exchange path is wired. Runbook
    + manual-browser steps in `docs/atproto-oauth-findings.md`. **Confidential
    web-client** flow (hosted metadata over HTTPS) + the joint Edge test still open.
-3. **Remaining scheduled jobs** — `variant-export`, `match-discovery`, ENA study
-   enrichment (`du-jobs/src/main.rs:82` TODO). `variant-export` could back a file
-   artifact, but `/api/v1/variants/export` already streams CSV live.
+3. **Scheduled jobs** — **`ena-study-enrichment` DONE** (`du-jobs/ena.rs` +
+   `du-db::study::{needing_ena_enrichment,apply_ena_metadata}`): fills
+   title/center/first-public gaps in `pubs.genomic_study` from the public ENA
+   portal, daily, batched, idempotent (COALESCE; never clobbers curated values).
+   Live-DB tested + ENA portal contract verified. Remaining are low-value/out of
+   scope: `variant-export` (the `/api/v1/variants/export` endpoint already streams
+   CSV live), `match-discovery` (IBD — not in production).
 4. **Curator HTML UI for change-sets/merge review — DONE.** Two-panel HTMX screen
    at `/curator/change-sets` (`du-web/routes/change_sets.rs` + templates/curator/
    change-sets/*): list w/ status filter, review panel with diff summary+entries,

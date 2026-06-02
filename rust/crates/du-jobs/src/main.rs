@@ -9,6 +9,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+mod ena;
 mod jetstream;
 mod publications;
 mod scheduler;
@@ -80,7 +81,21 @@ async fn main() -> anyhow::Result<()> {
         tracing::info!("publication jobs not configured (set OPENALEX_MAILTO)");
     }
 
-    // TODO(jobs): variant-export, match-discovery; ENA study enrichment.
+    // ENA study enrichment — fills study metadata gaps from the public ENA
+    // portal (no credentials needed, so always on).
+    {
+        let pool = pool.clone();
+        let client = Arc::new(du_external::ena::EnaClient::new());
+        sched.register(Job::new("ena-study-enrichment", Duration::from_secs(86_400), move || {
+            let (pool, client) = (pool.clone(), client.clone());
+            async move { ena::enrich_studies(&pool, &client).await }
+        }));
+        tracing::info!("ena-study-enrichment registered");
+    }
+
+    // TODO(jobs): variant-export to a file artifact (the /api/v1/variants/export
+    // endpoint already streams CSV live). match-discovery is out of scope (IBD
+    // not in production).
 
     // Jetstream coverage-mirror consumer — a long-lived websocket stream (not an
     // interval job), so it runs as its own task beside the scheduler. Mirrors
