@@ -161,7 +161,12 @@ Roughly in priority order:
    production).
 6. **reCAPTCHA** — wired into the contact form: server-side siteverify when
    `RECAPTCHA_SECRET`/`RECAPTCHA_SITE_KEY` are set, skipped in dev when unset
-   (just needs prod keys). **NCBI** client still TODO.
+   (just needs prod keys). **NCBI/PubMed client — DONE** (`du-external::ncbi`,
+   E-utilities esummary by PMID): the `publication-pubmed-update` job
+   (`du-jobs/publications.rs`, env-gated on `NCBI_EMAIL`) fills journal/authors/
+   date/doi gaps via `du-db::publication::update_pubmed` (gap-fill COALESCE,
+   UNIQUE-safe DOI), complementing OpenAlex's by-DOI enrichment. Unit + live-DB
+   tested; live esummary contract verified.
 7. **Management API namespace (DECIDED 2026-06):** curator/machine endpoints are
    **not** under the public `/api/v1` — they live under **`/manage/*`**
    (`/manage/change-sets/*`, `/manage/haplogroups/merge[/preview]`,

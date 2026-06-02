@@ -21,3 +21,4 @@ tracing = { workspace = true }
 
 [dev-dependencies]
 chrono = { workspace = true }
+du-domain = { workspace = true }

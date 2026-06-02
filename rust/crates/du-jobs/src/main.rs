@@ -81,6 +81,19 @@ async fn main() -> anyhow::Result<()> {
         tracing::info!("publication jobs not configured (set OPENALEX_MAILTO)");
     }
 
+    // PubMed (NCBI) enrichment by PMID — complements OpenAlex's by-DOI enrichment.
+    if let Some(cfg) = publications::NcbiConfig::from_env() {
+        let pool = pool.clone();
+        let client = Arc::new(du_external::ncbi::NcbiClient::new(Some(cfg.email), cfg.api_key));
+        sched.register(Job::new("publication-pubmed-update", Duration::from_secs(86_400), move || {
+            let (pool, client) = (pool.clone(), client.clone());
+            async move { publications::pubmed_update_all(&pool, &client).await }
+        }));
+        tracing::info!("publication-pubmed-update registered (NCBI)");
+    } else {
+        tracing::info!("publication-pubmed-update not configured (set NCBI_EMAIL)");
+    }
+
     // ENA study enrichment — fills study metadata gaps from the public ENA
     // portal (no credentials needed, so always on).
     {

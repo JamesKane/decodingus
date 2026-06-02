@@ -53,6 +53,60 @@ pub async fn update_openalex(pool: &PgPool, id: PublicationId, u: &OpenAlexUpdat
     Ok(affected > 0)
 }
 
+/// Fields the PubMed (NCBI) enrichment job fills. Gap-fill semantics: only
+/// populates an empty column (never overwrites curated/OpenAlex values).
+#[derive(Debug, Default, Clone)]
+pub struct PubMedUpdate {
+    pub journal: Option<String>,
+    pub publication_date: Option<NaiveDate>,
+    pub authors: Option<String>,
+    pub doi: Option<String>,
+}
+
+/// Publications that have a PMID but still lack journal/authors/date/doi —
+/// the PubMed enrichment job's work-list, oldest first, capped at `limit`.
+pub async fn pmids_needing_enrichment(
+    pool: &PgPool,
+    limit: i64,
+) -> Result<Vec<(PublicationId, String)>, DbError> {
+    let rows: Vec<(i64, String)> = sqlx::query_as(
+        "SELECT id, pubmed_id FROM pubs.publication \
+         WHERE pubmed_id IS NOT NULL \
+           AND (journal IS NULL OR authors IS NULL OR publication_date IS NULL OR doi IS NULL) \
+         ORDER BY id LIMIT $1",
+    )
+    .bind(limit.clamp(1, 500))
+    .fetch_all(pool)
+    .await?;
+    Ok(rows.into_iter().map(|(id, p)| (PublicationId(id), p)).collect())
+}
+
+/// Apply PubMed enrichment, filling only empty columns. The DOI is set only when
+/// the row has none AND the value isn't already taken (DOI is UNIQUE — this avoids
+/// a constraint violation aborting the batch).
+pub async fn update_pubmed(pool: &PgPool, id: PublicationId, u: &PubMedUpdate) -> Result<bool, DbError> {
+    let affected = sqlx::query(
+        "UPDATE pubs.publication SET \
+           journal = COALESCE(journal, $2), \
+           publication_date = COALESCE(publication_date, $3), \
+           authors = COALESCE(authors, $4), \
+           doi = CASE WHEN doi IS NULL AND $5 IS NOT NULL \
+                        AND NOT EXISTS (SELECT 1 FROM pubs.publication p2 WHERE p2.doi = $5 AND p2.id <> $1) \
+                      THEN $5 ELSE doi END, \
+           updated_at = now() \
+         WHERE id = $1",
+    )
+    .bind(id.0)
+    .bind(&u.journal)
+    .bind(u.publication_date)
+    .bind(&u.authors)
+    .bind(&u.doi)
+    .execute(pool)
+    .await?
+    .rows_affected();
+    Ok(affected > 0)
+}
+
 /// Enabled discovery search queries.
 pub async fn enabled_search_configs(pool: &PgPool) -> Result<Vec<String>, DbError> {
     let rows: Vec<String> = sqlx::query_scalar(

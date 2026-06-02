@@ -82,3 +82,53 @@ pub async fn discover(pool: &PgPool, client: &OpenAlexClient) -> anyhow::Result<
     tracing::info!(candidates, "publication-discovery done");
     Ok(())
 }
+
+// ── NCBI / PubMed enrichment (by PMID) ───────────────────────────────────────
+
+/// ~3 req/s — NCBI's unauthenticated limit (an api_key raises it to 10/s).
+const NCBI_GAP: Duration = Duration::from_millis(350);
+
+pub struct NcbiConfig {
+    pub email: String,
+    pub api_key: Option<String>,
+}
+
+impl NcbiConfig {
+    pub fn from_env() -> Option<NcbiConfig> {
+        let email = std::env::var("NCBI_EMAIL").ok().filter(|s| !s.is_empty())?;
+        Some(NcbiConfig { email, api_key: std::env::var("NCBI_API_KEY").ok().filter(|s| !s.is_empty()) })
+    }
+}
+
+fn to_pubmed_update(m: du_external::ncbi::PubMedMeta) -> du_db::publication::PubMedUpdate {
+    du_db::publication::PubMedUpdate {
+        journal: m.journal,
+        publication_date: m.publication_date,
+        authors: m.authors,
+        doi: m.doi,
+    }
+}
+
+/// Fill metadata gaps (journal/authors/date/doi) for publications that have a
+/// PMID, from PubMed. Complements `update_all` (which enriches by DOI).
+pub async fn pubmed_update_all(pool: &PgPool, client: &du_external::ncbi::NcbiClient) -> anyhow::Result<()> {
+    let pmids = du_db::publication::pmids_needing_enrichment(pool, 100).await?;
+    let total = pmids.len();
+    let (mut updated, mut missing, mut failed) = (0usize, 0usize, 0usize);
+    for (id, pmid) in pmids {
+        match client.pubmed_summary(&pmid).await {
+            Ok(Some(meta)) => {
+                du_db::publication::update_pubmed(pool, id, &to_pubmed_update(meta)).await?;
+                updated += 1;
+            }
+            Ok(None) => missing += 1,
+            Err(e) => {
+                tracing::warn!(%pmid, error = %e, "pubmed fetch failed");
+                failed += 1;
+            }
+        }
+        tokio::time::sleep(NCBI_GAP).await;
+    }
+    tracing::info!(total, updated, missing, failed, "publication-pubmed-update done");
+    Ok(())
+}
