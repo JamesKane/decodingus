@@ -13,7 +13,7 @@
 //! from the persisted `time_us` cursor and reconnects with capped backoff; every
 //! upsert is idempotent + ordered, so replay overlap on reconnect is harmless.
 
-use du_db::fed::{self, analytics, core, coverage};
+use du_db::fed::{self, analytics, core, coverage, str_profile};
 use du_db::PgPool;
 use futures_util::StreamExt;
 use serde::Deserialize;
@@ -160,6 +160,7 @@ async fn handle(pool: &PgPool, ev: &Event) -> anyhow::Result<()> {
         fed::NS_HAPLOGROUP_RECONCILIATION => {
             analytics::upsert_reconciliation(pool, &build_reconciliation(c, record)).await?
         }
+        fed::NS_STR_PROFILE => str_profile::upsert(pool, &build_str_profile(c, record)).await?,
         other => tracing::debug!(collection = other, "ignoring unwanted collection"),
     }
     Ok(())
@@ -323,6 +324,19 @@ fn build_population_breakdown(c: fed::Common, record: &Value) -> analytics::Popu
     }
 }
 
+fn build_str_profile(c: fed::Common, record: &Value) -> str_profile::StrProfile {
+    str_profile::StrProfile {
+        biosample_ref: str_at(record, "biosampleRef"),
+        sequence_run_ref: str_at(record, "sequenceRunRef"),
+        source: str_at(record, "source"),
+        imported_from: str_at(record, "importedFrom"),
+        derivation_method: str_at(record, "derivationMethod"),
+        total_markers: i32_at(record, "totalMarkers"),
+        markers: record.get("markers").cloned().unwrap_or_else(|| json!([])),
+        common: c,
+    }
+}
+
 fn build_reconciliation(c: fed::Common, record: &Value) -> analytics::Reconciliation {
     let status = record.get("status").cloned().unwrap_or_else(|| json!({}));
     analytics::Reconciliation {
@@ -428,6 +442,26 @@ mod tests {
         assert_eq!(p.panel_type.as_deref(), Some("genome-wide"));
         assert_eq!(p.confidence_level, Some(0.95));
         assert_eq!(p.super_population_summary.as_array().map(|a| a.len()), Some(1));
+    }
+
+    #[test]
+    fn str_profile_passes_markers_through() {
+        let record = json!({
+            "biosampleRef": "at://x/bs/1",
+            "source": "WGS_DERIVED",
+            "derivationMethod": "HIPSTR",
+            "totalMarkers": 2,
+            "markers": [
+                { "marker": "DYS393", "value": { "type": "simple", "repeats": 13 } },
+                { "marker": "DYS385", "value": { "type": "multiCopy", "copies": [11, 14] } }
+            ]
+        });
+        let p = build_str_profile(mk_common(), &record);
+        assert_eq!(p.source.as_deref(), Some("WGS_DERIVED"));
+        assert_eq!(p.derivation_method.as_deref(), Some("HIPSTR"));
+        assert_eq!(p.total_markers, Some(2));
+        assert_eq!(p.markers.as_array().map(|a| a.len()), Some(2));
+        assert_eq!(p.biosample_ref.as_deref(), Some("at://x/bs/1"));
     }
 
     #[test]

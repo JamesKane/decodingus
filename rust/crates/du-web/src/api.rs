@@ -281,6 +281,34 @@ impl From<du_db::fed::core::HaplogroupCount> for HaplogroupCountDto {
     }
 }
 
+/// One marker of a Y haplogroup's aggregated (modal) STR signature.
+#[derive(Serialize, ToSchema)]
+pub struct StrSignatureMarkerDto {
+    pub marker: String,
+    /// Modal repeat count for simple markers (null for multi-copy — see `value_json`).
+    pub value: Option<i32>,
+    /// Full lexicon `strValue` (carries multi-copy `copies`).
+    #[schema(value_type = Object)]
+    pub value_json: Option<serde_json::Value>,
+    pub confidence: Option<f64>,
+    pub supporting_samples: Option<i32>,
+    /// MODAL (computed) or MANUAL (curator override).
+    pub method: Option<String>,
+}
+
+impl From<du_db::ystr::SignatureMarker> for StrSignatureMarkerDto {
+    fn from(s: du_db::ystr::SignatureMarker) -> Self {
+        StrSignatureMarkerDto {
+            marker: s.marker_name,
+            value: s.ancestral_value,
+            value_json: s.ancestral_json,
+            confidence: s.confidence,
+            supporting_samples: s.supporting_samples,
+            method: s.method,
+        }
+    }
+}
+
 // ── query params ─────────────────────────────────────────────────────────────
 
 #[derive(Deserialize, IntoParams)]
@@ -367,6 +395,16 @@ async fn mt_tree(State(st): State<AppState>, Query(q): Query<RootParams>) -> Res
 async fn coverage_benchmarks(State(st): State<AppState>) -> Result<Json<Vec<CoverageBenchmarkDto>>, AppError> {
     let rows = du_db::coverage::benchmarks(&st.pool).await?;
     Ok(Json(rows.into_iter().map(CoverageBenchmarkDto::from).collect()))
+}
+
+#[utoipa::path(get, path = "/api/v1/haplogroups/{haplogroupName}/str-signature", tag = "tree",
+    responses((status = 200, description = "Aggregated modal Y-STR signature for a haplogroup", body = [StrSignatureMarkerDto])))]
+async fn haplogroup_str_signature(
+    State(st): State<AppState>,
+    Path(name): Path<String>,
+) -> Result<Json<Vec<StrSignatureMarkerDto>>, AppError> {
+    let rows = du_db::ystr::branch_signature(&st.pool, &name).await?;
+    Ok(Json(rows.into_iter().map(StrSignatureMarkerDto::from).collect()))
 }
 
 #[utoipa::path(get, path = "/api/v1/reports/coverage", tag = "reports",
@@ -533,11 +571,12 @@ fn csv_field(s: &str) -> String {
         list_variants, get_variant, variants_by_haplogroup, export_metadata, export_variants,
         list_region_builds, regions_by_build,
         reports_coverage, reports_ancestry, reports_haplogroups,
+        haplogroup_str_signature,
     ),
     components(schemas(
         VariantDto, HaplogroupNodeDto, TreeDto, CoverageBenchmarkDto, PublicationDto, BiosampleDto,
         GenomeRegionDto, StudyDto, ExportMetadataDto, Page<VariantDto>, Page<PublicationDto>, Page<BiosampleDto>,
-        FedCoverageByBuildDto, AncestryShareDto, HaplogroupCountDto,
+        FedCoverageByBuildDto, AncestryShareDto, HaplogroupCountDto, StrSignatureMarkerDto,
     )),
     tags(
         (name = "tree", description = "Y/MT haplogroup trees"),
@@ -566,6 +605,7 @@ pub fn router() -> Router<AppState> {
         .route("/api/v1/variants/export/metadata", get(export_metadata))
         .route("/api/v1/variants/:variant_id", get(get_variant))
         .route("/api/v1/haplogroups/:haplogroup_name/variants", get(variants_by_haplogroup))
+        .route("/api/v1/haplogroups/:haplogroup_name/str-signature", get(haplogroup_str_signature))
         .route("/api/v1/genome-regions", get(list_region_builds))
         .route("/api/v1/genome-regions/:build", get(regions_by_build))
         .merge(SwaggerUi::new("/api").url("/api/openapi.json", ApiDoc::openapi()))

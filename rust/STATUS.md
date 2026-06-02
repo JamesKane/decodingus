@@ -102,9 +102,19 @@ APP_SECRET="<any 32+ char string>"   # signs session cookies
   analytics records keep the computed payload minus `files`. **Not** the dropped
   full-CRUD raw-data mirror (summaries only). Live-DB + unit tested (incl. PII
   drop). The reporting **web endpoints** over these tables (flow c) are next.
+- **Y-STR per-branch signatures (Phase 1)** — STR brought back into scope (2026-06).
+  `fed.str_profile` mirror (Jetstream, `com.decodingus.atmosphere.strProfile`,
+  lossless markers JSONB) + `du-db::ystr` modal-haplotype aggregation (scores
+  simple + multi-copy; complex preserved unscored) → `tree.haplogroup_ancestral_str`
+  (widened, mig 0013) via the `str-signature-recompute` job, joined through
+  `fed.biosample.y_haplogroup`. Read at `GET /api/v1/haplogroups/:name/str-signature`.
+  MANUAL overrides survive recompute. Unit + live-DB tested. **Phase 2 (⬜):**
+  STR→branch prediction (genetic distance — `ystr::distance` is ready) + the
+  STR-only→WGS upgrade nudge.
 - **`du-jobs`** — tokio scheduler; jobs: `db-heartbeat`, `ybrowse-variant-ingest`,
-  `publication-update`, `publication-discovery`; plus the Jetstream reporting-mirror
-  consumer (set `JETSTREAM_URL`; runs beside the scheduler, not on an interval).
+  `publication-update`, `publication-discovery`, `ena-study-enrichment`,
+  `publication-pubmed-update`, `str-signature-recompute`; plus the Jetstream
+  reporting-mirror consumer (set `JETSTREAM_URL`; runs beside the scheduler).
 - **`du-external`** — OpenAlex, ENA; AWS SES + Secrets Manager behind the `aws`
   feature (1h TTL secret cache).
 - **`du-atproto`** — DID/handle resolution, Ed25519 verify, PKCE/DPoP/private-key-

@@ -106,6 +106,21 @@ async fn main() -> anyhow::Result<()> {
         tracing::info!("ena-study-enrichment registered");
     }
 
+    // Y-STR per-branch modal signatures — recompute from mirrored STR profiles
+    // (joined to Y-haplogroup assignments). Depends only on the DB; always on.
+    {
+        let pool = pool.clone();
+        sched.register(Job::new("str-signature-recompute", Duration::from_secs(86_400), move || {
+            let pool = pool.clone();
+            async move {
+                let s = du_db::ystr::recompute_signatures(&pool).await?;
+                tracing::info!(haplogroups = s.haplogroups, markers = s.markers, "str-signature-recompute done");
+                Ok(())
+            }
+        }));
+        tracing::info!("str-signature-recompute registered");
+    }
+
     // TODO(jobs): variant-export to a file artifact (the /api/v1/variants/export
     // endpoint already streams CSV live). match-discovery is out of scope (IBD
     // not in production).

@@ -135,7 +135,7 @@ ibd, social, billing` + audit + coverage-mirror + fed-reporting.
 | Biosamples, donors, callable-loci, variant-calls | ✅ | catalog side (ETL-loaded; no manual create) |
 | Genomics: sequencing, alignment, coverage, test-types, populations | ✅ | |
 | **Pangenome** (graph/node/path/variant-link/coverage) | 🟡 | tables + ETL present (mig 0004 / `du-migrate`); **no surfaced API/UI** (same as Scala — modeled, thin surface) |
-| **STR**: ancestral-STR table + `strProfileRef` pointers | 🟡 | pointers/tables exist; STR profiles + mutation-rate/prediction subsystem not ported |
+| **STR profiles + per-branch modal signatures** | 🟡→✅(P1) | **Brought into scope 2026-06.** Phase 1 DONE: `fed.str_profile` mirror (Jetstream), `du-db::ystr` modal aggregation (simple+multi-copy) → `tree.haplogroup_ancestral_str`, recompute job, `GET /api/v1/haplogroups/:name/str-signature`. Phase 2 (STR→branch **prediction** + STR-only→WGS upgrade nudge) ⬜. STR mutation-rate/TMRCA (StrAgeService) not ported |
 | Publications, studies, candidates, search configs | ✅ | |
 | ident: users, roles, permissions, login-info, pds-info, cookie-consent | ✅ | + `audit_log` |
 | federation: `pds_node/heartbeat/fleet_config/submission` | 🟡 | tables exist (mig 0008) but **unused** (fleet dropped); `fed.coverage_summary` + `fed.*` reporting tables are the live federation store |
@@ -167,7 +167,8 @@ ibd, social, billing` + audit + coverage-mirror + fed-reporting.
   (file → live CSV), genomics ingest triggers (manual → scheduled).
 - **Dropped (out of scope / not in production):** manual sample ingestion, IBD
   matching, social/reputation/messaging, group projects, patronage/billing,
-  sequencer-lab inference, STR profiles, PDS fleet.
+  sequencer-lab inference, PDS fleet. (STR profiles were **brought back into
+  scope** 2026-06 — Phase 1 shipped; prediction is Phase 2.)
 - **In scope, not yet built:** change-set conflict-resolution UI (+ `wip_*`
   staging), publication-candidate review UI, haplogroup restructure as discrete
   curator ops, public publication-submit form, profile update, region management
