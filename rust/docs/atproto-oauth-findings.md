@@ -138,6 +138,12 @@ local PDS, using a TLS proxy so the auth server is reachable at its canonical
 `https://pds.test` (issuer + DPoP `htu` are https-canonical, so this removes the
 http-transport `htu` workaround entirely).
 
+> **One command:** `make oauth-dev` (Postgres + PDS + Caddy + CA + test account,
+> then runs du-web with the env). `make oauth-up` for the stack only, `oauth-down`
+> to tear down. Runtime-agnostic (Apple `container` or Docker) — see
+> `scripts/oauth-dev.sh`. The sections below are the underlying mechanics it
+> automates (and the manual-browser consent step, §6.3-equivalent, still applies).
+
 ### Infra: TLS proxy (Caddy internal CA)
 
 ```sh
