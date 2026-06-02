@@ -13,6 +13,7 @@ pub mod auth;
 pub mod biosample;
 pub mod change_set;
 pub mod coverage;
+pub mod fed;
 pub mod genome_region;
 pub mod haplogroup;
 pub mod merge;

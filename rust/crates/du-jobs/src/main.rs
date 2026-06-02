@@ -9,6 +9,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+mod jetstream;
 mod publications;
 mod scheduler;
 mod ybrowse;
@@ -81,9 +82,23 @@ async fn main() -> anyhow::Result<()> {
 
     // TODO(jobs): variant-export, match-discovery; ENA study enrichment.
 
+    // Jetstream coverage-mirror consumer — a long-lived websocket stream (not an
+    // interval job), so it runs as its own task beside the scheduler. Mirrors
+    // published alignment coverage summaries into fed.coverage_summary.
+    let jetstream = jetstream::Config::from_env().map(|cfg| {
+        tracing::info!(url = %cfg.url, collections = ?cfg.collections, "jetstream coverage-mirror consumer registered");
+        tokio::spawn(jetstream::run(pool.clone(), cfg))
+    });
+    if jetstream.is_none() {
+        tracing::info!("jetstream consumer not configured (set JETSTREAM_URL)");
+    }
+
     let shutdown = async {
         let _ = tokio::signal::ctrl_c().await;
     };
     sched.run_until(shutdown).await;
+    if let Some(handle) = jetstream {
+        handle.abort();
+    }
     Ok(())
 }

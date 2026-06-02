@@ -80,8 +80,24 @@ APP_SECRET="<any 32+ char string>"   # signs session cookies
   placeholders. Endpoints `/api/v1/manage/haplogroups/merge[/preview]`.
   Fixtures + end-to-end tests pass.
 - **`du-bio`** — BED callable-loci, UCSC chain liftover, VCF reader, YBrowse ingest.
+- **`du-bio`** — BED callable-loci, UCSC chain liftover, VCF reader, YBrowse ingest.
+- **Federated reporting mirror** (`du-db/src/fed/`, `du-jobs/jetstream.rs`,
+  migrations 0011–0012) — the AppView **aggregates and reports; it does not
+  analyze.** A long-lived Jetstream consumer mirrors Navigator's published
+  anonymized computed-summary records (the legacy `✅ AppView Complete` set:
+  alignment coverage, biosample, sequencerun, project, workspace, genotype,
+  populationBreakdown, haplogroupReconciliation) into dedicated `fed.*` reporting
+  tables keyed `(did, rkey)`. Cursor-resumed, reconnecting, idempotent+ordered
+  upsert; reports aggregate via query-time SQL (`coverage::aggregate_by_build`,
+  `analytics::super_population_distribution`). **Privacy:** PII-bearing records
+  (biosample/sequencerun/project/workspace) keep typed anonymized columns only —
+  no raw JSONB, so donorIdentifier/accession/description/file paths can't leak;
+  analytics records keep the computed payload minus `files`. **Not** the dropped
+  full-CRUD raw-data mirror (summaries only). Live-DB + unit tested (incl. PII
+  drop). The reporting **web endpoints** over these tables (flow c) are next.
 - **`du-jobs`** — tokio scheduler; jobs: `db-heartbeat`, `ybrowse-variant-ingest`,
-  `publication-update`, `publication-discovery`.
+  `publication-update`, `publication-discovery`; plus the Jetstream reporting-mirror
+  consumer (set `JETSTREAM_URL`; runs beside the scheduler, not on an interval).
 - **`du-external`** — OpenAlex, ENA; AWS SES + Secrets Manager behind the `aws`
   feature (1h TTL secret cache).
 - **`du-atproto`** — DID/handle resolution, Ed25519 verify, PKCE/DPoP/private-key-
@@ -91,11 +107,19 @@ APP_SECRET="<any 32+ char string>"   # signs session cookies
 
 Roughly in priority order:
 
-1. **Federation HTTP endpoints** — the largest remaining mass. PDS
-   registration / heartbeat / fleet admin / submissions, and firehose-vs-notify-
-   fetch ingest. Crypto primitives exist in `du-atproto`; nothing is mounted.
-   Schema is ready (`fed` schema, migration 0008). Direction note: private
-   firehose is dropped in favor of permissions/OAuth + notify-fetch.
+1. **Federation — AppView aggregates + reports (NOT the legacy PDS fleet, NOT a
+   raw-data mirror).** The `fed.pds_node` / `pds_heartbeat` / fleet-admin tables
+   (migration 0008) map to the **dropped** network-mirror design — don't build
+   registration / heartbeat / fleet endpoints. The federated flows: **(a) proposal
+   intake + curator review queue — DONE** (`/api/v1/curation/proposals` X-API-Key
+   intake → `tree.proposed_branch` → `/curator/proposals` review/promote);
+   **(b) reporting-mirror ingest — DONE** (Jetstream → `fed.*` reporting tables for
+   the full `✅ AppView Complete` summary set, see "What's done"). Remaining:
+   **(c) the reporting web endpoints** over the mirror (query-time SQL; e.g.
+   coverage-by-build and ancestry super-population distribution — `du_db::fed::
+   coverage::aggregate_by_build` / `analytics::super_population_distribution` are
+   the seeds; add `/api/v1/...` routes + DTOs). See memory
+   `atproto-federation-direction` for the full re-scope + privacy boundary.
 2. **Live AT Protocol OAuth handshake** — scaffolded in `du-web/oauth.rs`; needs a
    test PDS and joint testing with the Edge team. See `docs/atproto-*.md`.
 3. **Remaining scheduled jobs** — `variant-export`, `match-discovery`, ENA study

@@ -57,10 +57,17 @@ gone. Point-by-point below, then the decisions you asked us to make.
    catalog. Maps onto our existing `tree.proposed_branch` / `proposed_branch_variant`
    / `proposed_branch_evidence` schema. We'll share the request shape for your
    `navigator submit` path.
-2. **Coverage discovery + on-demand aggregation** — we lean toward the
-   **lightweight firehose-derived URI index** (record pointers only, no mirror)
-   for discovering published summaries, then aggregate at query time. Open to a
-   relay-of-record query instead — let's pick one together.
+2. **Coverage mirror (revised, supersedes "on-demand aggregation").** We reversed
+   the doc 08 §3 / pointers-only plan: on-demand aggregation means an HTTP fan-out
+   to every PDS per query, which doesn't scale. Instead the AppView **mirrors the
+   public coverage *summaries*** — a Jetstream consumer subscribed to
+   `com.decodingus.atmosphere.alignment` writes each record's QC metrics (summary
+   only, never raw reads) into `fed.coverage_summary`; population views aggregate
+   that table with query-time SQL. This is **not** the old full-CRUD network
+   mirror — one collection, summary metrics only, no per-sample raw data, no
+   orphan/sync machinery. Please update 08-AppView-Lifecycle.md §3 to match (we're
+   reading published `alignment.metrics`, so the record shape is unchanged for
+   you). Cursor-resumed + reconnecting; the upsert is idempotent and ordered.
 
 ## Still needed from you to test end-to-end
 

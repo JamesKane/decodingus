@@ -62,6 +62,10 @@ rust_decimal = "1"
 # HTTP client (external APIs)
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 
+# WebSocket client (Jetstream coverage-mirror consumer in du-jobs)
+tokio-tungstenite = { version = "0.24", default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }
+futures-util = { version = "0.3", default-features = false }
+
 # URL/query encoding (language-switcher `next` param)
 percent-encoding = "2"
 
