@@ -130,3 +130,66 @@ over **HTTPS at its canonical host** with a cert our client trusts, because DPoP
 `https://pds.test` (hosts entry + dev CA trusted by reqwest) for a full local loop,
 or an HTTPS tunnel to a real account for the confidential-client path. Identity
 resolution (handle→DID→PDS) similarly wants HTTPS well-known / a PLC.
+
+## Full browser loop over TLS — wired + verified to consent (2026-06)
+
+Closed the gap from "discovery + PAR" to a **real HTTPS handshake** against the
+local PDS, using a TLS proxy so the auth server is reachable at its canonical
+`https://pds.test` (issuer + DPoP `htu` are https-canonical, so this removes the
+http-transport `htu` workaround entirely).
+
+### Infra: TLS proxy (Caddy internal CA)
+
+```sh
+PDS_IP=$(container ls | awk '$1=="pds"{print $6}' | cut -d/ -f1)
+printf '{\n  auto_https disable_redirects\n}\npds.test {\n  tls internal\n  reverse_proxy %s:3000\n}\n' "$PDS_IP" > /tmp/Caddyfile
+container run -d --name caddy -v /tmp/Caddyfile:/etc/caddy/Caddyfile docker.io/library/caddy:2
+CADDY_IP=$(container ls | awk '$1=="caddy"{print $6}' | cut -d/ -f1)
+container exec caddy cat /data/caddy/pki/authorities/local/root.crt > /tmp/caddy_ca.crt   # the dev CA
+```
+
+### du-web dev OAuth (public / loopback client)
+
+`oauth.rs` gained a dev path that avoids the confidential-client's hosted-metadata
++ HTTPS requirement: a **public loopback client** (PKCE, no client assertion),
+fixed-PDS (skips handle→DID→PDS resolution), and an HTTP client that trusts the
+dev CA and pins `pds.test`→IP (no `/etc/hosts` needed server-side):
+
+```sh
+DATABASE_URL=... APP_SECRET=... PORT=9000 \
+OAUTH_BASE_URL=http://127.0.0.1:9000 \
+DU_OAUTH_DEV_PDS=https://pds.test \
+DU_OAUTH_DEV_CA=/tmp/caddy_ca.crt \
+DU_OAUTH_DEV_RESOLVE=pds.test:$CADDY_IP \
+DU_OAUTH_LOOPBACK=http://127.0.0.1:9000 \
+cargo run -p du-web
+```
+
+Route: `GET /login/atproto/dev?handle=<acct>` → discover → PAR → 303 to
+`https://pds.test/oauth/authorize`. The callback (`/oauth/callback`) does the
+**public** token exchange (`token_form_public`) → session.
+
+### Verified (no browser)
+
+- Discovery + PAR + DPoP + `use_dpop_nonce` retry over **canonical `https://pds.test`**
+  (dev CA trusted, host pinned) → `request_uri`, then a 303 to the authorize page.
+- The authorize page renders (`200`) with our **loopback client accepted** —
+  `__authorizeData.clientMetadata.redirect_uris = [http://127.0.0.1:9000/oauth/callback]`.
+
+### Manual browser step (the consent)
+
+The authorize → sign-in → consent → `code` step is intentionally browser-gated
+(requires `Sec-Fetch-*` headers + a minified SPA with CSRF), so it's completed in
+a real browser rather than scripted:
+
+1. Trust `/tmp/caddy_ca.crt` in the browser (or click through the warning) and add
+   a hosts entry `pds.test → $CADDY_IP` (the browser needs name resolution; the
+   server side uses `DU_OAUTH_DEV_RESOLVE` instead).
+2. Open `http://127.0.0.1:9000/login/atproto/dev?handle=alice.pds.test`.
+3. Sign in (e.g. `alice.pds.test` / the account password) and approve.
+4. The PDS redirects to `http://127.0.0.1:9000/oauth/callback?code=…&state=…`;
+   du-web exchanges the code (public flow) and sets the session cookie.
+
+The token-exchange path is implemented and ready; only the human consent click is
+out of band. (A headless completion would mean reproducing the oauth-provider's
+sign-in/accept SPA calls — brittle + version-specific; not worth scripting.)

@@ -123,14 +123,18 @@ Roughly in priority order:
    `fed.*` tables (genotype provider mix, platform/test-type distribution, …) as
    the UI needs them. See memory
    `atproto-federation-direction` for the full re-scope + privacy boundary.
-2. **Live AT Protocol OAuth handshake** — scaffolded in `du-web/oauth.rs`.
-   **Discovery + PAR now validated against a local PDS container** (auth-server
-   metadata + public-client PAR + DPoP + `use_dpop_nonce` retry → `201`/`request_uri`):
-   gated test `decodingus-shared/crates/du-atproto/tests/live_pds.rs`, runbook +
-   findings in `docs/atproto-oauth-findings.md`. REMAINING: the browser
-   redirect→consent→token loop needs the auth server over **HTTPS at its canonical
-   host** (TLS proxy + dev CA, or a tunnel to a real account) — DPoP `htu`/issuer
-   are https-canonical — plus handle→DID resolution. Joint test with Edge still open.
+2. **Live AT Protocol OAuth handshake** — `du-web/oauth.rs`, now with a **dev
+   public-client path** (`/login/atproto/dev`, env-gated: `DU_OAUTH_DEV_PDS` +
+   `DU_OAUTH_DEV_CA`/`DU_OAUTH_DEV_RESOLVE` + `DU_OAUTH_LOOPBACK`) that trusts a
+   local CA + pins a host so a TLS-proxied PDS at its canonical `https://` name
+   works. **Verified against a local PDS** (gated test
+   `decodingus-shared/.../tests/live_pds.rs`): discovery + PAR + DPoP +
+   `use_dpop_nonce` → `request_uri`, then with a Caddy TLS proxy the full handshake
+   over canonical `https://pds.test` up to the **authorize page (loopback client
+   accepted)**. REMAINING: only the human **consent click** (intentionally
+   browser-gated) → `code` → token; the public token-exchange path is wired. Runbook
+   + manual-browser steps in `docs/atproto-oauth-findings.md`. **Confidential
+   web-client** flow (hosted metadata over HTTPS) + the joint Edge test still open.
 3. **Remaining scheduled jobs** — `variant-export`, `match-discovery`, ENA study
    enrichment (`du-jobs/src/main.rs:82` TODO). `variant-export` could back a file
    artifact, but `/api/v1/variants/export` already streams CSV live.

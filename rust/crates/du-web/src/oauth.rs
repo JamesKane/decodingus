@@ -15,8 +15,8 @@ use axum::routing::get;
 use axum::{Json, Router};
 use du_atproto::did::Did;
 use du_atproto::oauth::{
-    authorize_url, client_assertion, discover_auth_server, dpop_proof, par_form, token_form,
-    AuthServerMetadata, ClientMetadata, EcKey, Pkce,
+    authorize_url, client_assertion, discover_auth_server, dpop_proof, par_form, par_form_public,
+    token_form, token_form_public, AuthServerMetadata, ClientMetadata, EcKey, Pkce,
 };
 use du_atproto::Resolver;
 use serde::{Deserialize, Serialize};
@@ -33,6 +33,13 @@ pub struct OauthClient {
     pub scope: String,
     pub http: reqwest::Client,
     pub resolver: Resolver,
+    /// Dev-only: a fixed PDS to use as the authorization server (`DU_OAUTH_DEV_PDS`),
+    /// bypassing handle→DID→PDS resolution. Enables the `/login/atproto/dev`
+    /// public (loopback) client flow against a local PDS.
+    pub dev_pds: Option<String>,
+    /// Dev-only: the loopback redirect URI for the public client
+    /// (`DU_OAUTH_LOOPBACK` + `/oauth/callback`).
+    pub loopback_redirect: Option<String>,
 }
 
 impl OauthClient {
@@ -63,10 +70,55 @@ impl OauthClient {
             ec_key,
             metadata,
             scope,
-            http: reqwest::Client::new(),
+            http: build_http_client(),
             resolver: Resolver::new(),
+            dev_pds: std::env::var("DU_OAUTH_DEV_PDS").ok().filter(|s| !s.is_empty()),
+            loopback_redirect: std::env::var("DU_OAUTH_LOOPBACK")
+                .ok()
+                .filter(|s| !s.is_empty())
+                .map(|b| format!("{}/oauth/callback", b.trim_end_matches('/'))),
         }))
     }
+}
+
+/// Build the OAuth HTTP client. In dev, optionally trust a local CA
+/// (`DU_OAUTH_DEV_CA`, a PEM path) and pin a host→IP (`DU_OAUTH_DEV_RESOLVE`,
+/// `host:ip`) so a TLS-proxied local PDS at its canonical `https://` name is
+/// reachable without editing `/etc/hosts`. Plain default client otherwise.
+fn build_http_client() -> reqwest::Client {
+    let mut builder = reqwest::Client::builder();
+    if let Some(ca_path) = std::env::var("DU_OAUTH_DEV_CA").ok().filter(|s| !s.is_empty()) {
+        match std::fs::read(&ca_path).map_err(|e| e.to_string()).and_then(|pem| {
+            reqwest::Certificate::from_pem(&pem).map_err(|e| e.to_string())
+        }) {
+            Ok(cert) => {
+                builder = builder.add_root_certificate(cert);
+                tracing::warn!(ca = %ca_path, "OAuth dev: trusting local CA");
+            }
+            Err(e) => tracing::error!(error = %e, "DU_OAUTH_DEV_CA unreadable; ignoring"),
+        }
+    }
+    if let Some(spec) = std::env::var("DU_OAUTH_DEV_RESOLVE").ok().filter(|s| !s.is_empty()) {
+        if let Some((host, ip)) = spec.rsplit_once(':') {
+            if let Ok(addr) = format!("{ip}:443").parse::<std::net::SocketAddr>() {
+                builder = builder.resolve(host, addr);
+                tracing::warn!(%host, %ip, "OAuth dev: pinned host→IP for resolution");
+            }
+        }
+    }
+    builder.build().unwrap_or_default()
+}
+
+/// Minimal percent-encoding for embedding a redirect_uri in a loopback client_id.
+fn pct(s: &str) -> String {
+    let mut out = String::new();
+    for b in s.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => out.push(b as char),
+            _ => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
 }
 
 pub fn router() -> Router<AppState> {
@@ -74,6 +126,7 @@ pub fn router() -> Router<AppState> {
         .route("/oauth/client-metadata.json", get(client_metadata))
         .route("/oauth/jwks.json", get(jwks))
         .route("/login/atproto", get(login))
+        .route("/login/atproto/dev", get(login_dev))
         .route("/oauth/callback", get(callback))
 }
 
@@ -106,6 +159,16 @@ struct FlowState {
     verifier: String,
     token_endpoint: String,
     issuer: String,
+    /// Public (loopback) client flow — token exchange uses PKCE without a
+    /// client assertion. Defaults to the confidential path for back-compat.
+    #[serde(default)]
+    public: bool,
+    /// The client_id used at PAR/authorize (loopback client_id for the public flow).
+    #[serde(default)]
+    client_id: String,
+    /// The redirect_uri registered with this flow.
+    #[serde(default)]
+    redirect_uri: String,
 }
 
 /// POST a form with a DPoP proof, retrying once if the server demands a nonce.
@@ -203,6 +266,9 @@ async fn login(
         verifier: pkce.verifier,
         token_endpoint: meta.token_endpoint.clone(),
         issuer: meta.issuer.clone(),
+        public: false,
+        client_id: oc.metadata.client_id.clone(),
+        redirect_uri,
     };
     let mut cookie = Cookie::new(FLOW_COOKIE, serde_json::to_string(&flow).unwrap());
     cookie.set_path("/");
@@ -212,6 +278,63 @@ async fn login(
     cookies.signed(&st.key).add(cookie);
 
     Ok(Redirect::to(&authorize_url(&meta.authorization_endpoint, &oc.metadata.client_id, request_uri)).into_response())
+}
+
+/// Dev-only login against a fixed local PDS (`DU_OAUTH_DEV_PDS`) as a **public
+/// (loopback) client** — PKCE + DPoP, no client assertion, no hosted client
+/// metadata. Bypasses handle→DID→PDS resolution (which needs public DNS/HTTPS).
+/// Used to exercise the full handshake against a local TLS-proxied PDS.
+async fn login_dev(
+    State(st): State<AppState>,
+    cookies: Cookies,
+    Query(q): Query<LoginQuery>,
+) -> Result<Response, AppError> {
+    let oc = require(&st)?;
+    let pds = oc
+        .dev_pds
+        .clone()
+        .ok_or_else(|| AppError::NotFound("dev OAuth not enabled (set DU_OAUTH_DEV_PDS)".into()))?;
+    let redirect_uri = oc
+        .loopback_redirect
+        .clone()
+        .ok_or_else(|| AppError::Upstream("dev OAuth needs DU_OAUTH_LOOPBACK".into()))?;
+    let handle = q.handle.trim();
+
+    let meta = discover_auth_server(&oc.http, &pds).await?;
+    let par_endpoint = meta
+        .pushed_authorization_request_endpoint
+        .clone()
+        .ok_or_else(|| AppError::Upstream("authorization server has no PAR endpoint".into()))?;
+
+    let pkce = Pkce::generate();
+    let state = du_atproto::oauth::random_token();
+    // atproto loopback client: client_id carries the redirect_uri + scope.
+    let client_id = format!("http://localhost?redirect_uri={}&scope={}", pct(&redirect_uri), pct("atproto"));
+    let form = par_form_public(&client_id, &redirect_uri, "atproto", &state, &pkce.challenge, Some(handle));
+
+    let par: serde_json::Value = post_with_dpop(oc, &par_endpoint, &form).await?;
+    let request_uri = par
+        .get("request_uri")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| AppError::Upstream("PAR response missing request_uri".into()))?;
+
+    let flow = FlowState {
+        state,
+        verifier: pkce.verifier,
+        token_endpoint: meta.token_endpoint.clone(),
+        issuer: meta.issuer.clone(),
+        public: true,
+        client_id: client_id.clone(),
+        redirect_uri,
+    };
+    let mut cookie = Cookie::new(FLOW_COOKIE, serde_json::to_string(&flow).unwrap());
+    cookie.set_path("/");
+    cookie.set_http_only(true);
+    cookie.set_max_age(tower_cookies::cookie::time::Duration::minutes(10));
+    cookie.set_same_site(tower_cookies::cookie::SameSite::Lax);
+    cookies.signed(&st.key).add(cookie);
+
+    Ok(Redirect::to(&authorize_url(&meta.authorization_endpoint, &client_id, request_uri)).into_response())
 }
 
 #[derive(Deserialize)]
@@ -248,9 +371,14 @@ async fn callback(
     clear.set_path("/");
     signed.remove(clear);
 
-    let redirect_uri = oc.metadata.redirect_uris[0].clone();
-    let assertion = client_assertion(&oc.ec_key, &oc.metadata.client_id, &flow.issuer, now());
-    let form = token_form(&oc.metadata.client_id, &redirect_uri, &code, &flow.verifier, &assertion);
+    // Public (loopback) flow: PKCE only. Confidential flow: private_key_jwt.
+    let form = if flow.public {
+        token_form_public(&flow.client_id, &flow.redirect_uri, &code, &flow.verifier)
+    } else {
+        let redirect_uri = oc.metadata.redirect_uris[0].clone();
+        let assertion = client_assertion(&oc.ec_key, &oc.metadata.client_id, &flow.issuer, now());
+        token_form(&oc.metadata.client_id, &redirect_uri, &code, &flow.verifier, &assertion)
+    };
     let tokens: serde_json::Value = post_with_dpop(oc, &flow.token_endpoint, &form).await?;
 
     let did = tokens
