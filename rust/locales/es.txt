@@ -209,3 +209,15 @@ cs.notice.no_transition=Sin cambio de estado (no permitido en el estado actual).
 cs.notice.approved=cambios aprobados.
 cs.notice.applied=Aplicado
 cs.diff.detail=Detalle de cambios
+
+# Páginas secundarias + consentimiento de cookies
+nav.about=Acerca de
+page.about.title=Acerca de
+page.faq.title=Preguntas frecuentes
+page.terms.title=Términos del servicio
+page.privacy.title=Política de privacidad
+page.apppw.title=Contraseñas de aplicación
+page.updated=Última actualización junio de 2026.
+consent.message=Usamos cookies esenciales para iniciar sesión y cookies no esenciales solo con tu consentimiento. Consulta nuestra
+consent.accept=Aceptar
+consent.decline=Rechazar

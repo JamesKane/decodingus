@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}{{ title }} — {{ t.get("app.name") }}{% endblock %}
+{% block content %}
+<div class="row"><div class="col-lg-8">
+<h1 class="h3 mb-3">{{ title }}</h1>
+
+{% if page == "about" %}
+  <p>{{ t.get("app.name") }} is a citizen-science platform for phylogenetic
+  (Y-DNA and mitochondrial) and population genomics. It maintains a curated
+  known-variant catalog and haplogroup tree, and aggregates anonymized coverage
+  and ancestry summaries contributed across the federation.</p>
+  <p>Per-sample raw data never leaves the contributor's device or personal data
+  store; only computed summaries are shared. See the <a href="/privacy">privacy
+  policy</a> for details.</p>
+  <ul>
+    <li><a href="/ytree">{{ t.get("nav.ytree") }}</a> · <a href="/mtree">{{ t.get("nav.mtree") }}</a></li>
+    <li><a href="/variants">{{ t.get("nav.variants") }}</a></li>
+    <li><a href="/references">{{ t.get("nav.references") }}</a></li>
+    <li><a href="/coverage-benchmarks">{{ t.get("nav.coverage") }}</a></li>
+  </ul>
+
+{% else if page == "faq" %}
+  <h2 class="h5">What is a haplogroup?</h2>
+  <p>A haplogroup is a group of similar haplotypes sharing a common ancestor with
+  a defining mutation — the branches of the Y-DNA and mtDNA trees.</p>
+  <h2 class="h5">Do you store my raw DNA data?</h2>
+  <p>No. Raw reads and variant calls stay on your device or personal data store.
+  Only anonymized computed summaries (coverage metrics, ancestry percentages,
+  haplogroup calls) are aggregated for reporting.</p>
+  <h2 class="h5">How do I contribute?</h2>
+  <p>Contributions are made through Navigator, which computes summaries locally
+  and submits variant/branch proposals to curators for review and naming.</p>
+  <h2 class="h5">How do I sign in?</h2>
+  <p>Use your AT Protocol account, or a local credential if your administrator
+  issued one. App passwords are deprecated — see
+  <a href="/help/app-password">app-password help</a>.</p>
+
+{% else if page == "terms" %}
+  <p class="text-muted"><em>{{ t.get("page.updated") }} Summary terms — subject to legal review.</em></p>
+  <p>By using {{ t.get("app.name") }} you agree to use the service for lawful,
+  research and personal-genealogy purposes, and not to attempt to re-identify
+  contributors from aggregated data.</p>
+  <p>The catalog and tree are provided for research and informational use without
+  warranty. Curated content may change as the phylogeny is revised.</p>
+  <p>Contributed summaries remain owned by the contributor; you grant the platform
+  a licence to aggregate and display anonymized summaries for reporting.</p>
+
+{% else if page == "privacy" %}
+  <p class="text-muted"><em>{{ t.get("page.updated") }} Summary policy — subject to legal review.</em></p>
+  <p><strong>What leaves your device:</strong> only computed summaries — coverage
+  and quality metrics, ancestry percentages, and haplogroup calls. Raw sequence
+  reads, alignments, and full variant call sets are never uploaded.</p>
+  <p><strong>Identity:</strong> sign-in uses your AT Protocol DID; we store your
+  display name, roles, and DID/handle. We do not sell personal data.</p>
+  <p><strong>Cookies:</strong> a session cookie is required to sign in. Non-essential
+  cookies are used only with your consent (see the banner); we record your consent
+  decision and its policy version.</p>
+  <p><strong>Aggregation:</strong> federated summaries are pooled for population
+  reporting in a form that does not identify individual contributors.</p>
+
+{% else if page == "apppw" %}
+  <p>App passwords are <strong>deprecated</strong>. Sign in with OAuth via your
+  AT Protocol account instead.</p>
+  <p>If you previously used an app password, remove it from your PDS account
+  settings; it is no longer accepted by {{ t.get("app.name") }}.</p>
+  <p>Desktop tooling (Navigator) authenticates with OAuth (PKCE + DPoP) using a
+  loopback redirect — no password is shared with the application.</p>
+{% endif %}
+
+</div></div>
+{% endblock %}

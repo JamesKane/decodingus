@@ -12,6 +12,7 @@ use thiserror::Error;
 pub mod auth;
 pub mod biosample;
 pub mod change_set;
+pub mod consent;
 pub mod coverage;
 pub mod fed;
 pub mod genome_region;

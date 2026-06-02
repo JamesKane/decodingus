@@ -209,3 +209,15 @@ cs.notice.no_transition=No state change (not allowed in the current status).
 cs.notice.approved=changes approved.
 cs.notice.applied=Applied
 cs.diff.detail=Diff detail
+
+# Secondary pages + cookie consent
+nav.about=About
+page.about.title=About
+page.faq.title=FAQ
+page.terms.title=Terms of Service
+page.privacy.title=Privacy Policy
+page.apppw.title=App Passwords
+page.updated=Last updated June 2026.
+consent.message=We use essential cookies to sign you in, and non-essential cookies only with your consent. See our
+consent.accept=Accept
+consent.decline=Decline

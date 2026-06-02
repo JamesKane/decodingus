@@ -134,9 +134,13 @@ Roughly in priority order:
    per-change approve/reject, comments, and the lifecycle actions (start-review,
    approve-all, apply, discard) gated by status — mirrors the proposals screen.
    The JSON management API in `versioning.rs` remains for machine callers.
-5. **Secondary web surfaces** — profile, contact/support + my-messages, cookie-
-   consent UI, app-password help, static pages (home/FAQ/terms/privacy),
-   sitemap.xml/robots.txt.
+5. **Secondary web surfaces** — DONE: static pages (about/FAQ/terms/privacy +
+   app-password help, `du-web/routes/pages.rs` + templates/static/page.html),
+   `sitemap.xml` + `robots.txt`, footer nav, and the GDPR **cookie-consent banner**
+   (JS-shown when no consent cookie; `POST /cookie-consent` → `ident.cookie_consents`
+   via `du_db::consent`). Terms/privacy prose is placeholder pending legal review.
+   STILL TODO: **profile** page, **contact/support** form (gated on reCAPTCHA, #6),
+   **my-messages** (rides the `social.*` schema — out of scope, not in production).
 6. **reCAPTCHA** (contact form), **NCBI** client.
 7. **OpenAPI for the management API** — only the public read API is documented;
    the `/api/v1/manage/*` curator endpoints aren't in the spec.

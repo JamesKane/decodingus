@@ -50,6 +50,41 @@
   <main class="container">
     {% block content %}{% endblock %}
   </main>
+  <footer class="container text-muted small py-4 mt-4 border-top">
+    <a href="/about">{{ t.get("nav.about") }}</a> ·
+    <a href="/faq">{{ t.get("page.faq.title") }}</a> ·
+    <a href="/terms">{{ t.get("page.terms.title") }}</a> ·
+    <a href="/privacy">{{ t.get("page.privacy.title") }}</a> ·
+    <a href="/help/app-password">{{ t.get("page.apppw.title") }}</a>
+  </footer>
+
+  {# GDPR cookie-consent banner — shown by JS only when no consent cookie is set. #}
+  <div id="cookie-banner" class="position-fixed bottom-0 start-0 end-0 bg-dark text-light p-3 d-none" style="z-index:1080;">
+    <div class="container d-flex flex-wrap gap-2 align-items-center justify-content-between">
+      <span class="small">{{ t.get("consent.message") }} <a href="/privacy" class="link-light">{{ t.get("page.privacy.title") }}</a>.</span>
+      <span class="d-flex gap-2">
+        <button class="btn btn-sm btn-outline-light" data-consent="false">{{ t.get("consent.decline") }}</button>
+        <button class="btn btn-sm btn-light" data-consent="true">{{ t.get("consent.accept") }}</button>
+      </span>
+    </div>
+  </div>
+  <script>
+  (function () {
+    if (document.cookie.split('; ').some(function (c) { return c.indexOf('du_consent=') === 0; })) return;
+    var b = document.getElementById('cookie-banner');
+    if (!b) return;
+    b.classList.remove('d-none');
+    b.querySelectorAll('button[data-consent]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        fetch('/cookie-consent', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({ consent: btn.getAttribute('data-consent') })
+        }).then(function () { b.classList.add('d-none'); });
+      });
+    });
+  })();
+  </script>
   <script src="/assets/vendor/bootstrap.bundle.min.js"></script>
 </body>
 </html>
