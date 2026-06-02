@@ -74,13 +74,14 @@ APP_SECRET="<any 32+ char string>"   # signs session cookies
   change-set lifecycle (DRAFT→READY_FOR_REVIEW→UNDER_REVIEW→APPLIED/DISCARDED),
   per-change review/approve-all, diff, and a temporal apply engine
   (CREATE/UPDATE/DELETE/REPARENT/VARIANT_EDIT). Curator-gated management API at
-  `/api/v1/manage/change-sets/*` (machine callers) **plus a two-panel HTMX review
-  UI** at `/curator/change-sets` (`du-web/routes/change_sets.rs`). Integration-tested.
+  `/manage/change-sets/*` (machine callers; **not** under the public `/api/v1`)
+  **plus a two-panel HTMX review UI** at `/curator/change-sets`
+  (`du-web/routes/change_sets.rs`). Integration-tested.
 - **Tree merge** (`du-domain/merge.rs` + `du-db/merge.rs`) — pure Identify-Match-
   Graft re-implementation (subtree-scoped matching = recurrent-SNP guard;
   full-match / contraction+downflow / descendant / new / ambiguity-flagged).
   `materialize` → change-set via placeholder-chained `tree_change`; apply resolves
-  placeholders. Endpoints `/api/v1/manage/haplogroups/merge[/preview]`.
+  placeholders. Endpoints `/manage/haplogroups/merge[/preview]`.
   Fixtures + end-to-end tests pass.
 - **`du-bio`** — BED callable-loci, UCSC chain liftover, VCF reader, YBrowse ingest.
 - **`du-bio`** — BED callable-loci, UCSC chain liftover, VCF reader, YBrowse ingest.
@@ -114,7 +115,7 @@ Roughly in priority order:
    raw-data mirror).** The `fed.pds_node` / `pds_heartbeat` / fleet-admin tables
    (migration 0008) map to the **dropped** network-mirror design — don't build
    registration / heartbeat / fleet endpoints. The federated flows: **(a) proposal
-   intake + curator review queue — DONE** (`/api/v1/curation/proposals` X-API-Key
+   intake + curator review queue — DONE** (`/manage/curation/proposals` X-API-Key
    intake → `tree.proposed_branch` → `/curator/proposals` review/promote);
    **(b) reporting-mirror ingest — DONE** (Jetstream → `fed.*` reporting tables for
    the full `✅ AppView Complete` summary set, see "What's done"); **(c) reporting
@@ -161,8 +162,12 @@ Roughly in priority order:
 6. **reCAPTCHA** — wired into the contact form: server-side siteverify when
    `RECAPTCHA_SECRET`/`RECAPTCHA_SITE_KEY` are set, skipped in dev when unset
    (just needs prod keys). **NCBI** client still TODO.
-7. **OpenAPI for the management API** — only the public read API is documented;
-   the `/api/v1/manage/*` curator endpoints aren't in the spec.
+7. **Management API namespace (DECIDED 2026-06):** curator/machine endpoints are
+   **not** under the public `/api/v1` — they live under **`/manage/*`**
+   (`/manage/change-sets/*`, `/manage/haplogroups/merge[/preview]`,
+   `/manage/curation/proposals`) and are deliberately excluded from the public
+   OpenAPI doc. A separate internal/curator OpenAPI document is optional and not
+   built (low priority).
 8. **WIP shadow-table staging UI** — `tree.wip_*` tables exist but are unused;
    merge takes the simpler placeholder path. Only needed for a richer curator
    pre-apply editing flow.

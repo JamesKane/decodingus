@@ -24,7 +24,7 @@ const CHANGED: &str = "proposal-changed";
 
 pub fn router() -> Router<AppState> {
     Router::new()
-        .route("/api/v1/curation/proposals", post(intake))
+        .route("/manage/curation/proposals", post(intake))
         .route("/curator/proposals", get(page))
         .route("/curator/proposals/fragment", get(list))
         .route("/curator/proposals/:id/panel", get(panel))

@@ -1,4 +1,4 @@
-//! Tree-versioning management API (`/api/v1/manage/change-sets/*`). Curator-
+//! Tree-versioning management API (`/manage/change-sets/*`). Curator-
 //! gated (session + Curator role), JSON in/out. Backs the change-set review and
 //! apply workflow over `du_db::change_set`.
 //!
@@ -20,18 +20,18 @@ use serde_json::{json, Value};
 
 pub fn router() -> Router<AppState> {
     Router::new()
-        .route("/api/v1/manage/haplogroups/merge", post(merge_run))
-        .route("/api/v1/manage/haplogroups/merge/preview", post(merge_preview))
-        .route("/api/v1/manage/change-sets", get(list).post(create))
-        .route("/api/v1/manage/change-sets/:id", get(detail))
-        .route("/api/v1/manage/change-sets/:id/changes", post(add_change))
-        .route("/api/v1/manage/change-sets/:id/start-review", post(start_review))
-        .route("/api/v1/manage/change-sets/:id/apply", post(apply))
-        .route("/api/v1/manage/change-sets/:id/discard", post(discard))
-        .route("/api/v1/manage/change-sets/:id/comments", get(list_comments).post(add_comment))
-        .route("/api/v1/manage/change-sets/:id/approve-all", post(approve_all))
-        .route("/api/v1/manage/change-sets/:id/changes/:change_id/review", post(review_change))
-        .route("/api/v1/manage/change-sets/:id/diff", get(diff))
+        .route("/manage/haplogroups/merge", post(merge_run))
+        .route("/manage/haplogroups/merge/preview", post(merge_preview))
+        .route("/manage/change-sets", get(list).post(create))
+        .route("/manage/change-sets/:id", get(detail))
+        .route("/manage/change-sets/:id/changes", post(add_change))
+        .route("/manage/change-sets/:id/start-review", post(start_review))
+        .route("/manage/change-sets/:id/apply", post(apply))
+        .route("/manage/change-sets/:id/discard", post(discard))
+        .route("/manage/change-sets/:id/comments", get(list_comments).post(add_comment))
+        .route("/manage/change-sets/:id/approve-all", post(approve_all))
+        .route("/manage/change-sets/:id/changes/:change_id/review", post(review_change))
+        .route("/manage/change-sets/:id/diff", get(diff))
 }
 
 #[derive(Deserialize)]

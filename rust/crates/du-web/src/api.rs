@@ -2,10 +2,12 @@
 //! (decoupled from the internal domain types) are mapped from `du-db` query
 //! results and described with `utoipa`; Swagger UI is served at `/api`.
 //!
-//! Scope: the read-only public endpoints (tree, coverage, references/biosamples,
-//! variants, genome regions) plus the federated population reports (`/api/v1/
-//! reports/*`) aggregated from the `fed.*` mirror. The `/api/v1/manage/*` curator
-//! and IBD groups are tied to subsystems not surfaced here and are omitted.
+//! Scope: ONLY the read-only public endpoints (tree, coverage, references/
+//! biosamples, variants, genome regions) plus the federated population reports
+//! (`/api/v1/reports/*`) aggregated from the `fed.*` mirror. Curator/machine
+//! management endpoints are deliberately NOT under `/api/v1` — they live under
+//! `/manage/*` (change-sets, haplogroup merge, curation intake) and are not part
+//! of this public OpenAPI document.
 
 use crate::error::AppError;
 use crate::state::AppState;
