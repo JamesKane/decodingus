@@ -135,10 +135,14 @@ Roughly in priority order:
    `decodingus-shared/.../tests/live_pds.rs`): discovery + PAR + DPoP +
    `use_dpop_nonce` → `request_uri`, then with a Caddy TLS proxy the full handshake
    over canonical `https://pds.test` up to the **authorize page (loopback client
-   accepted)**. REMAINING: only the human **consent click** (intentionally
-   browser-gated) → `code` → token; the public token-exchange path is wired. Runbook
-   + manual-browser steps in `docs/atproto-oauth-findings.md`. **Confidential
-   web-client** flow (hosted metadata over HTTPS) + the joint Edge test still open.
+   accepted)**. The public flow's remainder is only the human **consent click**
+   (browser-gated) → `code` → token (token path wired). **Confidential web-client
+   — our side VERIFIED:** `client-metadata.json`/`jwks.json` spec-correct (live),
+   and `client_assertion`/DPoP/PKCE unit-tested. The PDS-fetches-metadata +
+   `private_key_jwt`-PAR round-trip can't run locally (Apple `container` has no
+   `--add-host` for the PDS to resolve our `client_id` host) → it's the **Edge
+   joint test**; plan + per-side checklist in `docs/atproto-oauth-findings.md`.
+   Runbook + manual-browser steps there too.
 3. **Scheduled jobs** — **`ena-study-enrichment` DONE** (`du-jobs/ena.rs` +
    `du-db::study::{needing_ena_enrichment,apply_ena_metadata}`): fills
    title/center/first-public gaps in `pubs.genomic_study` from the public ENA

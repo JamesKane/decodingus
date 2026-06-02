@@ -199,3 +199,69 @@ a real browser rather than scripted:
 The token-exchange path is implemented and ready; only the human consent click is
 out of band. (A headless completion would mean reproducing the oauth-provider's
 sign-in/accept SPA calls — brittle + version-specific; not worth scripting.)
+
+## Confidential web-client — joint test plan (2026-06)
+
+The public/loopback client (above) is verified end-to-end against a local PDS up
+to consent. The **confidential** web client (`private_key_jwt` + hosted metadata)
+adds two things the public flow doesn't exercise: the auth server **fetching +
+validating our `client-metadata.json`/`jwks.json`**, and accepting the
+**`private_key_jwt`** client assertion. These need our OAuth documents reachable
+over HTTPS at the `client_id` host — which a local PDS on Apple `container` can't
+resolve (no `--add-host` to point a fake `client_id` host at our box), so this is
+the **joint test with the Edge team against a real PDS** (real DNS/HTTPS).
+
+### Our side — VERIFIED (no joint step needed)
+
+- `/oauth/client-metadata.json` is spec-correct: `client_id` == the doc URL,
+  `redirect_uris` https under the same origin, `token_endpoint_auth_method =
+  private_key_jwt`, `token_endpoint_auth_signing_alg = ES256`,
+  `dpop_bound_access_tokens = true`, `grant_types = [authorization_code,
+  refresh_token]`, `response_types = [code]`, `application_type = web`, `jwks_uri`
+  correct. (Verified live against `OAUTH_BASE_URL=https://decoding-us.com`.)
+- `/oauth/jwks.json` is a clean public P-256 JWK (`use=sig`, `alg=ES256`, `kid` =
+  JWK thumbprint, no private material).
+- `client_assertion` JWT, DPoP proof, PKCE, client-metadata shape — all unit-tested
+  in `du-atproto` (`es256_jws_roundtrips_and_verifies`: `alg=ES256`, `kid` ==
+  thumbprint, `iss`/`sub` == client_id, `aud` == issuer, signature verifies).
+- The confidential PAR/token forms + `use_dpop_nonce` single-retry are wired in
+  `du-web/oauth.rs` (`/login/atproto`); the request mechanics (PAR/DPoP/nonce) are
+  the same ones already proven live via the public-client path — the only delta is
+  adding the (unit-tested) `client_assertion`.
+
+### Prereqs for the joint test
+
+- **decodingus:** deploy `/oauth/client-metadata.json` + `/oauth/jwks.json` at the
+  public `client_id` host (`OAUTH_BASE_URL`, e.g. `https://decoding-us.com`); set a
+  **persisted `OAUTH_EC_KEY`** (base64url 32-byte scalar) so the JWKS `kid` is
+  stable; `redirect_uris` must exactly match the deployed callback.
+- **Edge:** a test PDS + account (handle + DID) and its issuer; confirm the auth
+  server accepts a confidential client (`token_endpoint_auth_methods` includes
+  `private_key_jwt` — the reference PDS does) and supports
+  `client_id_metadata_document` fetch.
+
+### Steps
+
+1. **Metadata fetch.** Confirm the PDS can GET our `client_id` doc + `jwks_uri`
+   over HTTPS (200, `application/json`, `client_id` matches the URL). Watch our
+   access logs for the fetch.
+2. **PAR.** `GET /login/atproto?handle=<test>` → resolve handle→DID→PDS→issuer →
+   PAR (`private_key_jwt` + DPoP). Expect `use_dpop_nonce` then `201` + `request_uri`.
+3. **Authorize + consent.** Redirect to `/oauth/authorize`; sign in + approve in
+   the browser → redirect to our `/oauth/callback?code&state`.
+4. **Token.** Exchange the code (`private_key_jwt` + DPoP + nonce) → access/refresh
+   tokens; `sub` = the DID. We upsert the user by DID + set the session cookie.
+5. **Scopes.** Confirm the granted scope matches what we requested (`atproto …` /
+   the agreed permission set).
+
+### Confirm on each side
+
+| decodingus | Edge / PDS |
+|:---|:---|
+| metadata + JWKS served at client_id; `kid` stable (persisted key) | PDS fetches + validates the client-metadata document |
+| `redirect_uris` exact-match the deployed callback | `private_key_jwt` (ES256) assertion accepted at PAR + token |
+| DPoP-nonce single-retry on PAR + token | the auth server's actual `DPoP-Nonce` behavior |
+| session established; user upserted by DID | scopes / permission set actually granted |
+
+See the "Open points to settle with the Edge team" section above for the
+still-open decisions (scopes/permission set, key lifecycle, identity resolution).
