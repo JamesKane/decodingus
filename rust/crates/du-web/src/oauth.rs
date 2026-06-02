@@ -114,42 +114,38 @@ async fn post_with_dpop(
     url: &str,
     form: &[(String, String)],
 ) -> Result<serde_json::Value, AppError> {
-    for attempt in 0..2 {
-        let nonce = None; // first attempt has none; second reads it from the 400 below
-        let proof = dpop_proof(&oc.ec_key, "POST", url, now(), nonce, None);
-        let resp = oc
-            .http
-            .post(url)
-            .header("DPoP", proof)
-            .form(form)
-            .send()
-            .await
-            .map_err(|e| AppError::Upstream(e.to_string()))?;
+    // First attempt: no nonce yet (the server supplies one via a 400 + DPoP-Nonce).
+    let proof = dpop_proof(&oc.ec_key, "POST", url, now(), None, None);
+    let resp = oc
+        .http
+        .post(url)
+        .header("DPoP", proof)
+        .form(form)
+        .send()
+        .await
+        .map_err(|e| AppError::Upstream(e.to_string()))?;
 
-        if resp.status().is_success() {
-            return resp.json().await.map_err(|e| AppError::Upstream(e.to_string()));
-        }
-        // Retry once with the server-supplied DPoP nonce.
-        if attempt == 0 {
-            if let Some(server_nonce) = resp.headers().get("DPoP-Nonce").and_then(|v| v.to_str().ok()) {
-                let proof = dpop_proof(&oc.ec_key, "POST", url, now(), Some(server_nonce), None);
-                let retry = oc
-                    .http
-                    .post(url)
-                    .header("DPoP", proof)
-                    .form(form)
-                    .send()
-                    .await
-                    .map_err(|e| AppError::Upstream(e.to_string()))?;
-                if retry.status().is_success() {
-                    return retry.json().await.map_err(|e| AppError::Upstream(e.to_string()));
-                }
-                return Err(AppError::Upstream(format!("oauth endpoint {}: {}", url, retry.status())));
-            }
-        }
-        return Err(AppError::Upstream(format!("oauth endpoint {}: {}", url, resp.status())));
+    if resp.status().is_success() {
+        return resp.json().await.map_err(|e| AppError::Upstream(e.to_string()));
     }
-    unreachable!()
+
+    // Retry once with the server-supplied DPoP nonce, if it offered one.
+    let Some(server_nonce) = resp.headers().get("DPoP-Nonce").and_then(|v| v.to_str().ok()) else {
+        return Err(AppError::Upstream(format!("oauth endpoint {}: {}", url, resp.status())));
+    };
+    let proof = dpop_proof(&oc.ec_key, "POST", url, now(), Some(server_nonce), None);
+    let retry = oc
+        .http
+        .post(url)
+        .header("DPoP", proof)
+        .form(form)
+        .send()
+        .await
+        .map_err(|e| AppError::Upstream(e.to_string()))?;
+    if retry.status().is_success() {
+        return retry.json().await.map_err(|e| AppError::Upstream(e.to_string()));
+    }
+    Err(AppError::Upstream(format!("oauth endpoint {}: {}", url, retry.status())))
 }
 
 async fn resolve_pds_and_authserver(
