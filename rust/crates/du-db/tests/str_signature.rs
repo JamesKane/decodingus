@@ -108,6 +108,15 @@ async fn str_signature_recompute_and_read() {
         "modal multi-copy value preserved"
     );
 
+    // Recompute also produced a contributing STR-variance age estimate.
+    assert!(stats.age_estimates >= 1, "an STR age estimate was computed");
+    let ages = du_db::ystr::branch_age_estimates(&pool, "TESTSTR-R1").await.expect("ages");
+    let str_age = ages.iter().find(|a| a.method == "STR_VARIANCE").expect("STR_VARIANCE estimate");
+    assert!(str_age.estimate_ybp.unwrap_or(0) > 0, "positive age");
+    assert_eq!(str_age.sample_count, Some(3));
+    assert_eq!(str_age.marker_count, Some(1), "only DYS393 (simple) scored; DYS385 multi-copy excluded");
+    assert!(str_age.ci_low_ybp < str_age.estimate_ybp && str_age.estimate_ybp < str_age.ci_high_ybp);
+
     // A MANUAL override must survive a recompute.
     sqlx::query(
         "UPDATE tree.haplogroup_ancestral_str SET method = 'MANUAL', ancestral_value = 99 \

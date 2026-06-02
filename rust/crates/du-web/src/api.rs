@@ -309,6 +309,33 @@ impl From<du_db::ystr::SignatureMarker> for StrSignatureMarkerDto {
     }
 }
 
+/// A contributing branch-age estimate (method-labeled — STR is one factor in the
+/// combined age model; this is NOT the authoritative `tmrca_ybp`).
+#[derive(Serialize, ToSchema)]
+pub struct AgeEstimateDto {
+    pub method: String,
+    pub estimate_ybp: Option<i32>,
+    pub ci_low_ybp: Option<i32>,
+    pub ci_high_ybp: Option<i32>,
+    pub sample_count: Option<i32>,
+    pub marker_count: Option<i32>,
+    pub generation_years: Option<f64>,
+}
+
+impl From<du_db::ystr::AgeEstimate> for AgeEstimateDto {
+    fn from(e: du_db::ystr::AgeEstimate) -> Self {
+        AgeEstimateDto {
+            method: e.method,
+            estimate_ybp: e.estimate_ybp,
+            ci_low_ybp: e.ci_low_ybp,
+            ci_high_ybp: e.ci_high_ybp,
+            sample_count: e.sample_count,
+            marker_count: e.marker_count,
+            generation_years: e.generation_years,
+        }
+    }
+}
+
 /// STR→branch prediction request: a query profile in the lexicon's
 /// `strMarkerValue[]` shape (the same markers Navigator publishes).
 #[derive(Deserialize, ToSchema)]
@@ -434,6 +461,16 @@ async fn haplogroup_str_signature(
 ) -> Result<Json<Vec<StrSignatureMarkerDto>>, AppError> {
     let rows = du_db::ystr::branch_signature(&st.pool, &name).await?;
     Ok(Json(rows.into_iter().map(StrSignatureMarkerDto::from).collect()))
+}
+
+#[utoipa::path(get, path = "/api/v1/haplogroups/{haplogroupName}/age", tag = "tree",
+    responses((status = 200, description = "Contributing branch-age estimates (e.g. STR_VARIANCE)", body = [AgeEstimateDto])))]
+async fn haplogroup_age(
+    State(st): State<AppState>,
+    Path(name): Path<String>,
+) -> Result<Json<Vec<AgeEstimateDto>>, AppError> {
+    let rows = du_db::ystr::branch_age_estimates(&st.pool, &name).await?;
+    Ok(Json(rows.into_iter().map(AgeEstimateDto::from).collect()))
 }
 
 #[utoipa::path(post, path = "/api/v1/str/predict", tag = "tree", request_body = StrPredictRequest,
@@ -637,13 +674,13 @@ fn csv_field(s: &str) -> String {
         list_variants, get_variant, variants_by_haplogroup, export_metadata, export_variants,
         list_region_builds, regions_by_build,
         reports_coverage, reports_ancestry, reports_haplogroups,
-        haplogroup_str_signature, str_predict,
+        haplogroup_str_signature, haplogroup_age, str_predict,
     ),
     components(schemas(
         VariantDto, HaplogroupNodeDto, TreeDto, CoverageBenchmarkDto, PublicationDto, BiosampleDto,
         GenomeRegionDto, StudyDto, ExportMetadataDto, Page<VariantDto>, Page<PublicationDto>, Page<BiosampleDto>,
         FedCoverageByBuildDto, AncestryShareDto, HaplogroupCountDto, StrSignatureMarkerDto,
-        StrPredictRequest, StrPredictionDto, StrPredictResponseDto,
+        StrPredictRequest, StrPredictionDto, StrPredictResponseDto, AgeEstimateDto,
     )),
     tags(
         (name = "tree", description = "Y/MT haplogroup trees"),
@@ -673,6 +710,7 @@ pub fn router() -> Router<AppState> {
         .route("/api/v1/variants/:variant_id", get(get_variant))
         .route("/api/v1/haplogroups/:haplogroup_name/variants", get(variants_by_haplogroup))
         .route("/api/v1/haplogroups/:haplogroup_name/str-signature", get(haplogroup_str_signature))
+        .route("/api/v1/haplogroups/:haplogroup_name/age", get(haplogroup_age))
         .route("/api/v1/str/predict", post(str_predict))
         .route("/api/v1/genome-regions", get(list_region_builds))
         .route("/api/v1/genome-regions/:build", get(regions_by_build))

@@ -112,7 +112,15 @@ APP_SECRET="<any 32+ char string>"   # signs session cookies
   (`ystr::predict` — ranks branches by stepwise genetic distance to each modal
   signature, min-compared gate) at `POST /api/v1/str/predict` (lexicon markers in
   → ranked branches + `wgs_upgrade_recommended` nudge, true unless WGS-derived).
-  Unit + live-DB tested (aggregate, predict-ranking, nudge); endpoints smoke-checked.
+  **STR-based age (contributing factor, McDonald 2021) DONE:** `ystr::compute_str_age`
+  (TMRCA = Σ|obs−modal|/Σµ × 33yr, per-marker rate from `genomics.str_mutation_rate`
+  or a documented default, rate-uncertainty CI) folded into the recompute →
+  `tree.haplogroup_age_estimate` (method `STR_VARIANCE`, mig 0014); read at
+  `GET /api/v1/haplogroups/:name/age`. Deliberately a **labeled contributing
+  estimate**, NOT the authoritative `tmrca_ybp` — a future combiner merges
+  SNP/STR/genealogical factors (see `decodingus/documents/proposals/branch-age-
+  estimation.md`). `str_mutation_rate` ships empty (uses the default until a
+  Ballantyne/Willems import lands). Unit + live-DB tested.
 - **`du-jobs`** — tokio scheduler; jobs: `db-heartbeat`, `ybrowse-variant-ingest`,
   `publication-update`, `publication-discovery`, `ena-study-enrichment`,
   `publication-pubmed-update`, `str-signature-recompute`; plus the Jetstream

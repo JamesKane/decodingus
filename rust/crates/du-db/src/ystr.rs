@@ -158,12 +158,90 @@ pub fn distance(a: &[(String, StrValue)], b: &[(String, StrValue)]) -> Option<(i
     (compared > 0).then_some((sum, compared))
 }
 
+// ── STR-based age (contributing factor) ──────────────────────────────────────
+
+/// Average Y-STR mutation rate (mutations/marker/generation) used when a marker
+/// has no specific rate in `genomics.str_mutation_rate`. Replace per-marker via
+/// that table as real rates (Ballantyne 2010 / Willems 2016) are imported.
+pub const DEFAULT_STR_RATE: f64 = 0.0025;
+/// Years per generation (pre-industrial average; McDonald 2021).
+pub const GENERATION_YEARS: f64 = 33.0;
+
+/// An STR-variance branch-age estimate (one contributing factor to the combined age).
+#[derive(Debug, Clone, PartialEq)]
+pub struct StrAge {
+    pub estimate_ybp: i32,
+    pub ci_low_ybp: i32,
+    pub ci_high_ybp: i32,
+    pub sample_count: i32,
+    pub marker_count: i32,
+    pub total_distance: i32,
+}
+
+/// STR TMRCA via the stepwise model (McDonald 2021, mirroring the legacy
+/// `StrAgeService`): generations = Σ|obs − modal| / Σµ over the descendant
+/// samples' simple markers (µ = per-marker rate or [`DEFAULT_STR_RATE`]); years =
+/// generations × [`GENERATION_YEARS`]. CI combines Poisson sampling on the total
+/// distance with ~8% rate uncertainty. `None` if nothing comparable.
+pub fn compute_str_age(
+    modal: &[ModalMarker],
+    profiles: &[Vec<(String, StrValue)>],
+    rates: &HashMap<String, f64>,
+) -> Option<StrAge> {
+    let modal_simple: HashMap<&str, i32> =
+        modal.iter().filter_map(|m| m.ancestral_value.map(|v| (m.marker.as_str(), v))).collect();
+    if modal_simple.is_empty() {
+        return None;
+    }
+    let (mut total_dist, mut total_mu, mut samples_used) = (0i32, 0f64, 0i32);
+    let mut markers_used: std::collections::BTreeSet<&str> = Default::default();
+    for profile in profiles {
+        let mut used = false;
+        for (marker, value) in profile {
+            if let StrValue::Simple(obs) = value {
+                if let Some(&anc) = modal_simple.get(marker.as_str()) {
+                    total_dist += (obs - anc).abs();
+                    total_mu += rates.get(marker).copied().unwrap_or(DEFAULT_STR_RATE);
+                    markers_used.insert(marker.as_str());
+                    used = true;
+                }
+            }
+        }
+        if used {
+            samples_used += 1;
+        }
+    }
+    if total_mu <= 0.0 || samples_used == 0 {
+        return None;
+    }
+    let years = (total_dist as f64 / total_mu) * GENERATION_YEARS;
+    let rel = ((1.0 / total_dist.max(1) as f64) + 0.08f64.powi(2)).sqrt();
+    Some(StrAge {
+        estimate_ybp: years.round() as i32,
+        ci_low_ybp: (years * (1.0 - 1.96 * rel)).max(0.0).round() as i32,
+        ci_high_ybp: (years * (1.0 + 1.96 * rel)).round() as i32,
+        sample_count: samples_used,
+        marker_count: markers_used.len() as i32,
+        total_distance: total_dist,
+    })
+}
+
 // ── queries ───────────────────────────────────────────────────────────────────
+
+/// Per-marker mutation rates (marker → per-generation rate) for age estimation.
+pub async fn load_rates(pool: &PgPool) -> Result<HashMap<String, f64>, DbError> {
+    let rows: Vec<(String, f64)> =
+        sqlx::query_as("SELECT marker_name, mutation_rate::float8 FROM genomics.str_mutation_rate")
+            .fetch_all(pool)
+            .await?;
+    Ok(rows.into_iter().collect())
+}
 
 #[derive(Debug, Default)]
 pub struct RecomputeStats {
     pub haplogroups: usize,
     pub markers: usize,
+    pub age_estimates: usize,
 }
 
 /// Recompute every Y branch's modal signature from the mirrored profiles.
@@ -188,9 +266,14 @@ pub async fn recompute_signatures(pool: &PgPool) -> Result<RecomputeStats, DbErr
         by_hg.entry(*hg_id).or_default().push(parse_markers(markers));
     }
 
+    let rates = load_rates(pool).await?;
+
     let mut tx = pool.begin().await?;
-    // Full refresh of computed signatures (manual overrides survive the upsert).
+    // Full refresh of computed signatures + STR ages (manual overrides survive).
     sqlx::query("DELETE FROM tree.haplogroup_ancestral_str WHERE method = 'MODAL'")
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("DELETE FROM tree.haplogroup_age_estimate WHERE method = 'STR_VARIANCE'")
         .execute(&mut *tx)
         .await?;
 
@@ -221,6 +304,30 @@ pub async fn recompute_signatures(pool: &PgPool) -> Result<RecomputeStats, DbErr
             .rows_affected();
             stats.markers += n as usize;
         }
+        // STR-variance age — a contributing factor (not the authoritative tmrca_ybp).
+        if let Some(age) = compute_str_age(&modal, profiles, &rates) {
+            sqlx::query(
+                "INSERT INTO tree.haplogroup_age_estimate \
+                   (haplogroup_id, method, estimate_ybp, ci_low_ybp, ci_high_ybp, \
+                    sample_count, marker_count, generation_years, computed_at) \
+                 VALUES ($1, 'STR_VARIANCE', $2, $3, $4, $5, $6, $7, now()) \
+                 ON CONFLICT (haplogroup_id, method) DO UPDATE SET \
+                   estimate_ybp = EXCLUDED.estimate_ybp, ci_low_ybp = EXCLUDED.ci_low_ybp, \
+                   ci_high_ybp = EXCLUDED.ci_high_ybp, sample_count = EXCLUDED.sample_count, \
+                   marker_count = EXCLUDED.marker_count, generation_years = EXCLUDED.generation_years, \
+                   computed_at = now()",
+            )
+            .bind(hg_id)
+            .bind(age.estimate_ybp)
+            .bind(age.ci_low_ybp)
+            .bind(age.ci_high_ybp)
+            .bind(age.sample_count)
+            .bind(age.marker_count)
+            .bind(GENERATION_YEARS)
+            .execute(&mut *tx)
+            .await?;
+            stats.age_estimates += 1;
+        }
     }
     tx.commit().await?;
     Ok(stats)
@@ -246,6 +353,34 @@ pub async fn branch_signature(pool: &PgPool, haplogroup: &str) -> Result<Vec<Sig
          JOIN tree.haplogroup h ON h.id = s.haplogroup_id \
          WHERE h.name = $1 AND h.haplogroup_type::text = 'Y_DNA' AND h.valid_until IS NULL \
          ORDER BY s.marker_name",
+    )
+    .bind(haplogroup)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}
+
+/// A per-branch age estimate (one contributing factor; method-labeled).
+#[derive(Debug, sqlx::FromRow)]
+pub struct AgeEstimate {
+    pub method: String,
+    pub estimate_ybp: Option<i32>,
+    pub ci_low_ybp: Option<i32>,
+    pub ci_high_ybp: Option<i32>,
+    pub sample_count: Option<i32>,
+    pub marker_count: Option<i32>,
+    pub generation_years: Option<f64>,
+}
+
+/// Contributing age estimates for a Y haplogroup (e.g. STR_VARIANCE).
+pub async fn branch_age_estimates(pool: &PgPool, haplogroup: &str) -> Result<Vec<AgeEstimate>, DbError> {
+    let rows = sqlx::query_as::<_, AgeEstimate>(
+        "SELECT e.method, e.estimate_ybp, e.ci_low_ybp, e.ci_high_ybp, e.sample_count, \
+                e.marker_count, e.generation_years::float8 AS generation_years \
+         FROM tree.haplogroup_age_estimate e \
+         JOIN tree.haplogroup h ON h.id = e.haplogroup_id \
+         WHERE h.name = $1 AND h.haplogroup_type::text = 'Y_DNA' AND h.valid_until IS NULL \
+         ORDER BY e.method",
     )
     .bind(haplogroup)
     .fetch_all(pool)
@@ -360,6 +495,22 @@ mod tests {
         let d385 = modal.iter().find(|m| m.marker == "DYS385").unwrap();
         assert_eq!(d385.ancestral_value, None); // multi-copy → no simple int
         assert_eq!(d385.ancestral_json, json!({ "type": "multiCopy", "copies": [11, 14] }));
+    }
+
+    #[test]
+    fn str_age_from_distance_and_rate() {
+        let modal = compute_modal(&[vec![simple("DYS393", 13)]]); // modal DYS393 = 13
+        let profiles = vec![vec![simple("DYS393", 14)], vec![simple("DYS393", 13)]]; // dist 1 + 0
+        let rates: std::collections::HashMap<String, f64> = [("DYS393".to_string(), 0.005)].into();
+        let age = compute_str_age(&modal, &profiles, &rates).unwrap();
+        // t_gen = total_dist(1) / total_mu(2*0.005=0.01) = 100 → 100*33 = 3300 ybp.
+        assert_eq!(age.estimate_ybp, 3300);
+        assert_eq!(age.total_distance, 1);
+        assert_eq!(age.sample_count, 2);
+        assert_eq!(age.marker_count, 1);
+        assert!(age.ci_low_ybp < age.estimate_ybp && age.ci_high_ybp > age.estimate_ybp);
+        // No simple modal markers → no estimate.
+        assert!(compute_str_age(&[], &profiles, &rates).is_none());
     }
 
     #[test]
