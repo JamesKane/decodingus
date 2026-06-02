@@ -10,6 +10,33 @@ use super::Common;
 use crate::DbError;
 use sqlx::PgPool;
 
+/// A population count of one consensus haplogroup across mirrored biosamples.
+#[derive(Debug, sqlx::FromRow)]
+pub struct HaplogroupCount {
+    pub dna_type: String,
+    pub haplogroup: String,
+    pub samples: i64,
+}
+
+/// Distribution of Y-DNA and mtDNA haplogroup calls across all mirrored
+/// biosamples, most-common first — a population report over `fed.biosample`
+/// computed with query-time SQL.
+pub async fn haplogroup_distribution(pool: &PgPool) -> Result<Vec<HaplogroupCount>, DbError> {
+    let rows = sqlx::query_as::<_, HaplogroupCount>(
+        "SELECT dna_type, haplogroup, count(*) AS samples FROM ( \
+             SELECT 'Y_DNA' AS dna_type, y_haplogroup AS haplogroup \
+               FROM fed.biosample WHERE y_haplogroup IS NOT NULL \
+             UNION ALL \
+             SELECT 'MT_DNA', mt_haplogroup FROM fed.biosample WHERE mt_haplogroup IS NOT NULL \
+         ) t \
+         GROUP BY dna_type, haplogroup \
+         ORDER BY samples DESC, dna_type, haplogroup",
+    )
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}
+
 /// Biosample — pseudonymous DID, sex, Y/mt haplogroup calls, sequencing center,
 /// and join refs/counts. Donor identifiers and free-text are dropped on ingest.
 pub struct Biosample {

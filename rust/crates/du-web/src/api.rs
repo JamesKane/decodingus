@@ -3,8 +3,9 @@
 //! results and described with `utoipa`; Swagger UI is served at `/api`.
 //!
 //! Scope: the read-only public endpoints (tree, coverage, references/biosamples,
-//! variants, genome regions). The `/api/v1/manage/*`, PDS, and IBD groups are
-//! curator/federation surfaces tied to subsystems not yet built and are omitted.
+//! variants, genome regions) plus the federated population reports (`/api/v1/
+//! reports/*`) aggregated from the `fed.*` mirror. The `/api/v1/manage/*` curator
+//! and IBD groups are tied to subsystems not surfaced here and are omitted.
 
 use crate::error::AppError;
 use crate::state::AppState;
@@ -221,6 +222,63 @@ pub struct ExportMetadataDto {
     pub generated_at: String,
 }
 
+// ── federation reporting DTOs ──────────────────────────────────────────────────
+// Population-level reports aggregated from the federated mirror (`fed.*`) with
+// query-time SQL — the AppView aggregates and reports over Navigator-published
+// anonymized summaries (no per-PDS fetch at request time).
+
+/// Coverage aggregated across mirrored alignment summaries, by reference build.
+#[derive(Serialize, ToSchema)]
+pub struct FedCoverageByBuildDto {
+    pub reference_build: Option<String>,
+    pub samples: i64,
+    pub mean_coverage: Option<f64>,
+    pub mean_pct_30x: Option<f64>,
+}
+
+impl From<du_db::fed::coverage::BuildCoverage> for FedCoverageByBuildDto {
+    fn from(c: du_db::fed::coverage::BuildCoverage) -> Self {
+        FedCoverageByBuildDto {
+            reference_build: c.reference_build,
+            samples: c.samples,
+            mean_coverage: c.mean_coverage,
+            mean_pct_30x: c.mean_pct_30x,
+        }
+    }
+}
+
+/// Average ancestry share per continental super-population across mirrored breakdowns.
+#[derive(Serialize, ToSchema)]
+pub struct AncestryShareDto {
+    pub super_population: Option<String>,
+    pub samples: i64,
+    pub avg_percentage: Option<f64>,
+}
+
+impl From<du_db::fed::analytics::SuperPopulationShare> for AncestryShareDto {
+    fn from(s: du_db::fed::analytics::SuperPopulationShare) -> Self {
+        AncestryShareDto {
+            super_population: s.super_population,
+            samples: s.samples,
+            avg_percentage: s.avg_percentage,
+        }
+    }
+}
+
+/// Count of a consensus Y/MT haplogroup across mirrored biosamples.
+#[derive(Serialize, ToSchema)]
+pub struct HaplogroupCountDto {
+    pub dna_type: String,
+    pub haplogroup: String,
+    pub samples: i64,
+}
+
+impl From<du_db::fed::core::HaplogroupCount> for HaplogroupCountDto {
+    fn from(h: du_db::fed::core::HaplogroupCount) -> Self {
+        HaplogroupCountDto { dna_type: h.dna_type, haplogroup: h.haplogroup, samples: h.samples }
+    }
+}
+
 // ── query params ─────────────────────────────────────────────────────────────
 
 #[derive(Deserialize, IntoParams)]
@@ -307,6 +365,27 @@ async fn mt_tree(State(st): State<AppState>, Query(q): Query<RootParams>) -> Res
 async fn coverage_benchmarks(State(st): State<AppState>) -> Result<Json<Vec<CoverageBenchmarkDto>>, AppError> {
     let rows = du_db::coverage::benchmarks(&st.pool).await?;
     Ok(Json(rows.into_iter().map(CoverageBenchmarkDto::from).collect()))
+}
+
+#[utoipa::path(get, path = "/api/v1/reports/coverage", tag = "reports",
+    responses((status = 200, description = "Federated coverage aggregated by reference build", body = [FedCoverageByBuildDto])))]
+async fn reports_coverage(State(st): State<AppState>) -> Result<Json<Vec<FedCoverageByBuildDto>>, AppError> {
+    let rows = du_db::fed::coverage::aggregate_by_build(&st.pool).await?;
+    Ok(Json(rows.into_iter().map(FedCoverageByBuildDto::from).collect()))
+}
+
+#[utoipa::path(get, path = "/api/v1/reports/ancestry", tag = "reports",
+    responses((status = 200, description = "Average ancestry share by continental super-population", body = [AncestryShareDto])))]
+async fn reports_ancestry(State(st): State<AppState>) -> Result<Json<Vec<AncestryShareDto>>, AppError> {
+    let rows = du_db::fed::analytics::super_population_distribution(&st.pool).await?;
+    Ok(Json(rows.into_iter().map(AncestryShareDto::from).collect()))
+}
+
+#[utoipa::path(get, path = "/api/v1/reports/haplogroups", tag = "reports",
+    responses((status = 200, description = "Y/MT haplogroup distribution across mirrored biosamples", body = [HaplogroupCountDto])))]
+async fn reports_haplogroups(State(st): State<AppState>) -> Result<Json<Vec<HaplogroupCountDto>>, AppError> {
+    let rows = du_db::fed::core::haplogroup_distribution(&st.pool).await?;
+    Ok(Json(rows.into_iter().map(HaplogroupCountDto::from).collect()))
 }
 
 #[utoipa::path(get, path = "/api/v1/references/details", params(SearchParams), tag = "references",
@@ -451,10 +530,12 @@ fn csv_field(s: &str) -> String {
         y_tree, mt_tree, coverage_benchmarks, references_details, biosample_report, biosample_studies,
         list_variants, get_variant, variants_by_haplogroup, export_metadata, export_variants,
         list_region_builds, regions_by_build,
+        reports_coverage, reports_ancestry, reports_haplogroups,
     ),
     components(schemas(
         VariantDto, HaplogroupNodeDto, TreeDto, CoverageBenchmarkDto, PublicationDto, BiosampleDto,
         GenomeRegionDto, StudyDto, ExportMetadataDto, Page<VariantDto>, Page<PublicationDto>, Page<BiosampleDto>,
+        FedCoverageByBuildDto, AncestryShareDto, HaplogroupCountDto,
     )),
     tags(
         (name = "tree", description = "Y/MT haplogroup trees"),
@@ -462,6 +543,7 @@ fn csv_field(s: &str) -> String {
         (name = "coverage", description = "Sequencing coverage benchmarks"),
         (name = "references", description = "Publications, biosamples, studies"),
         (name = "genome-regions", description = "Multi-build genome regions"),
+        (name = "reports", description = "Population reports aggregated from the federated mirror"),
     )
 )]
 pub struct ApiDoc;
@@ -471,6 +553,9 @@ pub fn router() -> Router<AppState> {
         .route("/api/v1/y-tree", get(y_tree))
         .route("/api/v1/mt-tree", get(mt_tree))
         .route("/api/v1/coverage/benchmarks", get(coverage_benchmarks))
+        .route("/api/v1/reports/coverage", get(reports_coverage))
+        .route("/api/v1/reports/ancestry", get(reports_ancestry))
+        .route("/api/v1/reports/haplogroups", get(reports_haplogroups))
         .route("/api/v1/references/details", get(references_details))
         .route("/api/v1/references/details/:publication_id/biosamples", get(biosample_report))
         .route("/api/v1/biosample/studies", get(biosample_studies))

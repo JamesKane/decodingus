@@ -66,8 +66,10 @@ APP_SECRET="<any 32+ char string>"   # signs session cookies
   biosamples, variants, tree, studies, publications), ident/auth, genomics.
   Validated vs `db.schema` (schema-only) and the current-schema mock with data;
   all aggregates reconcile.
-- **Public JSON API** (`du-web/api.rs`) — 13 read endpoints under `/api/v1/*` +
-  OpenAPI 3 + Swagger UI at `/api` (utoipa). Clean DTOs.
+- **Public JSON API** (`du-web/api.rs`) — 16 read endpoints under `/api/v1/*` +
+  OpenAPI 3 + Swagger UI at `/api` (utoipa). Clean DTOs. Includes the federated
+  population reports `/api/v1/reports/{coverage,ancestry,haplogroups}` aggregated
+  from the `fed.*` mirror with query-time SQL.
 - **Tree versioning** (`du-db/change_set.rs`, `du-web/routes/versioning.rs`) —
   change-set lifecycle (DRAFT→READY_FOR_REVIEW→UNDER_REVIEW→APPLIED/DISCARDED),
   per-change review/approve-all, diff, and a temporal apply engine
@@ -114,11 +116,11 @@ Roughly in priority order:
    intake + curator review queue — DONE** (`/api/v1/curation/proposals` X-API-Key
    intake → `tree.proposed_branch` → `/curator/proposals` review/promote);
    **(b) reporting-mirror ingest — DONE** (Jetstream → `fed.*` reporting tables for
-   the full `✅ AppView Complete` summary set, see "What's done"). Remaining:
-   **(c) the reporting web endpoints** over the mirror (query-time SQL; e.g.
-   coverage-by-build and ancestry super-population distribution — `du_db::fed::
-   coverage::aggregate_by_build` / `analytics::super_population_distribution` are
-   the seeds; add `/api/v1/...` routes + DTOs). See memory
+   the full `✅ AppView Complete` summary set, see "What's done"); **(c) reporting
+   web endpoints — DONE** (`/api/v1/reports/{coverage,ancestry,haplogroups}`,
+   query-time SQL over the mirror). More report shapes can be added over the other
+   `fed.*` tables (genotype provider mix, platform/test-type distribution, …) as
+   the UI needs them. See memory
    `atproto-federation-direction` for the full re-scope + privacy boundary.
 2. **Live AT Protocol OAuth handshake** — scaffolded in `du-web/oauth.rs`; needs a
    test PDS and joint testing with the Edge team. See `docs/atproto-*.md`.

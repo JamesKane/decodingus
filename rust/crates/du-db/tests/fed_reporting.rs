@@ -123,6 +123,15 @@ async fn fed_reporting_upsert_guard_aggregate_delete() {
     let avg = eur.avg_percentage.expect("avg");
     assert!((avg - 70.0).abs() < 1e-6, "avg European should be 70.0, got {avg}");
 
+    // Haplogroup distribution over fed.biosample (a: R-L21, b: I-M253).
+    let hg = core::haplogroup_distribution(&pool).await.expect("haplogroup dist");
+    let y: Vec<_> = hg.iter().filter(|h| h.dna_type == "Y_DNA").collect();
+    assert!(
+        y.iter().any(|h| h.haplogroup == "R-L21") && y.iter().any(|h| h.haplogroup == "I-M253"),
+        "both Y haplogroups present, got {y:?}"
+    );
+    assert!(y.iter().all(|h| h.samples == 1));
+
     // Generic delete removes from the right table.
     fed::delete(&pool, fed::NS_BIOSAMPLE, "did:test:b", "bs1").await.expect("delete bs b");
     let remaining: i64 = sqlx::query_scalar("SELECT count(*) FROM fed.biosample WHERE did LIKE 'did:test:%'")
