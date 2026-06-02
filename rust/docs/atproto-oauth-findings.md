@@ -74,3 +74,55 @@ A test PDS + test account (handle + DID) and its authorization-server endpoints,
 so `/login/atproto?handle=<test>` can complete the real PAR → redirect → token
 flow against it. Everything up to the network handshake is implemented and
 unit-tested; the live exchange is the joint step.
+
+## Local PDS handshake — validated (2026-06)
+
+Stood up the official PDS in a local container and validated the live
+**discovery + PAR** path (the browser redirect + token exchange still needs HTTPS
+identity infra — see "remaining" below).
+
+### Runbook
+
+```sh
+# 1. Pull + boot the PDS (Apple `container`; each gets its own IP, no port-map).
+container image pull ghcr.io/bluesky-social/pds:latest
+mkdir -p /tmp/pdsdata/blocks
+container run -d --name pds -v /tmp/pdsdata:/pds \
+  -e PDS_HOSTNAME=pds.test -e PDS_PORT=3000 \
+  -e PDS_JWT_SECRET=$(openssl rand --hex 16) \
+  -e PDS_ADMIN_PASSWORD=$(openssl rand --hex 16) \
+  -e PDS_PLC_ROTATION_KEY_K256_PRIVATE_KEY_HEX=$(openssl rand --hex 32) \
+  -e PDS_DATA_DIRECTORY=/pds -e PDS_BLOBSTORE_DISK_LOCATION=/pds/blocks \
+  -e PDS_DID_PLC_URL=https://plc.directory -e PDS_INVITE_REQUIRED=false -e PDS_DEV_MODE=true \
+  ghcr.io/bluesky-social/pds:latest
+IP=$(container ls | awk '$1=="pds"{print $6}' | cut -d/ -f1)   # e.g. 192.168.64.5
+
+# 2. Run the gated live handshake test (decodingus-shared).
+PDS_TEST_URL=http://$IP:3000 cargo test -p du-atproto --test live_pds -- --nocapture
+```
+
+Gotchas learned:
+- PDS rejects `.local` hostnames; use a `.test` domain. It needs `/pds` to exist
+  (bind-mount). It serves HTTP on `:3000` and expects TLS termination in front;
+  the OAuth **issuer is `https://PDS_HOSTNAME`** regardless.
+- **DPoP `htu` must be the server's canonical endpoint** (`https://pds.test/oauth/par`
+  from metadata), NOT the transport URL you connect over (`http://<ip>:3000/...`).
+  Signing the transport URL yields `invalid_dpop_proof: DPoP "htu" mismatch`.
+- The PDS issues a **`use_dpop_nonce`** on the first PAR; our single-retry with the
+  `DPoP-Nonce` response header then returns `201` + a `request_uri`. ✓
+
+### What this validates (`crates/du-atproto/tests/live_pds.rs`)
+
+Authorization-server metadata fetch + parse, the **public (loopback) client** PAR
+form, the DPoP proof, and the `use_dpop_nonce` retry — accepted by a real atproto
+auth server (`201 Created`, `request_uri` returned). Confirms `token_endpoint_auth_
+methods = [none, private_key_jwt]` and `client_id_metadata_document_supported`.
+
+### Remaining for the full browser loop (deferred)
+
+The redirect → consent → `code` → token exchange needs the auth server reachable
+over **HTTPS at its canonical host** with a cert our client trusts, because DPoP
+`htu` + the issuer are https-canonical. Options: a TLS reverse proxy at
+`https://pds.test` (hosts entry + dev CA trusted by reqwest) for a full local loop,
+or an HTTPS tunnel to a real account for the confidential-client path. Identity
+resolution (handle→DID→PDS) similarly wants HTTPS well-known / a PLC.
