@@ -223,7 +223,7 @@ fn parse_json(
     is_edit: bool,
     id: i64,
     f: &RegionForm,
-) -> Result<(serde_json::Value, serde_json::Value), Response> {
+) -> Result<(serde_json::Value, serde_json::Value), Box<Response>> {
     let coords = serde_json::from_str::<serde_json::Value>(&f.coordinates);
     let props = serde_json::from_str::<serde_json::Value>(&f.properties);
     match (coords, props) {
@@ -235,7 +235,7 @@ fn parse_json(
             } else if let Err(e) = &p {
                 msg = format!("properties: {e}");
             }
-            Err(html(&FormTemplate {
+            Err(Box::new(html(&FormTemplate {
                 t,
                 action,
                 is_edit,
@@ -245,7 +245,7 @@ fn parse_json(
                 coordinates: f.coordinates.clone(),
                 properties: f.properties.clone(),
                 error: Some(msg),
-            }))
+            })))
         }
     }
 }
@@ -261,7 +261,7 @@ async fn create(
     }
     let (coords, props) = match parse_json(locale.t, "/curator/regions".into(), false, 0, &f) {
         Ok(v) => v,
-        Err(resp) => return Ok(resp),
+        Err(resp) => return Ok(*resp),
     };
     let id = du_db::genome_region::create(&st.pool, f.region_type.trim(), f.name.trim(), &coords, &props).await?;
     Ok(changed(detail(&st, locale.t, id).await?))
@@ -279,7 +279,7 @@ async fn update(
     }
     let (coords, props) = match parse_json(locale.t, format!("/curator/regions/{id}"), true, id, &f) {
         Ok(v) => v,
-        Err(resp) => return Ok(resp),
+        Err(resp) => return Ok(*resp),
     };
     du_db::genome_region::update(&st.pool, id, f.region_type.trim(), f.name.trim(), &coords, &props).await?;
     Ok(changed(detail(&st, locale.t, id).await?))
