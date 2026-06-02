@@ -20,12 +20,14 @@ license = "BSD-3-Clause"
 repository = "https://github.com/decodingus/decodingus"
 
 [workspace.dependencies]
-# Shared crates (sibling decodingus-shared repo). Path deps for local
-# co-development; switch to git deps (pinned tag/rev) once that repo is pushed:
-#   du-domain = { git = "https://github.com/decodingus/decodingus-shared", tag = "v0.1.0" }
-du-domain = { path = "../../decodingus-shared/crates/du-domain" }
-du-atproto = { path = "../../decodingus-shared/crates/du-atproto" }
-du-bio = { path = "../../decodingus-shared/crates/du-bio" }
+# Shared crates — git deps pinned to a rev on the decodingus-shared repo (this
+# also unblocks the Docker build, whose context can't reach a sibling path dep).
+# To update: push decodingus-shared, then bump `rev` (or switch to a pushed tag,
+# e.g. `tag = "v0.1.0"`). For local co-dev against working-tree changes, add a
+# [patch] section pointing these back at ../../decodingus-shared/crates/*.
+du-domain  = { git = "https://github.com/JamesKane/decodingus-shared.git", rev = "8916aefbd099b5d3d299e1d1ec8118c4c5fd0878" }
+du-atproto = { git = "https://github.com/JamesKane/decodingus-shared.git", rev = "8916aefbd099b5d3d299e1d1ec8118c4c5fd0878" }
+du-bio     = { git = "https://github.com/JamesKane/decodingus-shared.git", rev = "8916aefbd099b5d3d299e1d1ec8118c4c5fd0878" }
 # Internal (decodingus-only) crates
 du-db = { path = "crates/du-db" }
 du-external = { path = "crates/du-external" }

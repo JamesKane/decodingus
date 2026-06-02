@@ -21,8 +21,11 @@ Navigator/edge, or not in production) or concentrated in federation.
   - `du-db`, `du-external`, `du-web`, `du-jobs`, `du-migrate`
 - **`/Users/jkane/Development/decodingus-shared/crates`** — shared crates, separate git repo.
   - `du-domain` (pure types + algorithms, incl. `merge`), `du-atproto`, `du-bio`
-  - Referenced via path deps (`../../decodingus-shared/crates/*`). **Not pushed
-    to a remote yet** → flip to git deps once pushed (also unblocks Docker build).
+  - Pushed to `github.com/JamesKane/decodingus-shared`; consumed via **git deps
+    pinned to a rev** in `rust/Cargo.toml` (Docker build unblocked — no sibling
+    path dep needed). To update: push the shared repo, then bump `rev` (or switch
+    to a pushed tag, e.g. `v0.1.0` — created locally, not yet pushed). For local
+    co-dev against working-tree changes, add a `[patch]` back to the sibling paths.
 - Legacy Scala app: `/Users/jkane/Development/decodingus` (parent dir). Navigator:
   `/Users/jkane/Development/scala/DUNavigator`.
 
