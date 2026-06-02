@@ -210,9 +210,12 @@ for DB-less builds.
       (recurrent-SNP guard), FULL_MATCH / node-contraction-with-downflow /
       descendant-insert / new-subtree, ambiguity-flagged-not-guessed. Emits a
       reviewable `MergePlan` (placeholder-chained ops + ambiguities)
-- [ ] Tree merge wiring: materialize a `MergePlan` into a change-set + WIP
-      staging rows, the WIP apply path (placeholder→id resolution + conflict
-      resolutions), and the merge/preview endpoints
+- [x] Tree merge wiring: `du-db::merge::materialize` turns a `MergePlan` into a
+      READY_FOR_REVIEW change-set (placeholder-chained `tree_change` rows); the
+      apply engine resolves placeholders → real ids within its transaction; merge
+      + preview endpoints at `/api/v1/manage/haplogroups/merge[/preview]`.
+      End-to-end tested (existing_tree → merge → materialize → review → apply)
+      for new-subtree chains and node contraction with variant downflow
 - [x] Public JSON API (`/api/v1/*`): tree (y/mt), coverage benchmarks,
       references + per-publication biosamples, biosample studies, variant
       search/detail/by-haplogroup, variant CSV export, genome-region builds —

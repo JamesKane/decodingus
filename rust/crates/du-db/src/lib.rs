@@ -15,6 +15,7 @@ pub mod change_set;
 pub mod coverage;
 pub mod genome_region;
 pub mod haplogroup;
+pub mod merge;
 pub mod pagination;
 pub mod proposal;
 pub mod publication;

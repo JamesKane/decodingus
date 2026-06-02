@@ -215,6 +215,84 @@ pub async fn roots(pool: &PgPool, dna_type: DnaType) -> Result<Vec<Haplogroup>, 
     collect(rows)
 }
 
+/// Load the current production tree for a lineage as a nested
+/// `du_domain::merge::ExistingNode` forest (current nodes/edges/variant links
+/// only). Backs the merge algorithm's "existing tree" input.
+pub async fn existing_tree(
+    pool: &PgPool,
+    dna_type: DnaType,
+) -> Result<Vec<du_domain::merge::ExistingNode>, DbError> {
+    let dna = pg_enum_label(&dna_type)?;
+    let nodes: Vec<(i64, String)> = sqlx::query_as(
+        "SELECT id, name FROM tree.haplogroup WHERE haplogroup_type::text = $1 AND valid_until IS NULL",
+    )
+    .bind(&dna)
+    .fetch_all(pool)
+    .await?;
+    let edges: Vec<(i64, Option<i64>)> = sqlx::query_as(
+        "SELECT r.child_haplogroup_id, r.parent_haplogroup_id FROM tree.haplogroup_relationship r \
+         JOIN tree.haplogroup h ON h.id = r.child_haplogroup_id \
+         WHERE r.valid_until IS NULL AND h.haplogroup_type::text = $1 AND h.valid_until IS NULL",
+    )
+    .bind(&dna)
+    .fetch_all(pool)
+    .await?;
+    let vars: Vec<(i64, String)> = sqlx::query_as(
+        "SELECT hv.haplogroup_id, v.canonical_name FROM tree.haplogroup_variant hv \
+         JOIN core.variant v ON v.id = hv.variant_id \
+         JOIN tree.haplogroup h ON h.id = hv.haplogroup_id \
+         WHERE hv.valid_until IS NULL AND h.haplogroup_type::text = $1 AND h.valid_until IS NULL",
+    )
+    .bind(&dna)
+    .fetch_all(pool)
+    .await?;
+
+    use std::collections::BTreeMap;
+    let name_of: BTreeMap<i64, String> = nodes.iter().cloned().collect();
+    let mut vars_of: BTreeMap<i64, Vec<String>> = BTreeMap::new();
+    for (hid, name) in vars {
+        vars_of.entry(hid).or_default().push(name);
+    }
+    let parent_of: BTreeMap<i64, Option<i64>> = edges.into_iter().collect();
+    let mut children_of: BTreeMap<i64, Vec<i64>> = BTreeMap::new();
+    for (&id, parent) in &parent_of {
+        if let Some(p) = parent {
+            children_of.entry(*p).or_default().push(id);
+        }
+    }
+    // Roots: nodes with no current parent edge.
+    let mut roots: Vec<i64> = name_of
+        .keys()
+        .copied()
+        .filter(|id| parent_of.get(id).copied().flatten().is_none())
+        .collect();
+    roots.sort_unstable();
+
+    fn build(
+        id: i64,
+        depth: u16,
+        name_of: &std::collections::BTreeMap<i64, String>,
+        vars_of: &std::collections::BTreeMap<i64, Vec<String>>,
+        children_of: &std::collections::BTreeMap<i64, Vec<i64>>,
+    ) -> du_domain::merge::ExistingNode {
+        let children = if depth > 1000 {
+            Vec::new()
+        } else {
+            let mut kids = children_of.get(&id).cloned().unwrap_or_default();
+            kids.sort_unstable();
+            kids.into_iter().map(|c| build(c, depth + 1, name_of, vars_of, children_of)).collect()
+        };
+        du_domain::merge::ExistingNode {
+            id,
+            name: name_of.get(&id).cloned().unwrap_or_default(),
+            variants: vars_of.get(&id).cloned().unwrap_or_default(),
+            children,
+        }
+    }
+
+    Ok(roots.into_iter().map(|r| build(r, 0, &name_of, &vars_of, &children_of)).collect())
+}
+
 /// A node in a subtree fetch: the haplogroup plus its current parent (`None` at
 /// the subtree root). The JSON tree API assembles the nesting in-process.
 #[derive(Debug, Clone)]

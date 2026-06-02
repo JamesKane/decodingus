@@ -13,11 +13,15 @@ use crate::state::AppState;
 use axum::extract::{Path, Query, State};
 use axum::routing::{get, post};
 use axum::{Json, Router};
+use du_domain::enums::DnaType;
+use du_domain::merge::SourceNode;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
 pub fn router() -> Router<AppState> {
     Router::new()
+        .route("/api/v1/manage/haplogroups/merge", post(merge_run))
+        .route("/api/v1/manage/haplogroups/merge/preview", post(merge_preview))
         .route("/api/v1/manage/change-sets", get(list).post(create))
         .route("/api/v1/manage/change-sets/:id", get(detail))
         .route("/api/v1/manage/change-sets/:id/changes", post(add_change))
@@ -183,4 +187,53 @@ async fn review_change(
 async fn diff(_cur: Curator, State(st): State<AppState>, Path(id): Path<i64>) -> Result<Json<Value>, AppError> {
     let d = du_db::change_set::diff(&st.pool, id).await?;
     Ok(Json(json!(d)))
+}
+
+// ── merge (Identify-Match-Graft) ─────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct MergeBody {
+    source_name: String,
+    haplogroup_type: String,
+    #[serde(default)]
+    roots: Vec<SourceNode>,
+}
+
+fn parse_dna(s: &str) -> Result<DnaType, AppError> {
+    match s {
+        "Y_DNA" => Ok(DnaType::YDna),
+        "MT_DNA" => Ok(DnaType::MtDna),
+        other => Err(AppError::BadRequest(format!("haplogroup_type must be Y_DNA or MT_DNA, got {other:?}"))),
+    }
+}
+
+/// Dry-run: run the merge against the current production tree and return the
+/// plan + ambiguities without persisting anything.
+async fn merge_preview(
+    _cur: Curator,
+    State(st): State<AppState>,
+    Json(b): Json<MergeBody>,
+) -> Result<Json<Value>, AppError> {
+    let dna = parse_dna(&b.haplogroup_type)?;
+    let existing = du_db::haplogroup::existing_tree(&st.pool, dna).await?;
+    let plan = du_domain::merge::merge(&existing, &b.roots, &b.source_name);
+    Ok(Json(json!(plan)))
+}
+
+/// Run the merge and materialize the plan into a READY_FOR_REVIEW change set.
+async fn merge_run(
+    cur: Curator,
+    State(st): State<AppState>,
+    Json(b): Json<MergeBody>,
+) -> Result<Json<Value>, AppError> {
+    let dna = parse_dna(&b.haplogroup_type)?;
+    let existing = du_db::haplogroup::existing_tree(&st.pool, dna).await?;
+    let plan = du_domain::merge::merge(&existing, &b.roots, &b.source_name);
+    let m = du_db::merge::materialize(&st.pool, &plan, &b.source_name, &b.haplogroup_type, &cur.0.display_name).await?;
+    Ok(Json(json!({
+        "change_set_id": m.change_set_id,
+        "change_count": m.change_count,
+        "stats": plan.stats,
+        "ambiguities": plan.ambiguities,
+    })))
 }

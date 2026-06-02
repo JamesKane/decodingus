@@ -351,8 +351,13 @@ pub async fn apply(pool: &PgPool, id: i64, by: &str) -> Result<ApplyResult, DbEr
     .await?;
 
     let mut result = ApplyResult::default();
+    // Maps a CREATE's negative placeholder id to the real id it gets, so later
+    // changes in the set (children, reparents) can reference nodes created
+    // earlier in this same apply. Changes are ordered by id = insertion order =
+    // parent-before-child (the merge emits them that way).
+    let mut placeholders: std::collections::HashMap<i64, i64> = std::collections::HashMap::new();
     for c in &changes {
-        apply_change(&mut tx, c, cs_dna.as_deref(), &mut result).await?;
+        apply_change(&mut tx, c, cs_dna.as_deref(), &mut placeholders, &mut result).await?;
         sqlx::query("UPDATE tree.tree_change SET status = 'APPLIED' WHERE id = $1")
             .bind(c.id)
             .execute(&mut *tx)
@@ -381,6 +386,7 @@ async fn apply_change(
     tx: &mut Transaction<'_, Postgres>,
     c: &TreeChangeRow,
     cs_dna: Option<&str>,
+    placeholders: &mut std::collections::HashMap<i64, i64>,
     result: &mut ApplyResult,
 ) -> Result<(), DbError> {
     let nv = c.new_values.clone().unwrap_or(Value::Null);
@@ -403,11 +409,17 @@ async fn apply_change(
             .bind(jint(&nv, "tmrca_ybp").map(|v| v as i32))
             .fetch_one(&mut **tx)
             .await?;
-            if let Some(parent) = jint(&nv, "parent_haplogroup_id") {
-                open_edge(tx, new_id, Some(parent), jstr(&nv, "source").as_deref()).await?;
+            // Parent may be an existing id or a placeholder created earlier in
+            // this set; None makes a root (no parent edge).
+            let parent = resolve_ref(&nv, placeholders, "parent_haplogroup_id", "parent_placeholder")?;
+            if parent.is_some() {
+                open_edge(tx, new_id, parent, jstr(&nv, "source").as_deref()).await?;
             }
             for vid in jids(&nv, "variant_ids") {
                 link_variant(tx, new_id, vid).await?;
+            }
+            if let Some(ph) = jint(&nv, "placeholder") {
+                placeholders.insert(ph, new_id);
             }
             result.created += 1;
         }
@@ -450,8 +462,10 @@ async fn apply_change(
         }
         "REPARENT" => {
             let hid = c.haplogroup_id.ok_or_else(|| DbError::Conflict("REPARENT change missing haplogroup_id".into()))?;
-            let new_parent = jint(&nv, "new_parent_haplogroup_id")
-                .or_else(|| jint(&nv, "parent_haplogroup_id"));
+            let new_parent = match resolve_ref(&nv, placeholders, "new_parent_haplogroup_id", "new_parent_placeholder")? {
+                Some(p) => Some(p),
+                None => jint(&nv, "parent_haplogroup_id"),
+            };
             // Close the current parent edge, then open the new one.
             sqlx::query(
                 "UPDATE tree.haplogroup_relationship SET valid_until = now() \
@@ -533,6 +547,25 @@ async fn link_variant(tx: &mut Transaction<'_, Postgres>, hid: i64, vid: i64) ->
 }
 
 // ── small JSON helpers ────────────────────────────────────────────────────────
+
+/// Resolve a node reference that may be an existing id (`id_key`) or a
+/// placeholder (`ph_key`) created earlier in this apply. A placeholder with no
+/// mapping (its CREATE was rejected/not applied) is an unsatisfied dependency.
+fn resolve_ref(
+    nv: &Value,
+    placeholders: &std::collections::HashMap<i64, i64>,
+    id_key: &str,
+    ph_key: &str,
+) -> Result<Option<i64>, DbError> {
+    if let Some(ph) = jint(nv, ph_key) {
+        return placeholders
+            .get(&ph)
+            .copied()
+            .map(Some)
+            .ok_or_else(|| DbError::Conflict(format!("unresolved placeholder {ph} (its CREATE was not applied)")));
+    }
+    Ok(jint(nv, id_key))
+}
 
 fn jstr(v: &Value, k: &str) -> Option<String> {
     v.get(k).and_then(Value::as_str).map(str::to_string)
