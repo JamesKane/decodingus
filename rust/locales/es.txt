@@ -221,3 +221,20 @@ page.updated=Última actualización junio de 2026.
 consent.message=Usamos cookies esenciales para iniciar sesión y cookies no esenciales solo con tu consentimiento. Consulta nuestra
 consent.accept=Aceptar
 consent.decline=Rechazar
+
+# Perfil + contacto
+profile.title=Tu perfil
+profile.name=Nombre visible
+profile.roles=Roles
+profile.handle=Identificador
+profile.email=Correo electrónico
+profile.member_since=Miembro desde
+contact.title=Contacto
+contact.name=Nombre
+contact.email=Correo electrónico
+contact.subject=Asunto
+contact.message=Mensaje
+contact.send=Enviar
+contact.sent=Gracias — tu mensaje ha sido enviado.
+contact.error.empty=Por favor, escribe un mensaje.
+contact.error.captcha=La verificación del captcha falló. Inténtalo de nuevo.

@@ -67,6 +67,41 @@ pub async fn upsert_user_by_did(
     Ok(UserId(id))
 }
 
+/// A user's profile for their own account view.
+pub struct Profile {
+    pub display_name: Option<String>,
+    pub email: Option<String>,
+    pub did: Option<String>,
+    pub handle: Option<String>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// Fetch a user's profile fields (None if the user no longer exists).
+pub async fn profile(pool: &PgPool, user_id: UserId) -> Result<Option<Profile>, DbError> {
+    #[derive(sqlx::FromRow)]
+    struct Row {
+        display_name: Option<String>,
+        email: Option<String>,
+        did: Option<String>,
+        handle: Option<String>,
+        created_at: chrono::DateTime<chrono::Utc>,
+    }
+    let row: Option<Row> = sqlx::query_as(
+        "SELECT display_name, email::text AS email, did, handle, created_at \
+         FROM ident.users WHERE id = $1",
+    )
+    .bind(user_id.0)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row.map(|r| Profile {
+        display_name: r.display_name,
+        email: r.email,
+        did: r.did,
+        handle: r.handle,
+        created_at: r.created_at,
+    }))
+}
+
 /// The display name + role names for a user (for the session).
 pub async fn session_info(pool: &PgPool, user_id: UserId) -> Result<(Option<String>, Vec<String>), DbError> {
     let display_name: Option<String> =

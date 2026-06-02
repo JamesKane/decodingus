@@ -139,9 +139,14 @@ Roughly in priority order:
    `sitemap.xml` + `robots.txt`, footer nav, and the GDPR **cookie-consent banner**
    (JS-shown when no consent cookie; `POST /cookie-consent` → `ident.cookie_consents`
    via `du_db::consent`). Terms/privacy prose is placeholder pending legal review.
-   STILL TODO: **profile** page, **contact/support** form (gated on reCAPTCHA, #6),
-   **my-messages** (rides the `social.*` schema — out of scope, not in production).
-6. **reCAPTCHA** (contact form), **NCBI** client.
+   Also DONE: **profile** page (`/profile`, authed read-only — name/roles/DID/handle/
+   email/member-since) and the **contact/support** form (`/contact` → `support.
+   contact_message` via `du_db::support`, reCAPTCHA-verified when configured).
+   STILL TODO: **my-messages** (rides the `social.*` schema — out of scope, not in
+   production).
+6. **reCAPTCHA** — wired into the contact form: server-side siteverify when
+   `RECAPTCHA_SECRET`/`RECAPTCHA_SITE_KEY` are set, skipped in dev when unset
+   (just needs prod keys). **NCBI** client still TODO.
 7. **OpenAPI for the management API** — only the public read API is documented;
    the `/api/v1/manage/*` curator endpoints aren't in the spec.
 8. **WIP shadow-table staging UI** — `tree.wip_*` tables exist but are unused;

@@ -25,7 +25,7 @@
       <div class="d-flex align-items-center gap-2">
         {% if let Some(u) = user %}
         {% if u.is_curator %}<a class="nav-link" href="/curator">{{ t.get("nav.curator") }}</a>{% endif %}
-        <span class="navbar-text text-light small">{{ u.display_name }}</span>
+        <a class="nav-link" href="/profile">{{ u.display_name }}</a>
         <form method="post" action="/logout" hx-boost="false" class="m-0">
           <button class="btn btn-sm btn-outline-light" type="submit">{{ t.get("nav.logout") }}</button>
         </form>
@@ -55,7 +55,8 @@
     <a href="/faq">{{ t.get("page.faq.title") }}</a> ·
     <a href="/terms">{{ t.get("page.terms.title") }}</a> ·
     <a href="/privacy">{{ t.get("page.privacy.title") }}</a> ·
-    <a href="/help/app-password">{{ t.get("page.apppw.title") }}</a>
+    <a href="/help/app-password">{{ t.get("page.apppw.title") }}</a> ·
+    <a href="/contact">{{ t.get("contact.title") }}</a>
   </footer>
 
   {# GDPR cookie-consent banner — shown by JS only when no consent cookie is set. #}

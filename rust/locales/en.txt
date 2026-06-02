@@ -221,3 +221,20 @@ page.updated=Last updated June 2026.
 consent.message=We use essential cookies to sign you in, and non-essential cookies only with your consent. See our
 consent.accept=Accept
 consent.decline=Decline
+
+# Profile + contact
+profile.title=Your Profile
+profile.name=Display name
+profile.roles=Roles
+profile.handle=Handle
+profile.email=Email
+profile.member_since=Member since
+contact.title=Contact
+contact.name=Name
+contact.email=Email
+contact.subject=Subject
+contact.message=Message
+contact.send=Send
+contact.sent=Thanks — your message has been sent.
+contact.error.empty=Please enter a message.
+contact.error.captcha=Captcha verification failed. Please try again.

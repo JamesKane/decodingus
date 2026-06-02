@@ -1,16 +1,19 @@
-//! Secondary public surfaces: static informational pages (about, FAQ, terms,
-//! privacy, app-password help), SEO endpoints (sitemap.xml, robots.txt), and the
-//! GDPR cookie-consent record. All read-only/public; no curator gating.
+//! Secondary surfaces: static informational pages (about, FAQ, terms, privacy,
+//! app-password help), SEO endpoints (sitemap.xml, robots.txt), the GDPR
+//! cookie-consent record, the signed-in user's profile, and the public contact
+//! form (reCAPTCHA-protected when configured).
 
 use crate::auth::{MaybeUser, NavUser};
+use crate::error::AppError;
 use crate::i18n::{Locale, T};
 use crate::render::html;
 use crate::state::AppState;
 use axum::extract::State;
 use axum::http::{header, HeaderMap, StatusCode};
-use axum::response::{IntoResponse, Response};
+use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
 use axum::{Form, Router};
+use du_domain::ids::UserId;
 use serde::Deserialize;
 
 /// Bump when the cookie-consent text materially changes (re-prompts users).
@@ -29,6 +32,8 @@ pub fn router() -> Router<AppState> {
         .route("/sitemap.xml", get(sitemap))
         .route("/robots.txt", get(robots))
         .route("/cookie-consent", post(cookie_consent))
+        .route("/profile", get(profile_page))
+        .route("/contact", get(contact_form).post(contact_submit))
 }
 
 // ── static content pages ──────────────────────────────────────────────────────
@@ -107,4 +112,148 @@ async fn cookie_consent(
         CONSENT_MAX_AGE
     );
     Ok((StatusCode::NO_CONTENT, [(header::SET_COOKIE, cookie)]).into_response())
+}
+
+// ── profile (signed-in user's own account) ─────────────────────────────────────
+
+#[derive(askama::Template)]
+#[template(path = "account/profile.html")]
+struct ProfileTemplate {
+    t: T,
+    next: String,
+    user: Option<NavUser>,
+    display_name: String,
+    roles: String,
+    email: Option<String>,
+    did: Option<String>,
+    handle: Option<String>,
+    member_since: String,
+}
+
+async fn profile_page(State(st): State<AppState>, user: MaybeUser, locale: Locale) -> Result<Response, AppError> {
+    let Some(session) = user.0.clone() else {
+        return Ok(Redirect::to("/login").into_response());
+    };
+    let p = du_db::auth::profile(&st.pool, UserId(session.user_id))
+        .await?
+        .ok_or_else(|| AppError::NotFound("user".into()))?;
+    let roles = if session.roles.is_empty() { "—".to_string() } else { session.roles.join(", ") };
+    Ok(html(&ProfileTemplate {
+        t: locale.t,
+        next: locale.next,
+        user: user.nav(),
+        display_name: p.display_name.unwrap_or_else(|| session.display_name.clone()),
+        roles,
+        email: p.email,
+        did: p.did,
+        handle: p.handle,
+        member_since: p.created_at.format("%Y-%m-%d").to_string(),
+    }))
+}
+
+// ── contact / support form ─────────────────────────────────────────────────────
+
+#[derive(askama::Template)]
+#[template(path = "static/contact.html")]
+struct ContactTemplate {
+    t: T,
+    next: String,
+    user: Option<NavUser>,
+    /// reCAPTCHA site key — renders the widget when present.
+    site_key: Option<String>,
+    sent: bool,
+    error: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct ContactForm {
+    name: Option<String>,
+    email: Option<String>,
+    subject: Option<String>,
+    message: String,
+    #[serde(rename = "g-recaptcha-response")]
+    recaptcha: Option<String>,
+}
+
+/// reCAPTCHA secret for server-side verification; when unset, verification is
+/// skipped (dev) and the widget is not rendered.
+fn recaptcha_secret() -> Option<String> {
+    std::env::var("RECAPTCHA_SECRET").ok().filter(|s| !s.is_empty())
+}
+fn recaptcha_site_key() -> Option<String> {
+    std::env::var("RECAPTCHA_SITE_KEY").ok().filter(|s| !s.is_empty())
+}
+
+/// Verify a reCAPTCHA token against Google's siteverify endpoint.
+async fn verify_recaptcha(secret: &str, token: &str) -> bool {
+    let resp = reqwest::Client::new()
+        .post("https://www.google.com/recaptcha/api/siteverify")
+        .form(&[("secret", secret), ("response", token)])
+        .send()
+        .await;
+    match resp {
+        Ok(r) => r
+            .json::<serde_json::Value>()
+            .await
+            .ok()
+            .and_then(|v| v["success"].as_bool())
+            .unwrap_or(false),
+        Err(_) => false,
+    }
+}
+
+async fn contact_form(user: MaybeUser, locale: Locale) -> Response {
+    html(&ContactTemplate {
+        t: locale.t,
+        next: locale.next,
+        user: user.nav(),
+        site_key: recaptcha_site_key(),
+        sent: false,
+        error: None,
+    })
+}
+
+async fn contact_submit(
+    State(st): State<AppState>,
+    user: MaybeUser,
+    locale: Locale,
+    Form(f): Form<ContactForm>,
+) -> Result<Response, AppError> {
+    let render = |sent: bool, error: Option<String>| {
+        html(&ContactTemplate {
+            t: locale.t,
+            next: locale.next,
+            user: user.nav(),
+            site_key: recaptcha_site_key(),
+            sent,
+            error,
+        })
+    };
+
+    if f.message.trim().is_empty() {
+        return Ok(render(false, Some(locale.t.get("contact.error.empty").to_string())));
+    }
+    // reCAPTCHA: enforced only when a secret is configured (so dev works).
+    if let Some(secret) = recaptcha_secret() {
+        let token = f.recaptcha.as_deref().unwrap_or("");
+        if token.is_empty() || !verify_recaptcha(&secret, token).await {
+            return Ok(render(false, Some(locale.t.get("contact.error.captcha").to_string())));
+        }
+    }
+
+    let trim = |o: &Option<String>| o.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(str::to_string);
+    let (name, email, subject) = (trim(&f.name), trim(&f.email), trim(&f.subject));
+    du_db::support::create_message(
+        &st.pool,
+        &du_db::support::NewContactMessage {
+            user_id: user.0.as_ref().map(|s| s.user_id),
+            sender_name: name.as_deref(),
+            sender_email: email.as_deref(),
+            subject: subject.as_deref(),
+            message: f.message.trim(),
+            ip_address_hash: None,
+        },
+    )
+    .await?;
+    Ok(render(true, None))
 }

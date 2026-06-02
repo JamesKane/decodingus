@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}{{ t.get("profile.title") }} — {{ t.get("app.name") }}{% endblock %}
+{% block content %}
+<div class="row"><div class="col-lg-7">
+<h1 class="h3 mb-3">{{ t.get("profile.title") }}</h1>
+<dl class="row">
+  <dt class="col-4">{{ t.get("profile.name") }}</dt><dd class="col-8">{{ display_name }}</dd>
+  <dt class="col-4">{{ t.get("profile.roles") }}</dt><dd class="col-8">{{ roles }}</dd>
+  {% if let Some(h) = handle %}<dt class="col-4">{{ t.get("profile.handle") }}</dt><dd class="col-8">{{ h }}</dd>{% endif %}
+  {% if let Some(d) = did %}<dt class="col-4">DID</dt><dd class="col-8"><code class="small">{{ d }}</code></dd>{% endif %}
+  {% if let Some(e) = email %}<dt class="col-4">{{ t.get("profile.email") }}</dt><dd class="col-8">{{ e }}</dd>{% endif %}
+  <dt class="col-4">{{ t.get("profile.member_since") }}</dt><dd class="col-8">{{ member_since }}</dd>
+</dl>
+</div></div>
+{% endblock %}
