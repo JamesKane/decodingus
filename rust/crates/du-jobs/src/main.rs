@@ -106,19 +106,26 @@ async fn main() -> anyhow::Result<()> {
         tracing::info!("ena-study-enrichment registered");
     }
 
-    // Y-STR per-branch modal signatures — recompute from mirrored STR profiles
-    // (joined to Y-haplogroup assignments). Depends only on the DB; always on.
+    // Branch ages — recompute Y-STR modal signatures + STR-variance ages from the
+    // mirrored profiles, then the combined age (STR + SNP-Poisson + genealogical,
+    // gap-filling tmrca_ybp). One job to guarantee STR terms exist before the
+    // combine. Depends only on the DB; always on.
     {
         let pool = pool.clone();
-        sched.register(Job::new("str-signature-recompute", Duration::from_secs(86_400), move || {
+        sched.register(Job::new("branch-age-recompute", Duration::from_secs(86_400), move || {
             let pool = pool.clone();
             async move {
                 let s = du_db::ystr::recompute_signatures(&pool).await?;
-                tracing::info!(haplogroups = s.haplogroups, markers = s.markers, "str-signature-recompute done");
+                let c = du_db::age::recompute_combined_ages(&pool).await?;
+                tracing::info!(
+                    haplogroups = s.haplogroups, markers = s.markers, str_ages = s.age_estimates,
+                    snp = c.snp, genealogical = c.genealogical, combined = c.combined,
+                    "branch-age-recompute done"
+                );
                 Ok(())
             }
         }));
-        tracing::info!("str-signature-recompute registered");
+        tracing::info!("branch-age-recompute registered");
     }
 
     // TODO(jobs): variant-export to a file artifact (the /api/v1/variants/export

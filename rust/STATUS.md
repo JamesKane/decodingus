@@ -116,11 +116,19 @@ APP_SECRET="<any 32+ char string>"   # signs session cookies
   (TMRCA = Σ|obs−modal|/Σµ × 33yr, per-marker rate from `genomics.str_mutation_rate`
   or a documented default, rate-uncertainty CI) folded into the recompute →
   `tree.haplogroup_age_estimate` (method `STR_VARIANCE`, mig 0014); read at
-  `GET /api/v1/haplogroups/:name/age`. Deliberately a **labeled contributing
-  estimate**, NOT the authoritative `tmrca_ybp` — a future combiner merges
-  SNP/STR/genealogical factors (see `decodingus/documents/proposals/branch-age-
-  estimation.md`). `str_mutation_rate` ships empty (uses the default until a
-  Ballantyne/Willems import lands). Unit + live-DB tested.
+  `GET /api/v1/haplogroups/:name/age` (each method-labeled). `str_mutation_rate`
+  ships empty (default rate until a Ballantyne/Willems import lands).
+- **Combined branch age (McDonald 2021) DONE** (`du-db/age.rs`, mig 0014). Each
+  evidence term is a labeled row in `tree.haplogroup_age_estimate`; `age::combine`
+  multiplies them as Gaussians (inverse-variance) — the practical `P(t|e)=∏P(t|eᵢ)`.
+  Adds the **SNP-Poisson** term (`t=Σm/(µ·Σb)`, m = ACTIVE private Y-SNPs by
+  terminal branch, b = Y callable bp, µ=8.33e-10) and a **genealogical/aDNA anchor**
+  term (`tree.genealogical_anchor`), then writes a `COMBINED` estimate and
+  **gap-fills `tree.haplogroup.tmrca_ybp`** (a curated value is never overwritten).
+  Runs in the `branch-age-recompute` job after the STR pass. SNP/anchor terms are
+  data-gated (emit where private-variant/callable-loci/anchor data exists — sparse
+  until ETL cutover/curation). Unit (combine) + live-DB tested. Remaining: a
+  per-sample/`formed_ybp` refinement + aDNA-calibration weighting.
 - **`du-jobs`** — tokio scheduler; jobs: `db-heartbeat`, `ybrowse-variant-ingest`,
   `publication-update`, `publication-discovery`, `ena-study-enrichment`,
   `publication-pubmed-update`, `str-signature-recompute`; plus the Jetstream
