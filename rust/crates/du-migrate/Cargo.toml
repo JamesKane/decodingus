@@ -9,6 +9,12 @@ license.workspace = true
 name = "decodingus-migrate"
 path = "src/main.rs"
 
+# Tree initialization: seed the Y tree from ISOGG, optionally merge the
+# decoding-us production tree into it (uses the tree-merge engine + change sets).
+[[bin]]
+name = "decodingus-tree-init"
+path = "src/bin/tree_init.rs"
+
 # One-time ETL: legacy Postgres -> redesigned schema (plan §8). Idempotent,
 # resumable, with a `--verify` reconciliation pass.
 [dependencies]
@@ -23,3 +29,4 @@ tracing-subscriber = { workspace = true }
 anyhow = { workspace = true }
 clap = { workspace = true }
 uuid = { workspace = true }
+reqwest = { workspace = true }

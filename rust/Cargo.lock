@@ -1441,6 +1441,7 @@ dependencies = [
  "clap",
  "du-db",
  "du-domain",
+ "reqwest",
  "serde",
  "serde_json",
  "sqlx",
