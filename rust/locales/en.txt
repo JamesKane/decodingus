@@ -338,3 +338,17 @@ submit.error.notfound=We couldn't find that DOI in OpenAlex. Check it and try ag
 submit.error.lookup=Lookup failed — please try again later.
 profile.save=Save
 profile.saved=Profile updated.
+
+# Curator haplogroup restructure ops
+hg.parent=Parent
+hg.restructure=Restructure (reparent / merge / split)
+hg.reparent=Reparent
+hg.reparent.placeholder=New parent name
+hg.merge=Merge into parent
+hg.merge.confirm=Merge this node into its parent? Its children move up and its variants fold in; the node is removed.
+hg.split=Split off
+hg.split.name=New child name
+hg.split.move=Variants to move (comma-separated)
+hg.split.variants=Defining variants
+hg.op.unknown=Unknown node
+hg.op.no_variants=None of those variant names are on this node.

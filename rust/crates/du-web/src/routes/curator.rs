@@ -30,6 +30,9 @@ pub fn router() -> Router<AppState> {
         .route("/curator/haplogroups/:id/edit", get(hg_edit))
         .route("/curator/haplogroups/:id", post(hg_update))
         .route("/curator/haplogroups/:id", axum::routing::delete(hg_delete))
+        .route("/curator/haplogroups/:id/reparent", post(hg_reparent))
+        .route("/curator/haplogroups/:id/merge", post(hg_merge))
+        .route("/curator/haplogroups/:id/split", post(hg_split))
 }
 
 // ── dashboard ────────────────────────────────────────────────────────────────
@@ -160,6 +163,10 @@ struct HgDetailView {
     source: String,
     formed_ybp: String,
     tmrca_ybp: String,
+    /// Current parent name (None at a root) — context for reparent/merge.
+    parent_name: Option<String>,
+    /// Current defining-variant names — reference for the split picker.
+    variants: Vec<String>,
 }
 
 #[derive(askama::Template)]
@@ -175,6 +182,12 @@ async fn detail_view(st: &AppState, id: HaplogroupId) -> Result<HgDetailView, Ap
     let h = du_db::haplogroup::get_by_id(&st.pool, id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("haplogroup {}", id.0)))?;
+    let parent_name = du_db::haplogroup::current_parent(&st.pool, id).await?.map(|(_, n)| n);
+    let variants = du_db::haplogroup::current_variant_links(&st.pool, id)
+        .await?
+        .into_iter()
+        .map(|(_, n)| n)
+        .collect();
     Ok(HgDetailView {
         id: h.id.0,
         name: h.name,
@@ -183,6 +196,8 @@ async fn detail_view(st: &AppState, id: HaplogroupId) -> Result<HgDetailView, Ap
         source: h.source.unwrap_or_default(),
         formed_ybp: h.formed_ybp.map(|v| v.to_string()).unwrap_or_default(),
         tmrca_ybp: h.tmrca_ybp.map(|v| v.to_string()).unwrap_or_default(),
+        parent_name,
+        variants,
     })
 }
 
@@ -349,4 +364,97 @@ async fn hg_delete(
         t: T,
     }
     Ok(changed(html(&Empty { t: locale.t })))
+}
+
+// ── structural ops (reparent / merge into parent / split) ──────────────────────
+
+/// Re-render the detail with a conflict message as an inline error (no reload).
+async fn op_error(st: &AppState, t: T, id: HaplogroupId, msg: String) -> Result<Response, AppError> {
+    render_detail(st, t, id, Some(msg)).await
+}
+
+#[derive(Deserialize)]
+struct ReparentForm {
+    parent: String,
+}
+
+async fn hg_reparent(
+    _c: Curator,
+    State(st): State<AppState>,
+    locale: Locale,
+    Path(id): Path<i64>,
+    Form(f): Form<ReparentForm>,
+) -> Result<Response, AppError> {
+    let hid = HaplogroupId(id);
+    let h = du_db::haplogroup::get_by_id(&st.pool, hid)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("haplogroup {id}")))?;
+    let parent = f.parent.trim();
+    let Some(p) = du_db::haplogroup::get_by_name(&st.pool, parent, h.haplogroup_type).await? else {
+        return op_error(&st, locale.t, hid, format!("{}: {parent}", locale.t.get("hg.op.unknown"))).await;
+    };
+    match du_db::haplogroup::reparent(&st.pool, hid, p.id).await {
+        Ok(()) => Ok(changed(render_detail(&st, locale.t, hid, None).await?)),
+        Err(du_db::DbError::Conflict(m)) => op_error(&st, locale.t, hid, m).await,
+        Err(e) => Err(e.into()),
+    }
+}
+
+async fn hg_merge(
+    _c: Curator,
+    State(st): State<AppState>,
+    locale: Locale,
+    Path(id): Path<i64>,
+) -> Result<Response, AppError> {
+    let hid = HaplogroupId(id);
+    match du_db::haplogroup::merge_into_parent(&st.pool, hid).await {
+        // Node is gone — show the empty panel and reload the list.
+        Ok(()) => {
+            #[derive(askama::Template)]
+            #[template(path = "curator/haplogroups/empty.html")]
+            struct Empty {
+                t: T,
+            }
+            Ok(changed(html(&Empty { t: locale.t })))
+        }
+        Err(du_db::DbError::Conflict(m)) => op_error(&st, locale.t, hid, m).await,
+        Err(e) => Err(e.into()),
+    }
+}
+
+#[derive(Deserialize)]
+struct SplitForm {
+    name: String,
+    /// Comma-separated variant names to move to the new child.
+    variants: String,
+}
+
+async fn hg_split(
+    _c: Curator,
+    State(st): State<AppState>,
+    locale: Locale,
+    Path(id): Path<i64>,
+    Form(f): Form<SplitForm>,
+) -> Result<Response, AppError> {
+    let hid = HaplogroupId(id);
+    let h = du_db::haplogroup::get_by_id(&st.pool, hid)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("haplogroup {id}")))?;
+    // Resolve the entered names against the node's current variant links.
+    let links = du_db::haplogroup::current_variant_links(&st.pool, hid).await?;
+    let want: Vec<&str> = f.variants.split(',').map(str::trim).filter(|s| !s.is_empty()).collect();
+    let ids: Vec<i64> = links
+        .iter()
+        .filter(|(_, name)| want.iter().any(|w| w.eq_ignore_ascii_case(name)))
+        .map(|(id, _)| *id)
+        .collect();
+    if ids.is_empty() {
+        return op_error(&st, locale.t, hid, locale.t.get("hg.op.no_variants").to_string()).await;
+    }
+    let source = h.source.as_deref().unwrap_or("curator");
+    match du_db::haplogroup::split(&st.pool, hid, f.name.trim(), &ids, h.haplogroup_type, Some(source)).await {
+        Ok(_) => Ok(changed(render_detail(&st, locale.t, hid, None).await?)),
+        Err(du_db::DbError::Conflict(m)) => op_error(&st, locale.t, hid, m).await,
+        Err(e) => Err(e.into()),
+    }
 }

@@ -704,3 +704,209 @@ pub async fn subtree(
         })
         .collect())
 }
+
+// ── curator structural ops (direct temporal edits) ──────────────────────────
+
+/// The current parent of a node (id, name), or `None` at a root.
+pub async fn current_parent(
+    pool: &PgPool,
+    id: HaplogroupId,
+) -> Result<Option<(HaplogroupId, String)>, DbError> {
+    let row: Option<(i64, String)> = sqlx::query_as(
+        "SELECT p.id, p.name FROM tree.haplogroup_relationship r \
+         JOIN tree.haplogroup p ON p.id = r.parent_haplogroup_id \
+         WHERE r.child_haplogroup_id = $1 AND r.parent_haplogroup_id IS NOT NULL \
+           AND r.valid_until IS NULL AND p.valid_until IS NULL LIMIT 1",
+    )
+    .bind(id.0)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row.map(|(id, name)| (HaplogroupId(id), name)))
+}
+
+/// Current defining-variant links of a node: `(variant_id, canonical_name)`,
+/// ordered by name (backs the split variant-picker).
+pub async fn current_variant_links(
+    pool: &PgPool,
+    id: HaplogroupId,
+) -> Result<Vec<(i64, String)>, DbError> {
+    Ok(sqlx::query_as(
+        "SELECT v.id, v.canonical_name FROM tree.haplogroup_variant hv \
+         JOIN core.variant v ON v.id = hv.variant_id \
+         WHERE hv.haplogroup_id = $1 AND hv.valid_until IS NULL ORDER BY v.canonical_name",
+    )
+    .bind(id.0)
+    .fetch_all(pool)
+    .await?)
+}
+
+/// **Reparent** a node (and its subtree) under a new parent: close the current
+/// parent edge and open a new one (temporal). Rejects a no-op, a self-parent, or
+/// a `new_parent` inside the node's own subtree (which would create a cycle).
+pub async fn reparent(
+    pool: &PgPool,
+    child: HaplogroupId,
+    new_parent: HaplogroupId,
+) -> Result<(), DbError> {
+    if child.0 == new_parent.0 {
+        return Err(DbError::Conflict("a node cannot be its own parent".into()));
+    }
+    // Cycle guard: new_parent must not be at/below child in the current tree.
+    let cycles: bool = sqlx::query_scalar(
+        "WITH RECURSIVE down AS ( \
+            SELECT $1::bigint AS id \
+          UNION \
+            SELECT r.child_haplogroup_id FROM tree.haplogroup_relationship r \
+            JOIN down ON down.id = r.parent_haplogroup_id WHERE r.valid_until IS NULL) \
+         SELECT EXISTS(SELECT 1 FROM down WHERE id = $2)",
+    )
+    .bind(child.0)
+    .bind(new_parent.0)
+    .fetch_one(pool)
+    .await?;
+    if cycles {
+        return Err(DbError::Conflict("new parent is within the node's own subtree (would cycle)".into()));
+    }
+
+    let mut tx = pool.begin().await?;
+    sqlx::query(
+        "UPDATE tree.haplogroup_relationship SET valid_until = now() \
+         WHERE child_haplogroup_id = $1 AND valid_until IS NULL",
+    )
+    .bind(child.0)
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query(
+        "INSERT INTO tree.haplogroup_relationship (child_haplogroup_id, parent_haplogroup_id, source) \
+         VALUES ($1, $2, 'curator')",
+    )
+    .bind(child.0)
+    .bind(new_parent.0)
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+/// **Merge a node into its parent**: reparent the node's children onto its
+/// parent, union its defining variants into the parent, then temporal-delete the
+/// node (expire it + close its edges/variant links). Errors if the node is a root.
+pub async fn merge_into_parent(pool: &PgPool, node: HaplogroupId) -> Result<(), DbError> {
+    let parent = current_parent(pool, node)
+        .await?
+        .ok_or_else(|| DbError::Conflict("node has no parent to merge into".into()))?
+        .0;
+    let mut tx = pool.begin().await?;
+
+    // Reparent the node's current children onto the parent.
+    sqlx::query(
+        "UPDATE tree.haplogroup_relationship SET parent_haplogroup_id = $2 \
+         WHERE parent_haplogroup_id = $1 AND valid_until IS NULL",
+    )
+    .bind(node.0)
+    .bind(parent.0)
+    .execute(&mut *tx)
+    .await?;
+
+    // Union the node's variants into the parent (skip dupes).
+    sqlx::query(
+        "INSERT INTO tree.haplogroup_variant (haplogroup_id, variant_id) \
+         SELECT $2, hv.variant_id FROM tree.haplogroup_variant hv \
+         WHERE hv.haplogroup_id = $1 AND hv.valid_until IS NULL \
+           AND NOT EXISTS (SELECT 1 FROM tree.haplogroup_variant e \
+             WHERE e.haplogroup_id = $2 AND e.variant_id = hv.variant_id AND e.valid_until IS NULL)",
+    )
+    .bind(node.0)
+    .bind(parent.0)
+    .execute(&mut *tx)
+    .await?;
+
+    // Temporal-delete the node: expire it, close its remaining edges + variant links.
+    sqlx::query("UPDATE tree.haplogroup SET valid_until = now() WHERE id = $1 AND valid_until IS NULL")
+        .bind(node.0)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query(
+        "UPDATE tree.haplogroup_relationship SET valid_until = now() \
+         WHERE (child_haplogroup_id = $1 OR parent_haplogroup_id = $1) AND valid_until IS NULL",
+    )
+    .bind(node.0)
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query("UPDATE tree.haplogroup_variant SET valid_until = now() WHERE haplogroup_id = $1 AND valid_until IS NULL")
+        .bind(node.0)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+/// **Split** a node: create a new child `new_child_name` under it and move the
+/// given variant links from the node onto the new child (close on the node, open
+/// on the child). Returns the new child id. Rejects a taken name; ignores ids not
+/// currently linked to the node.
+pub async fn split(
+    pool: &PgPool,
+    node: HaplogroupId,
+    new_child_name: &str,
+    variant_ids: &[i64],
+    dna_type: DnaType,
+    source: Option<&str>,
+) -> Result<HaplogroupId, DbError> {
+    let dna = pg_enum_label(&dna_type)?;
+    let name = new_child_name.trim();
+    if name.is_empty() {
+        return Err(DbError::Conflict("new child name is required".into()));
+    }
+    let exists: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM tree.haplogroup \
+           WHERE name = $1 AND haplogroup_type::text = $2 AND valid_until IS NULL)",
+    )
+    .bind(name)
+    .bind(&dna)
+    .fetch_one(pool)
+    .await?;
+    if exists {
+        return Err(DbError::Conflict(format!("a haplogroup named {name} already exists")));
+    }
+
+    let mut tx = pool.begin().await?;
+    let child_id: i64 = sqlx::query_scalar(
+        "INSERT INTO tree.haplogroup (name, haplogroup_type, source) \
+         VALUES ($1, $2::core.dna_type, $3) RETURNING id",
+    )
+    .bind(name)
+    .bind(&dna)
+    .bind(source)
+    .fetch_one(&mut *tx)
+    .await?;
+    sqlx::query(
+        "INSERT INTO tree.haplogroup_relationship (child_haplogroup_id, parent_haplogroup_id, source) \
+         VALUES ($1, $2, 'curator')",
+    )
+    .bind(child_id)
+    .bind(node.0)
+    .execute(&mut *tx)
+    .await?;
+
+    // Move only links currently on the node: close on node, open on the child.
+    sqlx::query(
+        "UPDATE tree.haplogroup_variant SET valid_until = now() \
+         WHERE haplogroup_id = $1 AND variant_id = ANY($2) AND valid_until IS NULL",
+    )
+    .bind(node.0)
+    .bind(variant_ids)
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query(
+        "INSERT INTO tree.haplogroup_variant (haplogroup_id, variant_id) \
+         SELECT $1, v FROM unnest($2::bigint[]) AS v \
+         WHERE EXISTS (SELECT 1 FROM core.variant cv WHERE cv.id = v)",
+    )
+    .bind(child_id)
+    .bind(variant_ids)
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(HaplogroupId(child_id))
+}
