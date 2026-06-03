@@ -218,3 +218,26 @@ pub async fn export_all(pool: &PgPool) -> Result<Vec<Variant>, DbError> {
         .await?;
     rows.into_iter().map(VariantRow::into_domain).collect()
 }
+
+/// Bulk-populate `core.variant.aliases.common_names` for the given canonical
+/// names (one physical SNP per row, the universal-variant model). Canonicals
+/// not present are skipped. Chunked `unnest` upserts; returns rows updated.
+pub async fn set_aliases_bulk(pool: &PgPool, items: &[(String, Vec<String>)]) -> Result<u64, DbError> {
+    let mut updated = 0u64;
+    for chunk in items.chunks(1000) {
+        let names: Vec<&str> = chunk.iter().map(|(n, _)| n.as_str()).collect();
+        let jsons: Vec<String> =
+            chunk.iter().map(|(_, a)| serde_json::json!({ "common_names": a }).to_string()).collect();
+        updated += sqlx::query(
+            "UPDATE core.variant v SET aliases = u.al::jsonb \
+             FROM (SELECT unnest($1::text[]) AS nm, unnest($2::text[]) AS al) u \
+             WHERE v.canonical_name = u.nm",
+        )
+        .bind(&names)
+        .bind(&jsons)
+        .execute(pool)
+        .await?
+        .rows_affected();
+    }
+    Ok(updated)
+}

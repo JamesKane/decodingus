@@ -59,13 +59,16 @@ fn parse_dna(s: &str) -> anyhow::Result<(DnaType, &'static str)> {
     }
 }
 
-/// ISOGG node: `{name, variants:[String], children:[…]}`.
+/// ISOGG node: `{name, variants:[{name, aliases?}], children:[…]}`. The merge
+/// matches on the canonical `name` of each variant (one row per physical SNP);
+/// slash-synonyms travel in `aliases` and are applied to `core.variant.aliases`
+/// post-load by [`apply_variant_aliases`].
 fn parse_isogg(node: &Value) -> Option<SourceNode> {
     let name = node.get("name")?.as_str()?.to_string();
     let variants = node
         .get("variants")
         .and_then(Value::as_array)
-        .map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_string)).collect())
+        .map(|a| a.iter().filter_map(|v| v.get("name").and_then(Value::as_str).map(str::to_string)).collect())
         .unwrap_or_default();
     let children = node
         .get("children")
@@ -176,7 +179,7 @@ fn print_graft_report(r: &du_db::snp_graft::GraftReport) {
     let checks: Vec<String> = spot
         .iter()
         .filter_map(|name| r.items.iter().find(|c| c.node == *name))
-        .map(|c| fmt(c))
+        .map(&fmt)
         .collect();
     tracing::info!(spot_checks = ?checks, "graft spot-check (known nodes)");
 }
@@ -308,6 +311,11 @@ async fn main() -> anyhow::Result<()> {
         if let Some(root) = isogg_root {
             let aliased = apply_aliases(&pool, root, dna).await?;
             tracing::info!(aliased, "stored haplogroup name aliases from ISOGG");
+            // Populate core.variant.aliases (slash-synonyms) per the universal model.
+            let mut va: Vec<(String, Vec<String>)> = Vec::new();
+            collect_variant_aliases(root, &mut va);
+            let n = du_db::variant::set_aliases_bulk(&pool, &va).await?;
+            tracing::info!(variant_aliases = n, groups = va.len(), "populated core.variant.aliases");
         }
     }
 
@@ -327,6 +335,29 @@ async fn apply_aliases(pool: &PgPool, root: &Value, dna: DnaType) -> anyhow::Res
         }
     }
     Ok(n)
+}
+
+/// Walk the ISOGG tree collecting each variant's `(canonical_name, [aliases])`
+/// from the `{name, aliases}` variant objects, for `core.variant.aliases`.
+fn collect_variant_aliases(node: &Value, out: &mut Vec<(String, Vec<String>)>) {
+    if let Some(vs) = node.get("variants").and_then(Value::as_array) {
+        for v in vs {
+            let Some(name) = v.get("name").and_then(Value::as_str) else { continue };
+            let aliases: Vec<String> = v
+                .get("aliases")
+                .and_then(Value::as_array)
+                .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect())
+                .unwrap_or_default();
+            if !aliases.is_empty() {
+                out.push((name.to_string(), aliases));
+            }
+        }
+    }
+    if let Some(children) = node.get("children").and_then(Value::as_array) {
+        for c in children {
+            collect_variant_aliases(c, out);
+        }
+    }
 }
 
 fn collect_aliases(node: &Value, out: &mut Vec<(String, Vec<String>)>) {

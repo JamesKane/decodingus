@@ -110,9 +110,17 @@ fn is_ancestor(a: &str, n: &str, parent_of: &HashMap<String, String>) -> bool {
 pub async fn classify(pool: &PgPool, source: &[SourceNode], dna: DnaType) -> Result<GraftReport, DbError> {
     let dna_label = pg_enum_label(&dna)?;
 
-    // SNP (lowercased) → ISOGG node name(s). A SNP on several nodes is recurrent.
+    // SNP name (canonical OR alias, lowercased) → ISOGG node name(s). Indexing
+    // aliases too lets a source tree that uses a synonym (e.g. L1284 for AF6)
+    // still anchor. A name on several nodes is recurrent.
     let snp_rows: Vec<(String, String)> = sqlx::query_as(
         "SELECT lower(v.canonical_name), h.name FROM core.variant v \
+         JOIN tree.haplogroup_variant hv ON hv.variant_id = v.id AND hv.valid_until IS NULL \
+         JOIN tree.haplogroup h ON h.id = hv.haplogroup_id \
+         WHERE h.haplogroup_type::text = $1 AND h.valid_until IS NULL \
+         UNION ALL \
+         SELECT lower(a.alias), h.name FROM core.variant v \
+         CROSS JOIN LATERAL jsonb_array_elements_text(v.aliases->'common_names') AS a(alias) \
          JOIN tree.haplogroup_variant hv ON hv.variant_id = v.id AND hv.valid_until IS NULL \
          JOIN tree.haplogroup h ON h.id = hv.haplogroup_id \
          WHERE h.haplogroup_type::text = $1 AND h.valid_until IS NULL",
