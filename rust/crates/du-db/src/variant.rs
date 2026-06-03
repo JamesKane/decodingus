@@ -251,63 +251,6 @@ pub async fn delete_by_evidence_source(pool: &PgPool, source: &str) -> Result<u6
     .rows_affected())
 }
 
-/// A variant to bulk-ingest (the GFF3 path): the universal-variant fields plus
-/// the authority `evidence` provenance payload.
-#[derive(Debug, Clone)]
-pub struct IngestVariant {
-    pub canonical_name: String,
-    pub mutation_type: MutationType,
-    pub aliases: Aliases,
-    pub coordinates: Coordinates,
-    pub evidence: serde_json::Value,
-}
-
-/// Bulk upsert variants by canonical name (the YBrowse GFF3 ingestion path).
-/// Chunked `unnest` insert; on conflict updates mutation_type / aliases /
-/// coordinates / evidence (preserves curator-owned `naming_status`). Duplicates
-/// within a chunk are collapsed (last wins) to avoid the ON CONFLICT
-/// affect-row-twice error. Returns rows affected.
-pub async fn upsert_many(pool: &PgPool, items: &[IngestVariant]) -> Result<u64, DbError> {
-    let mut affected = 0u64;
-    for chunk in items.chunks(2000) {
-        // Dedup within the chunk by canonical name (keep last).
-        use std::collections::BTreeMap;
-        let mut by_name: BTreeMap<&str, &IngestVariant> = BTreeMap::new();
-        for v in chunk {
-            by_name.insert(v.canonical_name.as_str(), v);
-        }
-        let mut names: Vec<&str> = Vec::with_capacity(by_name.len());
-        let mut types: Vec<String> = Vec::with_capacity(by_name.len());
-        let mut aliases: Vec<String> = Vec::with_capacity(by_name.len());
-        let mut coords: Vec<String> = Vec::with_capacity(by_name.len());
-        let mut evidence: Vec<String> = Vec::with_capacity(by_name.len());
-        for v in by_name.values() {
-            names.push(&v.canonical_name);
-            types.push(pg_enum_label(&v.mutation_type)?);
-            aliases.push(serde_json::to_string(&v.aliases).map_err(|e| DbError::Decode(e.to_string()))?);
-            coords.push(serde_json::to_string(&v.coordinates).map_err(|e| DbError::Decode(e.to_string()))?);
-            evidence.push(v.evidence.to_string());
-        }
-        affected += sqlx::query(
-            "INSERT INTO core.variant (canonical_name, mutation_type, aliases, coordinates, evidence) \
-             SELECT u.nm, u.mt::core.mutation_type, u.al::jsonb, u.co::jsonb, u.ev::jsonb \
-             FROM unnest($1::text[], $2::text[], $3::text[], $4::text[], $5::text[]) AS u(nm, mt, al, co, ev) \
-             ON CONFLICT (canonical_name) WHERE canonical_name IS NOT NULL \
-             DO UPDATE SET mutation_type = EXCLUDED.mutation_type, aliases = EXCLUDED.aliases, \
-               coordinates = EXCLUDED.coordinates, evidence = EXCLUDED.evidence, updated_at = now()",
-        )
-        .bind(&names)
-        .bind(&types)
-        .bind(&aliases)
-        .bind(&coords)
-        .bind(&evidence)
-        .execute(pool)
-        .await?
-        .rows_affected();
-    }
-    Ok(affected)
-}
-
 /// Every DU-minted variant (canonical_name like `DU%`) carrying a GRCh38
 /// coordinate, for the Naming-Authority propagation export (GFF3/VCF → YBrowse).
 pub async fn export_du_named(pool: &PgPool) -> Result<Vec<Variant>, DbError> {

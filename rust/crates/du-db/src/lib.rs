@@ -28,6 +28,7 @@ pub mod study;
 pub mod support;
 pub mod variant;
 pub mod wip;
+pub mod ybrowse;
 pub mod ystr;
 
 pub use pagination::Page;

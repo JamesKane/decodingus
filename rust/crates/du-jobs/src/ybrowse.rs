@@ -3,21 +3,23 @@
 //! **GRCh38** with the established name, ancestral/derived alleles, and authority
 //! metadata (ISOGG/YCC haplogroup, YFull node, citation, primers, comment).
 //!
-//! We stream the GFF3 line-by-line (it's ~770 MB / 3M+ lines), build a
-//! multi-build [`IngestVariant`] per SNP by lifting GRCh38 → GRCh37/hs1 via chain
-//! files, capture the authority metadata into `evidence`, and bulk-upsert into
-//! `core.variant`. File-path + env driven (the GFF3 + chains are large deploy
-//! assets), so the job only registers when `YBROWSE_GFF` is set.
+//! We stream the GFF3 line-by-line (it's ~770 MB / 3M+ lines), lift each SNP
+//! GRCh38 → GRCh37/hs1 via chain files, and bulk-upsert verbatim rows into the
+//! `source.ybrowse_snp` **mirror** (one row per upstream name), then run
+//! [`du_db::ybrowse::reconcile`] to derive the curated `core.variant` catalog —
+//! so curator decisions survive the full-snapshot re-ingest (see `du_db::ybrowse`).
+//! File-path + env driven (the GFF3 + chains are large deploy assets), so the job
+//! only registers when `YBROWSE_GFF` is set.
 
 use du_bio::liftover::Liftover;
 use du_bio::ybrowse::LiftTarget;
-use du_db::variant::IngestVariant;
+use du_db::ybrowse::MirrorRow;
 use du_db::PgPool;
-use du_domain::enums::{MutationType, ReferenceBuild};
-use du_domain::variant::{Aliases, BuildCoordinate, Coordinates};
+use du_domain::enums::ReferenceBuild;
+use du_domain::variant::{BuildCoordinate, Coordinates};
 use std::io::{BufRead, BufReader};
 
-/// Variants buffered before a bulk upsert (upsert_many chunks internally).
+/// Mirror rows buffered before a bulk upsert (upsert_mirror chunks internally).
 const BATCH: usize = 5000;
 
 #[derive(Clone)]
@@ -133,9 +135,10 @@ fn build_evidence(snp: &GffSnp) -> serde_json::Value {
     serde_json::Value::Object(m)
 }
 
-/// Build a multi-build [`IngestVariant`] from a GFF SNP. Returns the variant and
-/// the number of target-build lifts that failed (gaps/out-of-range).
-fn to_ingest(snp: &GffSnp, targets: &[LiftTarget]) -> (IngestVariant, usize) {
+/// Build a verbatim [`MirrorRow`] from a GFF SNP, lifting GRCh38 → targets for
+/// the stored multi-build `coordinates`. Returns the row and the number of
+/// target-build lifts that failed (gaps/out-of-range).
+fn to_mirror(snp: &GffSnp, targets: &[LiftTarget]) -> (MirrorRow, usize) {
     let mut coords = Coordinates::default();
     coords.set(
         ReferenceBuild::GRCh38,
@@ -161,19 +164,16 @@ fn to_ingest(snp: &GffSnp, targets: &[LiftTarget]) -> (IngestVariant, usize) {
             None => unmapped += 1,
         }
     }
-    // YBrowse rows are SNVs; classify Indel only if an allele is multi-base.
-    let mutation_type = match (&snp.anc, &snp.der) {
-        (Some(a), Some(d)) if a.len() > 1 || d.len() > 1 => MutationType::Indel,
-        _ => MutationType::Snp,
-    };
-    let iv = IngestVariant {
-        canonical_name: snp.name.clone(),
-        mutation_type,
-        aliases: Aliases::default(),
-        coordinates: coords,
+    let row = MirrorRow {
+        name: snp.name.clone(),
+        contig: snp.contig.clone(),
+        position: snp.pos,
+        allele_anc: snp.anc.clone(),
+        allele_der: snp.der.clone(),
+        coordinates: serde_json::to_value(&coords).unwrap_or_default(),
         evidence: build_evidence(snp),
     };
-    (iv, unmapped)
+    (row, unmapped)
 }
 
 pub async fn run(pool: &PgPool, cfg: &Config) -> anyhow::Result<()> {
@@ -184,20 +184,20 @@ pub async fn run(pool: &PgPool, cfg: &Config) -> anyhow::Result<()> {
     let file = std::fs::File::open(&cfg.gff_path)?;
     let reader = BufReader::new(file);
 
-    let mut batch: Vec<IngestVariant> = Vec::with_capacity(BATCH);
+    // 1. Refresh the mirror verbatim (one row per upstream name).
+    let mut batch: Vec<MirrorRow> = Vec::with_capacity(BATCH);
     let (mut parsed, mut skipped, mut unmapped) = (0usize, 0usize, 0usize);
-    let mut upserted = 0u64;
-
+    let mut mirrored = 0u64;
     for line in reader.lines() {
         let line = line?;
         match parse_line(&line) {
             Some(snp) => {
-                let (iv, um) = to_ingest(&snp, &targets);
+                let (row, um) = to_mirror(&snp, &targets);
                 unmapped += um;
-                batch.push(iv);
+                batch.push(row);
                 parsed += 1;
                 if batch.len() >= BATCH {
-                    upserted += du_db::variant::upsert_many(pool, &batch).await?;
+                    mirrored += du_db::ybrowse::upsert_mirror(pool, &batch).await?;
                     batch.clear();
                 }
             }
@@ -206,12 +206,16 @@ pub async fn run(pool: &PgPool, cfg: &Config) -> anyhow::Result<()> {
         }
     }
     if !batch.is_empty() {
-        upserted += du_db::variant::upsert_many(pool, &batch).await?;
+        mirrored += du_db::ybrowse::upsert_mirror(pool, &batch).await?;
     }
 
+    // 2. Derive the curated catalog (idempotent; preserves curator decisions).
+    let rec = du_db::ybrowse::reconcile(pool).await?;
+
     tracing::info!(
-        parsed, upserted, skipped, unmapped_lifts = unmapped, targets = targets.len(),
-        "ybrowse GFF3 ingest complete"
+        parsed, mirrored, skipped, unmapped_lifts = unmapped, targets = targets.len(),
+        clusters = rec.clusters, created = rec.created, enriched = rec.enriched, flagged = rec.flagged,
+        "ybrowse GFF3 ingest + reconcile complete"
     );
     Ok(())
 }
@@ -243,22 +247,22 @@ mod tests {
     }
 
     #[test]
-    fn builds_evidence_and_coords() {
+    fn builds_mirror_row_and_coords() {
         let snp = parse_line(LINE).unwrap();
-        let (iv, unmapped) = to_ingest(&snp, &[]);
+        let (row, unmapped) = to_mirror(&snp, &[]);
         assert_eq!(unmapped, 0);
-        assert_eq!(iv.canonical_name, "BY32772");
-        assert_eq!(iv.mutation_type, MutationType::Snp);
-        let g38 = iv.coordinates.get(ReferenceBuild::GRCh38).unwrap();
-        assert_eq!((g38.contig.as_str(), g38.position), ("chrY", 8_936_213));
-        assert_eq!(iv.evidence["source"], "YBrowse");
-        assert_eq!(iv.evidence["isogg_haplogroup"], "R1b");
-        assert_eq!(iv.evidence["count_tested"], 3);
+        assert_eq!(row.name, "BY32772");
+        assert_eq!((row.contig.as_str(), row.position), ("chrY", 8_936_213));
+        assert_eq!(row.allele_anc.as_deref(), Some("T"));
+        assert_eq!(row.coordinates["GRCh38"]["position"], 8_936_213);
+        assert_eq!(row.evidence["source"], "YBrowse");
+        assert_eq!(row.evidence["isogg_haplogroup"], "R1b");
+        assert_eq!(row.evidence["count_tested"], 3);
     }
 
-    /// End-to-end smoke test of the streaming ingest against a self-written,
-    /// isolated GFF3 (synthetic `TESTYB-` SNPs that don't collide with the real
-    /// catalog). Skips when DATABASE_URL is unset. Cleans up after itself.
+    /// End-to-end: a self-written synthetic GFF3 (isolated `TESTYB-` SNPs) →
+    /// mirror → reconcile → curated `core.variant`. Skips when DATABASE_URL is
+    /// unset. Cleans up after itself (catalog + mirror).
     #[tokio::test]
     async fn ingest_synthetic_gff_end_to_end() {
         let Ok(url) = std::env::var("DATABASE_URL") else {
@@ -268,8 +272,8 @@ mod tests {
         if url.is_empty() {
             return;
         }
-        // A small GFF3 exercising real shape + the skip paths (comment, blank,
-        // nameless, placeholder alleles).
+        // Real-shape lines + skip paths (comment, blank, nameless). TESTYB-1 and
+        // TESTYB-2 are at distinct positions → two folded clusters.
         let gff = "## gff-version 3\n\
 chrY\tpoint\tsnp\t8900001\t8900001\t.\t+\t.\tID=TESTYB-1;Name=TESTYB-1;allele_anc=T;allele_der=C;isogg_haplogroup=R1b;ref=Test (2026);count_tested=3;count_derived=0;yfull_node=R-Test;comment=.\n\
 chrY\tpoint\tsnp\t8900002\t8900002\t.\t+\t.\tID=TESTYB-2;Name=TESTYB-2;allele_anc=A;allele_der=G;isogg_haplogroup=J2;ref=TBD\n\
@@ -280,19 +284,21 @@ chrY\tpoint\tsnp\t8900003\t8900003\t.\t+\t.\tID=;allele_anc=A\n";
 
         let pool = du_db::connect(&url, 4).await.expect("connect");
         du_db::run_migrations(&pool).await.expect("migrate");
-        // Start clean (prior failed run).
+        // Start clean (prior run).
         du_db::variant::delete_by_evidence_source(&pool, "YBrowse").await.ok();
+        du_db::ybrowse::clear_mirror(&pool).await.ok();
 
         let cfg = Config { gff_path: path.to_string_lossy().into(), chain_grch37: None, chain_hs1: None };
         run(&pool, &cfg).await.expect("ingest");
 
-        // TESTYB-1 and TESTYB-2 landed (the nameless line was skipped).
+        // Two folded variants in the catalog (nameless line skipped).
         let n = du_db::variant::count_by_evidence_source(&pool, "YBrowse").await.unwrap();
-        assert_eq!(n, 2, "two named SNPs ingested (nameless skipped)");
+        assert_eq!(n, 2, "two reconciled variants (nameless skipped)");
         let found = du_db::variant::search(&pool, Some("TESTYB-1"), 1, 5).await.unwrap();
-        assert!(found.items.iter().any(|v| v.canonical_name == "TESTYB-1"), "TESTYB-1 searchable");
+        assert!(found.items.iter().any(|v| v.canonical_name == "TESTYB-1"), "TESTYB-1 in catalog");
 
         du_db::variant::delete_by_evidence_source(&pool, "YBrowse").await.unwrap();
+        du_db::ybrowse::clear_mirror(&pool).await.unwrap();
         let _ = std::fs::remove_file(&path);
     }
 }
