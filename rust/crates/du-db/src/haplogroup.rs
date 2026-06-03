@@ -373,7 +373,7 @@ pub async fn subtree_window(
             JOIN sub ON sub.id = r.parent_haplogroup_id \
             WHERE c.valid_until IS NULL AND sub.depth < $3) \
          SELECT s.id, s.name, s.parent_id, s.depth, h.formed_ybp, h.tmrca_ybp, \
-                (h.source = 'backbone') AS is_backbone, \
+                h.is_backbone, \
                 (h.valid_from > now() - interval '1 year') AS is_recent, \
                 (SELECT count(*) FROM tree.haplogroup_variant hv \
                    WHERE hv.haplogroup_id = s.id AND hv.valid_until IS NULL) AS variant_count, \
@@ -405,9 +405,65 @@ pub async fn subtree_window(
         .collect())
 }
 
-/// Resolve a tree-search query to a haplogroup name: try a direct name match
-/// first, then treat the query as a defining-variant name (canonical or alias)
-/// and return the most-recent haplogroup carrying it. `None` if nothing matches.
+/// Mark the **backbone** of a lineage: the single-letter major clades (`A`–`T`)
+/// and every ancestor on the path from them to the root. Recomputed wholesale
+/// (clears then sets), so it stays correct as the tree changes. Returns the
+/// number of backbone nodes.
+pub async fn recompute_backbone(pool: &PgPool, dna_type: DnaType) -> Result<i64, DbError> {
+    let dna = pg_enum_label(&dna_type)?;
+    sqlx::query(
+        "WITH RECURSIVE seeds AS ( \
+            SELECT id FROM tree.haplogroup \
+            WHERE haplogroup_type::text = $1 AND valid_until IS NULL AND name ~ '^[A-Z]$' \
+         ), up AS ( \
+            SELECT id FROM seeds \
+          UNION \
+            SELECT r.parent_haplogroup_id FROM tree.haplogroup_relationship r \
+            JOIN up ON up.id = r.child_haplogroup_id \
+            WHERE r.parent_haplogroup_id IS NOT NULL AND r.valid_until IS NULL \
+         ) \
+         UPDATE tree.haplogroup h \
+            SET is_backbone = (h.id IN (SELECT id FROM up)) \
+          WHERE h.haplogroup_type::text = $1 AND h.valid_until IS NULL",
+    )
+    .bind(&dna)
+    .execute(pool)
+    .await?;
+    let n: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM tree.haplogroup WHERE haplogroup_type::text = $1 AND valid_until IS NULL AND is_backbone",
+    )
+    .bind(&dna)
+    .fetch_one(pool)
+    .await?;
+    Ok(n)
+}
+
+/// Store a haplogroup's alternate (deprecated) names under `provenance.aliases`
+/// for alternate search. Replaces any existing alias list.
+pub async fn set_aliases(
+    pool: &PgPool,
+    name: &str,
+    dna_type: DnaType,
+    aliases: &[String],
+) -> Result<bool, DbError> {
+    let json = serde_json::Value::from(aliases.to_vec());
+    let affected = sqlx::query(
+        "UPDATE tree.haplogroup \
+            SET provenance = jsonb_set(COALESCE(provenance, '{}'::jsonb), '{aliases}', $3, true) \
+          WHERE name = $1 AND haplogroup_type::text = $2 AND valid_until IS NULL",
+    )
+    .bind(name)
+    .bind(pg_enum_label(&dna_type)?)
+    .bind(json)
+    .execute(pool)
+    .await?
+    .rows_affected();
+    Ok(affected > 0)
+}
+
+/// Resolve a tree-search query to a haplogroup name: try a direct name match,
+/// then an alternate (old ISOGG) name in `provenance.aliases`, then a defining
+/// variant name; return the most-recent match. `None` if nothing matches.
 pub async fn resolve_name_or_variant(
     pool: &PgPool,
     query: &str,
@@ -418,6 +474,20 @@ pub async fn resolve_name_or_variant(
     // Direct name hit.
     if let Some(h) = get_by_name(pool, q, dna_type).await? {
         return Ok(Some(h.name));
+    }
+    // Alternate (deprecated ISOGG) name → current name.
+    let by_alias: Option<String> = sqlx::query_scalar(
+        "SELECT name FROM tree.haplogroup \
+         WHERE haplogroup_type::text = $1 AND valid_until IS NULL \
+           AND jsonb_exists(provenance->'aliases', $2) \
+         ORDER BY valid_from DESC LIMIT 1",
+    )
+    .bind(&dna)
+    .bind(q)
+    .fetch_optional(pool)
+    .await?;
+    if by_alias.is_some() {
+        return Ok(by_alias);
     }
     // Variant name → defining haplogroup (latest by valid_from).
     let name: Option<String> = sqlx::query_scalar(

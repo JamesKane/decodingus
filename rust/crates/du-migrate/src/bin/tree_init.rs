@@ -35,6 +35,10 @@ struct Args {
     /// Approve + apply each change set (else leave DRAFT for curator review).
     #[arg(long)]
     apply: bool,
+    /// Skip the merge entirely; only recompute backbone + aliases on the tree
+    /// already loaded (the merge is not safely re-runnable against itself).
+    #[arg(long)]
+    reprocess: bool,
     /// DNA type (Y or MT). ISOGG/this tool target Y.
     #[arg(long, default_value = "Y")]
     dna: String,
@@ -145,24 +149,67 @@ async fn main() -> anyhow::Result<()> {
     let pool = du_db::connect(&url, 4).await?;
     du_db::run_migrations(&pool).await?;
 
-    // 1. ISOGG foundation.
+    // 1. ISOGG foundation (the JSON is always parsed — its `aliases` feed the
+    //    post-process step even in --reprocess mode).
     tracing::info!(path = %args.isogg, "loading ISOGG tree");
     let isogg: Value = serde_json::from_str(&std::fs::read_to_string(&args.isogg)?)?;
     let source_name = isogg.get("sourceName").and_then(Value::as_str).unwrap_or("ISOGG").to_string();
     let root = isogg.get("sourceTree").ok_or_else(|| anyhow::anyhow!("isogg json missing `sourceTree`"))?;
-    let isogg_roots = parse_isogg(root).map(|r| vec![r]).ok_or_else(|| anyhow::anyhow!("could not parse ISOGG sourceTree"))?;
-    merge_into(&pool, &isogg_roots, &source_name, dna, dna_label, &args.by, args.apply).await?;
 
-    // 2. Optional: merge the decoding-us production tree in.
-    if let Some(url) = &args.merge_prod {
-        tracing::info!(%url, "fetching decoding-us production tree");
-        let body: Value = reqwest::Client::new().get(url).send().await?.error_for_status()?.json().await?;
-        let nodes = body.as_array().cloned().unwrap_or_else(|| vec![body]);
-        let prod_roots: Vec<SourceNode> = nodes.iter().filter_map(parse_prod).collect();
-        anyhow::ensure!(!prod_roots.is_empty(), "no nodes parsed from prod tree");
-        merge_into(&pool, &prod_roots, "decoding-us", dna, dna_label, &args.by, args.apply).await?;
+    if !args.reprocess {
+        let isogg_roots = parse_isogg(root).map(|r| vec![r]).ok_or_else(|| anyhow::anyhow!("could not parse ISOGG sourceTree"))?;
+        merge_into(&pool, &isogg_roots, &source_name, dna, dna_label, &args.by, args.apply).await?;
+
+        // 2. Optional: merge the decoding-us production tree in.
+        if let Some(url) = &args.merge_prod {
+            tracing::info!(%url, "fetching decoding-us production tree");
+            let body: Value = reqwest::Client::new().get(url).send().await?.error_for_status()?.json().await?;
+            let nodes = body.as_array().cloned().unwrap_or_else(|| vec![body]);
+            let prod_roots: Vec<SourceNode> = nodes.iter().filter_map(parse_prod).collect();
+            anyhow::ensure!(!prod_roots.is_empty(), "no nodes parsed from prod tree");
+            merge_into(&pool, &prod_roots, "decoding-us", dna, dna_label, &args.by, args.apply).await?;
+        }
+    }
+
+    // 3. Post-process the materialized tree (after a fresh --apply, or on demand
+    //    via --reprocess; the merge itself is not safely re-runnable).
+    if args.apply || args.reprocess {
+        let backbone = du_db::haplogroup::recompute_backbone(&pool, dna).await?;
+        tracing::info!(backbone, "recomputed backbone (single-letter clades + ancestors)");
+        let aliased = apply_aliases(&pool, root, dna).await?;
+        tracing::info!(aliased, "stored haplogroup name aliases from ISOGG");
     }
 
     tracing::info!("tree-init done");
     Ok(())
+}
+
+/// Persist each ISOGG node's `aliases` (deprecated bracket-names) to
+/// `provenance.aliases` for alternate search. Returns the number of nodes set.
+async fn apply_aliases(pool: &PgPool, root: &Value, dna: DnaType) -> anyhow::Result<usize> {
+    let mut pairs: Vec<(String, Vec<String>)> = Vec::new();
+    collect_aliases(root, &mut pairs);
+    let mut n = 0;
+    for (name, aliases) in pairs {
+        if du_db::haplogroup::set_aliases(pool, &name, dna, &aliases).await? {
+            n += 1;
+        }
+    }
+    Ok(n)
+}
+
+fn collect_aliases(node: &Value, out: &mut Vec<(String, Vec<String>)>) {
+    if let (Some(name), Some(aliases)) =
+        (node.get("name").and_then(Value::as_str), node.get("aliases").and_then(Value::as_array))
+    {
+        let a: Vec<String> = aliases.iter().filter_map(|v| v.as_str().map(str::to_string)).collect();
+        if !a.is_empty() {
+            out.push((name.to_string(), a));
+        }
+    }
+    if let Some(children) = node.get("children").and_then(Value::as_array) {
+        for c in children {
+            collect_aliases(c, out);
+        }
+    }
 }
