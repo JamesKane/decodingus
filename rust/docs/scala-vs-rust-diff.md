@@ -55,7 +55,7 @@ legacy subsystems deliberately gone.
 | Variant browser + fragments + by-id + by-haplogroup API | ✅ | |
 | Variant export | 🔁 | Scala: daily **gzipped JSONL** file artifact + metadata. Rust: **live CSV** stream `/api/v1/variants/export` + `/export/metadata` |
 | References/publications list + API | ✅ | |
-| Public "submit publication" DOI form | ⬜ | Scala had a public DOI-submit form; Rust acquires pubs via the discovery job + curator only |
+| Public "submit publication" DOI form | ✅ | **Built 2026-06** `GET/POST /references/submit` (`references.rs`): resolves the DOI via OpenAlex and queues a pending `publication_candidate` for curator review (never a published reference directly) — feeds `/curator/publications`. reCAPTCHA-guarded when configured |
 | Biosample map (PostGIS) + geo-data + studies API | ✅ | |
 | Coverage benchmarks UI + API | ✅ | |
 | Coverage per-lab list + lab-benchmark fragments | 🟡 | Scala had `/coverage/labs` + per-lab HTMX fragments; Rust serves the aggregate benchmark only |
@@ -170,9 +170,9 @@ ibd, social, billing` + audit + coverage-mirror + fed-reporting.
   sequencer-lab inference, PDS fleet. (STR profiles were **brought back into
   scope** 2026-06 — Phase 1 shipped; prediction is Phase 2.)
 - **In scope, not yet built:** haplogroup restructure as discrete curator ops,
-  public publication-submit form, profile update, region management
-  API/bootstrap, per-lab coverage fragments. (Built 2026-06: change-set
-  conflict-resolution UI + `wip_*` staging — §2 `/curator/reviews`;
-  publication-candidate review UI — §2 `/curator/publications`.)
+  profile update, region management API/bootstrap, per-lab coverage fragments.
+  (Built 2026-06: change-set conflict-resolution UI + `wip_*` staging — §2
+  `/curator/reviews`; publication-candidate review UI — §2 `/curator/publications`;
+  public DOI-submit form — §1 `/references/submit`.)
 - **Externally gated:** confidential-OAuth Edge joint test; current-schema dump
   for ETL cutover (see STATUS "Cutover blocker").
