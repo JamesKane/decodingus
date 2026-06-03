@@ -79,7 +79,7 @@ legacy subsystems deliberately gone.
 | Haplogroup merge (full + preview) | ✅ | `/manage/haplogroups/merge[/preview]` |
 | Haplogroup merge — explicit subtree endpoint | 🟡 | Rust's merge algorithm is subtree-scoped by design; no separate `/merge/subtree` route |
 | Haplogroup CRUD | ✅ | `/curator/haplogroups/*` |
-| Haplogroup restructure (split / merge-into-parent / reparent as discrete ops) | ⬜ | in Rust these are expressed as change-set `tree_change`s, not standalone curator endpoints |
+| Haplogroup restructure (split / merge-into-parent / reparent as discrete ops) | ✅ | **Built 2026-06** (`du_db::haplogroup` reparent/merge_into_parent/split + `/curator/haplogroups/:id/{reparent,merge,split}`): direct temporal-model edits from the haplogroup detail panel, with cycle/name/root guards. (Bulk change-set authoring still available for batch work.) |
 | Variant CRUD | ✅ | `/curator/variants/*` |
 | Haplogroup↔variant associate/remove | ✅ | curator |
 | Haplogroup↔variant association history | 🟡 | `ident.audit_log` exists (mig 0010); no per-association history route |
@@ -169,10 +169,11 @@ ibd, social, billing` + audit + coverage-mirror + fed-reporting.
   matching, social/reputation/messaging, group projects, patronage/billing,
   sequencer-lab inference, PDS fleet. (STR profiles were **brought back into
   scope** 2026-06 — Phase 1 shipped; prediction is Phase 2.)
-- **In scope, not yet built:** haplogroup restructure as discrete curator ops,
-  region management API/bootstrap, per-lab coverage fragments. (Built 2026-06:
-  change-set conflict-resolution UI + `wip_*` staging — §2 `/curator/reviews`;
-  publication-candidate review UI — §2 `/curator/publications`; public DOI-submit
-  form — §1 `/references/submit`; profile update — §1 `POST /profile`.)
+- **In scope, not yet built:** region management API/bootstrap, per-lab coverage
+  fragments. (Built 2026-06: change-set conflict-resolution UI + `wip_*` staging —
+  §2 `/curator/reviews`; publication-candidate review UI — §2
+  `/curator/publications`; public DOI-submit form — §1 `/references/submit`;
+  profile update — §1 `POST /profile`; haplogroup restructure ops — §2
+  `/curator/haplogroups`.)
 - **Externally gated:** confidential-OAuth Edge joint test; current-schema dump
   for ETL cutover (see STATUS "Cutover blocker").
