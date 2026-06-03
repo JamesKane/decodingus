@@ -133,8 +133,9 @@ APP_SECRET="<any 32+ char string>"   # signs session cookies
   until ETL cutover/curation). Unit (combine) + live-DB tested. Remaining: a
   per-sample/`formed_ybp` refinement + aDNA-calibration weighting.
 - **`du-jobs`** — tokio scheduler; jobs: `db-heartbeat`, `ybrowse-variant-ingest`
-  (streams YBrowse `snps_hg38.gff3` → multi-build `core.variant` + `evidence`;
-  `YBROWSE_GFF`),
+  (streams YBrowse `snps_hg38.gff3` → `source.ybrowse_snp` mirror, then
+  `du_db::ybrowse::reconcile` derives `core.variant` — synonym-folding, evidence,
+  idempotent, curation-preserving; `YBROWSE_GFF`),
   `publication-update`, `publication-discovery`, `ena-study-enrichment`,
   `publication-pubmed-update`, `str-signature-recompute`; plus the Jetstream
   reporting-mirror consumer (set `JETSTREAM_URL`; runs beside the scheduler).
