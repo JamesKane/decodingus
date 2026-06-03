@@ -1,0 +1,103 @@
+{# Fragment: review panel. Target of #review-detail. #}
+<div class="card">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span><strong>{{ item.name }}</strong> <small class="text-muted">{{ item.source }}</small></span>
+    <span><span class="badge text-bg-light">{{ item.category }}</span> <span class="badge text-bg-secondary">{{ item.cs_status }}</span></span>
+  </div>
+  <div class="card-body">
+    {% if let Some(n) = item.notice %}
+    <div class="alert alert-info py-2 px-3 small mb-3">{{ n }}</div>
+    {% endif %}
+
+    <p class="small text-muted mb-2">{{ item.reason }}</p>
+
+    <dl class="row mb-2 small">
+      {% if let Some(ba) = item.best_anchor %}
+      <dt class="col-5">{{ t.get("rev.best_anchor") }}</dt>
+      <dd class="col-7"><strong>{{ ba }}</strong> <span class="text-muted">({{ item.anchor_strength_pct }}%)</span></dd>
+      {% endif %}
+      <dt class="col-5">{{ t.get("rev.snps") }}</dt>
+      <dd class="col-7">{{ item.snps_known }} {{ t.get("rev.of_known") }} {{ item.defining_snp_count }}</dd>
+      {% if let Some(sp) = item.source_parent %}
+      <dt class="col-5">{{ t.get("rev.source_parent") }}</dt>
+      <dd class="col-7">{{ sp }}{% if let Some(ss) = item.source_parent_status %} <span class="text-muted">· {{ ss }}</span>{% endif %}</dd>
+      {% endif %}
+      {% if item.is_backbone %}
+      <dt class="col-5">{{ t.get("rev.backbone") }}</dt><dd class="col-7"><span class="badge text-bg-success">backbone</span></dd>
+      {% endif %}
+    </dl>
+
+    {% if !item.candidates.is_empty() %}
+    <details class="mb-3">
+      <summary class="small text-muted">{{ t.get("rev.candidates") }}</summary>
+      <ul class="list-unstyled small mb-0 mt-2">
+        {% for c in item.candidates %}
+        <li><code>{{ c.node }}</code> <span class="text-muted">· {{ c.hits }} {{ t.get("rev.hits") }}</span></li>
+        {% endfor %}
+      </ul>
+    </details>
+    {% endif %}
+
+    {# where it would land — tentative parent + its current children #}
+    {% if let Some(tp) = item.tentative_parent %}
+    <div class="mb-3 small">
+      <span class="text-muted">{{ t.get("rev.lands_under") }}</span> <strong>{{ tp }}</strong>
+      {% if !item.preview_children.is_empty() %}
+      <div class="text-muted">{{ t.get("rev.siblings") }}: {% for k in item.preview_children %}<code>{{ k }}</code>{% if !loop.last %}, {% endif %}{% endfor %}</div>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    {# current decision #}
+    {% if let Some(rt) = item.resolution_type %}
+    <div class="alert alert-light border py-2 px-3 small mb-3">
+      <strong>{{ t.get("rev.decision") }}:</strong> {{ rt }}{% if let Some(tg) = item.resolution_target %} → <code>{{ tg }}</code>{% endif %}
+      {% if let Some(nt) = item.resolution_notes %}<br><span class="text-muted">{{ nt }}</span>{% endif %}
+    </div>
+    {% endif %}
+
+    {# resolution form (hidden once the change-set is applied) #}
+    {% if item.cs_status != "APPLIED" && item.cs_status != "DISCARDED" %}
+    <h6 class="mt-3">{{ t.get("rev.resolve") }}</h6>
+    {% if let Some(ba) = item.best_anchor %}
+    <button class="btn btn-sm btn-success mb-2" title="{{ ba }}"
+            hx-post="/curator/reviews/{{ item.wip_id }}/resolve"
+            hx-vals='{"action":"REPARENT","target":"{{ ba }}"}'
+            hx-target="#review-detail" hx-swap="innerHTML">{{ t.get("rev.accept_anchor") }} ({{ ba }})</button>
+    {% endif %}
+
+    <form hx-post="/curator/reviews/{{ item.wip_id }}/resolve" hx-target="#review-detail" hx-swap="innerHTML"
+          class="mb-2 d-flex gap-2 align-items-center">
+      <input type="hidden" name="action" value="REPARENT">
+      <input class="form-control form-control-sm" name="target" placeholder="{{ t.get("rev.reparent.placeholder") }}" required>
+      <button class="btn btn-sm btn-outline-primary text-nowrap">{{ t.get("rev.reparent") }}</button>
+    </form>
+
+    <form hx-post="/curator/reviews/{{ item.wip_id }}/resolve" hx-target="#review-detail" hx-swap="innerHTML"
+          class="mb-2 d-flex gap-2 align-items-center">
+      <input type="hidden" name="action" value="MERGE_EXISTING">
+      <input class="form-control form-control-sm" name="target" placeholder="{{ t.get("rev.merge.placeholder") }}" required>
+      <button class="btn btn-sm btn-outline-warning text-nowrap">{{ t.get("rev.merge") }}</button>
+    </form>
+
+    <button class="btn btn-sm btn-outline-secondary mb-3"
+            hx-post="/curator/reviews/{{ item.wip_id }}/resolve" hx-vals='{"action":"DEFER"}'
+            hx-target="#review-detail" hx-swap="innerHTML">{{ t.get("rev.defer") }}</button>
+    {% endif %}
+
+    {# change-set apply (enacts all resolved items via the tested engine) #}
+    <div class="border-top pt-2 mt-2 small">
+      <div class="text-muted mb-2">
+        {{ t.get("rev.queue") }}: <span class="badge text-bg-warning">{{ item.open_count }} {{ t.get("rev.state.open") }}</span>
+        <span class="badge text-bg-success">{{ item.resolved_count }} {{ t.get("rev.resolved") }}</span>
+        <span class="badge text-bg-secondary">{{ item.deferred_count }} DEFER</span>
+        · <a href="/curator/change-sets" target="_blank">#{{ item.change_set_id }}</a>
+      </div>
+      {% if item.can_apply %}
+      <button class="btn btn-sm btn-success"
+              hx-post="/curator/reviews/{{ item.wip_id }}/apply" hx-target="#review-detail" hx-swap="innerHTML"
+              hx-confirm="{{ t.get("rev.apply.confirm") }}">{{ t.get("rev.apply") }} ({{ item.resolved_count }})</button>
+      {% endif %}
+    </div>
+  </div>
+</div>

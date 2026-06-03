@@ -24,6 +24,7 @@ pub mod curator_variants;
 pub mod maps;
 pub mod pages;
 pub mod references;
+pub mod reviews;
 pub mod tree;
 pub mod variants;
 pub mod versioning;
@@ -54,6 +55,7 @@ pub fn app(state: AppState) -> Router {
         .merge(curator_regions::router())
         .merge(curation::router())
         .merge(change_sets::router())
+        .merge(reviews::router())
         .merge(versioning::router())
         .merge(crate::oauth::router())
         .merge(crate::api::router())

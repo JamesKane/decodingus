@@ -45,6 +45,10 @@ struct Args {
     /// graft-blocked nodes, with SNP-scatter context) to this JSON path. Read-only.
     #[arg(long)]
     export_flags: Option<String>,
+    /// Phase 4: stage the review items into a DRAFT change-set (tree.wip_*) for
+    /// in-app curator adjudication at /curator/reviews. Writes (creates a change-set).
+    #[arg(long)]
+    stage_review: bool,
     /// Approve + apply each change set (else leave DRAFT for curator review).
     #[arg(long)]
     apply: bool,
@@ -326,7 +330,8 @@ async fn main() -> anyhow::Result<()> {
                 );
                 // Phase 3 — graft the truly-novel branches (DRY-RUN unless --apply).
                 // Also computed (dry-run) when only exporting, for its skip lists.
-                let graft_rep = if args.graft || args.export_flags.is_some() {
+                let want_review = args.export_flags.is_some() || args.stage_review;
+                let graft_rep = if args.graft || want_review {
                     let apply_graft = args.graft && args.apply;
                     let g = du_db::snp_graft::graft(&pool, &source, dna, &report, &args.by, apply_graft).await?;
                     if args.graft {
@@ -337,17 +342,23 @@ async fn main() -> anyhow::Result<()> {
                     None
                 };
 
-                // Phase 4 — write the curator-review worklist (read-only).
-                if let Some(path) = &args.export_flags {
-                    let g = graft_rep.as_ref().expect("graft report computed when export_flags set");
+                // Phase 4 — curator-review worklist (export to JSON and/or stage in-app).
+                if want_review {
+                    let g = graft_rep.as_ref().expect("graft report computed when reviewing");
                     let ex = du_db::snp_graft::export_review(&pool, &source, dna, &report, g).await?;
-                    std::fs::write(path, serde_json::to_string_pretty(&ex)?)?;
-                    tracing::info!(
-                        path = %path, items = ex.items.len(),
-                        weak = ex.summary.weak_plurality, parent_inconsistent = ex.summary.parent_inconsistent,
-                        name_collision = ex.summary.name_collision, graft_blocked = ex.summary.graft_blocked,
-                        "Phase 4 curator-review export written"
-                    );
+                    if let Some(path) = &args.export_flags {
+                        std::fs::write(path, serde_json::to_string_pretty(&ex)?)?;
+                        tracing::info!(
+                            path = %path, items = ex.items.len(),
+                            weak = ex.summary.weak_plurality, parent_inconsistent = ex.summary.parent_inconsistent,
+                            name_collision = ex.summary.name_collision, graft_blocked = ex.summary.graft_blocked,
+                            "Phase 4 curator-review export written"
+                        );
+                    }
+                    if args.stage_review {
+                        let (cs_id, n) = du_db::snp_graft::stage_review(&pool, &source, dna, &ex, &args.by).await?;
+                        tracing::info!(change_set_id = cs_id, staged = n, "Phase 4 staged for curator review (/curator/reviews)");
+                    }
                 }
             } else {
                 // Legacy exact-set merge (cannot reconcile cross-source trees).

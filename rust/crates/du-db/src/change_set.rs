@@ -364,6 +364,10 @@ pub async fn apply(pool: &PgPool, id: i64, by: &str) -> Result<ApplyResult, DbEr
             .await?;
     }
 
+    // WIP curator-review pass: enact each staged item that has a (non-DEFER)
+    // resolution. Decisions made in the /curator/reviews UI flow through here.
+    apply_wip_resolutions(&mut tx, id, cs_dna.as_deref(), &mut result).await?;
+
     sqlx::query("UPDATE tree.change_set SET status = 'APPLIED', promoted_by = $2, promoted_at = now() WHERE id = $1")
         .bind(id)
         .bind(by)
@@ -507,6 +511,139 @@ async fn apply_change(
         }
     }
     Ok(())
+}
+
+/// Enact the change-set's curator-review resolutions (the WIP pass). For each
+/// staged `wip_haplogroup` with a non-DEFER `wip_resolution`:
+/// - `REPARENT` → **create** the proposed node under `new_parent_id` and link
+///   its defining SNPs (materialized from the staged names). A name already in
+///   the tree is skipped (the unique `(name,type)` guard) rather than aborting.
+/// - `MERGE_EXISTING` → **fold** the proposed node's SNPs into `merge_target_id`
+///   and record the source name as a searchable alias on the target.
+///
+/// DEFER/unresolved items are left staged (not selected here).
+async fn apply_wip_resolutions(
+    tx: &mut Transaction<'_, Postgres>,
+    change_set_id: i64,
+    cs_dna: Option<&str>,
+    result: &mut ApplyResult,
+) -> Result<(), DbError> {
+    #[derive(sqlx::FromRow)]
+    struct WipRow {
+        wip_id: i64,
+        name: String,
+        source: Option<String>,
+        provenance: Value,
+        resolution_type: String,
+        new_parent_id: Option<i64>,
+        merge_target_id: Option<i64>,
+    }
+    let rows: Vec<WipRow> = sqlx::query_as(
+        "SELECT w.id AS wip_id, w.name, w.source, w.provenance, \
+                r.resolution_type, r.new_parent_id, r.merge_target_id \
+         FROM tree.wip_haplogroup w \
+         JOIN tree.wip_resolution r ON r.wip_haplogroup_id = w.id \
+         WHERE w.change_set_id = $1 AND r.resolution_type <> 'DEFER' ORDER BY w.id",
+    )
+    .bind(change_set_id)
+    .fetch_all(&mut **tx)
+    .await?;
+
+    for w in &rows {
+        let review = w.provenance.get("review").cloned().unwrap_or(Value::Null);
+        let snps: Vec<String> = review
+            .get("defining_snps")
+            .and_then(Value::as_array)
+            .map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_string)).collect())
+            .unwrap_or_default();
+        let is_backbone = review.get("is_backbone").and_then(Value::as_bool).unwrap_or(false);
+        let source = w.source.clone().unwrap_or_else(|| "review".into());
+
+        match w.resolution_type.as_str() {
+            "REPARENT" => {
+                let dna = cs_dna.ok_or_else(|| DbError::Conflict("change set has no haplogroup_type".into()))?;
+                // Never create a node whose (name,type) already exists.
+                let exists: bool = sqlx::query_scalar(
+                    "SELECT EXISTS(SELECT 1 FROM tree.haplogroup \
+                       WHERE name=$1 AND haplogroup_type::text=$2 AND valid_until IS NULL)",
+                )
+                .bind(&w.name)
+                .bind(dna)
+                .fetch_one(&mut **tx)
+                .await?;
+                if exists {
+                    result.skipped += 1;
+                    continue;
+                }
+                let mut prov = serde_json::Map::new();
+                prov.insert("source".into(), serde_json::json!(source));
+                // Curated-backbone marker (preserved by recompute_backbone).
+                if is_backbone {
+                    prov.insert("backbone_source".into(), serde_json::json!(source));
+                }
+                let new_id: i64 = sqlx::query_scalar(
+                    "INSERT INTO tree.haplogroup (name, haplogroup_type, source, is_backbone, provenance) \
+                     VALUES ($1, $2::core.dna_type, $3, $4, $5) RETURNING id",
+                )
+                .bind(&w.name)
+                .bind(dna)
+                .bind(&w.source)
+                .bind(is_backbone)
+                .bind(Value::Object(prov))
+                .fetch_one(&mut **tx)
+                .await?;
+                if w.new_parent_id.is_some() {
+                    open_edge(tx, new_id, w.new_parent_id, w.source.as_deref()).await?;
+                }
+                for snp in &snps {
+                    let vid = get_or_create_variant(tx, snp).await?;
+                    link_variant(tx, new_id, vid).await?;
+                }
+                result.created += 1;
+            }
+            "MERGE_EXISTING" => {
+                let Some(target) = w.merge_target_id else {
+                    result.skipped += 1;
+                    continue;
+                };
+                for snp in &snps {
+                    let vid = get_or_create_variant(tx, snp).await?;
+                    link_variant(tx, target, vid).await?;
+                }
+                // Record the folded source name as a searchable alias on the target.
+                sqlx::query(
+                    "UPDATE tree.haplogroup SET provenance = jsonb_set( \
+                        COALESCE(provenance,'{}'::jsonb), '{aliases}', \
+                        (SELECT COALESCE(jsonb_agg(DISTINCT a), '[]'::jsonb) FROM ( \
+                           SELECT jsonb_array_elements_text(COALESCE(provenance->'aliases','[]'::jsonb)) AS a \
+                           UNION SELECT $2) u), true) \
+                      WHERE id = $1",
+                )
+                .bind(target)
+                .bind(&w.name)
+                .execute(&mut **tx)
+                .await?;
+                result.variant_edits += 1;
+            }
+            other => {
+                tracing::warn!(resolution_type = other, wip_id = w.wip_id, "unsupported wip resolution; skipped");
+                result.skipped += 1;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Get-or-create a `core.variant` by canonical name (new rows land UNNAMED).
+async fn get_or_create_variant(tx: &mut Transaction<'_, Postgres>, name: &str) -> Result<i64, DbError> {
+    Ok(sqlx::query_scalar(
+        "INSERT INTO core.variant (canonical_name, mutation_type, naming_status) \
+         VALUES ($1, 'SNP'::core.mutation_type, 'UNNAMED'::core.naming_status) \
+         ON CONFLICT (canonical_name) DO UPDATE SET canonical_name = EXCLUDED.canonical_name RETURNING id",
+    )
+    .bind(name)
+    .fetch_one(&mut **tx)
+    .await?)
 }
 
 /// Open a new current edge (child under parent). `parent` None makes a root.

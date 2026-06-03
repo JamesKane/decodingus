@@ -829,3 +829,84 @@ pub async fn export_review(
         graft_blocked: graft.skipped_unresolved.clone(),
     })
 }
+
+/// **Phase 4 — stage for curator review.** Create a DRAFT change-set and stage
+/// every review item (flagged + name-collision + graft-blocked) into the
+/// `tree.wip_*` tables via [`crate::wip::stage`], so a curator can adjudicate
+/// them in-app and the change-set apply engine can enact the decisions. The
+/// defining-SNP *names* travel in the staged payload (materialized to variants
+/// only at enactment). Returns `(change_set_id, staged_count)`.
+pub async fn stage_review(
+    pool: &PgPool,
+    source: &[SourceNode],
+    dna: DnaType,
+    export: &ReviewExport,
+    by: &str,
+) -> Result<(i64, usize), DbError> {
+    let dna_label = pg_enum_label(&dna)?;
+    let by_name: HashMap<&str, &SourceNode> = source.iter().map(|n| (n.name.as_str(), n)).collect();
+
+    // Foundation name → id, for the tentative-parent (best-anchor) link.
+    let id_rows: Vec<(String, i64)> = sqlx::query_as(
+        "SELECT name, id FROM tree.haplogroup \
+         WHERE haplogroup_type::text = $1 AND valid_until IS NULL AND source IS DISTINCT FROM 'decoding-us'",
+    )
+    .bind(&dna_label)
+    .fetch_all(pool)
+    .await?;
+    let id_of: HashMap<String, i64> = id_rows.into_iter().collect();
+
+    let defining = |name: &str| -> Vec<String> {
+        by_name.get(name).map(|sn| sn.defining_snps.clone()).unwrap_or_default()
+    };
+
+    let mut items: Vec<crate::wip::StageItem> = Vec::with_capacity(export.items.len() + export.graft_blocked.len());
+
+    // Flagged + name-collision items (full context already computed by export).
+    for it in &export.items {
+        let review = json!({
+            "category": it.category,
+            "reason": it.reason,
+            "best_anchor": it.best_anchor,
+            "anchor_strength": it.anchor_strength,
+            "candidates": it.candidates.iter().map(|c| json!({"node": c.node, "hits": c.hits})).collect::<Vec<_>>(),
+            "defining_snp_count": it.defining_snp_count,
+            "snps_known_to_foundation": it.snps_known_to_foundation,
+            "source_parent": it.source_parent,
+            "source_parent_status": it.source_parent_status,
+            "is_backbone": it.is_backbone,
+            "defining_snps": defining(&it.node),
+        });
+        items.push(crate::wip::StageItem {
+            name: it.node.clone(),
+            tentative_parent_id: it.best_anchor.as_ref().and_then(|a| id_of.get(a)).copied(),
+            review,
+        });
+    }
+
+    // Graft-blocked novels (downstream of a flag — no production anchor yet).
+    for name in &export.graft_blocked {
+        let Some(&sn) = by_name.get(name.as_str()) else { continue };
+        let review = json!({
+            "category": "graft_blocked",
+            "reason": "A novel branch whose parent lineage is itself flagged — needs a parent decision (or resolve the flagged ancestor first).",
+            "best_anchor": Value::Null,
+            "defining_snp_count": sn.defining_snps.len(),
+            "source_parent": sn.parent_name,
+            "is_backbone": sn.is_backbone,
+            "defining_snps": sn.defining_snps,
+        });
+        items.push(crate::wip::StageItem { name: name.clone(), tentative_parent_id: None, review });
+    }
+
+    let description = format!(
+        "Curator review: {} flagged + {} name-collision + {} graft-blocked from {}",
+        export.summary.weak_plurality + export.summary.parent_inconsistent,
+        export.summary.name_collision,
+        export.summary.graft_blocked,
+        export.source,
+    );
+    let cs_id = crate::change_set::create(pool, &export.source, Some(&dna_label), Some(&description), by).await?;
+    let n = crate::wip::stage(pool, cs_id, &export.source, &items).await?;
+    Ok((cs_id, n))
+}
