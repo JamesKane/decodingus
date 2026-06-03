@@ -397,9 +397,13 @@ async fn apply_change(
             let dna = jstr(&nv, "haplogroup_type")
                 .or_else(|| cs_dna.map(str::to_string))
                 .ok_or_else(|| DbError::Conflict("CREATE change has no haplogroup_type".into()))?;
+            // `is_backbone` / `provenance` are optional in new_values: the merge
+            // engine omits them (COALESCE keeps the column defaults), while the
+            // SNP-graft writer carries the source's curated backbone flag and a
+            // provenance record (source name, source_updated).
             let new_id: i64 = sqlx::query_scalar(
-                "INSERT INTO tree.haplogroup (name, haplogroup_type, lineage, source, formed_ybp, tmrca_ybp) \
-                 VALUES ($1, $2::core.dna_type, $3, $4, $5, $6) RETURNING id",
+                "INSERT INTO tree.haplogroup (name, haplogroup_type, lineage, source, formed_ybp, tmrca_ybp, is_backbone, provenance) \
+                 VALUES ($1, $2::core.dna_type, $3, $4, $5, $6, COALESCE($7, false), COALESCE($8, '{}'::jsonb)) RETURNING id",
             )
             .bind(&name)
             .bind(&dna)
@@ -407,6 +411,8 @@ async fn apply_change(
             .bind(jstr(&nv, "source"))
             .bind(jint(&nv, "formed_ybp").map(|v| v as i32))
             .bind(jint(&nv, "tmrca_ybp").map(|v| v as i32))
+            .bind(jbool(&nv, "is_backbone"))
+            .bind(jval(&nv, "provenance"))
             .fetch_one(&mut **tx)
             .await?;
             // Parent may be an existing id or a placeholder created earlier in
@@ -572,6 +578,12 @@ fn jstr(v: &Value, k: &str) -> Option<String> {
 }
 fn jint(v: &Value, k: &str) -> Option<i64> {
     v.get(k).and_then(Value::as_i64)
+}
+fn jbool(v: &Value, k: &str) -> Option<bool> {
+    v.get(k).and_then(Value::as_bool)
+}
+fn jval(v: &Value, k: &str) -> Option<Value> {
+    v.get(k).filter(|x| !x.is_null()).cloned()
 }
 fn jids(v: &Value, k: &str) -> Vec<i64> {
     v.get(k)

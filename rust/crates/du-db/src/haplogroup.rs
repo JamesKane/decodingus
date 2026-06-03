@@ -498,10 +498,13 @@ pub async fn reconcile_tilde_twins(pool: &PgPool, dna_type: DnaType) -> Result<T
     Ok(TwinReconcile { folded, skipped })
 }
 
-/// Mark the **backbone** of a lineage: the single-letter major clades (`A`–`T`)
-/// and every ancestor on the path from them to the root. Recomputed wholesale
-/// (clears then sets), so it stays correct as the tree changes. Returns the
-/// number of backbone nodes.
+/// Mark the **backbone** of a lineage: the computed ISOGG spine (single-letter
+/// major clades `A`–`T` + every ancestor up to the root) **unioned with curated
+/// backbone** adopted from a source tree (nodes carrying a
+/// `provenance.backbone_source` marker, stamped by the SNP-graft enrich/graft
+/// writers). Recomputed wholesale (clears then sets) so the *computed* spine
+/// stays correct as the tree changes, while curated flags are preserved.
+/// Returns the number of backbone nodes.
 pub async fn recompute_backbone(pool: &PgPool, dna_type: DnaType) -> Result<i64, DbError> {
     let dna = pg_enum_label(&dna_type)?;
     sqlx::query(
@@ -516,7 +519,7 @@ pub async fn recompute_backbone(pool: &PgPool, dna_type: DnaType) -> Result<i64,
             WHERE r.parent_haplogroup_id IS NOT NULL AND r.valid_until IS NULL \
          ) \
          UPDATE tree.haplogroup h \
-            SET is_backbone = (h.id IN (SELECT id FROM up)) \
+            SET is_backbone = (h.id IN (SELECT id FROM up)) OR (h.provenance ? 'backbone_source') \
           WHERE h.haplogroup_type::text = $1 AND h.valid_until IS NULL",
     )
     .bind(&dna)

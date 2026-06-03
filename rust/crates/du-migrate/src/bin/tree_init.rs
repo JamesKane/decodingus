@@ -37,6 +37,10 @@ struct Args {
     /// instead of the exact-set merge (which cannot reconcile cross-source trees).
     #[arg(long)]
     snp_graft: bool,
+    /// Phase 3: also graft the truly-novel source branches (no ISOGG SNP overlap)
+    /// as new nodes under their parents' anchors. Dry-run unless --apply.
+    #[arg(long)]
+    graft: bool,
     /// Approve + apply each change set (else leave DRAFT for curator review).
     #[arg(long)]
     apply: bool,
@@ -184,6 +188,32 @@ fn print_graft_report(r: &du_db::snp_graft::GraftReport) {
     tracing::info!(spot_checks = ?checks, "graft spot-check (known nodes)");
 }
 
+/// Log the Phase 3 graft plan: how many novel branches will be created, where
+/// they attach, and what was skipped (name collisions / unresolvable parents).
+fn print_graft_write_report(g: &du_db::snp_graft::GraftWriteReport) {
+    tracing::info!(
+        applied = g.applied,
+        novel_total = g.novel_total,
+        creatable = g.creatable,
+        under_existing = g.under_existing,
+        under_new = g.under_new,
+        roots = g.roots,
+        skipped_name_exists = g.skipped_name_exists.len(),
+        skipped_unresolved = g.skipped_unresolved.len(),
+        change_set_id = g.change_set_id,
+        "Phase 3 graft plan"
+    );
+    tracing::info!(samples = ?g.samples, "graft samples");
+    if !g.skipped_name_exists.is_empty() {
+        let s: Vec<&String> = g.skipped_name_exists.iter().take(10).collect();
+        tracing::warn!(count = g.skipped_name_exists.len(), sample = ?s, "skipped — name already in tree");
+    }
+    if !g.skipped_unresolved.is_empty() {
+        let s: Vec<&String> = g.skipped_unresolved.iter().take(10).collect();
+        tracing::warn!(count = g.skipped_unresolved.len(), sample = ?s, "skipped — parent unresolvable");
+    }
+}
+
 /// Run one merge: existing tree → plan → materialized change set, optionally applied.
 async fn merge_into(
     pool: &PgPool,
@@ -290,6 +320,11 @@ async fn main() -> anyhow::Result<()> {
                     aliases_added = enr.aliases_added, backbone_set = enr.backbone_set,
                     samples = ?enr.samples, "Phase 2 enrich"
                 );
+                // Phase 3 — graft the truly-novel branches (DRY-RUN unless --apply).
+                if args.graft {
+                    let g = du_db::snp_graft::graft(&pool, &source, dna, &report, &args.by, args.apply).await?;
+                    print_graft_write_report(&g);
+                }
             } else {
                 // Legacy exact-set merge (cannot reconcile cross-source trees).
                 let prod_roots = parse_prod_flat(&body);
