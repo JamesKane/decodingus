@@ -405,6 +405,99 @@ pub async fn subtree_window(
         .collect())
 }
 
+/// Result of [`reconcile_tilde_twins`].
+#[derive(Debug, Default)]
+pub struct TwinReconcile {
+    /// Sibling twins folded into their non-`~` survivor.
+    pub folded: i64,
+    /// Cross-parent `X`/`X~` pairs left untouched (possible ISOGG curation) —
+    /// surfaced for review rather than merged automatically.
+    pub skipped: Vec<String>,
+}
+
+/// Reconcile ISOGG stitch artifacts where one clade was split into a
+/// SNP-carrying node `X` and a subtree-carrying provisional twin `X~` **under
+/// the same parent** (a SNP search for `X`'s marker would otherwise land on the
+/// childless `X` while its subtree hangs off the invisible sibling `X~`).
+///
+/// Folds each same-parent sibling twin into its survivor: reparents `X~`'s
+/// children to `X`, unions `X~`'s variants into `X`, and removes `X~`. Only
+/// same-parent siblings are changed — cross-parent `X`/`X~` pairs (which may be
+/// deliberate ISOGG curation) are returned in `skipped`, and genuine standalone
+/// `~` provisional nodes are left alone.
+pub async fn reconcile_tilde_twins(pool: &PgPool, dna_type: DnaType) -> Result<TwinReconcile, DbError> {
+    let dna = pg_enum_label(&dna_type)?;
+    let mut tx = pool.begin().await?;
+
+    // Cross-parent twins: report, do not change.
+    let skipped: Vec<String> = sqlx::query_scalar(
+        "SELECT t.name FROM tree.haplogroup t \
+         JOIN tree.haplogroup s ON s.name = left(t.name, length(t.name)-1) \
+              AND s.haplogroup_type = t.haplogroup_type AND s.valid_until IS NULL \
+         JOIN tree.haplogroup_relationship rt ON rt.child_haplogroup_id = t.id AND rt.valid_until IS NULL \
+         JOIN tree.haplogroup_relationship rs ON rs.child_haplogroup_id = s.id AND rs.valid_until IS NULL \
+         WHERE t.haplogroup_type::text = $1 AND t.valid_until IS NULL AND t.name LIKE '%~' \
+           AND rt.parent_haplogroup_id <> rs.parent_haplogroup_id \
+         ORDER BY t.name",
+    )
+    .bind(&dna)
+    .fetch_all(&mut *tx)
+    .await?;
+
+    // Same-parent sibling twins → the fold set.
+    sqlx::query(
+        "CREATE TEMP TABLE _tw ON COMMIT DROP AS \
+         SELECT t.id AS twin_id, s.id AS surv_id FROM tree.haplogroup t \
+         JOIN tree.haplogroup s ON s.name = left(t.name, length(t.name)-1) \
+              AND s.haplogroup_type = t.haplogroup_type AND s.valid_until IS NULL \
+         JOIN tree.haplogroup_relationship rt ON rt.child_haplogroup_id = t.id AND rt.valid_until IS NULL \
+         JOIN tree.haplogroup_relationship rs ON rs.child_haplogroup_id = s.id AND rs.valid_until IS NULL \
+         WHERE t.haplogroup_type::text = $1 AND t.valid_until IS NULL AND t.name LIKE '%~' \
+           AND rt.parent_haplogroup_id = rs.parent_haplogroup_id",
+    )
+    .bind(&dna)
+    .execute(&mut *tx)
+    .await?;
+    let folded: i64 = sqlx::query_scalar("SELECT count(*) FROM _tw").fetch_one(&mut *tx).await?;
+
+    // Reparent each twin's children onto its survivor (current edges).
+    sqlx::query(
+        "UPDATE tree.haplogroup_relationship r SET parent_haplogroup_id = tw.surv_id \
+         FROM _tw tw WHERE r.parent_haplogroup_id = tw.twin_id AND r.valid_until IS NULL",
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    // Union the twin's defining variants into the survivor (skip dupes).
+    sqlx::query(
+        "INSERT INTO tree.haplogroup_variant (haplogroup_id, variant_id) \
+         SELECT tw.surv_id, hv.variant_id FROM _tw tw \
+         JOIN tree.haplogroup_variant hv ON hv.haplogroup_id = tw.twin_id AND hv.valid_until IS NULL \
+         WHERE NOT EXISTS (SELECT 1 FROM tree.haplogroup_variant e \
+             WHERE e.haplogroup_id = tw.surv_id AND e.variant_id = hv.variant_id AND e.valid_until IS NULL)",
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    // Remove the now-empty twin nodes (variant links, all edges, the row).
+    sqlx::query("DELETE FROM tree.haplogroup_variant WHERE haplogroup_id IN (SELECT twin_id FROM _tw)")
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query(
+        "DELETE FROM tree.haplogroup_relationship \
+         WHERE child_haplogroup_id IN (SELECT twin_id FROM _tw) \
+            OR parent_haplogroup_id IN (SELECT twin_id FROM _tw)",
+    )
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query("DELETE FROM tree.haplogroup WHERE id IN (SELECT twin_id FROM _tw)")
+        .execute(&mut *tx)
+        .await?;
+
+    tx.commit().await?;
+    Ok(TwinReconcile { folded, skipped })
+}
+
 /// Mark the **backbone** of a lineage: the single-letter major clades (`A`–`T`)
 /// and every ancestor on the path from them to the root. Recomputed wholesale
 /// (clears then sets), so it stays correct as the tree changes. Returns the

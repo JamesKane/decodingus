@@ -174,6 +174,16 @@ async fn main() -> anyhow::Result<()> {
     // 3. Post-process the materialized tree (after a fresh --apply, or on demand
     //    via --reprocess; the merge itself is not safely re-runnable).
     if args.apply || args.reprocess {
+        // Reconcile ISOGG's split-clade stitch artifacts (X / X~ sibling twins)
+        // BEFORE backbone, since it changes tree structure.
+        let tw = du_db::haplogroup::reconcile_tilde_twins(&pool, dna).await?;
+        tracing::info!(folded = tw.folded, "reconciled same-parent ~ twins");
+        if !tw.skipped.is_empty() {
+            tracing::warn!(
+                count = tw.skipped.len(), nodes = ?tw.skipped,
+                "cross-parent ~ twins left for review (possible ISOGG curation)"
+            );
+        }
         let backbone = du_db::haplogroup::recompute_backbone(&pool, dna).await?;
         tracing::info!(backbone, "recomputed backbone (single-letter clades + ancestors)");
         let aliased = apply_aliases(&pool, root, dna).await?;
