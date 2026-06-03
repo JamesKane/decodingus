@@ -47,6 +47,17 @@ async fn by_name(pool: &PgPool, name: &str) -> Option<(Option<String>, String, V
     })
 }
 
+/// mutation_type for a variant by any of its names.
+async fn mtype(pool: &PgPool, name: &str) -> Option<String> {
+    sqlx::query_scalar(
+        "SELECT mutation_type::text FROM core.variant WHERE canonical_name=$1 OR aliases->'common_names' ? $1 LIMIT 1",
+    )
+    .bind(name)
+    .fetch_optional(pool)
+    .await
+    .unwrap()
+}
+
 #[tokio::test]
 async fn reconcile_folds_enriches_mints_and_is_idempotent() {
     let Some(url) = database_url() else {
@@ -76,6 +87,16 @@ async fn reconcile_folds_enriches_mints_and_is_idempotent() {
     .execute(&pool)
     .await
     .unwrap();
+    // A pre-existing variant MIS-TYPED as SNP that YBrowse clearly identifies as
+    // an insertion (T>TC) — enrich should upgrade its type.
+    sqlx::query(
+        "INSERT INTO core.variant (canonical_name, mutation_type, naming_status, coordinates) \
+         VALUES ('TESTYB-TYPEFIX','SNP'::core.mutation_type,'NAMED'::core.naming_status, \
+                 '{\"GRCh38\":{\"contig\":\"chrY\",\"position\":8910009,\"reference_allele\":\"T\",\"alternate_allele\":\"TC\"}}'::jsonb)",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
 
     // Mirror: synonym cluster; existing-name-match+synonym; provisional-only (YFS);
     // a STRAND-FLIP pair (A>G + T>C, #1); and a COORDINATE-only match (#2).
@@ -88,6 +109,11 @@ async fn reconcile_folds_enriches_mints_and_is_idempotent() {
         row("TESTYB-FWD", 8910004, "A", "G"),
         row("TESTYB-REV", 8910004, "T", "C"),
         row("TESTYB-COORD-NEW", 8910005, "A", "G"),
+        row("TESTYB-INDEL", 8910006, "ins", "del"),
+        row("TESTYB-INS-A", 8910007, "T", "TC"),
+        row("TESTYB-INS-B", 8910007, "TA", "TCA"),
+        row("TESTYB-MNP", 8910008, "GC", "AA"),
+        row("TESTYB-TYPEFIX-SYN", 8910009, "T", "TC"),
     ];
     du_db::ybrowse::upsert_mirror(&pool, &mirror).await.unwrap();
 
@@ -129,6 +155,22 @@ async fn reconcile_folds_enriches_mints_and_is_idempotent() {
         .await
         .unwrap();
     assert_eq!(dup, 0, "no duplicate row created for the coordinate-matched name");
+
+    // 6. INDELs: bare ins/del marker → INDEL type; T>TC and trim-equivalent
+    //    TA>TCA fold into one INDEL; an equal-length multi-base stays an MNP.
+    assert_eq!(mtype(&pool, "TESTYB-INDEL").await.as_deref(), Some("INDEL"), "ins/del marker typed INDEL");
+    let ins_a = by_name(&pool, "TESTYB-INS-A").await.expect("ins-a");
+    let ins_b = by_name(&pool, "TESTYB-INS-B").await.expect("ins-b");
+    assert_eq!(ins_a.0, ins_b.0, "T>TC and TA>TCA fold (trim-equivalent indels)");
+    assert_eq!(mtype(&pool, "TESTYB-INS-A").await.as_deref(), Some("INDEL"), "insertion typed INDEL");
+    let mnp = by_name(&pool, "TESTYB-MNP").await.expect("mnp");
+    assert_eq!(mnp.0.as_deref(), Some("TESTYB-MNP"), "MNP is its own variant (left alone)");
+    assert_eq!(mtype(&pool, "TESTYB-MNP").await.as_deref(), Some("MNP"), "equal-length multi-base typed MNP");
+
+    // 7. Enrich upgrades a pre-existing SNP that's clearly an indel (T>TC).
+    let typefix = by_name(&pool, "TESTYB-TYPEFIX-SYN").await.expect("typefix");
+    assert_eq!(typefix.0.as_deref(), Some("TESTYB-TYPEFIX"), "matched the existing variant by coordinate");
+    assert_eq!(mtype(&pool, "TESTYB-TYPEFIX").await.as_deref(), Some("INDEL"), "mis-typed SNP upgraded to INDEL");
 
     // 4. Idempotent: re-running creates nothing new and keeps the same canonicals.
     let before: i64 = sqlx::query_scalar(

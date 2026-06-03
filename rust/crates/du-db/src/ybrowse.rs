@@ -182,7 +182,7 @@ pub async fn reconcile(pool: &PgPool) -> Result<ReconcileReport, DbError> {
         "INSERT INTO core.variant (canonical_name, mutation_type, naming_status, aliases, coordinates, evidence) \
          SELECT \
            CASE WHEN c.min_rank >= 90 THEN core.next_du_name() ELSE c.names[1] END, \
-           'SNP'::core.mutation_type, \
+           core.ysnp_mutation_type(split_part(c.akey,'>',1), split_part(c.akey,'>',2))::core.mutation_type, \
            CASE WHEN c.min_rank >= 90 THEN 'NAMED' ELSE 'UNNAMED' END::core.naming_status, \
            jsonb_build_object('common_names', to_jsonb( \
              CASE WHEN c.min_rank >= 90 THEN c.names ELSE c.names[2:] END)), \
@@ -206,6 +206,11 @@ pub async fn reconcile(pool: &PgPool) -> Result<ReconcileReport, DbError> {
                UNION SELECT unnest(c.names) AS x) u WHERE x <> v.canonical_name), true), \
            coordinates = c.coords || v.coordinates, \
            evidence = v.evidence || c.evidence, \
+           mutation_type = CASE \
+             WHEN v.mutation_type = 'SNP' \
+              AND core.ysnp_mutation_type(split_part(c.akey,'>',1), split_part(c.akey,'>',2)) <> 'SNP' \
+             THEN core.ysnp_mutation_type(split_part(c.akey,'>',1), split_part(c.akey,'>',2))::core.mutation_type \
+             ELSE v.mutation_type END, \
            updated_at = now() \
          FROM _clv c WHERE array_length(c.vids, 1) = 1 AND v.id = c.vids[1]",
     )
