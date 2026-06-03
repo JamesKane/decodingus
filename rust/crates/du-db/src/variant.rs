@@ -150,9 +150,11 @@ pub async fn search(
     let term = query.map(str::trim).filter(|q| !q.is_empty());
 
     // Matches canonical_name or any element of the alias arrays, case-insensitive.
-    const FILTER: &str = "WHERE canonical_name ILIKE $1 \
+    // Unnamed variants (canonical_name IS NULL) are pre-publication — excluded
+    // from the public browser; they live in the naming queue (`du_db::naming`).
+    const FILTER: &str = "WHERE canonical_name IS NOT NULL AND (canonical_name ILIKE $1 \
         OR EXISTS (SELECT 1 FROM jsonb_array_elements_text(aliases->'common_names') a WHERE a ILIKE $1) \
-        OR EXISTS (SELECT 1 FROM jsonb_array_elements_text(aliases->'rs_ids') r WHERE r ILIKE $1)";
+        OR EXISTS (SELECT 1 FROM jsonb_array_elements_text(aliases->'rs_ids') r WHERE r ILIKE $1))";
 
     let (total, rows): (i64, Vec<VariantRow>) = if let Some(t) = term {
         let like = format!("%{t}%");
@@ -170,14 +172,16 @@ pub async fn search(
         .await?;
         (total, rows)
     } else {
-        let total: i64 = sqlx::query_scalar("SELECT count(*) FROM core.variant")
+        let total: i64 = sqlx::query_scalar("SELECT count(*) FROM core.variant WHERE canonical_name IS NOT NULL")
             .fetch_one(pool)
             .await?;
-        let rows = sqlx::query_as(&format!("{SELECT} ORDER BY canonical_name LIMIT $1 OFFSET $2"))
-            .bind(limit)
-            .bind(offset)
-            .fetch_all(pool)
-            .await?;
+        let rows = sqlx::query_as(&format!(
+            "{SELECT} WHERE canonical_name IS NOT NULL ORDER BY canonical_name LIMIT $1 OFFSET $2"
+        ))
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(pool)
+        .await?;
         (total, rows)
     };
 
@@ -197,7 +201,7 @@ pub async fn for_haplogroup_name(pool: &PgPool, name: &str) -> Result<Vec<Varian
          FROM core.variant v \
          JOIN tree.haplogroup_variant hv ON hv.variant_id = v.id AND hv.valid_until IS NULL \
          JOIN tree.haplogroup h ON h.id = hv.haplogroup_id \
-         WHERE h.name = $1 ORDER BY v.canonical_name",
+         WHERE h.name = $1 AND v.canonical_name IS NOT NULL ORDER BY v.canonical_name",
     )
     .bind(name)
     .fetch_all(pool)
@@ -205,17 +209,20 @@ pub async fn for_haplogroup_name(pool: &PgPool, name: &str) -> Result<Vec<Varian
     rows.into_iter().map(VariantRow::into_domain).collect()
 }
 
-/// Total variant count (for the export metadata endpoint).
+/// Total NAMED variant count (for the export metadata endpoint).
 pub async fn count(pool: &PgPool) -> Result<i64, DbError> {
-    Ok(sqlx::query_scalar("SELECT count(*) FROM core.variant").fetch_one(pool).await?)
+    Ok(sqlx::query_scalar("SELECT count(*) FROM core.variant WHERE canonical_name IS NOT NULL")
+        .fetch_one(pool)
+        .await?)
 }
 
-/// Every variant, ordered by canonical name (backs the live CSV export). Loads
-/// the full catalog into memory; fine at current scale.
+/// Every NAMED variant, ordered by canonical name (backs the live CSV export).
+/// Loads the full catalog into memory; fine at current scale.
 pub async fn export_all(pool: &PgPool) -> Result<Vec<Variant>, DbError> {
-    let rows: Vec<VariantRow> = sqlx::query_as(&format!("{SELECT} ORDER BY canonical_name"))
-        .fetch_all(pool)
-        .await?;
+    let rows: Vec<VariantRow> =
+        sqlx::query_as(&format!("{SELECT} WHERE canonical_name IS NOT NULL ORDER BY canonical_name"))
+            .fetch_all(pool)
+            .await?;
     rows.into_iter().map(VariantRow::into_domain).collect()
 }
 
