@@ -283,6 +283,13 @@ async fn main() -> anyhow::Result<()> {
                 tracing::info!(nodes = source.len(), "classifying prod tree by SNP anchor (dry-run)");
                 let report = du_db::snp_graft::classify(&pool, &source, dna).await?;
                 print_graft_report(&report);
+                // Phase 2 — enrich matched ISOGG nodes (DRY-RUN unless --apply).
+                let enr = du_db::snp_graft::enrich(&pool, &source, dna, &report, args.apply).await?;
+                tracing::info!(
+                    applied = enr.applied, anchors = enr.anchors,
+                    aliases_added = enr.aliases_added, backbone_set = enr.backbone_set,
+                    samples = ?enr.samples, "Phase 2 enrich"
+                );
             } else {
                 // Legacy exact-set merge (cannot reconcile cross-source trees).
                 let prod_roots = parse_prod_flat(&body);

@@ -106,6 +106,91 @@ fn is_ancestor(a: &str, n: &str, parent_of: &HashMap<String, String>) -> bool {
     false
 }
 
+/// Summary of an enrich pass (Phase 2).
+#[derive(Debug, Default)]
+pub struct EnrichReport {
+    /// Distinct ISOGG nodes enriched (one per matched anchor).
+    pub anchors: usize,
+    /// Total source-name aliases attached.
+    pub aliases_added: usize,
+    /// Anchors whose `is_backbone` is set from the source's curated flag.
+    pub backbone_set: usize,
+    pub applied: bool,
+    pub samples: Vec<String>,
+}
+
+/// **Phase 2 — enrich.** For every source node the classifier *matches* to an
+/// existing ISOGG node, fold the source's curated metadata onto that node:
+/// append the source name to `provenance.aliases` (union), adopt `is_backbone`
+/// (additively — never un-backbones), and record `provenance.source_updated`.
+/// Pure read + report when `apply` is false; a single transaction when true.
+pub async fn enrich(
+    pool: &PgPool,
+    source: &[SourceNode],
+    dna: DnaType,
+    classified: &GraftReport,
+    apply: bool,
+) -> Result<EnrichReport, DbError> {
+    let dna_label = pg_enum_label(&dna)?;
+    let by_name: HashMap<&str, &SourceNode> = source.iter().map(|n| (n.name.as_str(), n)).collect();
+
+    // Group matches by ISOGG anchor: (alias names, any-backbone, latest update).
+    use std::collections::BTreeMap;
+    let mut groups: BTreeMap<String, (Vec<String>, bool, Option<String>)> = BTreeMap::new();
+    for c in &classified.items {
+        if let Disposition::Match { anchor, .. } = &c.disposition {
+            let sn = by_name[c.node.as_str()];
+            let e = groups.entry(anchor.clone()).or_default();
+            e.0.push(sn.name.clone());
+            e.1 |= sn.is_backbone;
+            if sn.last_updated.is_some() && sn.last_updated > e.2 {
+                e.2 = sn.last_updated.clone();
+            }
+        }
+    }
+
+    let mut rep = EnrichReport { anchors: groups.len(), applied: apply, ..Default::default() };
+    for (aliases, bb, _) in groups.values() {
+        rep.aliases_added += aliases.len();
+        if *bb {
+            rep.backbone_set += 1;
+        }
+    }
+    for (anchor, (aliases, bb, upd)) in groups.iter().take(8) {
+        rep.samples.push(format!(
+            "{anchor} += {aliases:?}{}{}",
+            if *bb { " [backbone]" } else { "" },
+            upd.as_deref().map(|u| format!(" @{u}")).unwrap_or_default()
+        ));
+    }
+
+    if apply {
+        let mut tx = pool.begin().await?;
+        for (anchor, (aliases, bb, upd)) in &groups {
+            sqlx::query(
+                "UPDATE tree.haplogroup SET \
+                   is_backbone = is_backbone OR $3, \
+                   provenance = jsonb_set( \
+                     jsonb_set(COALESCE(provenance, '{}'::jsonb), '{aliases}', \
+                       (SELECT COALESCE(jsonb_agg(DISTINCT a), '[]'::jsonb) FROM ( \
+                          SELECT jsonb_array_elements_text(COALESCE(provenance->'aliases', '[]'::jsonb)) AS a \
+                          UNION SELECT unnest($2::text[])) u), true), \
+                     '{source_updated}', to_jsonb($5::text), true) \
+                 WHERE name = $1 AND haplogroup_type::text = $4 AND valid_until IS NULL",
+            )
+            .bind(anchor)
+            .bind(aliases)
+            .bind(bb)
+            .bind(&dna_label)
+            .bind(upd.as_deref())
+            .execute(&mut *tx)
+            .await?;
+        }
+        tx.commit().await?;
+    }
+    Ok(rep)
+}
+
 /// Classify every source node against the current ISOGG tree (read-only).
 pub async fn classify(pool: &PgPool, source: &[SourceNode], dna: DnaType) -> Result<GraftReport, DbError> {
     let dna_label = pg_enum_label(&dna)?;
@@ -169,10 +254,16 @@ pub async fn classify(pool: &PgPool, source: &[SourceNode], dna: DnaType) -> Res
                     None => true, // parent is novel/root — nothing to contradict
                     Some(pa) => pa == node || is_ancestor(pa, node, &parent_of),
                 };
+                // Major-clade guard: a source name encodes its clade (R1b-…, B-…),
+                // and ISOGG names are phylogenetic paths (R1b1a1b…), so the leading
+                // letter must agree — kills recurrent-SNP cross-lineage anchors
+                // (e.g. R1b-S5676 → B2) that are otherwise strong + consistent.
+                let clade_ok = sn.name.chars().next().map(|c| c.to_ascii_uppercase())
+                    == node.chars().next().map(|c| c.to_ascii_uppercase());
                 if !strong {
                     report.flag_weak += 1;
                     Disposition::Flag { reason: FlagReason::WeakPlurality, anchor: Some(node.clone()) }
-                } else if !consistent {
+                } else if !consistent || !clade_ok {
                     report.flag_inconsistent += 1;
                     Disposition::Flag { reason: FlagReason::ParentInconsistent, anchor: Some(node.clone()) }
                 } else {
