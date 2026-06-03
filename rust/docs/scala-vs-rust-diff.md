@@ -48,7 +48,7 @@ legacy subsystems deliberately gone.
 | Login / logout | ✅ | session cookie |
 | App-password auth | 🔁 | replaced by OAuth; app passwords deprecated |
 | Cookie consent | 🟡 | Rust: `POST /cookie-consent` + JS banner. Scala also had `GET /cookies/check`; Rust checks the cookie client-side |
-| Profile view | 🟡 | Rust `/profile` is **read-only**; Scala also had `POST /profile` (update display name) — not ported |
+| Profile view + update | ✅ | `/profile` shows account fields; `POST /profile` updates the display name (`du_db::auth::update_display_name`). **Built 2026-06** |
 | Language switch | ✅ | `/language/:lang` |
 | Y/MT tree — two SVG cladogram render modes (horizontal + vertical) | ✅ | **Rewritten 2026-06** (`du-web/tree_layout.rs` ports `TreeLayoutService`): server-computed inline SVG, breadcrumb re-root, `?orient=h\|v` toggle persisted to `tree_orient` cookie, search-by-name-or-variant, backbone/recent node coloring + legend, fixed depth window (re-root descends) replacing the legacy backbone-collapse. `/ytree /mtree`, HTMX `#tree-container` fragment, `/api/v1/{y,mt}-tree` |
 | SNP sidebar fragment | ✅ | `GET /{y,mt}tree/snp/:name` → HTMX `#snpSidebar`; lists defining variants (name/type/aliases/coords) |
@@ -170,9 +170,9 @@ ibd, social, billing` + audit + coverage-mirror + fed-reporting.
   sequencer-lab inference, PDS fleet. (STR profiles were **brought back into
   scope** 2026-06 — Phase 1 shipped; prediction is Phase 2.)
 - **In scope, not yet built:** haplogroup restructure as discrete curator ops,
-  profile update, region management API/bootstrap, per-lab coverage fragments.
-  (Built 2026-06: change-set conflict-resolution UI + `wip_*` staging — §2
-  `/curator/reviews`; publication-candidate review UI — §2 `/curator/publications`;
-  public DOI-submit form — §1 `/references/submit`.)
+  region management API/bootstrap, per-lab coverage fragments. (Built 2026-06:
+  change-set conflict-resolution UI + `wip_*` staging — §2 `/curator/reviews`;
+  publication-candidate review UI — §2 `/curator/publications`; public DOI-submit
+  form — §1 `/references/submit`; profile update — §1 `POST /profile`.)
 - **Externally gated:** confidential-OAuth Edge joint test; current-schema dump
   for ETL cutover (see STATUS "Cutover blocker").
