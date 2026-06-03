@@ -46,7 +46,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // YBrowse variant ingest (GRCh38 VCF -> lift to GRCh37/hs1 -> core.variant).
-    // Registered only when configured (YBROWSE_VCF + chain paths).
+    // Registered only when configured (YBROWSE_GFF + chain paths).
     if let Some(cfg) = ybrowse::Config::from_env() {
         let pool = pool.clone();
         sched.register(Job::new("ybrowse-variant-ingest", Duration::from_secs(86_400), move || {
@@ -56,7 +56,7 @@ async fn main() -> anyhow::Result<()> {
         }));
         tracing::info!("ybrowse-variant-ingest registered");
     } else {
-        tracing::info!("ybrowse-variant-ingest not configured (set YBROWSE_VCF + chain paths)");
+        tracing::info!("ybrowse-variant-ingest not configured (set YBROWSE_GFF + chain paths)");
     }
 
     // Publication jobs (OpenAlex). Enabled when OPENALEX_MAILTO is set.
