@@ -58,7 +58,7 @@ legacy subsystems deliberately gone.
 | Public "submit publication" DOI form | ✅ | **Built 2026-06** `GET/POST /references/submit` (`references.rs`): resolves the DOI via OpenAlex and queues a pending `publication_candidate` for curator review (never a published reference directly) — feeds `/curator/publications`. reCAPTCHA-guarded when configured |
 | Biosample map (PostGIS) + geo-data + studies API | ✅ | |
 | Coverage benchmarks UI + API | ✅ | |
-| Coverage per-lab list + lab-benchmark fragments | 🟡 | Scala had `/coverage/labs` + per-lab HTMX fragments; Rust serves the aggregate benchmark only |
+| Coverage per-lab list + lab-benchmark fragments | ✅ | **Built 2026-06** `/coverage/labs` (two-panel: labs list + per-lab test-type fragment), alongside the flat `/coverage-benchmarks` |
 | Genome-regions public API (builds + by-build) | ✅ | |
 | Contact form | ✅ | `/contact` → `support.contact_message` (+ reCAPTCHA when configured) |
 | My-messages (user threads + badge) | ➖ | rides social/messaging (out of scope) |
@@ -169,11 +169,12 @@ ibd, social, billing` + audit + coverage-mirror + fed-reporting.
   matching, social/reputation/messaging, group projects, patronage/billing,
   sequencer-lab inference, PDS fleet. (STR profiles were **brought back into
   scope** 2026-06 — Phase 1 shipped; prediction is Phase 2.)
-- **In scope, not yet built:** region management API/bootstrap, per-lab coverage
-  fragments. (Built 2026-06: change-set conflict-resolution UI + `wip_*` staging —
-  §2 `/curator/reviews`; publication-candidate review UI — §2
-  `/curator/publications`; public DOI-submit form — §1 `/references/submit`;
-  profile update — §1 `POST /profile`; haplogroup restructure ops — §2
-  `/curator/haplogroups`.)
+- **In scope, not yet built:** region management API + bootstrap-from-CHM13 (the
+  S3/CHM13 liftover pipeline; the region CRUD UI already exists). (Built 2026-06:
+  change-set conflict-resolution UI + `wip_*` staging — §2 `/curator/reviews`;
+  publication-candidate review UI — §2 `/curator/publications`; public DOI-submit
+  form — §1 `/references/submit`; profile update — §1 `POST /profile`; haplogroup
+  restructure ops — §2 `/curator/haplogroups`; per-lab coverage drill-down — §1
+  `/coverage/labs`.)
 - **Externally gated:** confidential-OAuth Edge joint test; current-schema dump
   for ETL cutover (see STATUS "Cutover blocker").
