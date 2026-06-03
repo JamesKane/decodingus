@@ -1,12 +1,20 @@
 # DecodingUs — Rust port
 
-A work-in-progress rewrite of the DecodingUs platform (originally Play Framework
-/ Scala 3) in Rust. It coexists with the Scala app under `rust/` during the
-transition and will replace it at a single cutover.
+A rewrite of the DecodingUs platform (originally Play Framework / Scala 3) in
+Rust. It coexists with the Scala app during the transition and replaces it at a
+single cutover. The Rust app is the **AppView**: a curated Y/mtDNA phylogenetic
+catalog, a public read surface + JSON API, the curator tooling, and
+privacy-preserving federated *reporting* (it aggregates, it does not analyze).
 
-**Status:** foundation + public read surface + auth/curator + ETL are working and
-verified against a live PostGIS database. Workspace builds clean; **11/11 tests
-pass**. Not yet production-complete — see [Roadmap](#roadmap).
+**Status:** the spine is done — redesigned schema, data layer, public HTML/HTMX +
+JSON API, auth + the full curator suite, tree versioning + merge + SNP-graft, the
+production ETL, the YBrowse ingestion pipeline, the variant naming authority, and
+the federated reporting mirror. Workspace builds clean; live-DB integration tests
+(gated on `DATABASE_URL`) + unit tests pass. The main remaining mass is the live
+AT-Protocol OAuth handshake (verified to consent locally; confidential round-trip
+is an Edge joint test) and the ETL cutover. See [Roadmap](#roadmap). A living,
+detailed status lives in [`STATUS.md`](STATUS.md); the feature-by-feature
+comparison with the Scala app is in [`docs/scala-vs-rust-diff.md`](docs/scala-vs-rust-diff.md).
 
 ---
 
@@ -27,108 +35,181 @@ pass**. Not yet production-complete — see [Roadmap](#roadmap).
 | Templates | **Askama** (compile-time typed, Twirl analog) |
 | Frontend | **HTMX** 2 + Bootstrap 5 (vendored), HATEOAS-first |
 | Database | **SQLx** 0.8 (Postgres, runtime-checked queries) |
-| Genomics | `du-bio` — coordinate math + text parsing (VCF/BED/chain liftover). Raw reads (BAM/CRAM) + calling are out of scope (done in Navigator) |
+| Genomics | `du-bio` — coordinate math + text parsing (VCF / BED callable-loci / UCSC-chain liftover); the YBrowse GFF3 parser lives in `du-jobs`. Raw reads (BAM/CRAM) + calling are out of scope (done in Navigator) |
 | Async | **tokio** |
-| Auth | Argon2 (bcrypt-verify fallback), signed-cookie sessions |
+| Auth | AT Protocol OAuth (PKCE/DPoP/`private_key_jwt`); legacy Argon2 sessions for dev/curator seeding |
+| External | OpenAlex, ENA, NCBI/PubMed; AWS SES + Secrets Manager behind the `aws` feature; reCAPTCHA |
 | i18n | embedded `key=value` catalogs (en/es/fr) |
 | Local Postgres | Apple `container` running `imresamu/postgis` (arm64) |
 
 ## Workspace layout
 
-Shared crates live in the sibling **`decodingus-shared`** repo (also used by
-Navigator); decodingus pulls them via path deps (→ git deps once pushed):
+Shared crates live in the sibling **`decodingus-shared`** repo (also consumed by
+Navigator), pulled in as **git deps pinned to a rev** in `Cargo.toml` (so the
+Docker build needs no sibling path). To co-develop locally, add a `[patch]`
+pointing the three deps back at the sibling working tree.
 
 ```
-../decodingus-shared/crates/
-    du-domain/    pure types/enums/IDs + JSONB payload structs, no IO
+github.com/JamesKane/decodingus-shared  (separate repo)
+    du-domain/    pure types/enums/IDs + JSONB payload structs + the merge algorithm, no IO
     du-atproto/   AT Protocol identity/crypto + OAuth client (PKCE/DPoP/metadata)
-    du-bio/       genomics: callable-loci (BED), liftover (UCSC chain), VCF, YBrowse
+    du-bio/       genomics: callable-loci (BED), liftover (UCSC chain), VCF reader
 
 rust/                          (this repo — AppView/server-specific)
   crates/
-    du-db/        SQLx pool + per-aggregate query modules
-    du-external/  OpenAlex / ENA / AWS SES / Secrets — scaffold
-    du-web/        Axum app: routes, Askama templates, i18n, HTMX, auth, OAuth
-    du-jobs/       tokio scheduler harness + DB heartbeat (real jobs as clients land)
-    du-migrate/    one-time legacy -> new-schema ETL
-  migrations/     redesigned schema (0001–0009)
+    du-db/        SQLx pool + per-aggregate query modules + versioning/merge/graft/naming/ybrowse engines
+    du-external/  OpenAlex / ENA / NCBI / AWS SES / Secrets clients
+    du-web/        Axum app: routes, Askama templates, i18n, HTMX, auth, OAuth, JSON API
+    du-jobs/       tokio scheduler + scheduled jobs + the Jetstream reporting-mirror consumer
+    du-migrate/    legacy → new-schema ETL + the `decodingus-tree-init` ISOGG/graft loader
+  migrations/     redesigned schema (0001–0020)
   locales/        en / es / fr message catalogs
+  docs/           STATUS pointers, Scala↔Rust diff, AT-Proto OAuth findings
   scripts/        test-db.sh (Apple container), mock-legacy.sql
   Dockerfile, compose.yaml, .env.example
 ```
 
-## Schema redesign (`migrations/0001`–`0009`)
+## Schema redesign (`migrations/0001`–`0020`)
 
-Ten Postgres schemas: `core`, `tree`, `genomics`, `pubs`, `ident`, `ibd`, `fed`,
-`social`, `support`, `billing`. Key de-sprawl moves:
+Postgres schemas: `core`, `tree`, `genomics`, `pubs`, `ident`, `fed`, `ibd`,
+`social`, `support`, `billing`, `source`. Key de-sprawl moves:
 
 - **3 biosample tables → 1** `core.biosample` (a `source` enum discriminator +
   `source_attrs` JSONB).
 - **Deprecated child tables folded into JSONB** on their parents (variant aliases
   & coordinates, sequence-file checksums/locations, alignment coverage, original
-  haplogroups).
+  haplogroups, per-revision tree metadata).
 - The legacy second **"metadata" database collapses into the `fed` schema**.
 - Scattered `at_uri`/`at_cid` columns → one consistent **`atproto` JSONB** column.
+- **Tree** is temporal: no `parent_id`; hierarchy lives in
+  `tree.haplogroup_relationship` with bitemporal `valid_from`/`valid_until`.
+- **Universal variant model**: one `core.variant` per physical SNP;
+  `canonical_name` (nullable — unnamed variants are identified by coordinates),
+  `aliases`/`coordinates`/`evidence` JSONB, `naming_status`, `mutation_type`.
 - PostGIS (`geometry(Point,4326)`), `citext`, native enums, GIN/GiST/expression
   indexes on queried JSONB paths.
 
 ## What's implemented
 
-**Public surface** (server-rendered, HTMX, i18n en/es/fr):
+### Public surface (server-rendered, HTMX, i18n en/es/fr)
 
 | Area | Routes |
 |---|---|
-| Home | `/` |
-| Variant browser | `/variants` (+ list/detail fragments; JSONB alias search) |
-| Y/MT tree | `/ytree` `/mtree` (unified page/fragment via `HX-Request`) |
-| References + biosample report | `/references` (+ list / per-publication report) |
-| Biosample map | `/biosamples/map` (PostGIS `ST_X/ST_Y` → Leaflet GeoJSON) |
-| Coverage benchmarks | `/coverage-benchmarks` (coverage-JSONB aggregation) |
-| Health | `/health` |
+| Home / about / FAQ / terms / privacy / app-password help | `/` `/about` `/faq` `/terms` `/privacy` `/help/app-password` |
+| Variant browser | `/variants` (+ fragments; JSONB alias/rs-id search) |
+| Y/MT tree — two SVG cladograms (horizontal + vertical) | `/ytree` `/mtree` (breadcrumb re-root, orientation toggle, name/variant search, SNP sidebar, backbone/recent coloring) |
+| References + per-publication biosamples; suggest-a-paper | `/references` (+ report), `/references/submit` (public DOI → candidate queue) |
+| Biosample map (PostGIS → Leaflet GeoJSON) | `/biosamples/map` `/biosamples/geo-data` |
+| Coverage benchmarks + per-lab drill-down | `/coverage-benchmarks` `/coverage/labs` |
+| Profile (view + display-name update); contact (reCAPTCHA) | `/profile` `/contact` |
+| sitemap / robots / health; cookie-consent banner | `/sitemap.xml` `/robots.txt` `/health` `/cookie-consent` |
+| Public JSON API + OpenAPI 3 / Swagger UI | `/api`, `/api/v1/*` (see below) |
 
-**Auth & curator** (Argon2 + signed-cookie sessions, RBAC):
+### Public JSON API (`/api/v1/*`, OpenAPI at `/api`)
 
-- `/login` `/logout`; `Curator` route guard (`TreeCurator`/`Admin`).
-- Two-panel HTMX CRUD for **haplogroups**, **variants**, and **genome regions**
-  (the region editor edits the coordinates/properties JSONB as validated JSON).
-  Mutations are server-driven via `HX-Trigger` (the panel returns + the list
-  reloads), with delete guards for referenced rows.
+Y/MT tree, coverage benchmarks, references + biosamples, biosample studies,
+variant search/detail/by-haplogroup, variant **CSV** + **GFF3** export, genome
+regions, STR signature + prediction, branch age, and federated population
+**reports** (`/reports/{coverage,ancestry,haplogroups}`).
 
-**ETL** (`du-migrate`): legacy → new schema, preserving PKs and `sample_guid` so
-FKs carry over 1:1; idempotent; applies target migrations then runs the
-transformers + a reconciliation pass. The transformers are written against the
-**current production schema** (`db.schema`): positional `public.variant` +
-`variant_alias` → JSONB `coordinates`/`aliases`; the three biosample tables +
-their `*_original_haplogroup` tables → unified `core.biosample` with `atproto`
-and `original_haplogroups` JSONB; `tree.haplogroup` age bounds → `provenance`
-JSONB; both publication↔(std|citizen)biosample link tables → one
-`pubs.publication_biosample` on `sample_guid`. The **ident/auth** group carries
-UUID PKs over 1:1 (`public.users`→`ident.users`, the `auth.*` RBAC/OAuth/PDS/
-consent tables, and `curator.audit_log`→`ident.audit_log`); pre-seeded base
-roles are relocated onto the legacy role UUIDs so `user_roles` FKs resolve, and
-`password_hash` stays NULL (production auth is AT Protocol OAuth, not passwords).
-The **genomics** group folds the `alignment_coverage` /
-`pangenome_alignment_coverage` child tables (plus inline Picard metrics) into the
-`coverage`/`metadata` JSONB the coverage page reads (`meanDepth`,
-`percent_coverage_at_10x`), resolves `sequence_library.lab` names to migrated lab
-ids, dedups `sequencer_instrument` on `instrument_id`, and skips soft-deleted
-`genotype_data`. Validated two ways: schema-only
-against `db.schema` (0 column errors) and end-to-end against a current-schema
-mock with seed data (all 10 aggregates reconcile; JSONB shapes spot-checked).
-See below.
+### Auth & curator
+
+AT Protocol **OAuth** (`/login/atproto`, dev public-client path); legacy
+signed-cookie sessions for dev. `Curator` RBAC guard. The curator dashboard
+(`/curator`) links a full suite:
+
+| Tool | Route | What |
+|---|---|---|
+| Haplogroups | `/curator/haplogroups` | CRUD + structural ops: **reparent / merge-into-parent / split** (direct temporal edits, cycle/name guards) |
+| Variants | `/curator/variants` | CRUD; alias/coordinate JSONB editing |
+| Genome regions | `/curator/regions` | CRUD (coordinates/properties JSONB) |
+| Curation proposals | `/curator/proposals` | review/promote Navigator-submitted branch proposals → catalog |
+| Publication candidates | `/curator/publications` | review OpenAlex discoveries → promote to references |
+| Change-sets | `/curator/change-sets` | tree-versioning lifecycle + diff + per-change review/apply |
+| Merge review | `/curator/reviews` | resolve SNP-graft flags / merge ambiguities via the `wip_*` staging tables (accept-anchor / reparent / merge / defer) |
+| Variant naming | `/curator/naming` | the **DU naming authority**: queue + mint `DUxxxxx` + lifecycle |
+| Reconcile flags | `/curator/reconcile-flags` | merge YBrowse synonym clusters split across catalog variants |
+
+A separate **management API** for machine/curator callers lives under
+`/manage/*` (change-set lifecycle, `/manage/haplogroups/merge[/preview]`,
+`/manage/curation/proposals` X-API-Key intake) — deliberately outside the public
+`/api/v1`.
+
+### Tree versioning, merge & SNP-graft
+
+- **Change-set** lifecycle (DRAFT → READY_FOR_REVIEW → UNDER_REVIEW →
+  APPLIED/DISCARDED), per-change review, diff, and a temporal apply engine
+  (CREATE/UPDATE/DELETE/REPARENT/VARIANT_EDIT) — including a **WIP pass** that
+  enacts curator merge-review resolutions.
+- **Tree merge** (Identify-Match-Graft) — a pure `du-domain::merge`
+  re-implementation against curated fixtures (the legacy was buggy):
+  subtree-scoped matching, ambiguity-flagged-not-guessed, materialized into a
+  reviewable change-set.
+- **SNP-anchored graft** (`du-db::snp_graft`) — reconciles an external source tree
+  (decoding-us now, ytree.net later) into the ISOGG foundation by SNP plurality:
+  enrich matches, graft truly-novel branches, flag the rest for curator review.
+
+### Variant Naming Authority
+
+DecodingUs owns the `DU` Y-variant prefix. `core.du_variant_name_seq` +
+`core.next_du_name()`, a curator naming queue (`UNNAMED`→`PENDING_REVIEW`→`NAMED`,
+mint-on-assign with same-coordinate dedup), and a GFF3 propagation export
+(`/api/v1/variants/export.gff`).
+
+### YBrowse ingestion (the central authority document)
+
+`snps_hg38.gff3` (~3M SNP lines, full snapshot, no deltas) is streamed into the
+verbatim **`source.ybrowse_snp` mirror**; `du-db::ybrowse::reconcile` then
+*derives* `core.variant` so curator decisions survive every re-ingest:
+synonyms fold deterministically (strand-canonical key; INDELs VCF-trim-normalized;
+MNPs left intact), existing catalog variants match by name **or coordinate** and
+are enriched in place (canonical/`naming_status` locked), and clusters split
+across multiple existing rows are flagged for `/curator/reconcile-flags`.
+
+### Federation (outbound, summaries only)
+
+A long-lived **Jetstream consumer** mirrors Navigator's published anonymized
+computed-summary records into dedicated `fed.*` reporting tables (PII-bearing
+records keep typed anonymized columns only). Reports aggregate via query-time SQL.
+The inbound credential-holding firehose / PDS-fleet model is **dropped**;
+curators submit branch proposals through the machine-auth intake endpoint.
+
+### Genomics, STR & age
+
+`du-bio` (BED callable-loci, UCSC chain liftover, VCF). Y-STR per-branch modal
+signatures + STR→branch prediction + STR-variance age; a combined branch-age
+estimate (McDonald 2021: SNP-Poisson + STR + genealogical/aDNA anchor terms,
+inverse-variance combined) gap-filling `tmrca_ybp`.
+
+### Scheduled jobs (`du-jobs`)
+
+`db-heartbeat`, `ybrowse-variant-ingest` (GFF3 → mirror → reconcile),
+`publication-update` (OpenAlex), `publication-discovery`,
+`publication-pubmed-update` (NCBI), `ena-study-enrichment`,
+`branch-age-recompute` (STR + combined age) — plus the Jetstream reporting-mirror
+consumer. Error-isolated; each registers only when its env config is present.
+
+### ETL (`du-migrate`)
+
+Legacy → new schema, preserving PKs and `sample_guid` so FKs carry over 1:1;
+idempotent; runs target migrations then the transformers + a reconciliation pass.
+Covers the full production surface — catalog (donors, biosamples, variants, tree,
+studies, publications), ident/auth (users, RBAC, AT-Protocol OAuth/PDS, consent,
+audit), and genomics (labs, instruments, test types, libraries/files, alignment +
+pangenome coverage, genotype data, pangenome graph). Validated against `db.schema`
+(schema-only) and a current-schema mock with seed data. `decodingus-tree-init`
+seeds the Y tree from ISOGG and grafts the decoding-us production tree.
 
 ## Getting started
 
 ### Prerequisites
 
-- Rust (stable/nightly) — `cargo`.
+- Rust (stable) — `cargo`.
 - **Apple `container`** for the local database. First run once:
   ```sh
   container system start        # installs the default Linux kernel on first run
   ```
   (No Docker required. Any `DATABASE_URL` also works as a fallback.)
-- *Optional:* `sqlx-cli` (`cargo install sqlx-cli --no-default-features --features postgres,rustls`)
-  to auto-apply migrations and, later, enable compile-time `query!` checking.
 
 ### Run the app
 
@@ -137,13 +218,16 @@ See below.
 eval "$(./scripts/test-db.sh up)"      # Apple container gives it its own IP
 
 # Run the web server (connects + applies migrations on startup):
-cargo run -p du-web --bin decodingus   # serves on http://localhost:9000
+DATABASE_URL=... APP_SECRET=<32+ chars> cargo run -p du-web   # serves on :9000 (PORT to change)
 ```
 
 Apple `container` assigns each container its own IP (no `localhost` port
 forwarding), so `test-db.sh` discovers it and emits the right `DATABASE_URL`
 (e.g. `postgres://postgres:dev@192.168.64.2:5432/decodingus`). Stop it with
 `./scripts/test-db.sh down`.
+
+> **Gotcha:** if a *committed* migration changes, recreate the dev DB — SQLx
+> errors on a checksum mismatch.
 
 ### Seed a curator (to use the curator tools)
 
@@ -161,9 +245,9 @@ cargo test --workspace
 ```
 
 Integration tests are gated on `DATABASE_URL`: with it set they run against the
-live PostGIS (migrations, JSONB round-trips, query modules); without it they skip
-and the suite stays green. The i18n test enforces that es/fr cover every English
-key.
+live PostGIS (migrations, JSONB round-trips, query modules, the apply/merge/graft/
+reconcile engines); without it they skip and the suite stays green. The i18n test
+enforces that es/fr cover every English key.
 
 ## Running the ETL
 
@@ -177,100 +261,57 @@ decodingus-migrate \
 decodingus-migrate --legacy ... --target ... --verify   # counts only
 ```
 
-Verify the transformers locally first with the mock legacy DB:
+Verify the transformers locally first with the mock legacy DB (`scripts/mock-legacy.sql`).
+
+> ⚠️ The transformer `SELECT`s encode the production column layout — validate
+> against the live EC2 schema (or a current-schema dump) before the production run.
+
+## Seeding / ingesting the tree & variants
 
 ```sh
-# create decodingus_legacy + decodingus_etl, load scripts/mock-legacy.sql into the
-# former and the migrations into the latter, then run the ETL between them.
-```
+# Seed the Y tree from ISOGG, then graft the decoding-us prod tree (Phase 2/3/4):
+decodingus-tree-init --isogg /path/isogg_full_tree.json --apply
+decodingus-tree-init --merge-prod https://decoding-us.com/api/v1/y-tree --snp-graft --graft --apply
+decodingus-tree-init --merge-prod ... --snp-graft --stage-review   # → /curator/reviews
 
-> ⚠️ The transformer `SELECT`s encode the *reconstructed* legacy column layout.
-> Validate them against the live EC2 schema before the production run.
+# YBrowse variant ingest (mirror + reconcile); deploy-time, large file:
+YBROWSE_GFF=/path/snps_hg38.gff3 [YBROWSE_CHAIN_GRCH37=… YBROWSE_CHAIN_HS1=…] cargo run -p du-jobs
+```
 
 ## Deploy
 
 Multi-stage `Dockerfile` builds a single binary on a slim runtime (no JRE, no C
-deps); `compose.yaml` runs it with `postgis/postgis`. `SQLX_OFFLINE=true` is set
-for DB-less builds.
+deps); `compose.yaml` runs it with `postgis/postgis`. `SQLX_OFFLINE=true` for
+DB-less builds. The shared crates are git deps (no sibling path needed in the
+build context).
 
 ## Roadmap
 
-- [x] Workspace + redesigned schema (verified on live PostGIS)
-- [x] `du-db` query modules + read-side domain types
-- [x] Public read surface (trees, variants, references, map, coverage)
-- [x] Asset vendoring, i18n (en/es/fr), `HX-Request` negotiation
-- [x] Session auth + RBAC; curator CRUD (haplogroups, variants, regions)
-- [x] Tree versioning: change-set lifecycle (DRAFT→READY_FOR_REVIEW→
-      UNDER_REVIEW→APPLIED/DISCARDED), per-change review/approve-all, diff, and
-      an apply engine that writes the production tree via the temporal edge model
-      (CREATE/UPDATE/DELETE/REPARENT/VARIANT_EDIT) — curator-gated management API
-      at `/api/v1/manage/change-sets/*`; apply engine integration-tested
-- [x] Tree merge (Identify-Match-Graft) — pure `du-domain::merge` re-implementation
-      against curated fixtures (legacy was buggy): subtree-scoped matching
-      (recurrent-SNP guard), FULL_MATCH / node-contraction-with-downflow /
-      descendant-insert / new-subtree, ambiguity-flagged-not-guessed. Emits a
-      reviewable `MergePlan` (placeholder-chained ops + ambiguities)
-- [x] Tree merge wiring: `du-db::merge::materialize` turns a `MergePlan` into a
-      READY_FOR_REVIEW change-set (placeholder-chained `tree_change` rows); the
-      apply engine resolves placeholders → real ids within its transaction; merge
-      + preview endpoints at `/api/v1/manage/haplogroups/merge[/preview]`.
-      End-to-end tested (existing_tree → merge → materialize → review → apply)
-      for new-subtree chains and node contraction with variant downflow
-- [x] Public JSON API (`/api/v1/*`): tree (y/mt), coverage benchmarks,
-      references + per-publication biosamples, biosample studies, variant
-      search/detail/by-haplogroup, variant CSV export, genome-region builds —
-      clean DTOs, OpenAPI 3 spec + Swagger UI at `/api` (utoipa, Tapir analog)
-- [x] `du-migrate` ETL: catalog aggregates (donors, biosamples, variants, tree,
-      studies, publications), **ident/auth** (users, RBAC, AT Protocol OAuth/PDS,
-      consent, curator audit), and **genomics** (labs, instruments, test types,
-      sequencing libraries/files, alignment + pangenome coverage, genotype data,
-      pangenome graph) — verified vs current-schema mock DB. This is the full
-      production ETL surface (ibd/fed/social/billing are not yet in production).
-- [ ] ETL: validate read SQL against a current-schema dump or read-only EC2
-      rehearsal before cutover
-- [x] `du-bio` core: callable-loci (BED), liftover (UCSC chain), VCF reader
-- [x] `du-jobs` scheduler harness (tokio; error-isolated jobs + run-on-start)
-- [x] `du-external` OpenAlex + ENA clients (parsing unit-tested; abstract
-      reconstruction from the inverted index) + publication jobs
-      (`publication-update` enrichment by DOI, `publication-discovery` by search;
-      rate-limited, env-gated on `OPENALEX_MAILTO`) — verified live against OpenAlex
-- [x] `du-external` transactional email (`Mailer`) + secrets (`CachedSecrets`,
-      1h TTL): logging mailer + env-secret source by default (testable/lean);
-      Amazon SES v2 + Secrets Manager behind the optional `aws` feature
-      (compiles; prod builds with `--features aws`). Consumers wired as the
-      contact/patron flows + secret-backed config land.
-- [x] YBrowse variant ingest: GRCh38 VCF → lift to GRCh37/hs1 (chain files) →
-      multi-build `core.variant` upsert (`du-bio::ybrowse` + `du-jobs`, env-gated)
-- [ ] Remaining ingestion (HipSTR, genome regions); publication/match jobs once
-      du-external lands. (Raw reads BAM/CRAM + variant calling are out of scope —
-      Navigator does local calling; the AppView aggregates summaries/proposals.)
-- [x] AT Protocol identity/crypto core (`du-atproto`): DID/AT-URI parse, did:key
-      Ed25519 verification, DID-doc/PDS resolution
-- [x] AT Protocol OAuth **client wiring** — confidential web client
-      (`private_key_jwt`/DPoP/ES256, client-metadata + JWKS, PAR/token flow) **and**
-      public-client builders (PKCE-only) for the Navigator desktop app to reuse.
-      See `docs/atproto-oauth-findings.md` + `docs/atproto-edge-reply.md`.
-- [x] Curation **proposal intake** (`POST /api/v1/curation/proposals`, X-API-Key →
-      OAuth bearer later) with pooling/consensus, and a curator **review queue**
-      (`/curator/proposals`: list/detail/approve-reject-defer → `curator_action`).
-      Manual sample-entry APIs intentionally **dropped** (curators work in Navigator).
-- [x] **Promote** an accepted proposal into the named catalog: creates the
-      `tree.haplogroup` branch under its parent + relationship edge + `core.variant`
-      links from the evidence (status → PROMOTED, `curator_action` recorded);
-      the branch appears immediately in the public Y/MT tree.
-- [ ] Federated ingest, remaining: **Jetstream/relay discovery** (URI index)
-      + on-demand coverage aggregation. NB: standard relay/Jetstream
-      ingest stays (reads are out of OAuth scope); only the custom REST/Kafka relay
-      is dropped.
-- [x] Extracted `du-domain`/`du-atproto`/`du-bio` to the sibling `decodingus-shared`
-      repo (consumed via path deps for now); haploid caller stays Navigator-only.
-      **Follow-up:** push `decodingus-shared` to a remote, then flip the three deps
-      to git deps (pinned tag) — also fixes the Docker build (path deps to a
-      sibling aren't in the `rust/` build context).
-- [ ] `du-external` remaining: reCAPTCHA (contact form); wire ENA study
-      enrichment + the SES mailer / secret-backed config into their consumers
-- [ ] Tree-versioning change-sets; haplogroup↔variant association editing
-- [ ] Vendor remaining assets; full OpenAPI parity; cutover rehearsal
+**Done** (✅): redesigned schema + temporal tree; `du-db` aggregates; public read
+surface + JSON API + OpenAPI; auth + the full curator suite; tree versioning +
+merge + SNP-graft + curator merge-review; the variant naming authority; YBrowse
+GFF3 ingestion (mirror + reconcile, synonym/strand/INDEL handling); federated
+reporting mirror + reports; STR signature/prediction + combined branch age;
+`du-bio` core; the scheduled-job suite; the full production ETL; shared crates
+extracted to `decodingus-shared` (git deps).
 
-> The tree-merge algorithm is a known-buggy area in the legacy app and will be
-> re-implemented (not faithfully ported) when that subsystem lands.
+**Remaining, in scope** (⬜):
+
+- [ ] **AT-Protocol OAuth — live handshake.** Client wiring is built and verified
+      to the consent page against a local PDS; the confidential
+      `private_key_jwt` round-trip is the **Edge joint test** (see
+      `docs/atproto-oauth-findings.md`).
+- [ ] **ETL cutover.** Validate the transformer SQL against a current-schema dump
+      or read-only EC2 rehearsal, then `decodingus-migrate --verify`.
+- [ ] **Region management API + bootstrap-from-CHM13** (the S3/CHM13 pipeline; the
+      region CRUD UI already exists).
+- [ ] **Discovery automation** — the curator review/promote half is built; the
+      automated half (private-variant capture, consensus, auto-reassignment) is
+      forward work.
+- [ ] **Multi-test-type completion** — taxonomy + chip ingest exist; marker
+      coverage / confidence scoring tables are forward work.
+
+**Out of scope / not in production** (➖): inbound PDS firehose + fleet, IBD
+matching, social/messaging/reputation, group projects, patronage/billing,
+sequencer-lab inference, AppView→PDS backfeed (superseded by the outbound mirror /
+notify-fetch direction). Several have placeholder tables but no logic.
