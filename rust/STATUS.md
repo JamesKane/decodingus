@@ -89,8 +89,8 @@ APP_SECRET="<any 32+ char string>"   # signs session cookies
   `materialize` → change-set via placeholder-chained `tree_change`; apply resolves
   placeholders. Endpoints `/manage/haplogroups/merge[/preview]`.
   Fixtures + end-to-end tests pass.
-- **`du-bio`** — BED callable-loci, UCSC chain liftover, VCF reader, YBrowse ingest.
-- **`du-bio`** — BED callable-loci, UCSC chain liftover, VCF reader, YBrowse ingest.
+- **`du-bio`** — BED callable-loci, UCSC chain liftover, VCF reader. (YBrowse
+  ingest now parses the `snps_hg38.gff3` directly — see `du-jobs/ybrowse` below.)
 - **Federated reporting mirror** (`du-db/src/fed/`, `du-jobs/jetstream.rs`,
   migrations 0011–0012) — the AppView **aggregates and reports; it does not
   analyze.** A long-lived Jetstream consumer mirrors Navigator's published
@@ -132,7 +132,9 @@ APP_SECRET="<any 32+ char string>"   # signs session cookies
   data-gated (emit where private-variant/callable-loci/anchor data exists — sparse
   until ETL cutover/curation). Unit (combine) + live-DB tested. Remaining: a
   per-sample/`formed_ybp` refinement + aDNA-calibration weighting.
-- **`du-jobs`** — tokio scheduler; jobs: `db-heartbeat`, `ybrowse-variant-ingest`,
+- **`du-jobs`** — tokio scheduler; jobs: `db-heartbeat`, `ybrowse-variant-ingest`
+  (streams YBrowse `snps_hg38.gff3` → multi-build `core.variant` + `evidence`;
+  `YBROWSE_GFF`),
   `publication-update`, `publication-discovery`, `ena-study-enrichment`,
   `publication-pubmed-update`, `str-signature-recompute`; plus the Jetstream
   reporting-mirror consumer (set `JETSTREAM_URL`; runs beside the scheduler).

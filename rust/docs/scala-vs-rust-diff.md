@@ -117,7 +117,7 @@ legacy subsystems deliberately gone.
 | Specimen-donor merge (conflict strategies) | ➖ | manual ingestion concern |
 | Sequencer↔lab association + proposals | ➖ | lab-inference deferred |
 | Projects (controller scaffolded/empty in Scala) | 🟡 | Rust mirrors `project` as a read-only `fed.*` reporting row; no project management |
-| YBrowse Y-SNP ingest (GFF3 parse, normalize, **liftover** to GRCh38/GRCh37/hs1) | ✅ | `du-bio` (BED/chain liftover, VCF) + `ybrowse-variant-ingest` job |
+| YBrowse Y-SNP ingest (GFF3 parse, normalize, **liftover** to GRCh38/GRCh37/hs1) | ✅ | **Reworked 2026-06 to the `snps_hg38.gff3`** — the central doc authorities flow through. `du-jobs/ybrowse` streams the GFF3 (~3M lines), lifts GRCh38→GRCh37/hs1 (`du-bio` chains), captures authority metadata into `core.variant.evidence` (mig 0017), bulk-upserts (`du_db::variant::upsert_many`). `YBROWSE_GFF` env. (Old GRCh38-VCF path retired.) |
 | HipSTR STR ingest + liftover | ➖ | STR subsystem not in production |
 | Genome-region bootstrap from S3/CHM13 + liftover | 🟡 | du-bio has the liftover; the S3-bootstrap pipeline isn't ported (regions seeded via migrations/ETL) |
 | BAM/CRAM extraction, coverage compute, variant calling | ➖ (both) | edge-only on both sides — Navigator does it; AppView aggregates summaries |
