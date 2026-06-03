@@ -149,6 +149,15 @@ pub async fn upsert_candidate(
     Ok(())
 }
 
+/// Whether a publication with this DOI already exists in the catalog.
+pub async fn exists_by_doi(pool: &PgPool, doi: &str) -> Result<bool, DbError> {
+    let n: i64 = sqlx::query_scalar("SELECT count(*) FROM pubs.publication WHERE doi = $1")
+        .bind(doi)
+        .fetch_one(pool)
+        .await?;
+    Ok(n > 0)
+}
+
 // ── discovery candidate review queue ────────────────────────────────────────
 
 /// A discovery candidate awaiting editorial review.

@@ -177,15 +177,15 @@ struct ContactForm {
 
 /// reCAPTCHA secret for server-side verification; when unset, verification is
 /// skipped (dev) and the widget is not rendered.
-fn recaptcha_secret() -> Option<String> {
+pub(crate) fn recaptcha_secret() -> Option<String> {
     std::env::var("RECAPTCHA_SECRET").ok().filter(|s| !s.is_empty())
 }
-fn recaptcha_site_key() -> Option<String> {
+pub(crate) fn recaptcha_site_key() -> Option<String> {
     std::env::var("RECAPTCHA_SITE_KEY").ok().filter(|s| !s.is_empty())
 }
 
 /// Verify a reCAPTCHA token against Google's siteverify endpoint.
-async fn verify_recaptcha(secret: &str, token: &str) -> bool {
+pub(crate) async fn verify_recaptcha(secret: &str, token: &str) -> bool {
     let resp = reqwest::Client::new()
         .post("https://www.google.com/recaptcha/api/siteverify")
         .form(&[("secret", secret), ("response", token)])

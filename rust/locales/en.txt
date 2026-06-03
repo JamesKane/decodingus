@@ -321,3 +321,18 @@ pc.accepted_note=Accepted — promoted to the references catalog.
 pc.notice.accepted=Accepted and promoted to references
 pc.notice.rejected=Rejected.
 pc.notice.deferred=Deferred for later.
+
+# Public DOI-submit form (references/submit)
+submit.cta=Suggest a paper
+submit.title=Suggest a Publication
+submit.intro=Know a relevant Y/mtDNA or population-genetics paper we're missing? Submit its DOI and a curator will review it.
+submit.doi=DOI
+submit.doi.help=Paste the DOI (or a doi.org link). We look it up in OpenAlex.
+submit.button=Submit for review
+submit.back=Back to references
+submit.queued=Thanks — queued for curator review:
+submit.error.empty=Please enter a DOI.
+submit.error.captcha=Captcha verification failed. Please try again.
+submit.error.exists=That paper is already in our references.
+submit.error.notfound=We couldn't find that DOI in OpenAlex. Check it and try again.
+submit.error.lookup=Lookup failed — please try again later.

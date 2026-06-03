@@ -1464,6 +1464,7 @@ dependencies = [
  "du-atproto",
  "du-db",
  "du-domain",
+ "du-external",
  "percent-encoding",
  "reqwest",
  "serde",

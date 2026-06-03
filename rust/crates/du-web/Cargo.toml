@@ -13,6 +13,7 @@ path = "src/main.rs"
 [dependencies]
 du-domain = { workspace = true }
 du-db = { workspace = true }
+du-external = { workspace = true }
 du-atproto = { workspace = true }
 axum = { workspace = true }
 tokio = { workspace = true }

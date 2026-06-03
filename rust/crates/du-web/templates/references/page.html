@@ -1,7 +1,10 @@
 {% extends "base.html" %}
 {% block title %}{{ t.get("references.title") }} — {{ t.get("app.name") }}{% endblock %}
 {% block content %}
-<h1 class="h3 mb-3">{{ t.get("references.title") }}</h1>
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h1 class="h3 mb-0">{{ t.get("references.title") }}</h1>
+  <a class="btn btn-sm btn-outline-primary" href="/references/submit">{{ t.get("submit.cta") }}</a>
+</div>
 <div class="row">
   <div class="col-lg-7">
     <input type="search" name="query" class="form-control mb-3"
