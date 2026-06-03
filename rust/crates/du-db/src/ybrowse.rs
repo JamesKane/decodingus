@@ -119,25 +119,61 @@ pub async fn reconcile(pool: &PgPool) -> Result<ReconcileReport, DbError> {
     .execute(&mut *tx)
     .await?;
 
-    // One row per physical-SNP cluster: ranked names, a representative
-    // coordinate/evidence, the set of existing variants its names map to, and the
-    // best (lowest) name rank.
+    // GRCh38 coordinate (strand-canonical) -> existing variant id. Lets a cluster
+    // match a catalog variant we already hold even when NO name overlaps (#2).
+    sqlx::query(
+        "CREATE TEMP TABLE _cv ON COMMIT DROP AS \
+           SELECT v.id AS vid, \
+                  v.coordinates->'GRCh38'->>'contig' AS contig, \
+                  (v.coordinates->'GRCh38'->>'position')::bigint AS position, \
+                  core.ysnp_canon(v.coordinates->'GRCh38'->>'reference_allele', \
+                                  v.coordinates->'GRCh38'->>'alternate_allele') AS akey \
+           FROM core.variant v \
+           WHERE v.coordinates->'GRCh38'->>'contig' IS NOT NULL \
+             AND v.coordinates->'GRCh38'->>'reference_allele' IS NOT NULL \
+             AND v.coordinates->'GRCh38'->>'alternate_allele' IS NOT NULL",
+    )
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query("CREATE INDEX ON _cv (contig, position, akey)").execute(&mut *tx).await?;
+
+    // One row per physical-SNP cluster, keyed by position + STRAND-CANONICAL
+    // alleles (#1: A>G and reverse-complement T>C fold together). Carries ranked
+    // names, a representative coordinate (preferring a canonical-strand row) +
+    // evidence, and the name-matched existing variant ids.
     sqlx::query(
         "CREATE TEMP TABLE _cl ON COMMIT DROP AS \
-           SELECT s.contig, s.position, s.allele_anc, s.allele_der, \
+           SELECT s.contig, s.position, core.ysnp_canon(s.allele_anc, s.allele_der) AS akey, \
                   array_agg(s.name ORDER BY core.ysnp_name_rank(s.name), s.name) AS names, \
                   min(core.ysnp_name_rank(s.name)) AS min_rank, \
-                  (array_agg(s.coordinates ORDER BY core.ysnp_name_rank(s.name), s.name))[1] AS coords, \
+                  (array_agg(s.coordinates ORDER BY \
+                     (s.allele_anc || '>' || s.allele_der = core.ysnp_canon(s.allele_anc, s.allele_der)) DESC, \
+                     core.ysnp_name_rank(s.name), s.name))[1] AS coords, \
                   (array_agg(s.evidence ORDER BY core.ysnp_name_rank(s.name), s.name))[1] AS evidence, \
-                  array_remove(array_agg(DISTINCT nv.vid), NULL) AS vids \
+                  array_remove(array_agg(DISTINCT nv.vid), NULL) AS name_vids \
            FROM source.ybrowse_snp s LEFT JOIN _nv nv ON nv.name = s.name \
            WHERE s.position > 1 AND s.allele_anc IS NOT NULL AND s.allele_der IS NOT NULL \
-           GROUP BY s.contig, s.position, s.allele_anc, s.allele_der",
+           GROUP BY s.contig, s.position, core.ysnp_canon(s.allele_anc, s.allele_der)",
     )
     .execute(&mut *tx)
     .await?;
 
-    let clusters: i64 = sqlx::query_scalar("SELECT count(*) FROM _cl").fetch_one(&mut *tx).await?;
+    // Combine name matches with coordinate matches → the cluster's full vid set.
+    sqlx::query(
+        "CREATE TEMP TABLE _clv ON COMMIT DROP AS \
+           SELECT c.*, ( \
+             SELECT array_remove(array_agg(DISTINCT vid), NULL) FROM ( \
+               SELECT unnest(c.name_vids) AS vid \
+               UNION \
+               SELECT cv.vid FROM _cv cv \
+                 WHERE cv.contig = c.contig AND cv.position = c.position AND cv.akey = c.akey \
+             ) z) AS vids \
+           FROM _cl c",
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    let clusters: i64 = sqlx::query_scalar("SELECT count(*) FROM _clv").fetch_one(&mut *tx).await?;
 
     // New clusters (no existing match) → create one folded variant. Provisional-
     // only clusters (best rank >= 90) get a minted DU name (NAMED); otherwise the
@@ -151,7 +187,7 @@ pub async fn reconcile(pool: &PgPool) -> Result<ReconcileReport, DbError> {
            jsonb_build_object('common_names', to_jsonb( \
              CASE WHEN c.min_rank >= 90 THEN c.names ELSE c.names[2:] END)), \
            c.coords, c.evidence \
-         FROM _cl c WHERE array_length(c.vids, 1) IS NULL \
+         FROM _clv c WHERE array_length(c.vids, 1) IS NULL \
          ON CONFLICT (canonical_name) WHERE canonical_name IS NOT NULL DO NOTHING",
     )
     .execute(&mut *tx)
@@ -171,7 +207,7 @@ pub async fn reconcile(pool: &PgPool) -> Result<ReconcileReport, DbError> {
            coordinates = c.coords || v.coordinates, \
            evidence = v.evidence || c.evidence, \
            updated_at = now() \
-         FROM _cl c WHERE array_length(c.vids, 1) = 1 AND v.id = c.vids[1]",
+         FROM _clv c WHERE array_length(c.vids, 1) = 1 AND v.id = c.vids[1]",
     )
     .execute(&mut *tx)
     .await?
@@ -181,8 +217,8 @@ pub async fn reconcile(pool: &PgPool) -> Result<ReconcileReport, DbError> {
     sqlx::query("TRUNCATE source.ybrowse_reconcile_flag").execute(&mut *tx).await?;
     let flagged = sqlx::query(
         "INSERT INTO source.ybrowse_reconcile_flag (contig, position, allele_anc, allele_der, names, variant_ids) \
-         SELECT c.contig, c.position, c.allele_anc, c.allele_der, c.names, c.vids \
-         FROM _cl c WHERE array_length(c.vids, 1) > 1",
+         SELECT c.contig, c.position, split_part(c.akey,'>',1), split_part(c.akey,'>',2), c.names, c.vids \
+         FROM _clv c WHERE array_length(c.vids, 1) > 1",
     )
     .execute(&mut *tx)
     .await?

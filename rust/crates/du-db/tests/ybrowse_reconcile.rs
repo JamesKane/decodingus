@@ -57,7 +57,7 @@ async fn reconcile_folds_enriches_mints_and_is_idempotent() {
     du_db::run_migrations(&pool).await.expect("migrate");
     cleanup(&pool).await;
 
-    // A pre-existing, curator-NAMED variant the EXIST cluster will match.
+    // A pre-existing, curator-NAMED variant the EXIST cluster will match by name.
     sqlx::query(
         "INSERT INTO core.variant (canonical_name, mutation_type, naming_status, coordinates) \
          VALUES ('TESTYB-EXIST','SNP'::core.mutation_type,'NAMED'::core.naming_status, \
@@ -66,15 +66,28 @@ async fn reconcile_folds_enriches_mints_and_is_idempotent() {
     .execute(&pool)
     .await
     .unwrap();
+    // A pre-existing variant the COORD cluster will match by COORDINATE only
+    // (no shared name) — #2 coordinate-fallback. Carries GRCh38 alleles A>G.
+    sqlx::query(
+        "INSERT INTO core.variant (canonical_name, mutation_type, naming_status, coordinates) \
+         VALUES ('TESTYB-COORD-EXIST','SNP'::core.mutation_type,'NAMED'::core.naming_status, \
+                 '{\"GRCh38\":{\"contig\":\"chrY\",\"position\":8910005,\"reference_allele\":\"A\",\"alternate_allele\":\"G\"}}'::jsonb)",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
 
-    // Mirror: a 2-name synonym cluster, an existing-match+synonym cluster, and a
-    // provisional-only (YFS) cluster.
+    // Mirror: synonym cluster; existing-name-match+synonym; provisional-only (YFS);
+    // a STRAND-FLIP pair (A>G + T>C, #1); and a COORDINATE-only match (#2).
     let mirror = vec![
         row("TESTYB-FOLD-1", 8910001, "T", "C"),
         row("TESTYB-FOLD-2", 8910001, "T", "C"),
         row("TESTYB-EXIST", 8910002, "A", "G"),
         row("TESTYB-EXIST-SYN", 8910002, "A", "G"),
         row("YFS-TESTX", 8910003, "G", "A"),
+        row("TESTYB-FWD", 8910004, "A", "G"),
+        row("TESTYB-REV", 8910004, "T", "C"),
+        row("TESTYB-COORD-NEW", 8910005, "A", "G"),
     ];
     du_db::ybrowse::upsert_mirror(&pool, &mirror).await.unwrap();
 
@@ -99,6 +112,23 @@ async fn reconcile_folds_enriches_mints_and_is_idempotent() {
     assert!(du.0.as_deref().unwrap_or("").starts_with("DU"), "DU minted: {:?}", du.0);
     assert_eq!(du.1, "NAMED");
     assert!(du.2.contains(&"YFS-TESTX".to_string()), "YFS name is an alias");
+
+    // 4. #1 Strand flip: A>G (FWD) and reverse-complement T>C (REV) fold into ONE
+    //    variant — REV resolves to the same canonical as FWD.
+    let fwd = by_name(&pool, "TESTYB-FWD").await.expect("fwd");
+    let rev = by_name(&pool, "TESTYB-REV").await.expect("rev");
+    assert_eq!(fwd.0, rev.0, "strand-flip pair folded into one variant");
+    assert_eq!(fwd.0.as_deref(), Some("TESTYB-FWD"), "canonical is the forward name");
+
+    // 5. #2 Coordinate-fallback: TESTYB-COORD-NEW shares no name with the existing
+    //    variant but the SAME GRCh38 coordinate → enriched, not duplicated.
+    let coord = by_name(&pool, "TESTYB-COORD-NEW").await.expect("coord-matched variant");
+    assert_eq!(coord.0.as_deref(), Some("TESTYB-COORD-EXIST"), "matched existing by coordinate");
+    let dup: i64 = sqlx::query_scalar("SELECT count(*) FROM core.variant WHERE canonical_name='TESTYB-COORD-NEW'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(dup, 0, "no duplicate row created for the coordinate-matched name");
 
     // 4. Idempotent: re-running creates nothing new and keeps the same canonicals.
     let before: i64 = sqlx::query_scalar(
