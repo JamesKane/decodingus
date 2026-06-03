@@ -75,7 +75,7 @@ legacy subsystems deliberately gone.
 | Capability (Scala) | Rust | Notes |
 |:---|:--|:---|
 | Change-set lifecycle (list/detail/start-review/apply/discard/approve-all/per-change review/comments/diff) | ✅ | JSON `/manage/change-sets/*` + HTMX UI `/curator/change-sets` |
-| Change-set conflict resolution (resolve reparent/edit-variants/merge-existing/defer, deferred list, tree-preview, ambiguity report) | ⬜ | Rust merge flags ambiguities + applies via placeholder `tree_change`; the richer curator pre-apply resolution UI (and the `tree.wip_*` staging tables) are unbuilt |
+| Change-set conflict resolution (resolve reparent/edit-variants/merge-existing/defer, deferred list, tree-preview, ambiguity report) | ✅ | **Built 2026-06** (`du-db/wip.rs` + `du-web/routes/reviews.rs`, `/curator/reviews`): SNP-graft Phase-4 flags + name-collisions + graft-blocked items are staged into the `tree.wip_*` tables (`tree-init --stage-review`); a two-panel HTMX screen shows each with SNP-scatter context + tree-preview and a resolution form (accept-anchor / reparent / merge-existing / defer); decisions (`wip_resolution`) are enacted by the change-set apply engine's WIP pass. Remaining: `EDIT_VARIANTS` resolution + cascading a graft-blocked *subtree* from one decision |
 | Haplogroup merge (full + preview) | ✅ | `/manage/haplogroups/merge[/preview]` |
 | Haplogroup merge — explicit subtree endpoint | 🟡 | Rust's merge algorithm is subtree-scoped by design; no separate `/merge/subtree` route |
 | Haplogroup CRUD | ✅ | `/curator/haplogroups/*` |
@@ -169,9 +169,10 @@ ibd, social, billing` + audit + coverage-mirror + fed-reporting.
   matching, social/reputation/messaging, group projects, patronage/billing,
   sequencer-lab inference, PDS fleet. (STR profiles were **brought back into
   scope** 2026-06 — Phase 1 shipped; prediction is Phase 2.)
-- **In scope, not yet built:** change-set conflict-resolution UI (+ `wip_*`
-  staging), publication-candidate review UI, haplogroup restructure as discrete
-  curator ops, public publication-submit form, profile update, region management
-  API/bootstrap, SNP-sidebar / per-lab coverage fragments.
+- **In scope, not yet built:** publication-candidate review UI, haplogroup
+  restructure as discrete curator ops, public publication-submit form, profile
+  update, region management API/bootstrap, per-lab coverage fragments.
+  (Change-set conflict-resolution UI + `wip_*` staging — **built 2026-06**, see
+  §2 `/curator/reviews`.)
 - **Externally gated:** confidential-OAuth Edge joint test; current-schema dump
   for ETL cutover (see STATUS "Cutover blocker").

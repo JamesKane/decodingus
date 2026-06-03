@@ -211,9 +211,14 @@ Roughly in priority order:
    `/manage/curation/proposals`) and are deliberately excluded from the public
    OpenAPI doc. A separate internal/curator OpenAPI document is optional and not
    built (low priority).
-8. **WIP shadow-table staging UI** — `tree.wip_*` tables exist but are unused;
-   merge takes the simpler placeholder path. Only needed for a richer curator
-   pre-apply editing flow.
+8. **Curator merge-review surface — DONE (2026-06).** The `tree.wip_*` staging
+   tables are now wired (`du-db/wip.rs`): the SNP-graft Phase-4 flags +
+   name-collisions + graft-blocked items are staged into a DRAFT change-set
+   (`tree-init --stage-review`), triaged at **`/curator/reviews`** (two-panel
+   HTMX: SNP-scatter context + tree-preview + accept-anchor/reparent/merge/defer),
+   and the decisions (`wip_resolution`) are enacted by the change-set apply
+   engine's WIP pass. Remaining: `EDIT_VARIANTS` resolution + cascading a
+   graft-blocked *subtree* from a single decision.
 
 ## Out of scope / deliberately absent (➖)
 
