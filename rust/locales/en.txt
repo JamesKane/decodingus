@@ -388,3 +388,24 @@ nm.flag=Flag for review
 nm.unflag=Back to unnamed
 nm.named_note=Already named — DU identifier assigned.
 nm.notice.minted=Minted
+
+# Curator YBrowse reconcile-flag review (curator/reconcile-flags)
+curator.tool.reconcile_flags=Reconcile flags
+rf.title=Reconcile Flags
+rf.intro=YBrowse synonym clusters whose names are split across multiple catalog variants — pick the one to keep and merge the rest.
+rf.select=Select a flag to resolve.
+rf.none=No reconcile flags — nothing to resolve.
+rf.col.locus=Locus
+rf.col.names=Synonyms
+rf.col.variants=Variants
+rf.synonyms=YBrowse synonyms
+rf.split_note=These names are one physical SNP per YBrowse, but the catalog has them split across the variants below. Choose the canonical variant to keep; the others merge into it (links, aliases) and are removed.
+rf.keep=Keep
+rf.col.canonical=Canonical
+rf.col.defines=Defines branches
+rf.merge=Merge
+rf.merge.confirm=Merge the other variants into the selected one? Their tree links and aliases move to it and they are deleted.
+rf.merge.hint=The unselected variants are folded into the keeper.
+rf.notice.merged=Merged variants:
+rf.resolved=Resolved
+rf.resolved.note=This flag has been resolved.

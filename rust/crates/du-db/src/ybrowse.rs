@@ -17,7 +17,7 @@
 //! - a cluster split across **several** existing variants is **flagged** for
 //!   curator review (never auto-merged, since rows may be tree-linked).
 
-use crate::DbError;
+use crate::{DbError, Page};
 use serde_json::Value;
 use sqlx::PgPool;
 
@@ -190,4 +190,94 @@ pub async fn reconcile(pool: &PgPool) -> Result<ReconcileReport, DbError> {
 
     tx.commit().await?;
     Ok(ReconcileReport { clusters, created, enriched, flagged })
+}
+
+// ── reconcile-flag review queue ─────────────────────────────────────────────
+
+/// A flagged cluster (synonyms split across multiple existing variants).
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct FlagSummary {
+    pub id: i64,
+    /// Human locus, e.g. "chrY:10000088 G>A".
+    pub locus: String,
+    pub names: Vec<String>,
+    pub variant_count: i32,
+}
+
+const FLAG_LOCUS: &str =
+    "contig || ':' || position || ' ' || COALESCE(allele_anc,'?') || '>' || COALESCE(allele_der,'?')";
+
+pub async fn flag_count(pool: &PgPool) -> Result<i64, DbError> {
+    Ok(sqlx::query_scalar("SELECT count(*) FROM source.ybrowse_reconcile_flag").fetch_one(pool).await?)
+}
+
+pub async fn list_flags(pool: &PgPool, page: i64, page_size: i64) -> Result<Page<FlagSummary>, DbError> {
+    let offset = Page::<()>::offset(page, page_size);
+    let limit = page_size.clamp(1, 200);
+    let total = flag_count(pool).await?;
+    let items: Vec<FlagSummary> = sqlx::query_as(&format!(
+        "SELECT id, {FLAG_LOCUS} AS locus, names, \
+                COALESCE(array_length(variant_ids,1),0) AS variant_count \
+         FROM source.ybrowse_reconcile_flag ORDER BY id LIMIT $1 OFFSET $2"
+    ))
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(pool)
+    .await?;
+    Ok(Page { items, total, page: page.max(1), page_size: limit })
+}
+
+/// One conflicting variant in a flag: its canonical name + the branches it defines.
+#[derive(Debug, Clone)]
+pub struct FlagVariant {
+    pub id: i64,
+    pub canonical_name: Option<String>,
+    pub defines: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct FlagDetail {
+    pub id: i64,
+    pub locus: String,
+    pub names: Vec<String>,
+    pub variants: Vec<FlagVariant>,
+}
+
+pub async fn flag(pool: &PgPool, id: i64) -> Result<Option<FlagDetail>, DbError> {
+    let row: Option<(String, Vec<String>, Vec<i64>)> = sqlx::query_as(&format!(
+        "SELECT {FLAG_LOCUS} AS locus, names, variant_ids FROM source.ybrowse_reconcile_flag WHERE id = $1"
+    ))
+    .bind(id)
+    .fetch_optional(pool)
+    .await?;
+    let Some((locus, names, variant_ids)) = row else { return Ok(None) };
+
+    let variants: Vec<FlagVariant> = sqlx::query_as(
+        "SELECT v.id, v.canonical_name, \
+                COALESCE(array_remove(array_agg(h.name ORDER BY h.name), NULL), '{}') AS defines \
+         FROM core.variant v \
+         LEFT JOIN tree.haplogroup_variant hv ON hv.variant_id = v.id AND hv.valid_until IS NULL \
+         LEFT JOIN tree.haplogroup h ON h.id = hv.haplogroup_id AND h.valid_until IS NULL \
+         WHERE v.id = ANY($1) GROUP BY v.id, v.canonical_name ORDER BY v.canonical_name",
+    )
+    .bind(&variant_ids)
+    .fetch_all(pool)
+    .await
+    .map(|rows: Vec<(i64, Option<String>, Vec<String>)>| {
+        rows.into_iter().map(|(id, canonical_name, defines)| FlagVariant { id, canonical_name, defines }).collect()
+    })?;
+
+    Ok(Some(FlagDetail { id, locus, names, variants }))
+}
+
+/// Remove a flag (after the curator merges its variants). Reconcile would also
+/// drop it on the next run (the cluster now maps to one variant), but deleting
+/// gives immediate feedback. Returns whether a row was removed.
+pub async fn delete_flag(pool: &PgPool, id: i64) -> Result<bool, DbError> {
+    Ok(sqlx::query("DELETE FROM source.ybrowse_reconcile_flag WHERE id = $1")
+        .bind(id)
+        .execute(pool)
+        .await?
+        .rows_affected()
+        > 0)
 }

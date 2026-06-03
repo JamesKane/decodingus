@@ -25,6 +25,7 @@ pub mod maps;
 pub mod naming;
 pub mod pages;
 pub mod publications;
+pub mod reconcile_flags;
 pub mod references;
 pub mod reviews;
 pub mod tree;
@@ -58,6 +59,7 @@ pub fn app(state: AppState) -> Router {
         .merge(curation::router())
         .merge(publications::router())
         .merge(naming::router())
+        .merge(reconcile_flags::router())
         .merge(change_sets::router())
         .merge(reviews::router())
         .merge(versioning::router())

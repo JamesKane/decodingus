@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}{{ t.get("rf.title") }} — {{ t.get("app.name") }}{% endblock %}
+{% block content %}
+<h1 class="h3 mb-1">{{ t.get("rf.title") }}</h1>
+<p class="text-muted small mb-3">{{ t.get("rf.intro") }}</p>
+<div class="row">
+  <div class="col-lg-5">
+    <div id="flag-table"
+         hx-get="/curator/reconcile-flags/fragment"
+         hx-trigger="load, flag-changed from:body">
+      {% include "curator/reconcile-flags/list.html" %}
+    </div>
+  </div>
+  <div class="col-lg-7">
+    <div id="flag-detail"><p class="detail-empty">{{ t.get("rf.select") }}</p></div>
+  </div>
+</div>
+{% endblock %}

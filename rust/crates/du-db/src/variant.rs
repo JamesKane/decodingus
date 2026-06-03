@@ -227,6 +227,58 @@ pub async fn export_all(pool: &PgPool) -> Result<Vec<Variant>, DbError> {
     rows.into_iter().map(VariantRow::into_domain).collect()
 }
 
+/// **Merge** variant `drop` into `keep`: fold `drop`'s canonical name + aliases
+/// into `keep`'s `aliases.common_names`, repoint every reference (tree links,
+/// WIP, private-variant, proposed-branch) from `drop` to `keep`, then delete
+/// `drop`. Current haplogroup links that would collide are dropped (the keep
+/// variant already defines that branch). One transaction. The curator-facing
+/// resolution for a reconcile-flag (synonyms split across rows).
+pub async fn merge_into(pool: &PgPool, keep: i64, drop: i64) -> Result<(), DbError> {
+    if keep == drop {
+        return Err(DbError::Conflict("cannot merge a variant into itself".into()));
+    }
+    let mut tx = pool.begin().await?;
+
+    // Fold drop's canonical + aliases into keep (union, excluding keep's canonical).
+    sqlx::query(
+        "UPDATE core.variant k SET aliases = jsonb_set(COALESCE(k.aliases, '{}'::jsonb), '{common_names}', ( \
+           SELECT COALESCE(jsonb_agg(DISTINCT x), '[]'::jsonb) FROM ( \
+             SELECT jsonb_array_elements_text(COALESCE(k.aliases->'common_names', '[]'::jsonb)) AS x \
+             UNION SELECT jsonb_array_elements_text(COALESCE(d.aliases->'common_names', '[]'::jsonb)) \
+                   FROM core.variant d WHERE d.id = $2 \
+             UNION SELECT d.canonical_name FROM core.variant d WHERE d.id = $2 AND d.canonical_name IS NOT NULL \
+           ) u WHERE x IS NOT NULL AND x <> COALESCE(k.canonical_name, '')), true), updated_at = now() \
+         WHERE k.id = $1",
+    )
+    .bind(keep)
+    .bind(drop)
+    .execute(&mut *tx)
+    .await?;
+
+    // Repoint tree links — drop any current link that would collide with keep's.
+    sqlx::query(
+        "DELETE FROM tree.haplogroup_variant d \
+         WHERE d.variant_id = $2 AND d.valid_until IS NULL \
+           AND EXISTS (SELECT 1 FROM tree.haplogroup_variant e \
+             WHERE e.haplogroup_id = d.haplogroup_id AND e.variant_id = $1 AND e.valid_until IS NULL)",
+    )
+    .bind(keep)
+    .bind(drop)
+    .execute(&mut *tx)
+    .await?;
+    for table in ["tree.haplogroup_variant", "tree.wip_haplogroup_variant", "tree.biosample_private_variant", "tree.proposed_branch_variant"] {
+        sqlx::query(&format!("UPDATE {table} SET variant_id = $1 WHERE variant_id = $2"))
+            .bind(keep)
+            .bind(drop)
+            .execute(&mut *tx)
+            .await?;
+    }
+
+    sqlx::query("DELETE FROM core.variant WHERE id = $1").bind(drop).execute(&mut *tx).await?;
+    tx.commit().await?;
+    Ok(())
+}
+
 /// Count variants whose `evidence.source` equals `source` (e.g. how many came
 /// from the YBrowse GFF3 ingest).
 pub async fn count_by_evidence_source(pool: &PgPool, source: &str) -> Result<i64, DbError> {
