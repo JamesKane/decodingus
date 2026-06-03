@@ -226,6 +226,17 @@ pub async fn export_all(pool: &PgPool) -> Result<Vec<Variant>, DbError> {
     rows.into_iter().map(VariantRow::into_domain).collect()
 }
 
+/// Every DU-minted variant (canonical_name like `DU%`) carrying a GRCh38
+/// coordinate, for the Naming-Authority propagation export (GFF3/VCF → YBrowse).
+pub async fn export_du_named(pool: &PgPool) -> Result<Vec<Variant>, DbError> {
+    let rows: Vec<VariantRow> = sqlx::query_as(&format!(
+        "{SELECT} WHERE canonical_name LIKE 'DU%' AND coordinates ? 'GRCh38' ORDER BY canonical_name"
+    ))
+    .fetch_all(pool)
+    .await?;
+    rows.into_iter().map(VariantRow::into_domain).collect()
+}
+
 /// Bulk-populate `core.variant.aliases.common_names` for the given canonical
 /// names (one physical SNP per row, the universal-variant model). Canonicals
 /// not present are skipped. Chunked `unnest` upserts; returns rows updated.

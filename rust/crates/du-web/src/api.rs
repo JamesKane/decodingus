@@ -638,6 +638,40 @@ async fn export_variants(State(st): State<AppState>) -> Result<Response, AppErro
         .into_response())
 }
 
+#[utoipa::path(get, path = "/api/v1/variants/export.gff", tag = "variants",
+    responses((status = 200, description = "DU-named variants as GFF3 (GRCh38) for propagation", content_type = "text/plain")))]
+async fn export_variants_gff(State(st): State<AppState>) -> Result<Response, AppError> {
+    // Propagation feed for the DU naming authority: minted DU names + GRCh38
+    // coordinates as GFF3, for YBrowse/external tools to pick up.
+    let variants = du_db::variant::export_du_named(&st.pool).await?;
+    let mut gff = String::from("##gff-version 3\n");
+    for v in &variants {
+        let Some(c) = v.coordinates.0.get("GRCh38") else { continue };
+        let name = &v.canonical_name;
+        let mut attrs = format!("ID={name};Name={name}");
+        if let Some(r) = &c.reference_allele {
+            attrs.push_str(&format!(";Reference_seq={r}"));
+        }
+        if let Some(a) = &c.alternate_allele {
+            attrs.push_str(&format!(";Variant_seq={a}"));
+        }
+        // GFF3 is 1-based, inclusive; a SNV spans a single position.
+        gff.push_str(&format!(
+            "{}\tDecodingUs\tSNV\t{}\t{}\t.\t.\t.\t{}\n",
+            c.contig, c.position, c.position, attrs
+        ));
+    }
+    Ok((
+        StatusCode::OK,
+        [
+            (header::CONTENT_TYPE, "text/plain; charset=utf-8"),
+            (header::CONTENT_DISPOSITION, "attachment; filename=\"decodingus-variants.gff3\""),
+        ],
+        gff,
+    )
+        .into_response())
+}
+
 #[utoipa::path(get, path = "/api/v1/genome-regions", tag = "genome-regions",
     responses((status = 200, description = "Reference builds with region coordinates", body = [String])))]
 async fn list_region_builds(State(st): State<AppState>) -> Result<Json<Vec<String>>, AppError> {
@@ -672,7 +706,7 @@ fn csv_field(s: &str) -> String {
     paths(
         y_tree, mt_tree, coverage_benchmarks, references_details, biosample_report, biosample_studies,
         list_variants, get_variant, variants_by_haplogroup, export_metadata, export_variants,
-        list_region_builds, regions_by_build,
+        export_variants_gff, list_region_builds, regions_by_build,
         reports_coverage, reports_ancestry, reports_haplogroups,
         haplogroup_str_signature, haplogroup_age, str_predict,
     ),
@@ -706,6 +740,7 @@ pub fn router() -> Router<AppState> {
         .route("/api/v1/biosample/studies", get(biosample_studies))
         .route("/api/v1/variants", get(list_variants))
         .route("/api/v1/variants/export", get(export_variants))
+        .route("/api/v1/variants/export.gff", get(export_variants_gff))
         .route("/api/v1/variants/export/metadata", get(export_metadata))
         .route("/api/v1/variants/:variant_id", get(get_variant))
         .route("/api/v1/haplogroups/:haplogroup_name/variants", get(variants_by_haplogroup))
