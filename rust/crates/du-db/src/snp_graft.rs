@@ -516,7 +516,8 @@ async fn get_or_create_variant(
     let id: i64 = sqlx::query_scalar(
         "INSERT INTO core.variant (canonical_name, mutation_type, naming_status) \
          VALUES ($1, 'SNP'::core.mutation_type, 'UNNAMED'::core.naming_status) \
-         ON CONFLICT (canonical_name) DO UPDATE SET canonical_name = EXCLUDED.canonical_name RETURNING id",
+         ON CONFLICT (canonical_name) WHERE canonical_name IS NOT NULL \
+         DO UPDATE SET canonical_name = EXCLUDED.canonical_name RETURNING id",
     )
     .bind(name)
     .fetch_one(&mut **tx)

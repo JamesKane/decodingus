@@ -258,7 +258,7 @@ pub async fn promote(pool: &PgPool, id: i64, action_by: &str) -> Result<i64, DbE
         let variant_id: i64 = sqlx::query_scalar(
             "INSERT INTO core.variant (canonical_name, mutation_type, naming_status, coordinates) \
              VALUES ($1, 'SNP'::core.mutation_type, 'NAMED'::core.naming_status, $2) \
-             ON CONFLICT (canonical_name) DO UPDATE SET naming_status = \
+             ON CONFLICT (canonical_name) WHERE canonical_name IS NOT NULL DO UPDATE SET naming_status = \
                CASE WHEN core.variant.naming_status = 'UNNAMED' THEN 'NAMED'::core.naming_status \
                     ELSE core.variant.naming_status END \
              RETURNING id",

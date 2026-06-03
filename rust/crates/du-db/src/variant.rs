@@ -103,7 +103,8 @@ pub async fn upsert_by_name(pool: &PgPool, v: &NewVariant) -> Result<VariantId, 
     let id: i64 = sqlx::query_scalar(
         "INSERT INTO core.variant (canonical_name, mutation_type, aliases, coordinates) \
          VALUES ($1, $2::core.mutation_type, $3, $4) \
-         ON CONFLICT (canonical_name) DO UPDATE SET mutation_type = EXCLUDED.mutation_type, \
+         ON CONFLICT (canonical_name) WHERE canonical_name IS NOT NULL \
+         DO UPDATE SET mutation_type = EXCLUDED.mutation_type, \
            aliases = EXCLUDED.aliases, coordinates = EXCLUDED.coordinates, updated_at = now() \
          RETURNING id",
     )
