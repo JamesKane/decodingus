@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}{{ t.get("pc.title") }} — {{ t.get("app.name") }}{% endblock %}
+{% block content %}
+<h1 class="h3 mb-1">{{ t.get("pc.title") }}</h1>
+<p class="text-muted small mb-3">{{ t.get("pc.intro") }}</p>
+<div class="row">
+  <div class="col-lg-6">
+    <select name="status" class="form-select form-select-sm w-auto mb-3" id="pc-status"
+            hx-get="/curator/publications/fragment" hx-target="#candidate-table" hx-trigger="change">
+      <option value="pending"{% if list.status == "pending" %} selected{% endif %}>{{ t.get("pc.filter.pending") }}</option>
+      <option value="accepted"{% if list.status == "accepted" %} selected{% endif %}>{{ t.get("pc.filter.accepted") }}</option>
+      <option value="rejected"{% if list.status == "rejected" %} selected{% endif %}>{{ t.get("pc.filter.rejected") }}</option>
+      <option value="deferred"{% if list.status == "deferred" %} selected{% endif %}>{{ t.get("pc.filter.deferred") }}</option>
+      <option value=""{% if list.status == "" %} selected{% endif %}>{{ t.get("pc.filter.all") }}</option>
+    </select>
+    <div id="candidate-table"
+         hx-get="/curator/publications/fragment"
+         hx-trigger="load, candidate-changed from:body"
+         hx-include="#pc-status">
+      {% include "curator/publications/list.html" %}
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div id="candidate-detail"><p class="detail-empty">{{ t.get("pc.select") }}</p></div>
+  </div>
+</div>
+{% endblock %}

@@ -5,7 +5,9 @@ use crate::{DbError, Page};
 use chrono::NaiveDate;
 use du_domain::ids::PublicationId;
 use du_domain::publication::Publication;
+use sqlx::types::chrono::{DateTime, Utc};
 use sqlx::PgPool;
+use uuid::Uuid;
 
 /// Fields the OpenAlex enrichment job updates (COALESCE'd — nulls don't wipe).
 #[derive(Debug, Default, Clone)]
@@ -145,6 +147,134 @@ pub async fn upsert_candidate(
     .execute(pool)
     .await?;
     Ok(())
+}
+
+// ── discovery candidate review queue ────────────────────────────────────────
+
+/// A discovery candidate awaiting editorial review.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct Candidate {
+    pub id: i64,
+    pub openalex_id: String,
+    pub doi: Option<String>,
+    pub title: Option<String>,
+    pub abstract_text: Option<String>,
+    pub publication_date: Option<NaiveDate>,
+    pub journal_name: Option<String>,
+    pub relevance_score: Option<f64>,
+    pub status: String,
+    pub created_at: DateTime<Utc>,
+}
+
+const CAND_COLS: &str = "id, openalex_id, doi, title, abstract AS abstract_text, publication_date, \
+    journal_name, relevance_score::float8 AS relevance_score, status, created_at";
+
+/// Paginated candidate queue, optionally filtered by status, newest first.
+pub async fn list_candidates(
+    pool: &PgPool,
+    status: Option<&str>,
+    page: i64,
+    page_size: i64,
+) -> Result<Page<Candidate>, DbError> {
+    let offset = Page::<()>::offset(page, page_size);
+    let limit = page_size.clamp(1, 200);
+    let status = status.filter(|s| !s.is_empty());
+    let where_sql = "WHERE ($1::text IS NULL OR status = $1)";
+    let total: i64 =
+        sqlx::query_scalar(&format!("SELECT count(*) FROM pubs.publication_candidate {where_sql}"))
+            .bind(status)
+            .fetch_one(pool)
+            .await?;
+    let items: Vec<Candidate> = sqlx::query_as(&format!(
+        "SELECT {CAND_COLS} FROM pubs.publication_candidate {where_sql} \
+         ORDER BY created_at DESC, id DESC LIMIT $2 OFFSET $3"
+    ))
+    .bind(status)
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(pool)
+    .await?;
+    Ok(Page { items, total, page: page.max(1), page_size: limit })
+}
+
+pub async fn get_candidate(pool: &PgPool, id: i64) -> Result<Option<Candidate>, DbError> {
+    Ok(sqlx::query_as(&format!("SELECT {CAND_COLS} FROM pubs.publication_candidate WHERE id = $1"))
+        .bind(id)
+        .fetch_optional(pool)
+        .await?)
+}
+
+/// Set a candidate's review status (`accepted`/`rejected`/`deferred`) and the
+/// reviewing curator. Returns whether a row changed.
+pub async fn review_candidate(
+    pool: &PgPool,
+    id: i64,
+    status: &str,
+    reviewed_by: Uuid,
+) -> Result<bool, DbError> {
+    let n = sqlx::query("UPDATE pubs.publication_candidate SET status = $2, reviewed_by = $3 WHERE id = $1")
+        .bind(id)
+        .bind(status)
+        .bind(reviewed_by)
+        .execute(pool)
+        .await?
+        .rows_affected();
+    Ok(n > 0)
+}
+
+/// **Promote** a candidate to a real `pubs.publication`: reuse an existing
+/// publication matching the candidate's OpenAlex id or DOI, else create one from
+/// the candidate's metadata; then mark the candidate `accepted`. Returns the
+/// publication id. Errors if the candidate has no title (publications require one).
+pub async fn promote_candidate(pool: &PgPool, id: i64, by: Uuid) -> Result<PublicationId, DbError> {
+    let mut tx = pool.begin().await?;
+    let c: Candidate = sqlx::query_as(&format!(
+        "SELECT {CAND_COLS} FROM pubs.publication_candidate WHERE id = $1 FOR UPDATE"
+    ))
+    .bind(id)
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or_else(|| DbError::Conflict(format!("candidate {id} not found")))?;
+    let title = c
+        .title
+        .as_deref()
+        .map(str::trim)
+        .filter(|t| !t.is_empty())
+        .ok_or_else(|| DbError::Conflict("candidate has no title — cannot promote".into()))?;
+
+    // Reuse an existing publication by OpenAlex id or DOI; else insert.
+    let existing: Option<i64> = sqlx::query_scalar(
+        "SELECT id FROM pubs.publication WHERE open_alex_id = $1 OR ($2::text IS NOT NULL AND doi = $2) LIMIT 1",
+    )
+    .bind(&c.openalex_id)
+    .bind(c.doi.as_deref())
+    .fetch_optional(&mut *tx)
+    .await?;
+    let pub_id: i64 = match existing {
+        Some(pid) => pid,
+        None => {
+            sqlx::query_scalar(
+                "INSERT INTO pubs.publication (open_alex_id, doi, title, journal, publication_date, abstract_summary) \
+                 VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
+            )
+            .bind(&c.openalex_id)
+            .bind(c.doi.as_deref())
+            .bind(title)
+            .bind(c.journal_name.as_deref())
+            .bind(c.publication_date)
+            .bind(c.abstract_text.as_deref())
+            .fetch_one(&mut *tx)
+            .await?
+        }
+    };
+
+    sqlx::query("UPDATE pubs.publication_candidate SET status = 'accepted', reviewed_by = $2 WHERE id = $1")
+        .bind(id)
+        .bind(by)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    Ok(PublicationId(pub_id))
 }
 
 #[derive(sqlx::FromRow)]

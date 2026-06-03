@@ -1,0 +1,47 @@
+{# Fragment: candidate review panel. Target of #candidate-detail. #}
+<div class="card">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <strong class="me-2">{{ c.title }}</strong>
+    <span class="badge text-bg-secondary">{{ c.status }}</span>
+  </div>
+  <div class="card-body">
+    {% if let Some(n) = c.notice %}
+    <div class="alert alert-info py-2 px-3 small mb-3">{{ n }}</div>
+    {% endif %}
+
+    <dl class="row mb-2 small">
+      <dt class="col-4">{{ t.get("pc.journal") }}</dt><dd class="col-8">{{ c.journal }}</dd>
+      <dt class="col-4">{{ t.get("pc.date") }}</dt><dd class="col-8">{{ c.date }}</dd>
+      <dt class="col-4">{{ t.get("pc.relevance") }}</dt><dd class="col-8">{{ c.relevance }}</dd>
+      {% if let Some(doi) = c.doi %}
+      <dt class="col-4">DOI</dt>
+      <dd class="col-8">{% if let Some(url) = c.doi_url %}<a href="{{ url }}" target="_blank" rel="noopener">{{ doi }}</a>{% else %}{{ doi }}{% endif %}</dd>
+      {% endif %}
+      <dt class="col-4">OpenAlex</dt><dd class="col-8"><small class="text-muted">{{ c.openalex_id }}</small></dd>
+    </dl>
+
+    {% if let Some(a) = c.abstract_text %}
+    <details class="mb-3">
+      <summary class="small text-muted">{{ t.get("pc.abstract") }}</summary>
+      <p class="small mt-2 mb-0">{{ a }}</p>
+    </details>
+    {% endif %}
+
+    {% if c.can_act %}
+    <div class="d-flex gap-2 mt-2">
+      <button class="btn btn-sm btn-success" name="action" value="accept"
+              hx-post="/curator/publications/{{ c.id }}/review" hx-vals='{"action":"accept"}'
+              hx-target="#candidate-detail" hx-swap="innerHTML"
+              hx-confirm="{{ t.get("pc.accept.confirm") }}">{{ t.get("pc.accept") }}</button>
+      <button class="btn btn-sm btn-outline-danger"
+              hx-post="/curator/publications/{{ c.id }}/review" hx-vals='{"action":"reject"}'
+              hx-target="#candidate-detail" hx-swap="innerHTML">{{ t.get("pc.reject") }}</button>
+      <button class="btn btn-sm btn-outline-secondary"
+              hx-post="/curator/publications/{{ c.id }}/review" hx-vals='{"action":"defer"}'
+              hx-target="#candidate-detail" hx-swap="innerHTML">{{ t.get("pc.defer") }}</button>
+    </div>
+    {% else %}
+    <p class="detail-empty small mb-0">{{ t.get("pc.accepted_note") }}</p>
+    {% endif %}
+  </div>
+</div>

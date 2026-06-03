@@ -23,6 +23,7 @@ pub mod curator_regions;
 pub mod curator_variants;
 pub mod maps;
 pub mod pages;
+pub mod publications;
 pub mod references;
 pub mod reviews;
 pub mod tree;
@@ -54,6 +55,7 @@ pub fn app(state: AppState) -> Router {
         .merge(curator_variants::router())
         .merge(curator_regions::router())
         .merge(curation::router())
+        .merge(publications::router())
         .merge(change_sets::router())
         .merge(reviews::router())
         .merge(versioning::router())
