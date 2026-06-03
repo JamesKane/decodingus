@@ -1,0 +1,28 @@
+{# Fragment: one lab's coverage by test type. Target of #lab-detail. #}
+<div class="card">
+  <div class="card-header"><strong>{{ lab }}</strong></div>
+  <div class="card-body p-0">
+    <table class="table table-striped table-sm align-middle mb-0">
+      <thead><tr>
+        <th>{{ t.get("coverage.col.testType") }}</th>
+        <th class="text-end">{{ t.get("coverage.col.libraries") }}</th>
+        <th class="text-end">{{ t.get("coverage.col.meanDepth") }}</th>
+        <th class="text-end">{{ t.get("coverage.col.cov10x") }}</th>
+        <th class="text-end">{{ t.get("coverage.col.expectedDepth") }}</th>
+      </tr></thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td>{{ r.test_type }}</td>
+          <td class="text-end">{{ r.libraries }}</td>
+          <td class="text-end">{{ r.mean_depth }} {% if r.meets %}<i class="text-success">✓</i>{% else %}<i class="text-warning">!</i>{% endif %}</td>
+          <td class="text-end">{{ r.cov_10x }}</td>
+          <td class="text-end text-muted">{{ r.expected }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" class="detail-empty">{{ t.get("coverage.none") }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>

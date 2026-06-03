@@ -1,7 +1,10 @@
 {% extends "base.html" %}
 {% block title %}{{ t.get("coverage.title") }} — {{ t.get("app.name") }}{% endblock %}
 {% block content %}
-<h1 class="h3 mb-3">{{ t.get("coverage.title") }}</h1>
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h1 class="h3 mb-0">{{ t.get("coverage.title") }}</h1>
+  <a class="btn btn-sm btn-outline-primary" href="/coverage/labs">{{ t.get("coverage.labs.byLab") }}</a>
+</div>
 <table class="table table-striped align-middle">
   <thead>
     <tr>

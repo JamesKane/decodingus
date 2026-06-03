@@ -352,3 +352,10 @@ hg.split.move=Variants to move (comma-separated)
 hg.split.variants=Defining variants
 hg.op.unknown=Unknown node
 hg.op.no_variants=None of those variant names are on this node.
+
+# Per-lab coverage drill-down
+coverage.labs.byLab=View by lab
+coverage.labs.title=Coverage by Lab
+coverage.labs.allLabs=All labs (flat)
+coverage.labs.testTypes=Test types
+coverage.labs.select=Select a lab to see its coverage by test type.
