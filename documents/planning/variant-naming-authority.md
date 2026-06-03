@@ -1,5 +1,16 @@
 # DecodingUs Variant Naming Authority
 
+> **Implementation status (2026-06, Rust):** Core BUILT. Migration 0016 makes
+> `core.variant.canonical_name` nullable (NULL = unnamed, by coordinates) with a
+> partial unique index, and adds `core.du_variant_name_seq` + `core.next_du_name()`.
+> `du_db::naming` provides the naming queue, DU minting (old name → alias), the
+> lifecycle (`UNNAMED`→`PENDING_REVIEW`→`NAMED`), and a local same-coordinate
+> dedup check. Curator UI at `/curator/naming`; propagation feed at
+> `GET /api/v1/variants/export.gff` (GFF3). **Not yet:** a live external-source
+> (YBrowse/ISOGG/YFull) dedup lookup, and surfacing unnamed variants in the public
+> API/domain (the shared `du-domain::Variant.canonical_name` is still `String` —
+> a cross-repo change since Navigator shares it).
+
 **Objective:** Establish DecodingUs as a recognized naming authority for Y-DNA variants, using the `DU` prefix.
 
 ## Naming Strategy
