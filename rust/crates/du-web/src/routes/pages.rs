@@ -32,7 +32,7 @@ pub fn router() -> Router<AppState> {
         .route("/sitemap.xml", get(sitemap))
         .route("/robots.txt", get(robots))
         .route("/cookie-consent", post(cookie_consent))
-        .route("/profile", get(profile_page))
+        .route("/profile", get(profile_page).post(profile_update))
         .route("/contact", get(contact_form).post(contact_submit))
 }
 
@@ -128,9 +128,17 @@ struct ProfileTemplate {
     did: Option<String>,
     handle: Option<String>,
     member_since: String,
+    /// Shows a "saved" confirmation after an update.
+    saved: bool,
 }
 
-async fn profile_page(State(st): State<AppState>, user: MaybeUser, locale: Locale) -> Result<Response, AppError> {
+/// Render the profile page for the signed-in user (or redirect to login).
+async fn render_profile(
+    st: &AppState,
+    user: &MaybeUser,
+    locale: &Locale,
+    saved: bool,
+) -> Result<Response, AppError> {
     let Some(session) = user.0.clone() else {
         return Ok(Redirect::to("/login").into_response());
     };
@@ -140,7 +148,7 @@ async fn profile_page(State(st): State<AppState>, user: MaybeUser, locale: Local
     let roles = if session.roles.is_empty() { "—".to_string() } else { session.roles.join(", ") };
     Ok(html(&ProfileTemplate {
         t: locale.t,
-        next: locale.next,
+        next: locale.next.clone(),
         user: user.nav(),
         display_name: p.display_name.unwrap_or_else(|| session.display_name.clone()),
         roles,
@@ -148,7 +156,33 @@ async fn profile_page(State(st): State<AppState>, user: MaybeUser, locale: Local
         did: p.did,
         handle: p.handle,
         member_since: p.created_at.format("%Y-%m-%d").to_string(),
+        saved,
     }))
+}
+
+async fn profile_page(State(st): State<AppState>, user: MaybeUser, locale: Locale) -> Result<Response, AppError> {
+    render_profile(&st, &user, &locale, false).await
+}
+
+#[derive(Deserialize)]
+struct ProfileForm {
+    display_name: String,
+}
+
+async fn profile_update(
+    State(st): State<AppState>,
+    user: MaybeUser,
+    locale: Locale,
+    Form(f): Form<ProfileForm>,
+) -> Result<Response, AppError> {
+    let Some(session) = user.0.clone() else {
+        return Ok(Redirect::to("/login").into_response());
+    };
+    let name = f.display_name.trim();
+    if !name.is_empty() {
+        du_db::auth::update_display_name(&st.pool, UserId(session.user_id), name).await?;
+    }
+    render_profile(&st, &user, &locale, true).await
 }
 
 // ── contact / support form ─────────────────────────────────────────────────────

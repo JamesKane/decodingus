@@ -76,6 +76,17 @@ pub struct Profile {
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
+/// Update a user's display name. Returns whether a row changed.
+pub async fn update_display_name(pool: &PgPool, user_id: UserId, name: &str) -> Result<bool, DbError> {
+    let n = sqlx::query("UPDATE ident.users SET display_name = $2, updated_at = now() WHERE id = $1")
+        .bind(user_id.0)
+        .bind(name)
+        .execute(pool)
+        .await?
+        .rows_affected();
+    Ok(n > 0)
+}
+
 /// Fetch a user's profile fields (None if the user no longer exists).
 pub async fn profile(pool: &PgPool, user_id: UserId) -> Result<Option<Profile>, DbError> {
     #[derive(sqlx::FromRow)]

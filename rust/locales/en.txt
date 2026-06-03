@@ -336,3 +336,5 @@ submit.error.captcha=Captcha verification failed. Please try again.
 submit.error.exists=That paper is already in our references.
 submit.error.notfound=We couldn't find that DOI in OpenAlex. Check it and try again.
 submit.error.lookup=Lookup failed — please try again later.
+profile.save=Save
+profile.saved=Profile updated.
