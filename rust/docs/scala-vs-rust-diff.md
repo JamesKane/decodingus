@@ -87,7 +87,7 @@ legacy subsystems deliberately gone.
 | Genome-region management API (+ bulk + bootstrap-from-CHM13) | ⬜ | Rust does region ingestion via jobs/ETL (du-bio), not a curator API |
 | Genomics admin manual triggers (YBrowse/HipSTR/regions bootstrap) | 🔁 | Rust runs **YBrowse ingest as a scheduled job**; no manual admin trigger endpoints; HipSTR not ported |
 | Curation/discovery proposals — intake → review → name → promote (proposed branches) | ✅ | `/manage/curation/proposals` (X-API-Key) → `/curator/proposals` review/promote → `tree.proposed_branch` → catalog |
-| Publication-candidate review UI (accept/reject/defer/bulk) | ⬜ | Rust runs the discovery job (creates candidates) but has no curator review screen yet |
+| Publication-candidate review UI (accept/reject/defer/bulk) | ✅ | **Built 2026-06** (`du-db/publication.rs` candidate fns + `du-web/routes/publications.rs`, `/curator/publications`): status-filtered queue + review panel (title/journal/date/DOI/abstract/relevance) with Accept (promote → `pubs.publication`) / Reject / Defer. Single-item; **bulk** actions not yet built |
 | Sequencing-lab admin CRUD | ➖ | lab-inference deferred |
 | Instrument/sequencer proposals review | ➖ | lab-inference deferred |
 | Support admin (message triage/reply/status) | ➖ | rides messaging (out of scope) |
@@ -150,7 +150,7 @@ ibd, social, billing` + audit + coverage-mirror + fed-reporting.
 | Scala job | Rust | Notes |
 |:---|:--|:---|
 | PublicationUpdater (OpenAlex, bi-weekly) | ✅ | `publication-update` |
-| PublicationDiscovery (OpenAlex, weekly) | ✅ | `publication-discovery` (creates candidates; review UI ⬜) |
+| PublicationDiscovery (OpenAlex, weekly) | ✅ | `publication-discovery` (creates candidates; review UI at `/curator/publications`) |
 | YBrowseVariantUpdate (weekly) | ✅ | `ybrowse-variant-ingest` |
 | VariantExport (daily gzipped JSONL) | 🔁 | replaced by the live CSV endpoint; no file-artifact job |
 | MatchDiscovery (daily IBD) | ➖ | IBD not in production |
@@ -169,10 +169,10 @@ ibd, social, billing` + audit + coverage-mirror + fed-reporting.
   matching, social/reputation/messaging, group projects, patronage/billing,
   sequencer-lab inference, PDS fleet. (STR profiles were **brought back into
   scope** 2026-06 — Phase 1 shipped; prediction is Phase 2.)
-- **In scope, not yet built:** publication-candidate review UI, haplogroup
-  restructure as discrete curator ops, public publication-submit form, profile
-  update, region management API/bootstrap, per-lab coverage fragments.
-  (Change-set conflict-resolution UI + `wip_*` staging — **built 2026-06**, see
-  §2 `/curator/reviews`.)
+- **In scope, not yet built:** haplogroup restructure as discrete curator ops,
+  public publication-submit form, profile update, region management
+  API/bootstrap, per-lab coverage fragments. (Built 2026-06: change-set
+  conflict-resolution UI + `wip_*` staging — §2 `/curator/reviews`;
+  publication-candidate review UI — §2 `/curator/publications`.)
 - **Externally gated:** confidential-OAuth Edge joint test; current-schema dump
   for ETL cutover (see STATUS "Cutover blocker").
