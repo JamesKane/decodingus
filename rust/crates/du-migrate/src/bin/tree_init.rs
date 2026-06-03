@@ -41,6 +41,10 @@ struct Args {
     /// as new nodes under their parents' anchors. Dry-run unless --apply.
     #[arg(long)]
     graft: bool,
+    /// Phase 4: write the curator-review worklist (flagged + name-collision +
+    /// graft-blocked nodes, with SNP-scatter context) to this JSON path. Read-only.
+    #[arg(long)]
+    export_flags: Option<String>,
     /// Approve + apply each change set (else leave DRAFT for curator review).
     #[arg(long)]
     apply: bool,
@@ -321,9 +325,29 @@ async fn main() -> anyhow::Result<()> {
                     samples = ?enr.samples, "Phase 2 enrich"
                 );
                 // Phase 3 — graft the truly-novel branches (DRY-RUN unless --apply).
-                if args.graft {
-                    let g = du_db::snp_graft::graft(&pool, &source, dna, &report, &args.by, args.apply).await?;
-                    print_graft_write_report(&g);
+                // Also computed (dry-run) when only exporting, for its skip lists.
+                let graft_rep = if args.graft || args.export_flags.is_some() {
+                    let apply_graft = args.graft && args.apply;
+                    let g = du_db::snp_graft::graft(&pool, &source, dna, &report, &args.by, apply_graft).await?;
+                    if args.graft {
+                        print_graft_write_report(&g);
+                    }
+                    Some(g)
+                } else {
+                    None
+                };
+
+                // Phase 4 — write the curator-review worklist (read-only).
+                if let Some(path) = &args.export_flags {
+                    let g = graft_rep.as_ref().expect("graft report computed when export_flags set");
+                    let ex = du_db::snp_graft::export_review(&pool, &source, dna, &report, g).await?;
+                    std::fs::write(path, serde_json::to_string_pretty(&ex)?)?;
+                    tracing::info!(
+                        path = %path, items = ex.items.len(),
+                        weak = ex.summary.weak_plurality, parent_inconsistent = ex.summary.parent_inconsistent,
+                        name_collision = ex.summary.name_collision, graft_blocked = ex.summary.graft_blocked,
+                        "Phase 4 curator-review export written"
+                    );
                 }
             } else {
                 // Legacy exact-set merge (cannot reconcile cross-source trees).

@@ -91,7 +91,12 @@ fn anchor(snps: &[String], snp2nodes: &HashMap<String, Vec<String>>) -> Option<(
             }
         }
     }
-    hits.into_iter().max_by_key(|&(_, c)| c).map(|(n, c)| (n.to_string(), c, total))
+    // Deterministic: most hits, ties broken by lexicographically-smallest node
+    // name (HashMap iteration order is otherwise arbitrary, which jittered the
+    // match/novel/flag split by a couple of borderline nodes between runs).
+    hits.into_iter()
+        .max_by(|a, b| a.1.cmp(&b.1).then_with(|| b.0.cmp(a.0)))
+        .map(|(n, c)| (n.to_string(), c, total))
 }
 
 /// Is `a` an ancestor of `n` in the ISOGG tree (via current parent edges)?
@@ -282,9 +287,14 @@ pub async fn graft(
     let dispo: HashMap<&str, &Disposition> =
         classified.items.iter().map(|c| (c.node.as_str(), &c.disposition)).collect();
 
-    // Current tree: name → id (anchors resolve here; also the collision guard).
+    // Foundation tree: name → id (anchors resolve here; also the collision
+    // guard). Foundation-only (exclude already-grafted decoding-us nodes) so a
+    // read-only re-run doesn't see the 848 grafted nodes as name-collisions with
+    // their own prior graft; identical on a fresh apply (no decoding-us yet).
     let id_rows: Vec<(String, i64)> = sqlx::query_as(
-        "SELECT name, id FROM tree.haplogroup WHERE haplogroup_type::text = $1 AND valid_until IS NULL",
+        "SELECT name, id FROM tree.haplogroup \
+         WHERE haplogroup_type::text = $1 AND valid_until IS NULL \
+           AND source IS DISTINCT FROM 'decoding-us'",
     )
     .bind(&dna_label)
     .fetch_all(pool)
@@ -519,20 +529,25 @@ async fn get_or_create_variant(
 pub async fn classify(pool: &PgPool, source: &[SourceNode], dna: DnaType) -> Result<GraftReport, DbError> {
     let dna_label = pg_enum_label(&dna)?;
 
-    // SNP name (canonical OR alias, lowercased) → ISOGG node name(s). Indexing
-    // aliases too lets a source tree that uses a synonym (e.g. L1284 for AF6)
-    // still anchor. A name on several nodes is recurrent.
+    // SNP name (canonical OR alias, lowercased) → foundation node name(s).
+    // Indexing aliases too lets a source tree that uses a synonym (e.g. L1284 for
+    // AF6) still anchor. A name on several nodes is recurrent. We anchor only
+    // against the **foundation** (exclude already-grafted decoding-us nodes), so
+    // the classifier stays stable + re-runnable no matter what's been grafted —
+    // otherwise a re-run would anchor source nodes onto their own grafted selves.
     let snp_rows: Vec<(String, String)> = sqlx::query_as(
         "SELECT lower(v.canonical_name), h.name FROM core.variant v \
          JOIN tree.haplogroup_variant hv ON hv.variant_id = v.id AND hv.valid_until IS NULL \
          JOIN tree.haplogroup h ON h.id = hv.haplogroup_id \
          WHERE h.haplogroup_type::text = $1 AND h.valid_until IS NULL \
+           AND h.source IS DISTINCT FROM 'decoding-us' \
          UNION ALL \
          SELECT lower(a.alias), h.name FROM core.variant v \
          CROSS JOIN LATERAL jsonb_array_elements_text(v.aliases->'common_names') AS a(alias) \
          JOIN tree.haplogroup_variant hv ON hv.variant_id = v.id AND hv.valid_until IS NULL \
          JOIN tree.haplogroup h ON h.id = hv.haplogroup_id \
-         WHERE h.haplogroup_type::text = $1 AND h.valid_until IS NULL",
+         WHERE h.haplogroup_type::text = $1 AND h.valid_until IS NULL \
+           AND h.source IS DISTINCT FROM 'decoding-us'",
     )
     .bind(&dna_label)
     .fetch_all(pool)
@@ -602,4 +617,215 @@ pub async fn classify(pool: &PgPool, source: &[SourceNode], dna: DnaType) -> Res
         report.items.push(Classified { node: sn.name.clone(), disposition });
     }
     Ok(report)
+}
+
+// ── Phase 4 — curator review export ────────────────────────────────────────────
+
+/// One candidate anchor for a flagged node: an existing node and how many of the
+/// node's defining SNPs landed on it.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct AnchorCandidate {
+    pub node: String,
+    pub hits: i64,
+}
+
+/// A single item needing curator adjudication.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ReviewItem {
+    /// Source node name (e.g. a decoding-us `R1b-…`).
+    pub node: String,
+    /// `weak_plurality` | `parent_inconsistent` | `name_collision`.
+    pub category: String,
+    /// Human-readable explanation of why it needs review.
+    pub reason: String,
+    /// Best (plurality) anchor candidate, if any defining SNP is known.
+    pub best_anchor: Option<String>,
+    /// Top candidate's share of the node's foundation-known SNP hits (0–1).
+    pub anchor_strength: f64,
+    /// Top few anchor candidates (where its SNPs scatter), most hits first.
+    pub candidates: Vec<AnchorCandidate>,
+    /// Defining SNPs the source lists (distinct).
+    pub defining_snp_count: usize,
+    /// How many of those SNPs the foundation (ISOGG) actually knows.
+    pub snps_known_to_foundation: i64,
+    pub source_parent: Option<String>,
+    /// The source parent's own disposition (for context on the topology clash).
+    pub source_parent_status: String,
+    /// Whether the source curated this node as backbone.
+    pub is_backbone: bool,
+}
+
+#[derive(Debug, Default, Clone, serde::Serialize)]
+pub struct ReviewSummary {
+    pub weak_plurality: usize,
+    pub parent_inconsistent: usize,
+    pub name_collision: usize,
+    /// Novel branches blocked from grafting (their lineage is flagged); they
+    /// graft automatically once the flagged ancestor is adjudicated + re-run.
+    pub graft_blocked: usize,
+    pub total: usize,
+}
+
+/// The full curator-review artifact (serialized to JSON for Phase 4).
+#[derive(Debug, Default, serde::Serialize)]
+pub struct ReviewExport {
+    pub source: String,
+    pub dna: String,
+    pub summary: ReviewSummary,
+    pub items: Vec<ReviewItem>,
+    /// Names of novel branches blocked from grafting (downstream of a flag).
+    pub graft_blocked: Vec<String>,
+}
+
+/// SNP scatter for a node: `(node, hits)` over the foundation, most hits first
+/// (ties by name → deterministic), and the total hit count across all nodes.
+fn scatter(snps: &[String], snp2nodes: &HashMap<String, Vec<String>>) -> (Vec<(String, i64)>, i64) {
+    let mut hits: HashMap<&str, i64> = HashMap::new();
+    let mut total = 0i64;
+    for s in snps {
+        if let Some(nodes) = snp2nodes.get(&s.to_ascii_lowercase()) {
+            for n in nodes {
+                *hits.entry(n.as_str()).or_default() += 1;
+                total += 1;
+            }
+        }
+    }
+    let mut v: Vec<(String, i64)> = hits.into_iter().map(|(n, c)| (n.to_string(), c)).collect();
+    v.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    (v, total)
+}
+
+/// **Phase 4 — export.** Build the curator-review worklist: every source node the
+/// classifier *flagged* (weak plurality or parent-inconsistent), enriched with
+/// where its SNPs scatter in the foundation and its parent's disposition, plus
+/// the graft writer's name-collisions and the count of graft-blocked novels.
+/// Read-only. Anchors against the foundation (same exclusion as `classify`).
+pub async fn export_review(
+    pool: &PgPool,
+    source: &[SourceNode],
+    dna: DnaType,
+    classified: &GraftReport,
+    graft: &GraftWriteReport,
+) -> Result<ReviewExport, DbError> {
+    let dna_label = pg_enum_label(&dna)?;
+    let by_name: HashMap<&str, &SourceNode> = source.iter().map(|n| (n.name.as_str(), n)).collect();
+    let dispo: HashMap<&str, &Disposition> =
+        classified.items.iter().map(|c| (c.node.as_str(), &c.disposition)).collect();
+
+    // Same foundation-only SNP→node index the classifier uses.
+    let snp_rows: Vec<(String, String)> = sqlx::query_as(
+        "SELECT lower(v.canonical_name), h.name FROM core.variant v \
+         JOIN tree.haplogroup_variant hv ON hv.variant_id = v.id AND hv.valid_until IS NULL \
+         JOIN tree.haplogroup h ON h.id = hv.haplogroup_id \
+         WHERE h.haplogroup_type::text = $1 AND h.valid_until IS NULL \
+           AND h.source IS DISTINCT FROM 'decoding-us' \
+         UNION ALL \
+         SELECT lower(a.alias), h.name FROM core.variant v \
+         CROSS JOIN LATERAL jsonb_array_elements_text(v.aliases->'common_names') AS a(alias) \
+         JOIN tree.haplogroup_variant hv ON hv.variant_id = v.id AND hv.valid_until IS NULL \
+         JOIN tree.haplogroup h ON h.id = hv.haplogroup_id \
+         WHERE h.haplogroup_type::text = $1 AND h.valid_until IS NULL \
+           AND h.source IS DISTINCT FROM 'decoding-us'",
+    )
+    .bind(&dna_label)
+    .fetch_all(pool)
+    .await?;
+    let mut snp2nodes: HashMap<String, Vec<String>> = HashMap::new();
+    for (snp, node) in snp_rows {
+        snp2nodes.entry(snp).or_default().push(node);
+    }
+
+    let parent_status = |sn: &SourceNode| -> String {
+        match &sn.parent_name {
+            None => "(root)".to_string(),
+            Some(p) => match dispo.get(p.as_str()) {
+                Some(Disposition::Match { anchor, strength }) => {
+                    format!("matched→{anchor} ({:.0}%)", strength * 100.0)
+                }
+                Some(Disposition::GraftNovel { .. }) => "novel".to_string(),
+                Some(Disposition::Flag { reason: FlagReason::WeakPlurality, .. }) => "flag_weak".to_string(),
+                Some(Disposition::Flag { reason: FlagReason::ParentInconsistent, .. }) => {
+                    "flag_parent_inconsistent".to_string()
+                }
+                None => "(not in source / existing node)".to_string(),
+            },
+        }
+    };
+    let known = |sn: &SourceNode| -> i64 {
+        sn.defining_snps.iter().filter(|s| snp2nodes.contains_key(&s.to_ascii_lowercase())).count() as i64
+    };
+    let candidates = |cand: &[(String, i64)]| -> Vec<AnchorCandidate> {
+        cand.iter().take(5).map(|(n, h)| AnchorCandidate { node: n.clone(), hits: *h }).collect()
+    };
+
+    let mut summary = ReviewSummary::default();
+    let mut items: Vec<ReviewItem> = Vec::new();
+
+    // Flagged nodes (weak / parent-inconsistent).
+    for c in &classified.items {
+        let Disposition::Flag { reason, anchor } = &c.disposition else { continue };
+        let Some(&sn) = by_name.get(c.node.as_str()) else { continue };
+        let (cand, total) = scatter(&sn.defining_snps, &snp2nodes);
+        let strength = match (cand.first(), total) {
+            (Some((_, h)), t) if t > 0 => *h as f64 / t as f64,
+            _ => 0.0,
+        };
+        let (category, reason_text) = match reason {
+            FlagReason::WeakPlurality => {
+                summary.weak_plurality += 1;
+                ("weak_plurality", "No single foundation node holds a majority of the node's defining SNPs (SNP-sparse or scattered placement).")
+            }
+            FlagReason::ParentInconsistent => {
+                summary.parent_inconsistent += 1;
+                ("parent_inconsistent", "Anchor is not at/below the parent's anchor, or its major clade differs (possible recurrent-SNP cross-lineage anchor or topology disagreement).")
+            }
+        };
+        items.push(ReviewItem {
+            node: c.node.clone(),
+            category: category.to_string(),
+            reason: reason_text.to_string(),
+            best_anchor: anchor.clone(),
+            anchor_strength: strength,
+            candidates: candidates(&cand),
+            defining_snp_count: sn.defining_snps.len(),
+            snps_known_to_foundation: known(sn),
+            source_parent: sn.parent_name.clone(),
+            source_parent_status: parent_status(sn),
+            is_backbone: sn.is_backbone,
+        });
+    }
+
+    // Name collisions from the graft writer (novel node whose name already exists).
+    for name in &graft.skipped_name_exists {
+        let Some(&sn) = by_name.get(name.as_str()) else { continue };
+        let (cand, total) = scatter(&sn.defining_snps, &snp2nodes);
+        let strength = match (cand.first(), total) {
+            (Some((_, h)), t) if t > 0 => *h as f64 / t as f64,
+            _ => 0.0,
+        };
+        summary.name_collision += 1;
+        items.push(ReviewItem {
+            node: name.clone(),
+            category: "name_collision".to_string(),
+            reason: "Source node name matches an existing foundation node but defines different SNPs (no SNP overlap) — reconcile or rename.".to_string(),
+            best_anchor: Some(name.clone()),
+            anchor_strength: strength,
+            candidates: candidates(&cand),
+            defining_snp_count: sn.defining_snps.len(),
+            snps_known_to_foundation: known(sn),
+            source_parent: sn.parent_name.clone(),
+            source_parent_status: parent_status(sn),
+            is_backbone: sn.is_backbone,
+        });
+    }
+
+    summary.graft_blocked = graft.skipped_unresolved.len();
+    summary.total = items.len();
+    Ok(ReviewExport {
+        source: "decoding-us".to_string(),
+        dna: dna_label.to_string(),
+        summary,
+        items,
+        graft_blocked: graft.skipped_unresolved.clone(),
+    })
 }
