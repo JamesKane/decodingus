@@ -26,9 +26,10 @@ struct Args {
     /// Target DB (else $DATABASE_URL).
     #[arg(long)]
     database_url: Option<String>,
-    /// Path to isogg_full_tree.json (the foundational tree).
+    /// Path to isogg_full_tree.json (the foundational tree). Optional: omit to
+    /// merge only the prod tree, or to --reprocess an already-loaded tree.
     #[arg(long)]
-    isogg: String,
+    isogg: Option<String>,
     /// Optional: URL of the decoding-us production Y-tree to merge in.
     #[arg(long)]
     merge_prod: Option<String>,
@@ -70,21 +71,46 @@ fn parse_isogg(node: &Value) -> Option<SourceNode> {
     Some(SourceNode { name, variants, children })
 }
 
-/// decoding-us prod node: `{name, variants:[{name,…}], children:[…]}` — pull the
-/// SNP name out of each variant object.
-fn parse_prod(node: &Value) -> Option<SourceNode> {
-    let name = node.get("name")?.as_str()?.to_string();
-    let variants = node
-        .get("variants")
-        .and_then(Value::as_array)
-        .map(|a| a.iter().filter_map(|v| v.get("name").and_then(Value::as_str).map(str::to_string)).collect())
-        .unwrap_or_default();
-    let children = node
-        .get("children")
-        .and_then(Value::as_array)
-        .map(|a| a.iter().filter_map(parse_prod).collect())
-        .unwrap_or_default();
-    Some(SourceNode { name, variants, children })
+/// Build a nested `SourceNode` forest from the decoding-us **flat** tree:
+/// `[{name, parentName, variants:[{name,…}], …}]` (the `/api/v1/y-tree` shape).
+/// Hierarchy comes from `parentName`; roots are nodes with no/absent parent.
+fn parse_prod_flat(body: &Value) -> Vec<SourceNode> {
+    use std::collections::HashMap;
+    let arr = match body.as_array() {
+        Some(a) => a,
+        None => return Vec::new(),
+    };
+    let mut nodes: HashMap<String, SourceNode> = HashMap::new();
+    let mut parent_of: HashMap<String, Option<String>> = HashMap::new();
+    let mut order: Vec<String> = Vec::new();
+    for n in arr {
+        let Some(name) = n.get("name").and_then(Value::as_str) else { continue };
+        let variants = n
+            .get("variants")
+            .and_then(Value::as_array)
+            .map(|a| a.iter().filter_map(|v| v.get("name").and_then(Value::as_str).map(str::to_string)).collect())
+            .unwrap_or_default();
+        nodes.insert(name.to_string(), SourceNode { name: name.to_string(), variants, children: vec![] });
+        parent_of.insert(name.to_string(), n.get("parentName").and_then(Value::as_str).map(str::to_string));
+        order.push(name.to_string());
+    }
+    // Edges → children map (preserving input order); a missing/unknown parent = root.
+    let mut children_of: HashMap<String, Vec<String>> = HashMap::new();
+    let mut roots: Vec<String> = Vec::new();
+    for name in &order {
+        match parent_of.get(name).and_then(Clone::clone) {
+            Some(p) if nodes.contains_key(&p) => children_of.entry(p).or_default().push(name.clone()),
+            _ => roots.push(name.clone()),
+        }
+    }
+    fn build(name: &str, nodes: &mut HashMap<String, SourceNode>, kids: &HashMap<String, Vec<String>>) -> SourceNode {
+        let mut node = nodes.remove(name).expect("node present");
+        if let Some(cs) = kids.get(name) {
+            node.children = cs.iter().map(|c| build(c, nodes, kids)).collect();
+        }
+        node
+    }
+    roots.iter().map(|r| build(r, &mut nodes, &children_of)).collect()
 }
 
 /// Run one merge: existing tree → plan → materialized change set, optionally applied.
@@ -149,24 +175,40 @@ async fn main() -> anyhow::Result<()> {
     let pool = du_db::connect(&url, 4).await?;
     du_db::run_migrations(&pool).await?;
 
-    // 1. ISOGG foundation (the JSON is always parsed — its `aliases` feed the
-    //    post-process step even in --reprocess mode).
-    tracing::info!(path = %args.isogg, "loading ISOGG tree");
-    let isogg: Value = serde_json::from_str(&std::fs::read_to_string(&args.isogg)?)?;
-    let source_name = isogg.get("sourceName").and_then(Value::as_str).unwrap_or("ISOGG").to_string();
-    let root = isogg.get("sourceTree").ok_or_else(|| anyhow::anyhow!("isogg json missing `sourceTree`"))?;
+    // The ISOGG JSON (if given) is parsed up front — its `aliases` feed the
+    // post-process step. Kept around for alias population below.
+    let isogg: Option<Value> = match &args.isogg {
+        Some(path) => {
+            tracing::info!(%path, "loading ISOGG tree");
+            Some(serde_json::from_str(&std::fs::read_to_string(path)?)?)
+        }
+        None => None,
+    };
+    let isogg_root: Option<&Value> = isogg.as_ref().map(|j| {
+        j.get("sourceTree").unwrap_or(j)
+    });
 
     if !args.reprocess {
-        let isogg_roots = parse_isogg(root).map(|r| vec![r]).ok_or_else(|| anyhow::anyhow!("could not parse ISOGG sourceTree"))?;
-        merge_into(&pool, &isogg_roots, &source_name, dna, dna_label, &args.by, args.apply).await?;
+        // 1. ISOGG foundation (only when --isogg is given; the merge is not
+        //    safely re-runnable against an already-loaded ISOGG tree).
+        if let Some(root) = isogg_root {
+            let source_name = isogg
+                .as_ref()
+                .and_then(|j| j.get("sourceName").and_then(Value::as_str))
+                .unwrap_or("ISOGG")
+                .to_string();
+            let isogg_roots = parse_isogg(root).map(|r| vec![r]).ok_or_else(|| anyhow::anyhow!("could not parse ISOGG sourceTree"))?;
+            merge_into(&pool, &isogg_roots, &source_name, dna, dna_label, &args.by, args.apply).await?;
+        }
 
-        // 2. Optional: merge the decoding-us production tree in.
+        // 2. Optional: merge the decoding-us production tree in (flat parentName
+        //    list → nested). Left DRAFT unless --apply.
         if let Some(url) = &args.merge_prod {
             tracing::info!(%url, "fetching decoding-us production tree");
             let body: Value = reqwest::Client::new().get(url).send().await?.error_for_status()?.json().await?;
-            let nodes = body.as_array().cloned().unwrap_or_else(|| vec![body]);
-            let prod_roots: Vec<SourceNode> = nodes.iter().filter_map(parse_prod).collect();
+            let prod_roots = parse_prod_flat(&body);
             anyhow::ensure!(!prod_roots.is_empty(), "no nodes parsed from prod tree");
+            tracing::info!(roots = prod_roots.len(), "parsed prod tree");
             merge_into(&pool, &prod_roots, "decoding-us", dna, dna_label, &args.by, args.apply).await?;
         }
     }
@@ -186,8 +228,10 @@ async fn main() -> anyhow::Result<()> {
         }
         let backbone = du_db::haplogroup::recompute_backbone(&pool, dna).await?;
         tracing::info!(backbone, "recomputed backbone (single-letter clades + ancestors)");
-        let aliased = apply_aliases(&pool, root, dna).await?;
-        tracing::info!(aliased, "stored haplogroup name aliases from ISOGG");
+        if let Some(root) = isogg_root {
+            let aliased = apply_aliases(&pool, root, dna).await?;
+            tracing::info!(aliased, "stored haplogroup name aliases from ISOGG");
+        }
     }
 
     tracing::info!("tree-init done");
