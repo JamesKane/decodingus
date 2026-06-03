@@ -33,6 +33,10 @@ struct Args {
     /// Optional: URL of the decoding-us production Y-tree to merge in.
     #[arg(long)]
     merge_prod: Option<String>,
+    /// Use the SNP-anchored graft classifier (dry-run report) for --merge-prod
+    /// instead of the exact-set merge (which cannot reconcile cross-source trees).
+    #[arg(long)]
+    snp_graft: bool,
     /// Approve + apply each change set (else leave DRAFT for curator review).
     #[arg(long)]
     apply: bool,
@@ -111,6 +115,58 @@ fn parse_prod_flat(body: &Value) -> Vec<SourceNode> {
         node
     }
     roots.iter().map(|r| build(r, &mut nodes, &children_of)).collect()
+}
+
+/// Adapt the decoding-us flat API tree to source-tree.v1 `SourceNode`s (the
+/// source-agnostic input the SNP-graft classifier consumes).
+fn prod_source_nodes(body: &Value) -> Vec<du_db::snp_graft::SourceNode> {
+    let Some(arr) = body.as_array() else { return Vec::new() };
+    arr.iter()
+        .filter_map(|n| {
+            let name = n.get("name")?.as_str()?.to_string();
+            let defining_snps = n
+                .get("variants")
+                .and_then(Value::as_array)
+                .map(|a| a.iter().filter_map(|v| v.get("name").and_then(Value::as_str).map(str::to_string)).collect())
+                .unwrap_or_default();
+            Some(du_db::snp_graft::SourceNode {
+                name,
+                parent_name: n.get("parentName").and_then(Value::as_str).map(str::to_string),
+                defining_snps,
+                is_backbone: n.get("isBackbone").and_then(Value::as_bool).unwrap_or(false),
+                last_updated: n.get("lastUpdated").and_then(Value::as_str).map(str::to_string),
+            })
+        })
+        .collect()
+}
+
+/// Log the dry-run classification breakdown + a few samples per category.
+fn print_graft_report(r: &du_db::snp_graft::GraftReport) {
+    use du_db::snp_graft::{Disposition, FlagReason};
+    tracing::info!(
+        total = r.total, matched = r.matched, graft_novel = r.graft_novel,
+        flag_weak = r.flag_weak, flag_inconsistent = r.flag_inconsistent,
+        backbone_adopt = r.backbone_adopt,
+        "SNP-graft dry-run classification"
+    );
+    let fmt = |c: &du_db::snp_graft::Classified| match &c.disposition {
+        Disposition::Match { anchor, strength } => format!("{} → {} ({:.0}%)", c.node, anchor, strength * 100.0),
+        Disposition::GraftNovel { parent_anchor } => {
+            format!("{} ⤚graft under {}", c.node, parent_anchor.as_deref().unwrap_or("?"))
+        }
+        Disposition::Flag { reason, anchor } => {
+            let why = match reason { FlagReason::WeakPlurality => "weak", FlagReason::ParentInconsistent => "parent≠" };
+            format!("{} ⚑{} (~{})", c.node, why, anchor.as_deref().unwrap_or("?"))
+        }
+    };
+    for (label, pred) in [
+        ("match", &(|d: &Disposition| matches!(d, Disposition::Match { .. })) as &dyn Fn(&Disposition) -> bool),
+        ("graft", &(|d: &Disposition| matches!(d, Disposition::GraftNovel { .. }))),
+        ("flag", &(|d: &Disposition| matches!(d, Disposition::Flag { .. }))),
+    ] {
+        let s: Vec<String> = r.sample(6, pred).into_iter().map(fmt).collect();
+        tracing::info!(category = label, samples = ?s, "graft samples");
+    }
 }
 
 /// Run one merge: existing tree → plan → materialized change set, optionally applied.
@@ -201,15 +257,24 @@ async fn main() -> anyhow::Result<()> {
             merge_into(&pool, &isogg_roots, &source_name, dna, dna_label, &args.by, args.apply).await?;
         }
 
-        // 2. Optional: merge the decoding-us production tree in (flat parentName
-        //    list → nested). Left DRAFT unless --apply.
+        // 2. Optional: merge the decoding-us production tree in.
         if let Some(url) = &args.merge_prod {
             tracing::info!(%url, "fetching decoding-us production tree");
             let body: Value = reqwest::Client::new().get(url).send().await?.error_for_status()?.json().await?;
-            let prod_roots = parse_prod_flat(&body);
-            anyhow::ensure!(!prod_roots.is_empty(), "no nodes parsed from prod tree");
-            tracing::info!(roots = prod_roots.len(), "parsed prod tree");
-            merge_into(&pool, &prod_roots, "decoding-us", dna, dna_label, &args.by, args.apply).await?;
+            if args.snp_graft {
+                // SNP-anchored graft (dry-run classifier — no writes yet).
+                let source = prod_source_nodes(&body);
+                anyhow::ensure!(!source.is_empty(), "no nodes parsed from prod tree");
+                tracing::info!(nodes = source.len(), "classifying prod tree by SNP anchor (dry-run)");
+                let report = du_db::snp_graft::classify(&pool, &source, dna).await?;
+                print_graft_report(&report);
+            } else {
+                // Legacy exact-set merge (cannot reconcile cross-source trees).
+                let prod_roots = parse_prod_flat(&body);
+                anyhow::ensure!(!prod_roots.is_empty(), "no nodes parsed from prod tree");
+                tracing::info!(roots = prod_roots.len(), "parsed prod tree");
+                merge_into(&pool, &prod_roots, "decoding-us", dna, dna_label, &args.by, args.apply).await?;
+            }
         }
     }
 

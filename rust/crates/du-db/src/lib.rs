@@ -22,6 +22,7 @@ pub mod merge;
 pub mod pagination;
 pub mod proposal;
 pub mod publication;
+pub mod snp_graft;
 pub mod study;
 pub mod support;
 pub mod variant;
