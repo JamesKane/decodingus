@@ -167,6 +167,18 @@ fn print_graft_report(r: &du_db::snp_graft::GraftReport) {
         let s: Vec<String> = r.sample(6, pred).into_iter().map(fmt).collect();
         tracing::info!(category = label, samples = ?s, "graft samples");
     }
+    // Spot-check well-known nodes spread across the tree (not alphabetical-first)
+    // to gauge quality on the SNP-rich bulk vs the hard deep-African upstream.
+    let spot = [
+        "R1b-L21", "R1b-P312", "R1b-S10", "R1a-M198", "I1", "I2", "J2", "J1",
+        "E1b-CTS19", "G2a-L1259", "N-M231", "Q-M242", "O2-M122", "T-M184",
+    ];
+    let checks: Vec<String> = spot
+        .iter()
+        .filter_map(|name| r.items.iter().find(|c| c.node == *name))
+        .map(|c| fmt(c))
+        .collect();
+    tracing::info!(spot_checks = ?checks, "graft spot-check (known nodes)");
 }
 
 /// Run one merge: existing tree → plan → materialized change set, optionally applied.
