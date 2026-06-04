@@ -176,12 +176,12 @@ pub async fn enrich(
             sqlx::query(
                 "UPDATE tree.haplogroup SET \
                    is_backbone = is_backbone OR $3, \
-                   provenance = jsonb_set( \
-                     jsonb_set(COALESCE(provenance, '{}'::jsonb), '{aliases}', \
+                   provenance = jsonb_set(COALESCE(provenance, '{}'::jsonb), '{aliases}', \
                        (SELECT COALESCE(jsonb_agg(DISTINCT a), '[]'::jsonb) FROM ( \
                           SELECT jsonb_array_elements_text(COALESCE(provenance->'aliases', '[]'::jsonb)) AS a \
-                          UNION SELECT unnest($2::text[])) u), true), \
-                     '{source_updated}', to_jsonb($5::text), true) \
+                          UNION SELECT unnest($2::text[])) u), true) \
+                     || (CASE WHEN $5::text IS NULL THEN '{}'::jsonb \
+                              ELSE jsonb_build_object('source_updated', $5::text) END) \
                  WHERE name = $1 AND haplogroup_type::text = $4 AND valid_until IS NULL",
             )
             .bind(anchor)
