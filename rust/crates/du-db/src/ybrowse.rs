@@ -107,14 +107,21 @@ pub struct ReconcileReport {
 pub async fn reconcile(pool: &PgPool) -> Result<ReconcileReport, DbError> {
     let mut tx = pool.begin().await?;
 
-    // name -> existing variant id (by canonical OR common-name alias).
+    // name -> existing variant id (by canonical OR common-name alias). The alias
+    // arm EXPLODES each variant's common_names into (name, vid) rows up front and
+    // hash-joins on text equality — a per-source-row `aliases ? s.name` probe over
+    // 3M+ mirror rows can't use the jsonb_path_ops GIN index (it serves @>, not ?)
+    // and degrades to a seq nested-loop that never finishes at full scale.
     sqlx::query(
         "CREATE TEMP TABLE _nv ON COMMIT DROP AS \
            SELECT s.name, v.id AS vid FROM source.ybrowse_snp s \
              JOIN core.variant v ON v.canonical_name = s.name \
            UNION \
-           SELECT s.name, v.id FROM source.ybrowse_snp s \
-             JOIN core.variant v ON v.aliases->'common_names' ? s.name",
+           SELECT s.name, cn.vid FROM source.ybrowse_snp s \
+             JOIN ( \
+               SELECT v.id AS vid, jsonb_array_elements_text(v.aliases->'common_names') AS nm \
+               FROM core.variant v WHERE v.aliases ? 'common_names' \
+             ) cn ON cn.nm = s.name",
     )
     .execute(&mut *tx)
     .await?;

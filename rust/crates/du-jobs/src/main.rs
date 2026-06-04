@@ -29,6 +29,32 @@ async fn main() -> anyhow::Result<()> {
         .map_err(|_| anyhow::anyhow!("DATABASE_URL is required for the job runner"))?;
     let pool = du_db::connect(&url, 4).await?;
 
+    // One-shot mode: `du-jobs run-once <job>` runs a single job to completion and
+    // exits, instead of starting the interval scheduler. For ops/backfills (e.g.
+    // a full YBrowse GFF3 ingest + reconcile on demand, not on the 24h tick).
+    let mut argv = std::env::args().skip(1);
+    if argv.next().as_deref() == Some("run-once") {
+        let job = argv.next().unwrap_or_default();
+        match job.as_str() {
+            "ybrowse" => {
+                let cfg = ybrowse::Config::from_env()
+                    .ok_or_else(|| anyhow::anyhow!("set YBROWSE_GFF (+ optional chain paths)"))?;
+                ybrowse::run(&pool, &cfg).await?;
+            }
+            // Re-derive core.variant from the already-loaded mirror (skips the
+            // 770 MB GFF3 re-stream) — e.g. after curator name/merge edits.
+            "reconcile" => {
+                let rec = du_db::ybrowse::reconcile(&pool).await?;
+                tracing::info!(
+                    clusters = rec.clusters, created = rec.created,
+                    enriched = rec.enriched, flagged = rec.flagged, "reconcile complete"
+                );
+            }
+            other => anyhow::bail!("unknown run-once job '{other}' (known: ybrowse, reconcile)"),
+        }
+        return Ok(());
+    }
+
     let mut sched = Scheduler::new();
 
     // DB heartbeat — proves the harness; also a cheap liveness signal.
