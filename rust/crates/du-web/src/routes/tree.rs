@@ -339,17 +339,23 @@ fn json_str_list(v: &serde_json::Value) -> Vec<String> {
         .collect()
 }
 
-/// Render coordinates JSONB (`{refGenome: {contig,position,ref,alt}}`) as
-/// `"contig:pos ref>alt [b38]"` strings.
+/// Render coordinates JSONB as `"contig:pos anc>der [b38]"` strings — the locus
+/// plus the ancestral→derived allele states. Accepts the universal-variant field
+/// names (`reference_allele`/`alternate_allele`) and the legacy `ref`/`alt`; when
+/// no alleles are recorded, shows just the locus.
 fn coord_list(v: &serde_json::Value) -> Vec<String> {
+    let allele = |c: &serde_json::Value, a: &str, b: &str| {
+        c.get(a).or_else(|| c.get(b)).and_then(|x| x.as_str()).unwrap_or("").to_string()
+    };
     let Some(obj) = v.as_object() else { return vec![] };
     obj.iter()
         .filter_map(|(genome, c)| {
             let contig = c.get("contig").and_then(|x| x.as_str()).unwrap_or("?");
             let pos = c.get("position").and_then(serde_json::Value::as_i64)?;
-            let r = c.get("ref").and_then(|x| x.as_str()).unwrap_or("");
-            let a = c.get("alt").and_then(|x| x.as_str()).unwrap_or("");
-            Some(format!("{contig}:{pos} {r}>{a} [{}]", short_genome(genome)))
+            let anc = allele(c, "reference_allele", "ref");
+            let der = allele(c, "alternate_allele", "alt");
+            let alleles = if anc.is_empty() && der.is_empty() { String::new() } else { format!(" {anc}>{der}") };
+            Some(format!("{contig}:{pos}{alleles} [{}]", short_genome(genome)))
         })
         .collect()
 }
