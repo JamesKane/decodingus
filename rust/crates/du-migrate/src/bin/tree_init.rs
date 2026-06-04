@@ -45,6 +45,11 @@ struct Args {
     /// as new nodes under their parents' anchors. Dry-run unless --apply.
     #[arg(long)]
     graft: bool,
+    /// Reattach bushes blocked by a flagged/ambiguous backbone ancestor to the
+    /// nearest node their defining SNP points into (for complete-topology sources
+    /// like FTDNA). Off by default (conservative: block & review).
+    #[arg(long)]
+    reattach: bool,
     /// Phase 4: write the curator-review worklist (flagged + name-collision +
     /// graft-blocked nodes, with SNP-scatter context) to this JSON path. Read-only.
     #[arg(long)]
@@ -330,7 +335,7 @@ async fn run_snp_graft(
     let want_review = args.export_flags.is_some() || args.stage_review;
     let graft_rep = if args.graft || want_review {
         let apply_graft = args.graft && args.apply;
-        let g = du_db::snp_graft::graft(pool, source, dna, label, &report, &args.by, apply_graft).await?;
+        let g = du_db::snp_graft::graft(pool, source, dna, label, &report, &args.by, apply_graft, args.reattach).await?;
         if args.graft {
             print_graft_write_report(&g);
         }
@@ -409,6 +414,7 @@ fn print_graft_write_report(g: &du_db::snp_graft::GraftWriteReport) {
         under_existing = g.under_existing,
         under_new = g.under_new,
         roots = g.roots,
+        reattached = g.reattached,
         skipped_name_exists = g.skipped_name_exists.len(),
         skipped_unresolved = g.skipped_unresolved.len(),
         change_set_id = g.change_set_id,
