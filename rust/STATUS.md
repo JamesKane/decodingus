@@ -1,19 +1,28 @@
 # DecodingUs Rust rewrite — status & handoff
 
 Living snapshot of the Play/Scala 3 → Rust port. Pairs with `README.md` (roadmap)
-and the plan at `~/.claude/plans/robust-knitting-lampson.md`. Last updated after
-the tree-versioning + merge work.
+and the plan at `~/.claude/plans/robust-knitting-lampson.md`. Last updated 2026-06-04
+(variant naming authority + SNP-graft & curator review surfaces + YBrowse
+mirror/reconcile + variant coordinate enrichment + federation reporting endpoints
++ Y-STR signatures/prediction/ages + ephemeral-DB test isolation + tree depth
+selector).
 
 ## TL;DR
 
-The **spine is done**: redesigned schema, data layer, public HTML/HTMX surface,
-auth + curator tools, the full production ETL, the public JSON API, and tree
-versioning + merge (end-to-end). The big remaining mass is **federation HTTP
-endpoints**. Several subsystems are intentionally absent (see "Out of scope").
+The **spine is done and then some**: redesigned schema, data layer, public
+HTML/HTMX surface, auth + curator tools, the full production ETL, the public JSON
+API, tree versioning + merge, the SNP-anchored graft + its curator review UIs, the
+YBrowse mirror→reconcile catalog pipeline (≈3M variants), federated **reporting**
+(mirror **and** web endpoints), branch ages, and Y-STR signatures/prediction/age.
 
-Measured against the *full* legacy Scala app this is still less than half by
-surface area — but most of the missing half is either deliberately gone (moved to
-Navigator/edge, or not in production) or concentrated in federation.
+The launch-critical path is now just two things: **(1) the data cutover** — the
+ETL transformers are validated against the **current production schema**
+(confirmed 2026-06); what's left is a verification run against real data (a fresh
+dump or read-only EC2 rehearsal), not transformer correctness — and **(2) the
+live AT Proto OAuth handshake** (the cross-host "Edge joint test").
+The remaining *feature* mass is post-launch: **haplogroup-discovery automation**
+and **multi-test-type completion**. Several subsystems are intentionally absent
+(see "Out of scope").
 
 ## Layout
 
@@ -40,240 +49,251 @@ APP_SECRET="<any 32+ char string>"   # signs session cookies
 ```
 
 - Run web: `DATABASE_URL=... APP_SECRET=... PORT=9000 cargo run -p du-web` (binary `decodingus`).
+- Run jobs scheduler: `DATABASE_URL=... cargo run -p du-jobs` (binary `decodingus-jobs`).
+  - **One-shot ops:** `decodingus-jobs run-once ybrowse` (full GFF3 stream + reconcile;
+    needs `YBROWSE_GFF` [+ optional `YBROWSE_CHAIN_GRCH37/HS1`]) and
+    `decodingus-jobs run-once reconcile` (re-derive `core.variant` from the loaded
+    mirror without re-streaming — e.g. after curator edits).
 - Tests: `DATABASE_URL=... cargo test -p du-db` (live-DB tests skip/pass if unset).
+  - **Safe against any DB:** every du-db integration test now provisions a private,
+    throwaway database via `du_db::testing::ephemeral_db` (migrated, dropped on Drop),
+    so `cargo test` never touches the catalog `DATABASE_URL` points at.
   - `du-domain` tests need no DB (`cargo test -p du-domain`).
 - Migrations auto-apply on web/ETL startup; the `du-db` migrations test also applies them.
 - **Gotcha:** if a *committed* migration changes, recreate the dev DB
   (`decodingus`) — sqlx errors on a checksum mismatch (`VersionMismatch`).
 
 ### Databases in use
-- `decodingus` — dev DB (migrations + live tests).
+- `decodingus` — dev DB (migrations + live tests' base server for ephemeral DBs).
 - `decodingus_legacy` — loaded from `scripts/mock-legacy.sql` (current-schema mock).
 - `decodingus_etl` — ETL target (the migrate binary recreates/migrates it).
 
 ## What's done (✅)
 
-- **Schema** — `migrations/0001–0010`. JSONB "document columns" (variant
-  coordinates/aliases, biosample source_attrs/atproto, haplogroup provenance,
-  coverage, …). `ident.audit_log` added in 0010.
-- **`du-db`** — query modules for every aggregate (variant, haplogroup,
-  biosample, publication, genome_region, coverage, proposal, study, change_set,
-  merge, auth).
-- **Public HTML/HTMX** (`du-web/routes`) — variants browser, **Y/MT tree as
-  two server-rendered SVG cladograms** (horizontal + vertical, `tree_layout.rs`;
-  breadcrumb re-root, orientation cookie toggle, name/variant search, SNP-detail
-  sidebar, backbone/recent coloring + legend, fixed depth window),
-  references + per-pub biosamples, biosample map (PostGIS), coverage benchmarks;
-  i18n (en/es/fr), `HX-Request` fragment negotiation, vendored assets.
+- **Schema** — `migrations/0001–0020`. JSONB "document columns" (variant
+  coordinates/aliases/**evidence**, biosample source_attrs/atproto, haplogroup
+  provenance, coverage, …). Highlights since the merge work: `ident.audit_log`
+  (0010), fed reporting (0011–0012), Y-STR (0013–0014), backbone (0015), **variant
+  naming authority** (0016, nullable `canonical_name` + partial unique index +
+  `core.next_du_name()`), **variant evidence** (0017), **YBrowse mirror +
+  reconcile machinery** (0018), **strand-canonical fold** (0019), **INDEL/MNP
+  canon** (0020).
+- **`du-db`** — query modules for every aggregate (variant, haplogroup, biosample,
+  publication, genome_region, coverage, proposal, study, change_set, merge, auth,
+  naming, ybrowse, wip, ystr, age, fed, consent, support) + `testing` (ephemeral DB).
+- **Public HTML/HTMX** (`du-web/routes`) — variants browser, **Y/MT tree as two
+  server-rendered SVG cladograms** (`tree_layout.rs`; breadcrumb re-root,
+  orientation cookie toggle, name/variant search, SNP-detail sidebar with
+  **branch provenance + per-variant locus/anc/der**, backbone/recent coloring +
+  legend, **full-viewport width**, **client-persisted depth selector**
+  [localStorage, `?depth=`]), references + per-pub biosamples, biosample map
+  (PostGIS), coverage benchmarks; i18n (en/es/fr), `HX-Request` fragment
+  negotiation, vendored assets, **site chrome aligned with the Scala app**.
 - **Auth + curator** — signed-cookie sessions, `Curator` RBAC extractor, curator
   CRUD for haplogroups/variants/genome-regions, curation proposal
-  intake→review→promote.
-- **ETL** (`du-migrate`) — **full production surface**: catalog (donors,
-  biosamples, variants, tree, studies, publications), ident/auth, genomics.
-  Validated vs `db.schema` (schema-only) and the current-schema mock with data;
-  all aggregates reconcile.
-- **Public JSON API** (`du-web/api.rs`) — 16 read endpoints under `/api/v1/*` +
-  OpenAPI 3 + Swagger UI at `/api` (utoipa). Clean DTOs. Includes the federated
-  population reports `/api/v1/reports/{coverage,ancestry,haplogroups}` aggregated
-  from the `fed.*` mirror with query-time SQL.
-- **Tree versioning** (`du-db/change_set.rs`, `du-web/routes/versioning.rs`) —
-  change-set lifecycle (DRAFT→READY_FOR_REVIEW→UNDER_REVIEW→APPLIED/DISCARDED),
-  per-change review/approve-all, diff, and a temporal apply engine
-  (CREATE/UPDATE/DELETE/REPARENT/VARIANT_EDIT). Curator-gated management API at
-  `/manage/change-sets/*` (machine callers; **not** under the public `/api/v1`)
-  **plus a two-panel HTMX review UI** at `/curator/change-sets`
-  (`du-web/routes/change_sets.rs`). Integration-tested.
+  intake→review→promote, and the review surfaces below.
+- **Variant Naming Authority** (mig 0016, `du_db::naming`, `/curator/naming`) —
+  nullable `canonical_name`, DU-name minting (`core.next_du_name()`), lifecycle
+  (UNNAMED/PENDING_REVIEW/NAMED), same-coordinate dedup; GFF3 propagation at
+  `GET /api/v1/variants/export.gff`. **Gotcha:** the partial unique index means
+  every `ON CONFLICT (canonical_name)` carries `WHERE canonical_name IS NOT NULL`.
+- **YBrowse ingest = mirror + reconcile** (migs 0017–0020, `du-jobs/ybrowse`,
+  `du-db/ybrowse`) — streams `snps_hg38.gff3` (≈3.17M lines) into a verbatim
+  `source.ybrowse_snp` **mirror**, then `reconcile` *derives* `core.variant`
+  idempotently: synonym-fold by strand-canonical key, coordinate-fallback match,
+  INDEL trim-normalize / MNP-typing, rank-based canonical, provisional→DU mint;
+  single matches **enrich existing variants** (coords + mutation_type + evidence,
+  curator choices locked); multi-match clusters → `source.ybrowse_reconcile_flag`
+  → **`/curator/reconcile-flags`** → `variant::merge_into`. First real full run:
+  2.99M clusters → 2.88M created, **100,968 existing enriched**, 11,406 flagged;
+  catalog now ~3.0M variants, ~3.0M with coordinates. (See memory
+  `ybrowse-ingest-mirror`.)
+- **Variant coordinate enrichment** — reconcile fills coords/types on any
+  name-matching existing variant; a `decodingus-tree-init --backfill-prod-coords`
+  pass fills the b37/hs1 builds the decoding-us API carries that the graft dropped
+  (complement to YBrowse's GRCh38). Sidebar shows `chrY:pos anc>der [build]`.
+- **SNP-anchored graft** (`du-db/snp_graft`, `decodingus-tree-init`) — classifies a
+  source tree (decoding-us prod) against the catalog by defining-SNP anchor
+  (enrich-match / graft-novel / review), Phase-4 curator-review export, and stages
+  flags + name-collisions + graft-blocked items into a DRAFT change-set
+  (`--stage-review`) triaged at **`/curator/reviews`** (SNP-scatter + tree-preview
+  + accept-anchor/reparent/merge/defer; `tree.wip_*` enacted by the apply engine's
+  WIP pass). (See memory `prod-tree-snp-graft`.)
+- **ETL** (`du-migrate`) — **full production surface**: catalog (donors, biosamples,
+  variants, tree, studies, publications), ident/auth, genomics. Validated vs the
+  schema-only `db.schema` and the current-schema mock with data; all aggregates
+  reconcile.
+- **Public JSON API** (`du-web/api.rs`) — read endpoints under `/api/v1/*` +
+  OpenAPI 3 + Swagger UI at `/api` (utoipa). Includes the federated population
+  reports `/api/v1/reports/{coverage,ancestry,haplogroups}` aggregated from the
+  `fed.*` mirror with query-time SQL, plus `haplogroups/:name/{str-signature,age}`
+  and `POST /api/v1/str/predict`.
+- **Tree versioning** (`du-db/change_set.rs`, `du-web/routes/versioning.rs` +
+  `change_sets.rs`) — change-set lifecycle + per-change review + diff + temporal
+  apply engine; curator-gated machine API at `/manage/change-sets/*` **plus a
+  two-panel HTMX review UI** at `/curator/change-sets`. Integration-tested.
 - **Tree merge** (`du-domain/merge.rs` + `du-db/merge.rs`) — pure Identify-Match-
-  Graft re-implementation (subtree-scoped matching = recurrent-SNP guard;
-  full-match / contraction+downflow / descendant / new / ambiguity-flagged).
-  `materialize` → change-set via placeholder-chained `tree_change`; apply resolves
-  placeholders. Endpoints `/manage/haplogroups/merge[/preview]`.
-  Fixtures + end-to-end tests pass.
-- **`du-bio`** — BED callable-loci, UCSC chain liftover, VCF reader. (YBrowse
-  ingest now parses the `snps_hg38.gff3` directly — see `du-jobs/ybrowse` below.)
-- **Federated reporting mirror** (`du-db/src/fed/`, `du-jobs/jetstream.rs`,
-  migrations 0011–0012) — the AppView **aggregates and reports; it does not
-  analyze.** A long-lived Jetstream consumer mirrors Navigator's published
-  anonymized computed-summary records (the legacy `✅ AppView Complete` set:
-  alignment coverage, biosample, sequencerun, project, workspace, genotype,
-  populationBreakdown, haplogroupReconciliation) into dedicated `fed.*` reporting
-  tables keyed `(did, rkey)`. Cursor-resumed, reconnecting, idempotent+ordered
-  upsert; reports aggregate via query-time SQL (`coverage::aggregate_by_build`,
-  `analytics::super_population_distribution`). **Privacy:** PII-bearing records
-  (biosample/sequencerun/project/workspace) keep typed anonymized columns only —
-  no raw JSONB, so donorIdentifier/accession/description/file paths can't leak;
-  analytics records keep the computed payload minus `files`. **Not** the dropped
-  full-CRUD raw-data mirror (summaries only). Live-DB + unit tested (incl. PII
-  drop). The reporting **web endpoints** over these tables (flow c) are next.
-- **Y-STR per-branch signatures (Phase 1)** — STR brought back into scope (2026-06).
-  `fed.str_profile` mirror (Jetstream, `com.decodingus.atmosphere.strProfile`,
-  lossless markers JSONB) + `du-db::ystr` modal-haplotype aggregation (scores
-  simple + multi-copy; complex preserved unscored) → `tree.haplogroup_ancestral_str`
-  (widened, mig 0013) via the `str-signature-recompute` job, joined through
-  `fed.biosample.y_haplogroup`. Read at `GET /api/v1/haplogroups/:name/str-signature`.
-  MANUAL overrides survive recompute. **Phase 2 DONE:** STR→branch prediction
-  (`ystr::predict` — ranks branches by stepwise genetic distance to each modal
-  signature, min-compared gate) at `POST /api/v1/str/predict` (lexicon markers in
-  → ranked branches + `wgs_upgrade_recommended` nudge, true unless WGS-derived).
-  **STR-based age (contributing factor, McDonald 2021) DONE:** `ystr::compute_str_age`
-  (TMRCA = Σ|obs−modal|/Σµ × 33yr, per-marker rate from `genomics.str_mutation_rate`
-  or a documented default, rate-uncertainty CI) folded into the recompute →
-  `tree.haplogroup_age_estimate` (method `STR_VARIANCE`, mig 0014); read at
-  `GET /api/v1/haplogroups/:name/age` (each method-labeled). `str_mutation_rate`
-  ships empty (default rate until a Ballantyne/Willems import lands).
-- **Combined branch age (McDonald 2021) DONE** (`du-db/age.rs`, mig 0014). Each
-  evidence term is a labeled row in `tree.haplogroup_age_estimate`; `age::combine`
-  multiplies them as Gaussians (inverse-variance) — the practical `P(t|e)=∏P(t|eᵢ)`.
-  Adds the **SNP-Poisson** term (`t=Σm/(µ·Σb)`, m = ACTIVE private Y-SNPs by
-  terminal branch, b = Y callable bp, µ=8.33e-10) and a **genealogical/aDNA anchor**
-  term (`tree.genealogical_anchor`), then writes a `COMBINED` estimate and
-  **gap-fills `tree.haplogroup.tmrca_ybp`** (a curated value is never overwritten).
-  Runs in the `branch-age-recompute` job after the STR pass. SNP/anchor terms are
-  data-gated (emit where private-variant/callable-loci/anchor data exists — sparse
-  until ETL cutover/curation). Unit (combine) + live-DB tested. Remaining: a
-  per-sample/`formed_ybp` refinement + aDNA-calibration weighting.
-- **`du-jobs`** — tokio scheduler; jobs: `db-heartbeat`, `ybrowse-variant-ingest`
-  (streams YBrowse `snps_hg38.gff3` → `source.ybrowse_snp` mirror, then
-  `du_db::ybrowse::reconcile` derives `core.variant` — synonym-folding, evidence,
-  idempotent, curation-preserving; `YBROWSE_GFF`),
-  `publication-update`, `publication-discovery`, `ena-study-enrichment`,
-  `publication-pubmed-update`, `str-signature-recompute`; plus the Jetstream
-  reporting-mirror consumer (set `JETSTREAM_URL`; runs beside the scheduler).
-- **`du-external`** — OpenAlex, ENA; AWS SES + Secrets Manager behind the `aws`
-  feature (1h TTL secret cache).
+  Graft; `materialize` → change-set via placeholder-chained `tree_change`; endpoints
+  `/manage/haplogroups/merge[/preview]`. Fixtures + e2e tests pass.
+- **Federated reporting** (`du-db/src/fed/`, `du-jobs/jetstream.rs`, migs 0011–0012)
+  — the AppView **aggregates and reports; it does not analyze.** A long-lived
+  Jetstream consumer mirrors Navigator's published anonymized computed-summary
+  records (the `✅ AppView Complete` set) into `fed.*` tables, cursor-resumed,
+  idempotent+ordered. **Privacy:** typed anonymized columns only, no raw JSONB for
+  PII-bearing records. Flow (a) proposal intake + (b) reporting ingest + (c)
+  reporting web endpoints are **all DONE**. (Memory `atproto-federation-direction`.)
+- **Y-STR per-branch signatures + prediction + age** — `fed.str_profile` mirror
+  (Jetstream) + `du-db::ystr` modal-haplotype aggregation → `tree.haplogroup_
+  ancestral_str` (mig 0013) via `str-signature-recompute`; STR→branch `predict`
+  at `POST /api/v1/str/predict`; STR-variance age (McDonald 2021) folded into the
+  combine.
+- **Combined branch age (McDonald 2021)** (`du-db/age.rs`, mig 0014) — labeled
+  per-evidence rows multiplied as Gaussians; SNP-Poisson + genealogical/aDNA-anchor
+  terms; gap-fills `tree.haplogroup.tmrca_ybp` (curated values never overwritten);
+  runs in `branch-age-recompute`. SNP/anchor terms data-gated (sparse pre-cutover).
+- **`du-jobs`** — tokio scheduler + **`run-once`** one-shot mode; jobs:
+  `db-heartbeat`, `ybrowse-variant-ingest`, `publication-update`,
+  `publication-discovery`, `publication-pubmed-update`, `ena-study-enrichment`,
+  `str-signature-recompute`, `branch-age-recompute`; plus the Jetstream
+  reporting-mirror consumer (set `JETSTREAM_URL`).
+- **`du-external`** — OpenAlex, ENA, NCBI/PubMed; AWS SES + Secrets Manager behind
+  the `aws` feature.
 - **`du-atproto`** — DID/handle resolution, Ed25519 verify, PKCE/DPoP/private-key-
-  JWT OAuth client + metadata builders (library; HTTP surface not wired — see below).
+  JWT OAuth client + metadata builders (library; HTTP surface = the Edge test below).
+- **Secondary web surfaces** — static pages (about/FAQ/terms/privacy + app-password
+  help), `sitemap.xml`/`robots.txt`, footer nav, GDPR cookie-consent banner,
+  read-only **profile** page, reCAPTCHA-verified **contact** form.
+- **Testing** — du-domain unit tests (no DB); du-db integration tests isolated to
+  ephemeral databases (`du_db::testing::ephemeral_db`); du-web i18n parity test
+  enforces es/fr cover every English key.
 
 ## What's left, in scope (⬜)
 
-Roughly in priority order:
+Launch-critical first, then the post-launch feature mass.
 
-1. **Federation — AppView aggregates + reports (NOT the legacy PDS fleet, NOT a
-   raw-data mirror).** The `fed.pds_node` / `pds_heartbeat` / fleet-admin tables
-   (migration 0008) map to the **dropped** network-mirror design — don't build
-   registration / heartbeat / fleet endpoints. The federated flows: **(a) proposal
-   intake + curator review queue — DONE** (`/manage/curation/proposals` X-API-Key
-   intake → `tree.proposed_branch` → `/curator/proposals` review/promote);
-   **(b) reporting-mirror ingest — DONE** (Jetstream → `fed.*` reporting tables for
-   the full `✅ AppView Complete` summary set, see "What's done"); **(c) reporting
-   web endpoints — DONE** (`/api/v1/reports/{coverage,ancestry,haplogroups}`,
-   query-time SQL over the mirror). More report shapes can be added over the other
-   `fed.*` tables (genotype provider mix, platform/test-type distribution, …) as
-   the UI needs them. See memory
-   `atproto-federation-direction` for the full re-scope + privacy boundary.
-2. **Live AT Protocol OAuth handshake** — `du-web/oauth.rs`, now with a **dev
-   public-client path** (`/login/atproto/dev`, env-gated: `DU_OAUTH_DEV_PDS` +
-   `DU_OAUTH_DEV_CA`/`DU_OAUTH_DEV_RESOLVE` + `DU_OAUTH_LOOPBACK`) that trusts a
-   local CA + pins a host so a TLS-proxied PDS at its canonical `https://` name
-   works. **Verified against a local PDS** (gated test
-   `decodingus-shared/.../tests/live_pds.rs`): discovery + PAR + DPoP +
-   `use_dpop_nonce` → `request_uri`, then with a Caddy TLS proxy the full handshake
-   over canonical `https://pds.test` up to the **authorize page (loopback client
-   accepted)**. The public flow's remainder is only the human **consent click**
-   (browser-gated) → `code` → token (token path wired). **Confidential web-client
-   — our side VERIFIED:** `client-metadata.json`/`jwks.json` spec-correct (live),
-   and `client_assertion`/DPoP/PKCE unit-tested. The PDS-fetches-metadata +
-   `private_key_jwt`-PAR round-trip can't run locally (Apple `container` has no
-   `--add-host` for the PDS to resolve our `client_id` host) → it's the **Edge
-   joint test**; plan + per-side checklist in `docs/atproto-oauth-findings.md`.
-   Runbook + manual-browser steps there too.
-3. **Scheduled jobs** — **`ena-study-enrichment` DONE** (`du-jobs/ena.rs` +
-   `du-db::study::{needing_ena_enrichment,apply_ena_metadata}`): fills
-   title/center/first-public gaps in `pubs.genomic_study` from the public ENA
-   portal, daily, batched, idempotent (COALESCE; never clobbers curated values).
-   Live-DB tested + ENA portal contract verified. Remaining are low-value/out of
-   scope: `variant-export` (the `/api/v1/variants/export` endpoint already streams
-   CSV live), `match-discovery` (IBD — not in production).
-4. **Curator HTML UI for change-sets/merge review — DONE.** Two-panel HTMX screen
-   at `/curator/change-sets` (`du-web/routes/change_sets.rs` + templates/curator/
-   change-sets/*): list w/ status filter, review panel with diff summary+entries,
-   per-change approve/reject, comments, and the lifecycle actions (start-review,
-   approve-all, apply, discard) gated by status — mirrors the proposals screen.
-   The JSON management API in `versioning.rs` remains for machine callers.
-5. **Secondary web surfaces** — DONE: static pages (about/FAQ/terms/privacy +
-   app-password help, `du-web/routes/pages.rs` + templates/static/page.html),
-   `sitemap.xml` + `robots.txt`, footer nav, and the GDPR **cookie-consent banner**
-   (JS-shown when no consent cookie; `POST /cookie-consent` → `ident.cookie_consents`
-   via `du_db::consent`). Terms/privacy prose is placeholder pending legal review.
-   Also DONE: **profile** page (`/profile`, authed read-only — name/roles/DID/handle/
-   email/member-since) and the **contact/support** form (`/contact` → `support.
-   contact_message` via `du_db::support`, reCAPTCHA-verified when configured).
-   STILL TODO: **my-messages** (rides the `social.*` schema — out of scope, not in
-   production).
-6. **reCAPTCHA** — wired into the contact form: server-side siteverify when
-   `RECAPTCHA_SECRET`/`RECAPTCHA_SITE_KEY` are set, skipped in dev when unset
-   (just needs prod keys). **NCBI/PubMed client — DONE** (`du-external::ncbi`,
-   E-utilities esummary by PMID): the `publication-pubmed-update` job
-   (`du-jobs/publications.rs`, env-gated on `NCBI_EMAIL`) fills journal/authors/
-   date/doi gaps via `du-db::publication::update_pubmed` (gap-fill COALESCE,
-   UNIQUE-safe DOI), complementing OpenAlex's by-DOI enrichment. Unit + live-DB
-   tested; live esummary contract verified.
-7. **Management API namespace (DECIDED 2026-06):** curator/machine endpoints are
-   **not** under the public `/api/v1` — they live under **`/manage/*`**
-   (`/manage/change-sets/*`, `/manage/haplogroups/merge[/preview]`,
-   `/manage/curation/proposals`) and are deliberately excluded from the public
-   OpenAPI doc. A separate internal/curator OpenAPI document is optional and not
-   built (low priority).
-8. **Curator merge-review surface — DONE (2026-06).** The `tree.wip_*` staging
-   tables are now wired (`du-db/wip.rs`): the SNP-graft Phase-4 flags +
-   name-collisions + graft-blocked items are staged into a DRAFT change-set
-   (`tree-init --stage-review`), triaged at **`/curator/reviews`** (two-panel
-   HTMX: SNP-scatter context + tree-preview + accept-anchor/reparent/merge/defer),
-   and the decisions (`wip_resolution`) are enacted by the change-set apply
-   engine's WIP pass. Remaining: `EDIT_VARIANTS` resolution + cascading a
-   graft-blocked *subtree* from a single decision.
+1. **Cutover** (see "Cutover blocker") — the one hard gate to going live. The
+   transformers are validated against the current production schema; what remains
+   is a verification run against real data — pull a fresh dump (the existing one
+   is likely current per the schema match) or do a read-only EC2 rehearsal, then
+   `decodingus-migrate --verify` and reconcile counts.
+2. **Live AT Protocol OAuth handshake — the cross-host "Edge joint test."** Library
+   + a dev public-client path are verified locally up to the **consent click**
+   (gated `decodingus-shared/.../tests/live_pds.rs`: discovery + PAR + DPoP +
+   `use_dpop_nonce` → `request_uri`, then with a Caddy TLS proxy up to the authorize
+   page). The confidential web-client `private_key_jwt`-PAR round-trip can't run
+   under Apple `container` (no `--add-host` for the PDS to resolve our `client_id`
+   host) → it's the Edge joint test. Token path wired; remainder is the browser
+   consent + cross-host verify. Runbook: `docs/atproto-oauth-findings.md`,
+   `docs/atproto-edge-reply.md`.
+3. **Haplogroup-discovery AUTOMATION** — the largest remaining forward subsystem.
+   The *curator* half (proposals → review → promote) is built; the *automated* half
+   is not: `tree.biosample_private_variant` is **never written** (only read by
+   `age.rs`); no private-variant extraction from the federation ingest, no
+   Jaccard/consensus proposal engine, no thresholds (`discovery_config` unused),
+   no auto-reassignment. Depends on the federation ingest capturing private
+   variants. (`documents/planning/haplogroup-discovery-system.md`; memory
+   `design-doc-forward-pieces`.)
+4. **Multi-test-type completion** — taxonomy (`genomics.test_type_definition`) +
+   chip/targeted metadata ingest (via `fed.*`) are built; marker-coverage /
+   target-region / test-type-aware confidence-scoring tables are **not**, and
+   `test_type_definition` isn't seeded by a migration (only ETL-backfilled).
+   (`documents/planning/multi-test-type-roadmap.md`.)
+5. **Smaller in-scope finishers:**
+   - **Graft carries coordinates forward** at creation (fold into
+     `get_or_create_variant`) so the decoding-us backfill isn't needed after each
+     re-graft.
+   - **YBrowse reconcile tail:** off-by-one / near-coordinate proximity detection;
+     an external synonym authority (YFull/ISOGG cross-refs) to assert "X = Y" across
+     genuinely different coordinates; per-name evidence consolidation.
+   - **WIP/merge review:** `EDIT_VARIANTS` resolution + cascading a graft-blocked
+     *subtree* from a single decision.
+   - **Branch age:** per-sample/`formed_ybp` refinement + aDNA-calibration weighting;
+     import a real `str_mutation_rate` table (Ballantyne/Willems) to replace the
+     default rate.
+   - **API:** surface unnamed variants (cross-repo change — `du-domain::Variant.
+     canonical_name` `String` → `Option`, shared with Navigator).
+   - More `fed.*` report shapes (genotype-provider mix, platform/test-type
+     distribution) as the UI needs them.
+6. **Tech debt** — JSONB consolidation (7 tables → JSONB columns,
+   `documents/planning/jsonb-consolidation-analysis.md`); terms/privacy prose pending
+   legal review; optional internal/curator OpenAPI document.
 
-## Out of scope / deliberately absent (➖)
+## Out of scope / deliberately absent (➖) — do NOT build
 
-- **Manual sample-ingestion APIs** (standard/PGP/external biosample create +
-  sequences + publication-link) — curators use Navigator now; the AppView keeps
-  catalog **review + naming** only.
+- **Manual sample-ingestion APIs** (biosample create + sequences + publication-link)
+  — curators use Navigator now; the AppView keeps catalog **review + naming** only.
 - **BAM/CRAM extraction + variant calling** — done at the edge (Navigator); the
-  AppView aggregates summaries/proposals (so `du-bio` is text + coordinate math, no htslib/noodles).
-- **IBD/matching, patronage/billing, social/reputation** — not in production yet
-  (schemas `0007`/`0009` exist as placeholders; no ETL, no endpoints).
+  AppView aggregates summaries/proposals (so `du-bio` is text + coordinate math, no
+  htslib/noodles).
+- **The legacy PDS fleet / raw-data network mirror** — `fed.pds_node` /
+  `pds_heartbeat` / fleet-admin tables (mig 0008) map to the **dropped** mirror
+  design; don't build registration/heartbeat/fleet endpoints.
+- **AppView→PDS backfeed** — the AppView writes nothing back to PDSes (inbound-only
+  / notify-fetch direction).
+- **IBD/matching, sequencer-lab inference, social/messaging, reputation,
+  patronage/billing, group-projects** — not in production (schemas 0007/0009 +
+  genomics lab tables exist as placeholders; no ETL, no endpoints).
 
 ## Cutover blocker
 
-The 35MB `/Volumes/nas/stuff/dump.sql` **predates** the current `~/db.schema`
-(no `tree` schema, `citizen_biosample_did` vs `at_uri`, no `*_result` columns).
-So the ETL is validated against a current-schema mock, **not** real data. Before
-cutover: get a **current-schema dump** or do a **read-only EC2 rehearsal**
-(production runs on a self-managed EC2 instance), then `decodingus-migrate
---verify`.
+**Schema risk is retired (2026-06):** `~/db.schema` is confirmed to be the current
+production schema, and the ETL transformers are written and validated against it
+(plus the current-schema mock with data — all 9 aggregates reconcile). So the
+"transformers encode a reconstructed legacy layout" caveat no longer applies.
+
+What's left is a **verification run against real production data**. The historical
+35MB `/Volumes/nas/stuff/dump.sql` is an older export and may lag the current
+schema; the user expects a fresh dump to match. Before cutover: pull a current
+dump (or do a **read-only EC2 rehearsal** — production is a self-managed EC2
+instance), point `decodingus-migrate --legacy` at it, run `--verify`, and confirm
+the per-aggregate counts reconcile against real volumes.
 
 ## Key decisions & gotchas (don't relearn these)
 
 - **Tree merge was buggy in legacy** → re-implemented against curated fixtures,
   NOT golden-tested against legacy output. Conservative: flag ambiguities, don't guess.
+- **Partial unique index on `canonical_name`** (naming authority) → every
+  `ON CONFLICT (canonical_name)` needs `WHERE canonical_name IS NOT NULL`.
+- **YBrowse is a full snapshot, no deltas** → never write `core.variant` directly;
+  the mirror→reconcile derivation is what keeps curator edits durable. Reconcile's
+  alias name-match EXPLODES `common_names` into rows and hash-joins (the
+  jsonb_path_ops GIN index does NOT serve the `?` operator → a per-row probe never
+  finishes at 3M scale).
+- **Destructive whole-mirror tests** use `ephemeral_db` — do NOT point the DB-gated
+  du-db/du-jobs ybrowse tests at the populated dev DB without it.
 - **Merge materialization** uses `tree_change` + negative placeholders through the
-  tested apply engine; the `wip_*` tables are reserved for a future staging UI.
-- **Temporal DELETE**: nodes are temporal (`valid_until`); DELETE expires the node
-  and `roots`/`children`/`subtree`/`existing_tree` exclude expired nodes.
+  tested apply engine; `wip_*` carries the SNP-graft staging review.
+- **Temporal DELETE**: nodes are temporal (`valid_until`); roots/children/subtree
+  exclude expired nodes.
 - **Enums** fetched as `::text` + parsed (`parse_pg_enum`); JSONB via `Json<T>`.
 - **utoipa** kept out of `du-domain` (shared with Navigator/edge); API DTOs +
   `From` impls live in `du-web/api.rs`. Recursive `HaplogroupNodeDto.children`
-  needs `#[schema(no_recursion)]` or schema-gen stack-overflows at startup.
-- **Management API auth**: session/`Curator` (legacy used X-API-Key). Unauth →
-  303 to /login even for JSON endpoints.
+  needs `#[schema(no_recursion)]`.
+- **Management API namespace**: curator/machine endpoints live under **`/manage/*`**
+  (not `/api/v1`) and are excluded from the public OpenAPI doc. Auth is
+  session/`Curator`; unauth → 303 to /login even for JSON endpoints.
 - **`DbError::Conflict` → HTTP 422** (mapped in `du-web/error.rs`).
 - **ETL preserves PKs** via `OVERRIDING SYSTEM VALUE` + `sample_guid`; sequences
   fixed up post-load; idempotent upserts.
+- **i18n**: adding a UI string requires es/fr entries — `cargo test -p du-web`
+  enforces parity.
 
 ## Resume checklist
 
 1. `eval "$(./scripts/test-db.sh up)"` (or set `DATABASE_URL`); confirm `du-pg`
    container is running.
-2. `cargo test --workspace` (du-domain needs no DB; du-db live tests need DATABASE_URL).
-3. Pick the next arc — **federation endpoints** is the recommended next mass.
+2. `cargo test --workspace` (du-domain needs no DB; du-db live tests provision
+   ephemeral DBs from `DATABASE_URL`).
+3. Pick the next arc — launch-critical is **cutover** + the **OAuth Edge test**;
+   the next big feature arc is **haplogroup-discovery automation**.
 4. Reload the mock if needed: recreate `decodingus_legacy`, load
    `scripts/mock-legacy.sql`; recreate `decodingus_etl`; run `decodingus-migrate`.
 
 ## Reference paths
 
 - Plan: `~/.claude/plans/robust-knitting-lampson.md`
-- Prod schema (authoritative for ETL): `~/db.schema`
-- Old data dump (stale): `/Volumes/nas/stuff/dump.sql`
+- Prod schema (authoritative for ETL, confirmed current 2026-06): `~/db.schema`
+- Old data dump (may lag — get a fresh one for cutover): `/Volumes/nas/stuff/dump.sql`
 - AT Proto notes: `docs/atproto-oauth-findings.md`, `docs/atproto-edge-reply.md`
 - **Scala↔Rust functional diff catalog: `docs/scala-vs-rust-diff.md`**
 - Navigator atmosphere docs: `/Users/jkane/Development/DUNavigator/documents/atmosphere`
