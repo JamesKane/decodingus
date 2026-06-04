@@ -319,9 +319,9 @@ async fn run_snp_graft(
 ) -> anyhow::Result<()> {
     anyhow::ensure!(!source.is_empty(), "no source nodes to graft");
     tracing::info!(%label, nodes = source.len(), "classifying source tree by SNP anchor (dry-run)");
-    let report = du_db::snp_graft::classify(pool, source, dna).await?;
+    let report = du_db::snp_graft::classify(pool, source, dna, label).await?;
     print_graft_report(&report);
-    let enr = du_db::snp_graft::enrich(pool, source, dna, &report, args.apply).await?;
+    let enr = du_db::snp_graft::enrich(pool, source, dna, label, &report, args.apply).await?;
     tracing::info!(
         applied = enr.applied, anchors = enr.anchors,
         aliases_added = enr.aliases_added, backbone_set = enr.backbone_set,
@@ -330,7 +330,7 @@ async fn run_snp_graft(
     let want_review = args.export_flags.is_some() || args.stage_review;
     let graft_rep = if args.graft || want_review {
         let apply_graft = args.graft && args.apply;
-        let g = du_db::snp_graft::graft(pool, source, dna, &report, &args.by, apply_graft).await?;
+        let g = du_db::snp_graft::graft(pool, source, dna, label, &report, &args.by, apply_graft).await?;
         if args.graft {
             print_graft_write_report(&g);
         }
@@ -340,7 +340,7 @@ async fn run_snp_graft(
     };
     if want_review {
         let g = graft_rep.as_ref().expect("graft report computed when reviewing");
-        let ex = du_db::snp_graft::export_review(pool, source, dna, &report, g).await?;
+        let ex = du_db::snp_graft::export_review(pool, source, dna, label, &report, g).await?;
         if let Some(path) = &args.export_flags {
             std::fs::write(path, serde_json::to_string_pretty(&ex)?)?;
             tracing::info!(
@@ -351,7 +351,7 @@ async fn run_snp_graft(
             );
         }
         if args.stage_review {
-            let (cs_id, n) = du_db::snp_graft::stage_review(pool, source, dna, &ex, &args.by).await?;
+            let (cs_id, n) = du_db::snp_graft::stage_review(pool, source, dna, label, &ex, &args.by).await?;
             tracing::info!(change_set_id = cs_id, staged = n, "Phase 4 staged for curator review (/curator/reviews)");
         }
     }

@@ -134,6 +134,7 @@ pub async fn enrich(
     pool: &PgPool,
     source: &[SourceNode],
     dna: DnaType,
+    source_label: &str,
     classified: &GraftReport,
     apply: bool,
 ) -> Result<EnrichReport, DbError> {
@@ -196,11 +197,12 @@ pub async fn enrich(
             if *bb {
                 sqlx::query(
                     "UPDATE tree.haplogroup SET \
-                       provenance = jsonb_set(COALESCE(provenance, '{}'::jsonb), '{backbone_source}', '\"decoding-us\"'::jsonb, true) \
+                       provenance = jsonb_set(COALESCE(provenance, '{}'::jsonb), '{backbone_source}', to_jsonb($3::text), true) \
                      WHERE name = $1 AND haplogroup_type::text = $2 AND valid_until IS NULL",
                 )
                 .bind(anchor)
                 .bind(&dna_label)
+                .bind(source_label)
                 .execute(&mut *tx)
                 .await?;
             }
@@ -278,6 +280,7 @@ pub async fn graft(
     pool: &PgPool,
     source: &[SourceNode],
     dna: DnaType,
+    source_label: &str,
     classified: &GraftReport,
     by: &str,
     apply: bool,
@@ -294,9 +297,10 @@ pub async fn graft(
     let id_rows: Vec<(String, i64)> = sqlx::query_as(
         "SELECT name, id FROM tree.haplogroup \
          WHERE haplogroup_type::text = $1 AND valid_until IS NULL \
-           AND source IS DISTINCT FROM 'decoding-us'",
+           AND source IS DISTINCT FROM $2",
     )
     .bind(&dna_label)
+    .bind(source_label)
     .fetch_all(pool)
     .await?;
     let name_of_id: HashMap<i64, String> = id_rows.iter().map(|(n, i)| (*i, n.clone())).collect();
@@ -436,9 +440,9 @@ pub async fn graft(
         "INSERT INTO tree.change_set (source, haplogroup_type, status, description, created_by) \
          VALUES ($1, $2::core.dna_type, 'READY_FOR_REVIEW', $3, $4) RETURNING id",
     )
-    .bind("decoding-us")
+    .bind(source_label)
     .bind(&dna_label)
-    .bind(format!("SNP-graft Phase 3: graft {} novel decoding-us branches", order.len()))
+    .bind(format!("SNP-graft Phase 3: graft {} novel {source_label} branches", order.len()))
     .bind(by)
     .fetch_one(&mut *tx)
     .await?;
@@ -453,19 +457,19 @@ pub async fn graft(
         let mut nv = serde_json::Map::new();
         nv.insert("name".into(), json!(sn.name));
         nv.insert("haplogroup_type".into(), json!(dna_label));
-        nv.insert("source".into(), json!("decoding-us"));
+        nv.insert("source".into(), json!(source_label));
         nv.insert("variant_ids".into(), json!(vids));
         nv.insert("placeholder".into(), json!(ph_of[sn.name.as_str()]));
         nv.insert("is_backbone".into(), json!(sn.is_backbone));
         // The node name IS the decoding-us name, so no self-alias; record source.
         let mut prov = serde_json::Map::new();
-        prov.insert("source".into(), json!("decoding-us"));
+        prov.insert("source".into(), json!(source_label));
         if let Some(u) = &sn.last_updated {
             prov.insert("source_updated".into(), json!(u));
         }
         // Curated-backbone marker so recompute_backbone preserves the flag.
         if sn.is_backbone {
-            prov.insert("backbone_source".into(), json!("decoding-us"));
+            prov.insert("backbone_source".into(), json!(source_label));
         }
         nv.insert("provenance".into(), Value::Object(prov));
         match status.get(&sn.name) {
@@ -527,7 +531,7 @@ async fn get_or_create_variant(
 }
 
 /// Classify every source node against the current ISOGG tree (read-only).
-pub async fn classify(pool: &PgPool, source: &[SourceNode], dna: DnaType) -> Result<GraftReport, DbError> {
+pub async fn classify(pool: &PgPool, source: &[SourceNode], dna: DnaType, source_label: &str) -> Result<GraftReport, DbError> {
     let dna_label = pg_enum_label(&dna)?;
 
     // SNP name (canonical OR alias, lowercased) → foundation node name(s).
@@ -541,7 +545,7 @@ pub async fn classify(pool: &PgPool, source: &[SourceNode], dna: DnaType) -> Res
          JOIN tree.haplogroup_variant hv ON hv.variant_id = v.id AND hv.valid_until IS NULL \
          JOIN tree.haplogroup h ON h.id = hv.haplogroup_id \
          WHERE h.haplogroup_type::text = $1 AND h.valid_until IS NULL \
-           AND h.source IS DISTINCT FROM 'decoding-us' \
+           AND h.source IS DISTINCT FROM $2 \
            AND v.canonical_name IS NOT NULL \
          UNION ALL \
          SELECT lower(a.alias), h.name FROM core.variant v \
@@ -549,9 +553,10 @@ pub async fn classify(pool: &PgPool, source: &[SourceNode], dna: DnaType) -> Res
          JOIN tree.haplogroup_variant hv ON hv.variant_id = v.id AND hv.valid_until IS NULL \
          JOIN tree.haplogroup h ON h.id = hv.haplogroup_id \
          WHERE h.haplogroup_type::text = $1 AND h.valid_until IS NULL \
-           AND h.source IS DISTINCT FROM 'decoding-us'",
+           AND h.source IS DISTINCT FROM $2",
     )
     .bind(&dna_label)
+    .bind(source_label)
     .fetch_all(pool)
     .await?;
     let mut snp2nodes: HashMap<String, Vec<String>> = HashMap::new();
@@ -706,6 +711,7 @@ pub async fn export_review(
     pool: &PgPool,
     source: &[SourceNode],
     dna: DnaType,
+    source_label: &str,
     classified: &GraftReport,
     graft: &GraftWriteReport,
 ) -> Result<ReviewExport, DbError> {
@@ -720,7 +726,7 @@ pub async fn export_review(
          JOIN tree.haplogroup_variant hv ON hv.variant_id = v.id AND hv.valid_until IS NULL \
          JOIN tree.haplogroup h ON h.id = hv.haplogroup_id \
          WHERE h.haplogroup_type::text = $1 AND h.valid_until IS NULL \
-           AND h.source IS DISTINCT FROM 'decoding-us' \
+           AND h.source IS DISTINCT FROM $2 \
            AND v.canonical_name IS NOT NULL \
          UNION ALL \
          SELECT lower(a.alias), h.name FROM core.variant v \
@@ -728,9 +734,10 @@ pub async fn export_review(
          JOIN tree.haplogroup_variant hv ON hv.variant_id = v.id AND hv.valid_until IS NULL \
          JOIN tree.haplogroup h ON h.id = hv.haplogroup_id \
          WHERE h.haplogroup_type::text = $1 AND h.valid_until IS NULL \
-           AND h.source IS DISTINCT FROM 'decoding-us'",
+           AND h.source IS DISTINCT FROM $2",
     )
     .bind(&dna_label)
+    .bind(source_label)
     .fetch_all(pool)
     .await?;
     let mut snp2nodes: HashMap<String, Vec<String>> = HashMap::new();
@@ -825,7 +832,7 @@ pub async fn export_review(
     summary.graft_blocked = graft.skipped_unresolved.len();
     summary.total = items.len();
     Ok(ReviewExport {
-        source: "decoding-us".to_string(),
+        source: source_label.to_string(),
         dna: dna_label.to_string(),
         summary,
         items,
@@ -843,6 +850,7 @@ pub async fn stage_review(
     pool: &PgPool,
     source: &[SourceNode],
     dna: DnaType,
+    source_label: &str,
     export: &ReviewExport,
     by: &str,
 ) -> Result<(i64, usize), DbError> {
@@ -852,9 +860,10 @@ pub async fn stage_review(
     // Foundation name → id, for the tentative-parent (best-anchor) link.
     let id_rows: Vec<(String, i64)> = sqlx::query_as(
         "SELECT name, id FROM tree.haplogroup \
-         WHERE haplogroup_type::text = $1 AND valid_until IS NULL AND source IS DISTINCT FROM 'decoding-us'",
+         WHERE haplogroup_type::text = $1 AND valid_until IS NULL AND source IS DISTINCT FROM $2",
     )
     .bind(&dna_label)
+    .bind(source_label)
     .fetch_all(pool)
     .await?;
     let id_of: HashMap<String, i64> = id_rows.into_iter().collect();
