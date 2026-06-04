@@ -316,24 +316,40 @@ yet built.
   16 → restore into 15 can break — run the new code's AWS instance on **PG 16**
   (match local) or pin local to 15.
 
-### Tree build direction — ISOGG foundation + decoding-us SNP-graft (decided)
+### Tree build direction — ISOGG foundation + SNP-graft everything (decided)
 
-The two trees use different naming (ISOGG path-strings vs decoding-us SNP-names)
-**and** different root depths (ISOGG roots at `A0000`/`A000-T`, above decoding-us's
-`A00`). So the exact-set name merge (`du_db::haplogroup::merge_into` /
+Sources differ in naming (ISOGG path-strings vs decoding-us/FTDNA SNP-names) AND
+root depth, so the exact-set name merge (`du_db::haplogroup::merge_into` /
 `du_domain::merge`) is useless cross-source — its subtree-scoping cascades a
 root-topology mismatch to NEW (matched=1, would duplicate 10,230 nodes). Use the
-**SNP-anchored graft** (`du_db::snp_graft`, `tree-init … --snp-graft`), which
-matches each node by defining-SNP overlap globally. Direction matters — tested
-both on fresh DBs:
-- **decoding-us-founded** (graft ISOGG on): 6,101 nodes, but **3,945 ISOGG nodes
-  dropped** (the deep-root region has no anchor), and grafted ISOGG nodes get
-  mistagged `source='decoding-us'`.
-- **ISOGG-founded** (graft decoding-us on): **10,549 nodes**, single root, deep
-  roots preserved, only **130 decoding-us nodes dropped**, source tags correct —
-  and it reproduces the dev `decodingus` tree (~10,553). **This is the chosen
-  build.** (1,423 decoding-us nodes matched ISOGG by SNP; their names become
-  aliases, e.g. ISOGG `R1b1a1b1a1a2c1a3a2a1a2d1` ← alias `R1b-A804`.)
+**SNP-anchored graft** (`du_db::snp_graft`, `tree-init … --snp-graft`). Full
+investigation + recipe in memory [[tree-source-merge]]. Decisions:
+
+- **ISOGG is the foundation** (single `Y` root + curated backbone authority), then
+  graft decoding-us and FTDNA onto it. The reverse (FTDNA- or decoding-us-founded)
+  drops the deep-root region, becomes a rooted forest, and/or inverts naming
+  authority. Build:
+  `tree-init --isogg <file> --apply` →
+  `--merge-prod <url> --snp-graft --graft --apply` →
+  `--ftdna <file> --graft --reattach --apply`.
+- **`--reattach` is required for FTDNA** (105k-node complete-topology source,
+  `/Volumes/nas/FTDNA/`, refreshed weekly). FTDNA merges SNP blocks ISOGG splits,
+  so a bush's backbone ancestor is often weak-flagged and the graft conservatively
+  *blocks* it (would drop 56,855 of 70,921). Reattach walks up to the nearest
+  ancestor the classifier cleanly **MATCHED** and attaches the bush there. (First
+  cut used a raw SNP→node index and dumped clades onto A00 — the catalog's junk
+  recurrent links, see "junk links" below, point single SNPs at basal nodes;
+  MATCH dispositions are vetted by SNP-set + subtree scope, so they don't.)
+- **Source tags parameterized** (commit 0e09060) — any source tags its own nodes;
+  the anchor/collision guard excludes only that source's prior graft.
+- **Result `decodingus_hybrid2`: 81,297 nodes, single ISOGG root**, ISOGG-named
+  backbone + decoding-us + full FTDNA depth (70,748 bushes; 16,117 reattached;
+  173 unanchored; ~19 land on `CT`), source names folded in as aliases, ~42k
+  variants coord-enriched from FTDNA anc/der+position. Spot-verified:
+  `I-BY136871 → I1a3a1b`, `G-FTH55879 → G2a2b2a1a1b1a1`; basal nodes near-empty.
+- **JUNK LINKS (real data-quality to-do):** ~3,063 catalog variants are linked to
+  >1 unrelated haplogroup (decoding-us ASR scatter onto A00/H/O), which nearly
+  broke the FTDNA reattach. Worth scrubbing independently — bad data regardless.
 
 ## Key decisions & gotchas (don't relearn these)
 
