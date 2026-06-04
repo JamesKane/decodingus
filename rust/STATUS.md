@@ -20,9 +20,11 @@ ETL has been **verified end-to-end against a real production dump** (2026-06-04,
 363 MB / PG 15): all 34 aggregates reconcile; what's left is executing the cutover
 against live/final data — and **(2) the live AT Proto OAuth handshake** (the
 cross-host "Edge joint test").
-The remaining *feature* mass is post-launch: **haplogroup-discovery automation**
-and **multi-test-type completion**. Several subsystems are intentionally absent
-(see "Out of scope").
+The remaining *feature* mass is post-launch: **haplogroup-discovery automation**,
+**multi-test-type completion**, **IBD matching + the social layer**, and
+**sequencer-lab inference** (the AppView coordinates IBD introductions, hosts the
+social surfaces, and resolves instrument→lab for the Edge — only patronage/billing
+is now fully out of scope). See "What's left".
 
 ## Layout
 
@@ -199,7 +201,30 @@ Launch-critical first, then the post-launch feature mass.
    target-region / test-type-aware confidence-scoring tables are **not**, and
    `test_type_definition` isn't seeded by a migration (only ETL-backfilled).
    (`documents/planning/multi-test-type-roadmap.md`.)
-5. **Smaller in-scope finishers:**
+5. **IBD matching — AppView as coordinator (NOT dropped).** The AppView is the
+   only component with the cross-federation view to identify **introduction
+   candidates**, so it must: mine `fed.*` for candidate pairs (shared haplogroup,
+   population overlap, shared-match signals), run the **dual-consent** handshake,
+   coordinate the Edge hand-off, and **persist match state** (attestations /
+   overlap scores / suggestions) for ongoing match lists + dedup. It stores **no
+   raw autosomal data** and does **no** segment comparison — that's Edge-to-Edge.
+   Schema `ibd` (mig 0007: `ibd_discovery_index`, `ibd_pds_attestation`, overlap)
+   exists as a placeholder; logic + endpoints to build.
+   (`documents/planning/ibd-matching-system.md`.)
+6. **Social layer — supports IBD coordination + stands alone.** Full layer:
+   messaging/consent threads, notifications, blocks, public feed, reputation,
+   group projects. Underpins the IBD introduction + match-confirmation flow
+   (consent/notify) and is a user-facing social surface in its own right. Schema
+   `social` (mig 0009) exists as a placeholder; logic + endpoints to build.
+   Includes the legacy **my-messages** surface.
+7. **Sequencer-lab inference — AppView lookup + consensus (NOT dropped).** A public
+   **instrument-ID → lab** lookup API lets Edge nodes auto-resolve the sequencing
+   lab and skip a manual data-entry step. The AppView also runs consensus discovery
+   from citizen `instrumentObservation` records (via `fed.*`), with a curator
+   review queue and confidence scoring. Genomics lab tables exist; lookup +
+   consensus + endpoints to build.
+   (`documents/planning/sequencer-lab-inference-system.md`.)
+8. **Smaller in-scope finishers:**
    - **Graft carries coordinates forward** at creation (fold into
      `get_or_create_variant`) so the decoding-us backfill isn't needed after each
      re-graft.
@@ -215,7 +240,7 @@ Launch-critical first, then the post-launch feature mass.
      canonical_name` `String` → `Option`, shared with Navigator).
    - More `fed.*` report shapes (genotype-provider mix, platform/test-type
      distribution) as the UI needs them.
-6. **Tech debt** — JSONB consolidation (7 tables → JSONB columns,
+9. **Tech debt** — JSONB consolidation (7 tables → JSONB columns,
    `documents/planning/jsonb-consolidation-analysis.md`); terms/privacy prose pending
    legal review; optional internal/curator OpenAPI document.
 
@@ -231,9 +256,10 @@ Launch-critical first, then the post-launch feature mass.
   design; don't build registration/heartbeat/fleet endpoints.
 - **AppView→PDS backfeed** — the AppView writes nothing back to PDSes (inbound-only
   / notify-fetch direction).
-- **IBD/matching, sequencer-lab inference, social/messaging, reputation,
-  patronage/billing, group-projects** — not in production (schemas 0007/0009 +
-  genomics lab tables exist as placeholders; no ETL, no endpoints).
+- **Patronage / billing** — not in production (`billing` placeholder; no logic).
+- (IBD matching, the social layer, and sequencer-lab inference are **back in
+  scope** — see "What's left" items 5–7. Their schemas remain placeholders pending
+  that build.)
 
 ## Cutover blocker — VERIFIED (2026-06-04)
 

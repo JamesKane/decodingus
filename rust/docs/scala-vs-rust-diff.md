@@ -28,9 +28,15 @@ legacy subsystems deliberately gone.
 - **Manual sample ingestion dropped.** Scala had hand-entry biosample/donor/
   sequence/publication-link endpoints (standard/external/PGP). Rust drops these —
   curators work in Navigator; the AppView keeps catalog **review + naming** only.
-- **Whole subsystems dropped/not-in-production:** IBD matching, social/reputation/
-  messaging, group projects, patronage/billing, the sequencer-lab inference, STR
-  profiles. (Several have placeholder tables but no logic/endpoints.)
+- **Subsystems still to build (placeholder tables, no logic yet):** IBD matching,
+  the social layer, and sequencer-lab inference are **in scope** as AppView
+  coordination roles: the AppView spots IBD **introduction candidates** across the
+  federation (coordinates + tracks match state; Edge does the encrypted comparison
+  + holds raw autosomal); the social layer (messaging/consent/notifications/feed/
+  reputation/group projects) underpins that and stands alone; and instrument→lab
+  inference lets Edge nodes skip a data-entry step.
+- **Whole subsystems dropped (out of scope):** patronage/billing only. (STR
+  profiles were brought back into scope and shipped.)
 - **Heavy genomics confirmed edge-only on both sides:** neither app does BAM/CRAM
   extraction or variant calling server-side (Navigator/edge does it).
 
@@ -43,7 +49,8 @@ legacy subsystems deliberately gone.
 | Home / nav | ✅ | `/` |
 | FAQ, Terms, Privacy, App-password help | ✅ | `/faq /terms /privacy /help/app-password` |
 | About | ✅ | Rust-only consolidation of "content" pages |
-| Reputation, How-to-submit-tree static pages | ➖ | reputation is social (out of scope); how-to-submit not ported |
+| Reputation static page | ⬜ | rides the social layer (in scope) — not yet built |
+| How-to-submit-tree static page | ➖ | not ported |
 | sitemap.xml, robots.txt, health | ✅ | |
 | Login / logout | ✅ | session cookie |
 | App-password auth | 🔁 | replaced by OAuth; app passwords deprecated |
@@ -61,11 +68,11 @@ legacy subsystems deliberately gone.
 | Coverage per-lab list + lab-benchmark fragments | ✅ | **Built 2026-06** `/coverage/labs` (two-panel: labs list + per-lab test-type fragment), alongside the flat `/coverage-benchmarks` |
 | Genome-regions public API (builds + by-build) | ✅ | |
 | Contact form | ✅ | `/contact` → `support.contact_message` (+ reCAPTCHA when configured) |
-| My-messages (user threads + badge) | ➖ | rides social/messaging (out of scope) |
-| Sequencer lab-by-instrument lookup API | ➖ | lab-inference subsystem deferred |
+| My-messages (user threads + badge) | ⬜ | social layer is **in scope** (supports IBD coordination + standalone) — not yet built |
+| Sequencer lab-by-instrument lookup API | ⬜ | **in scope** — lets Edge auto-resolve the lab (skip a data-entry step); not yet built |
 | Inbound firehose event endpoint | 🔁 | see Federation — replaced by outbound Jetstream consume |
 | PDS registration endpoint | ➖ | fleet model dropped |
-| IBD discovery/match/relay endpoints | ➖ | IBD not in production |
+| IBD discovery/introduction + consent endpoints | ⬜ | **in scope** (AppView coordinates candidates + dual-consent + match-state); the WebSocket *relay* stays Edge-to-Edge |
 | Legacy project CRUD endpoints | ➖ | were already deprecated in Scala |
 | OpenAPI / Swagger UI | ✅ | Rust documents the **public read API only**; mgmt/curation deliberately excluded |
 | **Federated population reports** | ➕ | **Rust-new:** `/api/v1/reports/{coverage,ancestry,haplogroups}` over the `fed.*` mirror |
@@ -88,9 +95,9 @@ legacy subsystems deliberately gone.
 | Genomics admin manual triggers (YBrowse/HipSTR/regions bootstrap) | 🔁 | Rust runs **YBrowse ingest as a scheduled job**; no manual admin trigger endpoints; HipSTR not ported |
 | Curation/discovery proposals — intake → review → name → promote (proposed branches) | ✅ | `/manage/curation/proposals` (X-API-Key) → `/curator/proposals` review/promote → `tree.proposed_branch` → catalog |
 | Publication-candidate review UI (accept/reject/defer/bulk) | ✅ | **Built 2026-06** (`du-db/publication.rs` candidate fns + `du-web/routes/publications.rs`, `/curator/publications`): status-filtered queue + review panel (title/journal/date/DOI/abstract/relevance) with Accept (promote → `pubs.publication`) / Reject / Defer. Single-item; **bulk** actions not yet built |
-| Sequencing-lab admin CRUD | ➖ | lab-inference deferred |
-| Instrument/sequencer proposals review | ➖ | lab-inference deferred |
-| Support admin (message triage/reply/status) | ➖ | rides messaging (out of scope) |
+| Sequencing-lab admin CRUD | ⬜ | lab-inference **in scope** — not yet built |
+| Instrument/sequencer proposals review | ⬜ | lab-inference **in scope** (consensus from observations → curator) |
+| Support admin (message triage/reply/status) | ⬜ | rides the social/messaging layer (**in scope**) |
 | Biosample original-haplogroup assignment (per-publication) | ➖ | manual-ingestion concern → Navigator |
 | Curator dashboard | ✅ | `/curator` |
 
@@ -100,9 +107,9 @@ legacy subsystems deliberately gone.
 |:---|:--|:---|
 | Inbound firehose `POST /api/firehose/event` (11 collection handlers, credential-holding) | 🔁 | **Replaced** by an outbound **Jetstream consumer** mirroring published *summary* records into `fed.*` (alignment/biosample/sequencerun/project/workspace/genotype/populationBreakdown/haplogroupReconciliation) |
 | Branch-discovery harvest of `privateVariants` from ingested biosamples | 🔁 | replaced by the **proposal-intake** API (Navigator submits → pool/consensus → curator) |
-| instrumentObservation / matchConsent / matchRequest / groupProject / projectMembership handlers | ➖ | lab-inference / IBD / social — out of scope |
+| instrumentObservation / matchConsent / matchRequest / groupProject / projectMembership | ⬜ | lab-inference / IBD / social are **in scope**; ingested via Jetstream/coordination (not the old inbound firehose) |
 | PDS registration + fleet (heartbeat, submissions, config, node removal) | ➖ | the credential-holding fleet is the dropped network-mirror; `fed.pds_*` tables exist but are unused |
-| IBD matching: discovery/suggestions, requests, consent, WebSocket relay | ➖ | IBD not in production (`ibd` schema is a placeholder) |
+| IBD matching: discovery/suggestions, requests, consent, match-state | ⬜ | **in scope** — AppView coordinates + tracks match state (`ibd` schema 0007); Edge does the comparison + holds raw autosomal (no relay in AppView) |
 | Auth: app-password login + PDS-signature (Ed25519/P-256) credential-holding verification | 🔁 | **Replaced** by AT Protocol **OAuth** — PKCE(S256), DPoP, `private_key_jwt` confidential client + public/loopback client; served `client-metadata.json`/`jwks.json` |
 | AT Proto OAuth (auth-server/client metadata models only, endpoints unimplemented) | 🌐 | Rust **implements** the handshake; verified live to consent against a local PDS; confidential round-trip is the Edge joint test |
 | DID/handle resolution (DNS+well-known, did:plc/did:web), PDS discovery | ✅ | `du-atproto` |
@@ -115,7 +122,7 @@ legacy subsystems deliberately gone.
 | Biosample create/update — standard, external/citizen, PGP (manual) | ➖ | manual sample-entry APIs dropped — curators use Navigator |
 | Sequence-data + file-metadata linking, publication linking, haplogroup assignment (manual) | ➖ | dropped (manual ingestion) |
 | Specimen-donor merge (conflict strategies) | ➖ | manual ingestion concern |
-| Sequencer↔lab association + proposals | ➖ | lab-inference deferred |
+| Sequencer↔lab association + proposals | ⬜ | lab-inference **in scope** |
 | Projects (controller scaffolded/empty in Scala) | 🟡 | Rust mirrors `project` as a read-only `fed.*` reporting row; no project management |
 | YBrowse Y-SNP ingest (GFF3 parse, normalize, **liftover** to GRCh38/GRCh37/hs1) | ✅ | **Reworked 2026-06 to the `snps_hg38.gff3`** — the central doc authorities flow through. `du-jobs/ybrowse` streams the GFF3 (~3M lines), lifts GRCh38→GRCh37/hs1 (`du-bio` chains), and writes the **`source.ybrowse_snp` mirror** (verbatim); `du_db::ybrowse::reconcile` then *derives* `core.variant` — folding synonyms (~339k physical SNPs have ≥2 names) into one row each, capturing authority metadata into `evidence` (mig 0017/0018), **idempotently and without clobbering curator decisions** (full-snapshot source has no deltas). `YBROWSE_GFF` env. (Old GRCh38-VCF + direct-upsert paths retired.) |
 | HipSTR STR ingest + liftover | ➖ | STR subsystem not in production |
@@ -139,10 +146,10 @@ ibd, social, billing` + audit + coverage-mirror + fed-reporting.
 | Publications, studies, candidates, search configs | ✅ | |
 | ident: users, roles, permissions, login-info, pds-info, cookie-consent | ✅ | + `audit_log` |
 | federation: `pds_node/heartbeat/fleet_config/submission` | 🟡 | tables exist (mig 0008) but **unused** (fleet dropped); `fed.coverage_summary` + `fed.*` reporting tables are the live federation store |
-| social: messages, conversations, feed, blocks, reputation | ➖ | placeholder tables (mig 0009); no logic/endpoints |
-| group projects + membership/policies | ➖ | not ported (rich group model dropped) |
+| social: messages, conversations, feed, blocks, reputation | ⬜ | **in scope** — placeholder tables (mig 0009); logic/endpoints to build |
+| group projects + membership/policies | ⬜ | **in scope** (part of the social layer) — to build |
 | billing: patron subscriptions | ➖ | placeholder; no logic |
-| IBD: suggestions, discovery-index, attestations, overlap scores | ➖ | placeholder (mig 0007); no logic |
+| IBD: suggestions, discovery-index, attestations, overlap scores | ⬜ | **in scope** — placeholder (mig 0007); logic to build |
 | support: contact messages | ✅ | `support.contact_message` + `du-db::support` |
 
 ## 6. Scheduled jobs
@@ -153,7 +160,7 @@ ibd, social, billing` + audit + coverage-mirror + fed-reporting.
 | PublicationDiscovery (OpenAlex, weekly) | ✅ | `publication-discovery` (creates candidates; review UI at `/curator/publications`) |
 | YBrowseVariantUpdate (weekly) | ✅ | `ybrowse-variant-ingest` |
 | VariantExport (daily gzipped JSONL) | 🔁 | replaced by the live CSV endpoint; no file-artifact job |
-| MatchDiscovery (daily IBD) | ➖ | IBD not in production |
+| MatchDiscovery (daily IBD candidate scan) | ⬜ | **in scope** — IBD introduction-candidate discovery job, to build |
 | — | ➕ | **Rust-new:** `ena-study-enrichment`, `publication-pubmed-update`, `db-heartbeat`, the **Jetstream coverage/reporting-mirror consumer** |
 
 ## Net summary
@@ -165,12 +172,17 @@ ibd, social, billing` + audit + coverage-mirror + fed-reporting.
 - **Re-scoped by design:** federation (inbound relay → outbound summary mirror +
   proposal intake), auth (app-password/PDS-signature → OAuth), variant export
   (file → live CSV), genomics ingest triggers (manual → scheduled).
-- **Dropped (out of scope / not in production):** manual sample ingestion, IBD
-  matching, social/reputation/messaging, group projects, patronage/billing,
-  sequencer-lab inference, PDS fleet. (STR profiles were **brought back into
-  scope** 2026-06 — Phase 1 shipped; prediction is Phase 2.)
-- **In scope, not yet built:** region management API + bootstrap-from-CHM13 (the
-  S3/CHM13 liftover pipeline; the region CRUD UI already exists). (Built 2026-06:
+- **Dropped (out of scope):** manual sample ingestion, patronage/billing, PDS
+  fleet, AppView→PDS backfeed, HipSTR ingest, server-side BAM/CRAM. (STR profiles
+  were **brought back into scope** 2026-06 — Phase 1/2 shipped.)
+- **In scope, not yet built — coordination subsystems (placeholder schemas):**
+  **IBD matching** (AppView discovers introduction candidates + dual-consent +
+  match-state tracking; Edge does the comparison), the **social layer**
+  (messaging/consent/notifications/feed/reputation/group projects — underpins IBD
+  coordination + standalone), **sequencer-lab inference** (instrument→lab lookup +
+  consensus discovery, so Edge skips a data-entry step), **haplogroup-discovery
+  automation**, and **multi-test-type completion**. Plus the **region management
+  API + bootstrap-from-CHM13** (region CRUD UI already exists). (Built 2026-06:
   change-set conflict-resolution UI + `wip_*` staging — §2 `/curator/reviews`;
   publication-candidate review UI — §2 `/curator/publications`; public DOI-submit
   form — §1 `/references/submit`; profile update — §1 `POST /profile`; haplogroup
