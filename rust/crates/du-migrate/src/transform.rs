@@ -219,90 +219,138 @@ pub async fn biosample(legacy: &PgPool, target: &PgPool) -> anyhow::Result<()> {
 }
 
 // ── variants (positional legacy model -> core.variant) ───────────────────────
+//
+// Legacy `public.variant` holds ONE row per (SNP, reference build) — e.g. SNP
+// "A1" appears three times (GRCh38/GRCh37/hs1) at build-specific positions. The
+// redesigned `core.variant` is ONE row per physical SNP with a multi-build
+// `coordinates` JSONB. So the ETL folds the legacy rows by canonical name.
+//
+// `copy_idx` (row_number within name+build) disambiguates genuine within-build
+// name reuse (homoplasy / legacy data noise): copy 1 is the canonical SNP and
+// owns `canonical_name`; later copies become UNNAMED (canonical_name NULL,
+// partial unique index satisfied) but keep the name as an alias and survive as
+// distinct physical variants. FK references (haplogroup_variant) are repointed
+// to the fold anchor (`min(variant_id)` per fold group) — see `haplogroup_variant`.
+
+/// Shared base CTE: every legacy variant row annotated with its fold key
+/// (`cname`, `copy_idx`). Callers append their own projection.
+const FOLD_BASE: &str = "WITH base AS ( \
+    SELECT v.variant_id::bigint AS variant_id, \
+           COALESCE(v.common_name, v.rs_id, gc.common_name || ':' || v.position::text) AS cname, \
+           v.variant_type, v.common_name, v.rs_id, \
+           gc.common_name AS contig, COALESCE(gc.reference_genome, 'GRCh38') AS build, \
+           v.position::bigint AS position, v.reference_allele AS ref, v.alternate_allele AS alt, \
+           row_number() OVER ( \
+             PARTITION BY COALESCE(v.common_name, v.rs_id, gc.common_name || ':' || v.position::text), \
+                          COALESCE(gc.reference_genome, 'GRCh38') \
+             ORDER BY v.variant_id) AS copy_idx \
+    FROM public.variant v JOIN public.genbank_contig gc ON gc.genbank_contig_id = v.genbank_contig_id \
+  )";
+
 #[derive(sqlx::FromRow)]
-struct VarRow {
-    variant_id: i64,
-    canonical_name: String,
-    variant_type: String,
-    rs_id: Option<String>,
-    common_name: Option<String>,
-    contig: Option<String>,
-    build: String,
-    position: i64,
-    reference_allele: String,
-    alternate_allele: String,
-    aliases: Value,
+struct FoldRow {
+    id: i64,
+    cname: String,
+    copy_idx: i64,
+    is_indel: bool,
+    named: bool,
+    common_names: Vec<String>,
+    rs_ids: Vec<String>,
+    coordinates: Value,
+    extra_aliases: Value,
 }
 
 pub async fn variant(legacy: &PgPool, target: &PgPool) -> anyhow::Result<()> {
-    let rows: Vec<VarRow> = sqlx::query_as(
-        "SELECT v.variant_id::bigint AS variant_id, \
-                COALESCE(v.common_name, v.rs_id, gc.common_name || ':' || v.position::text) AS canonical_name, \
-                v.variant_type, v.rs_id, v.common_name, \
-                gc.common_name AS contig, COALESCE(gc.reference_genome, 'GRCh38') AS build, \
-                v.position::bigint AS position, v.reference_allele, v.alternate_allele, \
-                COALESCE((SELECT jsonb_agg(jsonb_build_object('type', va.alias_type, 'value', va.alias_value, 'source', va.source)) \
-                  FROM public.variant_alias va WHERE va.variant_id = v.variant_id), '[]'::jsonb) AS aliases \
-         FROM public.variant v JOIN public.genbank_contig gc ON gc.genbank_contig_id = v.genbank_contig_id",
-    )
+    let rows: Vec<FoldRow> = sqlx::query_as(&format!(
+        "{FOLD_BASE}, \
+         agg AS ( \
+           SELECT min(variant_id) AS id, cname, copy_idx, \
+                  bool_or(variant_type ILIKE 'indel') AS is_indel, \
+                  bool_or(common_name IS NOT NULL) AS named, \
+                  array_remove(array_agg(DISTINCT common_name), NULL) AS common_names, \
+                  array_remove(array_agg(DISTINCT rs_id), NULL) AS rs_ids, \
+                  jsonb_object_agg(build, jsonb_build_object( \
+                    'contig', contig, 'position', position, \
+                    'reference_allele', ref, 'alternate_allele', alt)) AS coordinates \
+           FROM base GROUP BY cname, copy_idx \
+         ), \
+         alias_agg AS ( \
+           SELECT b.cname, b.copy_idx, \
+                  jsonb_agg(jsonb_build_object('value', va.alias_value, 'type', va.alias_type, 'source', va.source)) AS aliases \
+           FROM base b JOIN public.variant_alias va ON va.variant_id = b.variant_id \
+           GROUP BY b.cname, b.copy_idx \
+         ) \
+         SELECT a.id, a.cname, a.copy_idx, a.is_indel, a.named, a.common_names, a.rs_ids, \
+                a.coordinates, COALESCE(al.aliases, '[]'::jsonb) AS extra_aliases \
+         FROM agg a LEFT JOIN alias_agg al USING (cname, copy_idx)"
+    ))
     .fetch_all(legacy)
     .await?;
     let n = rows.len();
+
     let mut tx = target.begin().await?;
-    for r in rows {
-        // Assemble the consolidated aliases JSONB from rs_id/common_name + variant_alias rows.
-        let mut common_names = Vec::new();
-        let mut rs_ids = Vec::new();
-        let mut sources = Map::new();
-        if let Some(cn) = &r.common_name {
-            common_names.push(cn.clone());
-        }
-        if let Some(rs) = &r.rs_id {
-            rs_ids.push(rs.clone());
-        }
-        if let Some(arr) = r.aliases.as_array() {
-            for a in arr {
-                let val = a.get("value").and_then(Value::as_str).unwrap_or("");
-                if val.is_empty() {
-                    continue;
-                }
-                let typ = a.get("type").and_then(Value::as_str).unwrap_or("").to_lowercase();
-                if typ.contains("rs") {
-                    rs_ids.push(val.to_string());
-                } else {
-                    common_names.push(val.to_string());
-                }
-                if let Some(src) = a.get("source").and_then(Value::as_str) {
-                    sources.insert(val.to_string(), json!(src));
+    for chunk in rows.chunks(5000) {
+        let mut ids = Vec::with_capacity(chunk.len());
+        let mut names: Vec<Option<String>> = Vec::with_capacity(chunk.len());
+        let mut mtypes: Vec<&str> = Vec::with_capacity(chunk.len());
+        let mut statuses: Vec<&str> = Vec::with_capacity(chunk.len());
+        let mut aliases: Vec<String> = Vec::with_capacity(chunk.len());
+        let mut coords: Vec<String> = Vec::with_capacity(chunk.len());
+
+        for r in chunk {
+            let owns_name = r.copy_idx == 1;
+            let mut common_names = r.common_names.clone();
+            let mut rs_ids = r.rs_ids.clone();
+            let mut sources = Map::new();
+            // A non-canonical (homoplasy) copy keeps its name as an alias.
+            if !owns_name {
+                common_names.push(r.cname.clone());
+            }
+            if let Some(arr) = r.extra_aliases.as_array() {
+                for a in arr {
+                    let val = a.get("value").and_then(Value::as_str).unwrap_or("");
+                    if val.is_empty() {
+                        continue;
+                    }
+                    let typ = a.get("type").and_then(Value::as_str).unwrap_or("").to_lowercase();
+                    if typ.contains("rs") {
+                        rs_ids.push(val.to_string());
+                    } else {
+                        common_names.push(val.to_string());
+                    }
+                    if let Some(src) = a.get("source").and_then(Value::as_str) {
+                        sources.insert(val.to_string(), json!(src));
+                    }
                 }
             }
+            ids.push(r.id);
+            names.push(owns_name.then(|| r.cname.clone()));
+            mtypes.push(if r.is_indel { "INDEL" } else { "SNP" });
+            statuses.push(if owns_name && r.named { "NAMED" } else { "UNNAMED" });
+            aliases.push(json!({ "common_names": dedup(common_names), "rs_ids": dedup(rs_ids), "sources": sources }).to_string());
+            coords.push(r.coordinates.to_string());
         }
-        let aliases = json!({ "common_names": dedup(common_names), "rs_ids": dedup(rs_ids), "sources": sources });
-        let coordinates = json!({ r.build.clone(): {
-            "contig": r.contig, "position": r.position,
-            "reference_allele": r.reference_allele, "alternate_allele": r.alternate_allele
-        }});
-        let naming_status = if r.common_name.is_some() { "NAMED" } else { "UNNAMED" };
-        let mutation_type = if r.variant_type.trim().eq_ignore_ascii_case("INDEL") { "INDEL" } else { "SNP" };
 
         sqlx::query(
             "INSERT INTO core.variant (id, canonical_name, mutation_type, naming_status, aliases, coordinates) \
              OVERRIDING SYSTEM VALUE \
-             VALUES ($1,$2,$3::core.mutation_type,$4::core.naming_status,$5,$6) \
+             SELECT u.id, u.cn, u.mt::core.mutation_type, u.ns::core.naming_status, u.al::jsonb, u.co::jsonb \
+             FROM unnest($1::bigint[], $2::text[], $3::text[], $4::text[], $5::text[], $6::text[]) \
+                  AS u(id, cn, mt, ns, al, co) \
              ON CONFLICT (id) DO UPDATE SET canonical_name=EXCLUDED.canonical_name, mutation_type=EXCLUDED.mutation_type, \
                naming_status=EXCLUDED.naming_status, aliases=EXCLUDED.aliases, coordinates=EXCLUDED.coordinates",
         )
-        .bind(r.variant_id)
-        .bind(r.canonical_name)
-        .bind(mutation_type)
-        .bind(naming_status)
-        .bind(aliases)
-        .bind(coordinates)
+        .bind(&ids)
+        .bind(&names)
+        .bind(&mtypes)
+        .bind(&statuses)
+        .bind(&aliases)
+        .bind(&coords)
         .execute(&mut *tx)
         .await?;
     }
     tx.commit().await?;
-    tracing::info!(table = "variant", rows = n, "migrated");
+    tracing::info!(table = "variant", rows = n, "migrated (folded legacy per-build rows by SNP)");
     Ok(())
 }
 
@@ -385,27 +433,43 @@ pub async fn haplogroup_relationship(legacy: &PgPool, target: &PgPool) -> anyhow
 }
 
 pub async fn haplogroup_variant(legacy: &PgPool, target: &PgPool) -> anyhow::Result<()> {
-    let rows = sqlx::query_as::<_, (i64, i64, i64)>(
-        "SELECT haplogroup_variant_id::bigint, haplogroup_id::bigint, variant_id::bigint FROM tree.haplogroup_variant",
-    )
+    // Repoint each legacy link's variant_id to its fold anchor (the same
+    // `min(variant_id) per (cname, copy_idx)` the variant transform used), then
+    // collapse the per-build duplicates a haplogroup accrued (it linked the same
+    // SNP once per build) to one link per (haplogroup, folded variant), keeping
+    // the lowest legacy link id.
+    let rows = sqlx::query_as::<_, (i64, i64, i64)>(&format!(
+        "{FOLD_BASE}, \
+         remap AS (SELECT variant_id AS legacy_id, \
+                          min(variant_id) OVER (PARTITION BY cname, copy_idx) AS fold_id FROM base) \
+         SELECT DISTINCT ON (hv.haplogroup_id, r.fold_id) \
+                hv.haplogroup_variant_id::bigint, hv.haplogroup_id::bigint, r.fold_id::bigint \
+         FROM tree.haplogroup_variant hv JOIN remap r ON r.legacy_id = hv.variant_id \
+         ORDER BY hv.haplogroup_id, r.fold_id, hv.haplogroup_variant_id"
+    ))
     .fetch_all(legacy)
     .await?;
     let n = rows.len();
     let mut tx = target.begin().await?;
-    for (id, hg, var) in rows {
+    for chunk in rows.chunks(5000) {
+        let ids: Vec<i64> = chunk.iter().map(|r| r.0).collect();
+        let hgs: Vec<i64> = chunk.iter().map(|r| r.1).collect();
+        let vars: Vec<i64> = chunk.iter().map(|r| r.2).collect();
         sqlx::query(
             "INSERT INTO tree.haplogroup_variant (id, haplogroup_id, variant_id, revision, valid_from) \
-             OVERRIDING SYSTEM VALUE VALUES ($1,$2,$3,'{}'::jsonb, now()) \
+             OVERRIDING SYSTEM VALUE \
+             SELECT u.id, u.hg, u.var, '{}'::jsonb, now() \
+             FROM unnest($1::bigint[], $2::bigint[], $3::bigint[]) AS u(id, hg, var) \
              ON CONFLICT (id) DO UPDATE SET haplogroup_id=EXCLUDED.haplogroup_id, variant_id=EXCLUDED.variant_id",
         )
-        .bind(id)
-        .bind(hg)
-        .bind(var)
+        .bind(&ids)
+        .bind(&hgs)
+        .bind(&vars)
         .execute(&mut *tx)
         .await?;
     }
     tx.commit().await?;
-    tracing::info!(table = "haplogroup_variant", rows = n, "migrated");
+    tracing::info!(table = "haplogroup_variant", rows = n, "migrated (remapped to folded variants)");
     Ok(())
 }
 

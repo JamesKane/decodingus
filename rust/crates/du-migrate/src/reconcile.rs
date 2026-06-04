@@ -17,10 +17,38 @@ const CHECKS: &[Check] = &[
         legacy_sql: "SELECT (SELECT count(*) FROM public.biosample) + (SELECT count(*) FROM public.citizen_biosample) + (SELECT count(*) FROM public.pgp_biosample)",
         target_sql: "SELECT count(*) FROM core.biosample",
     },
-    Check { label: "variant", legacy_sql: "SELECT count(*) FROM public.variant", target_sql: "SELECT count(*) FROM core.variant" },
+    // Legacy variants are per-build; the target folds them by SNP (see
+    // transform::variant). Compare against the folded group count.
+    Check {
+        label: "variant",
+        legacy_sql: "SELECT count(*)::bigint FROM ( \
+            SELECT 1 FROM ( \
+              SELECT COALESCE(v.common_name, v.rs_id, gc.common_name||':'||v.position::text) AS cname, \
+                     row_number() OVER (PARTITION BY COALESCE(v.common_name, v.rs_id, gc.common_name||':'||v.position::text), \
+                       COALESCE(gc.reference_genome,'GRCh38') ORDER BY v.variant_id) AS copy_idx \
+              FROM public.variant v JOIN public.genbank_contig gc ON gc.genbank_contig_id=v.genbank_contig_id \
+            ) b GROUP BY cname, copy_idx) x",
+        target_sql: "SELECT count(*) FROM core.variant",
+    },
     Check { label: "haplogroup", legacy_sql: "SELECT count(*) FROM tree.haplogroup", target_sql: "SELECT count(*) FROM tree.haplogroup" },
     Check { label: "haplogroup_relationship", legacy_sql: "SELECT count(*) FROM tree.haplogroup_relationship", target_sql: "SELECT count(*) FROM tree.haplogroup_relationship" },
-    Check { label: "haplogroup_variant", legacy_sql: "SELECT count(*) FROM tree.haplogroup_variant", target_sql: "SELECT count(*) FROM tree.haplogroup_variant" },
+    // Links collapse to one per (haplogroup, folded SNP) — the legacy table
+    // links each SNP once per build.
+    Check {
+        label: "haplogroup_variant",
+        legacy_sql: "SELECT count(*)::bigint FROM ( \
+            SELECT DISTINCT hv.haplogroup_id, r.fold_id FROM tree.haplogroup_variant hv \
+            JOIN ( \
+              SELECT variant_id AS legacy_id, min(variant_id) OVER (PARTITION BY cname, copy_idx) AS fold_id FROM ( \
+                SELECT v.variant_id, \
+                       COALESCE(v.common_name, v.rs_id, gc.common_name||':'||v.position::text) AS cname, \
+                       row_number() OVER (PARTITION BY COALESCE(v.common_name, v.rs_id, gc.common_name||':'||v.position::text), \
+                         COALESCE(gc.reference_genome,'GRCh38') ORDER BY v.variant_id) AS copy_idx \
+                FROM public.variant v JOIN public.genbank_contig gc ON gc.genbank_contig_id=v.genbank_contig_id \
+              ) b \
+            ) r ON r.legacy_id = hv.variant_id) x",
+        target_sql: "SELECT count(*) FROM tree.haplogroup_variant",
+    },
     Check { label: "genomic_study", legacy_sql: "SELECT count(*) FROM public.genomic_studies", target_sql: "SELECT count(*) FROM pubs.genomic_study" },
     Check { label: "publication", legacy_sql: "SELECT count(*) FROM public.publication", target_sql: "SELECT count(*) FROM pubs.publication" },
     Check {
