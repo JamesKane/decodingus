@@ -311,32 +311,6 @@ pub async fn graft(
     let name_of_id: HashMap<i64, String> = id_rows.iter().map(|(n, i)| (*i, n.clone())).collect();
     let id_of: HashMap<String, i64> = id_rows.into_iter().collect();
 
-    // Reattach: SNP name → a backbone node id that carries it (the bush's clade
-    // SNP points directly to where it attaches). Built only in reattach mode.
-    let snp2id: HashMap<String, i64> = if reattach {
-        sqlx::query_as::<_, (String, i64)>(
-            "SELECT lower(v.canonical_name), h.id FROM core.variant v \
-             JOIN tree.haplogroup_variant hv ON hv.variant_id=v.id AND hv.valid_until IS NULL \
-             JOIN tree.haplogroup h ON h.id=hv.haplogroup_id \
-             WHERE h.haplogroup_type::text=$1 AND h.valid_until IS NULL \
-               AND h.source IS DISTINCT FROM $2 AND v.canonical_name IS NOT NULL \
-             UNION \
-             SELECT lower(a.alias), h.id FROM core.variant v \
-             CROSS JOIN LATERAL jsonb_array_elements_text(v.aliases->'common_names') AS a(alias) \
-             JOIN tree.haplogroup_variant hv ON hv.variant_id=v.id AND hv.valid_until IS NULL \
-             JOIN tree.haplogroup h ON h.id=hv.haplogroup_id \
-             WHERE h.haplogroup_type::text=$1 AND h.valid_until IS NULL AND h.source IS DISTINCT FROM $2",
-        )
-        .bind(&dna_label)
-        .bind(source_label)
-        .fetch_all(pool)
-        .await?
-        .into_iter()
-        .collect()
-    } else {
-        HashMap::new()
-    };
-
     // The novel set, and a quick membership test for "parent is also novel".
     let novels: Vec<&SourceNode> = classified
         .items
@@ -397,24 +371,25 @@ pub async fn graft(
         }
     }
 
-    // Reattach (opt-in): a bush blocked by a flagged/ambiguous backbone ancestor
-    // isn't dropped. Walk up the source ancestry to the nearest node whose
-    // defining SNP points into the backbone (snp2id) and attach there — intra-bush
-    // novel parents still chain, preserving the shrub's own structure.
+    // Reattach (opt-in): a bush blocked because its backbone parent is flagged
+    // (weak/inconsistent — an uncertain SNP placement) isn't dropped. Walk up the
+    // source ancestry to the nearest ancestor the classifier cleanly MATCHED, and
+    // attach the bush's top there — vetted by SNP *set* + subtree scope, so the
+    // catalog's junk single-SNP links don't mislead it. Intra-bush novel parents
+    // still chain (only the top jumps), preserving the shrub's structure.
     let mut reattached = 0usize;
     if reattach {
         let parent_of: HashMap<&str, &str> = source
             .iter()
             .filter_map(|n| n.parent_name.as_deref().map(|p| (n.name.as_str(), p)))
             .collect();
-        let anchor_via_snp = |start: &SourceNode| -> Option<i64> {
-            let mut cur: Option<&str> = Some(start.name.as_str());
+        // Nearest source-ancestor with a clean MATCH disposition → its catalog id.
+        let nearest_match = |start: &SourceNode| -> Option<i64> {
+            let mut cur = start.parent_name.as_deref();
             while let Some(name) = cur {
-                if let Some(node) = by_name.get(name) {
-                    for s in &node.defining_snps {
-                        if let Some(&id) = snp2id.get(&s.to_lowercase()) {
-                            return Some(id);
-                        }
+                if let Some(Disposition::Match { anchor, .. }) = dispo.get(name).copied() {
+                    if let Some(&id) = id_of.get(anchor) {
+                        return Some(id);
                     }
                 }
                 cur = parent_of.get(name).copied();
@@ -427,19 +402,24 @@ pub async fn graft(
                 if !matches!(status.get(&sn.name), Some(St::Blocked)) {
                     continue;
                 }
-                // Parent became buildable (an ancestor reattached) → chain under it.
-                if let Some(p) = &sn.parent_name {
-                    if matches!(status.get(p.as_str()), Some(St::Ok(_))) {
+                match &sn.parent_name {
+                    // Parent became buildable (an ancestor reattached) → chain.
+                    Some(p) if matches!(status.get(p.as_str()), Some(St::Ok(_))) => {
                         status.insert(sn.name.clone(), St::Ok(PTarget::NewParent(p.clone())));
                         changed = true;
-                        continue;
                     }
-                }
-                // Else attach to the backbone node its (or an ancestor's) SNP points to.
-                if let Some(id) = anchor_via_snp(sn) {
-                    status.insert(sn.name.clone(), St::Ok(PTarget::Existing(id)));
-                    reattached += 1;
-                    changed = true;
+                    // Parent is a (still-blocked) novel → wait for it; don't jump,
+                    // or the bush would scatter above its own parent.
+                    Some(p) if novel_names.contains(p.as_str()) => {}
+                    // Parent is flagged/absent (a backbone break) → this is a bush
+                    // top: jump it to the nearest cleanly-matched ancestor.
+                    _ => {
+                        if let Some(id) = nearest_match(sn) {
+                            status.insert(sn.name.clone(), St::Ok(PTarget::Existing(id)));
+                            reattached += 1;
+                            changed = true;
+                        }
+                    }
                 }
             }
             if !changed {
