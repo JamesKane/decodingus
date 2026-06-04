@@ -314,6 +314,32 @@ pub async fn export_du_named(pool: &PgPool) -> Result<Vec<Variant>, DbError> {
     rows.into_iter().map(VariantRow::into_domain).collect()
 }
 
+/// Bulk-set variant `coordinates` by canonical name, **merging** into any
+/// existing builds (existing keys win, the new payload fills gaps). Backs
+/// source-tree coordinate enrichment — e.g. decoding-us carries multi-build SNP
+/// coordinates that the SNP-graft (name-only) drops. Returns rows updated.
+pub async fn set_coordinates_bulk(
+    pool: &PgPool,
+    items: &[(String, serde_json::Value)],
+) -> Result<u64, DbError> {
+    let mut updated = 0u64;
+    for chunk in items.chunks(1000) {
+        let names: Vec<&str> = chunk.iter().map(|(n, _)| n.as_str()).collect();
+        let coords: Vec<String> = chunk.iter().map(|(_, c)| c.to_string()).collect();
+        updated += sqlx::query(
+            "UPDATE core.variant v SET coordinates = u.co::jsonb || v.coordinates, updated_at = now() \
+             FROM (SELECT unnest($1::text[]) AS nm, unnest($2::text[]) AS co) u \
+             WHERE v.canonical_name = u.nm",
+        )
+        .bind(&names)
+        .bind(&coords)
+        .execute(pool)
+        .await?
+        .rows_affected();
+    }
+    Ok(updated)
+}
+
 /// Bulk-populate `core.variant.aliases.common_names` for the given canonical
 /// names (one physical SNP per row, the universal-variant model). Canonicals
 /// not present are skipped. Chunked `unnest` upserts; returns rows updated.

@@ -49,6 +49,10 @@ struct Args {
     /// in-app curator adjudication at /curator/reviews. Writes (creates a change-set).
     #[arg(long)]
     stage_review: bool,
+    /// Backfill core.variant.coordinates from the decoding-us API (the graft
+    /// stores SNP names only; the API carries multi-build locus + anc/der alleles).
+    #[arg(long)]
+    backfill_prod_coords: bool,
     /// Approve + apply each change set (else leave DRAFT for curator review).
     #[arg(long)]
     apply: bool,
@@ -130,6 +134,52 @@ fn parse_prod_flat(body: &Value) -> Vec<SourceNode> {
         node
     }
     roots.iter().map(|r| build(r, &mut nodes, &children_of)).collect()
+}
+
+/// Map a decoding-us coordinate genome key (`"chrY [b38]"`) to our build label.
+fn prod_build(gk: &str) -> Option<&'static str> {
+    if gk.contains("b38") || gk.contains("hg38") || gk.contains("GRCh38") {
+        Some("GRCh38")
+    } else if gk.contains("b37") || gk.contains("hg19") || gk.contains("GRCh37") {
+        Some("GRCh37")
+    } else if gk.contains("hs1") || gk.contains("T2T") || gk.contains("CHM13") {
+        Some("hs1")
+    } else {
+        None
+    }
+}
+
+/// Extract each decoding-us variant's multi-build coordinates as `(name,
+/// universal-coordinates-jsonb)`, mapping the API shape
+/// (`{ "chrY [b38]": {start, stop, anc, der} }`) to ours
+/// (`{ GRCh38: {contig, position, reference_allele, alternate_allele} }`).
+fn prod_variant_coords(body: &Value) -> Vec<(String, Value)> {
+    use std::collections::BTreeMap;
+    let Some(arr) = body.as_array() else { return Vec::new() };
+    let mut by_name: BTreeMap<String, serde_json::Map<String, Value>> = BTreeMap::new();
+    for node in arr {
+        let Some(vs) = node.get("variants").and_then(Value::as_array) else { continue };
+        for v in vs {
+            let Some(name) = v.get("name").and_then(Value::as_str) else { continue };
+            let Some(coords) = v.get("coordinates").and_then(Value::as_object) else { continue };
+            let entry = by_name.entry(name.to_string()).or_default();
+            for (gk, c) in coords {
+                let Some(build) = prod_build(gk) else { continue };
+                let Some(pos) = c.get("start").and_then(Value::as_i64) else { continue };
+                let contig = gk.split(" [").next().unwrap_or("chrY");
+                entry.insert(
+                    build.to_string(),
+                    serde_json::json!({
+                        "contig": contig,
+                        "position": pos,
+                        "reference_allele": c.get("anc").and_then(Value::as_str),
+                        "alternate_allele": c.get("der").and_then(Value::as_str),
+                    }),
+                );
+            }
+        }
+    }
+    by_name.into_iter().filter(|(_, m)| !m.is_empty()).map(|(n, m)| (n, Value::Object(m))).collect()
 }
 
 /// Adapt the decoding-us flat API tree to source-tree.v1 `SourceNode`s (the
@@ -314,7 +364,23 @@ async fn main() -> anyhow::Result<()> {
         if let Some(url) = &args.merge_prod {
             tracing::info!(%url, "fetching decoding-us production tree");
             let body: Value = reqwest::Client::new().get(url).send().await?.error_for_status()?.json().await?;
-            if args.snp_graft {
+
+            // Backfill multi-build SNP coordinates the graft dropped (it stores
+            // names only). The API carries locus + anc/der per build; merge them
+            // into core.variant.coordinates (existing builds win).
+            if args.backfill_prod_coords {
+                let coords = prod_variant_coords(&body);
+                anyhow::ensure!(!coords.is_empty(), "no variant coordinates parsed from prod tree");
+                if args.apply {
+                    let n = du_db::variant::set_coordinates_bulk(&pool, &coords).await?;
+                    tracing::info!(variants = coords.len(), updated = n, "backfilled decoding-us variant coordinates");
+                } else {
+                    let sample: Vec<&String> = coords.iter().take(5).map(|(n, _)| n).collect();
+                    tracing::info!(variants = coords.len(), ?sample, "DRY-RUN: would backfill decoding-us variant coordinates (pass --apply)");
+                }
+                // Coordinate backfill is a standalone enrichment — don't fall
+                // through into the merge/graft pipeline.
+            } else if args.snp_graft {
                 // SNP-anchored graft (dry-run classifier — no writes yet).
                 let source = prod_source_nodes(&body);
                 anyhow::ensure!(!source.is_empty(), "no nodes parsed from prod tree");
