@@ -30,6 +30,10 @@ struct Args {
     /// merge only the prod tree, or to --reprocess an already-loaded tree.
     #[arg(long)]
     isogg: Option<String>,
+    /// Path to the FTDNA haplotree JSON (`allNodes` map). Always SNP-anchor
+    /// grafted onto the loaded catalog; `kitsCount==0` nodes are private (skipped).
+    #[arg(long)]
+    ftdna: Option<String>,
     /// Optional: URL of the decoding-us production Y-tree to merge in.
     #[arg(long)]
     merge_prod: Option<String>,
@@ -231,6 +235,76 @@ fn isogg_graft_nodes(root: &Value) -> Vec<du_db::snp_graft::SourceNode> {
     }
     let mut out = Vec::new();
     walk(root, None, &mut out);
+    out
+}
+
+/// Flatten the FTDNA haplotree (`{allNodes: {id: {haplogroupId, parentId, name,
+/// kitsCount, variants[], isBackbone, …}}}`) into SNP-graft `SourceNode`s.
+/// `kitsCount==0` nodes are **private** (skipped); a kept node's parent is its
+/// nearest non-private ancestor (private nodes are spliced out). Defining SNPs are
+/// the variant names. (Borrows the Scala `FtdnaTreeProvider` shape.)
+fn ftdna_graft_nodes(root: &Value) -> Vec<du_db::snp_graft::SourceNode> {
+    use std::collections::HashMap;
+    let Some(all) = root.get("allNodes").and_then(Value::as_object) else { return Vec::new() };
+    let by_id: HashMap<i64, &Value> =
+        all.values().filter_map(|n| n.get("haplogroupId").and_then(Value::as_i64).map(|id| (id, n))).collect();
+    let kits = |n: &Value| n.get("kitsCount").and_then(Value::as_i64).unwrap_or(0);
+    // Nearest ancestor with kitsCount>=1 (public), walking parentId; None at the top.
+    let public_parent = |n: &Value| -> Option<String> {
+        let mut pid = n.get("parentId").and_then(Value::as_i64);
+        while let Some(id) = pid {
+            let Some(p) = by_id.get(&id) else { return None };
+            if kits(p) >= 1 {
+                return p.get("name").and_then(Value::as_str).map(str::to_string);
+            }
+            pid = p.get("parentId").and_then(Value::as_i64);
+        }
+        None
+    };
+    all.values()
+        .filter(|n| kits(n) >= 1)
+        .filter_map(|n| {
+            let name = n.get("name")?.as_str()?.to_string();
+            let defining_snps = n
+                .get("variants")
+                .and_then(Value::as_array)
+                .map(|a| a.iter().filter_map(|v| v.get("variant").and_then(Value::as_str)).filter(|s| !s.is_empty()).map(str::to_string).collect())
+                .unwrap_or_default();
+            Some(du_db::snp_graft::SourceNode {
+                name,
+                parent_name: public_parent(n),
+                defining_snps,
+                is_backbone: n.get("isBackbone").and_then(Value::as_bool).unwrap_or(false),
+                last_updated: None,
+            })
+        })
+        .collect()
+}
+
+/// FTDNA per-variant GRCh38 coordinates as `(snp_name, coords-jsonb)` for
+/// fill-if-absent enrichment. `abs(position)` works around FTDNA's negative-position
+/// data bug; only rows with a position + both alleles are emitted.
+fn ftdna_variant_coords(root: &Value, contig: &str) -> Vec<(String, Value)> {
+    let Some(all) = root.get("allNodes").and_then(Value::as_object) else { return Vec::new() };
+    let mut out = Vec::new();
+    for n in all.values() {
+        if n.get("kitsCount").and_then(Value::as_i64).unwrap_or(0) < 1 {
+            continue;
+        }
+        for v in n.get("variants").and_then(Value::as_array).into_iter().flatten() {
+            let (Some(name), Some(pos)) =
+                (v.get("variant").and_then(Value::as_str).filter(|s| !s.is_empty()), v.get("position").and_then(Value::as_i64))
+            else { continue };
+            let (anc, der) = (v.get("ancestral").and_then(Value::as_str), v.get("derived").and_then(Value::as_str));
+            if anc.is_none() && der.is_none() {
+                continue;
+            }
+            out.push((
+                name.to_string(),
+                serde_json::json!({ "GRCh38": { "contig": contig, "position": pos.abs(), "ancestral": anc, "derived": der } }),
+            ));
+        }
+    }
     out
 }
 
@@ -478,9 +552,25 @@ async fn main() -> anyhow::Result<()> {
                 merge_into(&pool, &prod_roots, "decoding-us", dna, dna_label, &args.by, args.apply).await?;
             }
         }
+
+        // 3. Optional: SNP-anchor graft the FTDNA haplotree onto the loaded catalog.
+        if let Some(path) = &args.ftdna {
+            tracing::info!(%path, "loading FTDNA haplotree");
+            let body: Value = serde_json::from_str(&std::fs::read_to_string(path)?)?;
+            // Enrich coordinates fill-if-absent from FTDNA's anc/der + GRCh38 position.
+            let coords = ftdna_variant_coords(&body, if dna == DnaType::YDna { "chrY" } else { "chrM" });
+            if args.apply {
+                let n = du_db::variant::set_coordinates_bulk(&pool, &coords).await?;
+                tracing::info!(rows = coords.len(), updated = n, "enriched coordinates from FTDNA (existing builds win)");
+            } else {
+                tracing::info!(rows = coords.len(), "DRY-RUN: would enrich coordinates from FTDNA (pass --apply)");
+            }
+            let source = ftdna_graft_nodes(&body);
+            run_snp_graft(&pool, &source, dna, "FTDNA", &args).await?;
+        }
     }
 
-    // 3. Post-process the materialized tree (after a fresh --apply, or on demand
+    // 4. Post-process the materialized tree (after a fresh --apply, or on demand
     //    via --reprocess; the merge itself is not safely re-runnable).
     if args.apply || args.reprocess {
         // Reconcile ISOGG's split-clade stitch artifacts (X / X~ sibling twins)
