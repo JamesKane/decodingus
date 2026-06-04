@@ -3,7 +3,7 @@
   <div class="card-header d-flex justify-content-between align-items-center py-2">
     <strong>{{ name }}</strong>
     <button type="button" class="btn-close" aria-label="{{ t.get("tree.snp.close") }}"
-            onclick="document.getElementById('snpSidebar').innerHTML=''"></button>
+            data-bs-dismiss="offcanvas"></button>
   </div>
   {% if variants.is_empty() %}
   <div class="card-body py-2">

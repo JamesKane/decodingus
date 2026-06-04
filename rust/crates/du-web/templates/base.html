@@ -70,7 +70,7 @@
     </div>
   </nav>
 
-  <main class="container py-3">
+  <main class="{% block main_container %}container{% endblock %} py-3">
     {% block content %}{% endblock %}
   </main>
 
@@ -119,5 +119,6 @@
   })();
   </script>
   <script src="/assets/vendor/bootstrap.bundle.min.js"></script>
+  {% block scripts %}{% endblock %}
 </body>
 </html>

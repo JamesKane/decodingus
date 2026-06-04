@@ -1,5 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ title }} — {{ t.get("app.name") }}{% endblock %}
+{# Full viewport width — the cladogram wants all the horizontal room it can get. #}
+{% block main_container %}container-fluid{% endblock %}
 {% block content %}
 <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
   <h1 class="h3 mb-0 me-auto">{{ title }}</h1>
@@ -27,15 +29,27 @@
   <span class="legend-swatch node-default ms-3"></span> {{ t.get("tree.legend.default") }}
 </div>
 
-<div class="row g-3">
-  <div class="col-lg-8 col-xl-9">
-    {# HTMX swaps just this container; the SVG fragment is embedded inline first. #}
-    <div id="tree-container">
-      {% include "tree/svg.html" %}
-    </div>
-  </div>
-  <div class="col-lg-4 col-xl-3">
+{# Tree takes the full width; the SNP detail panel is an off-canvas that slides in
+   on a variant click, so nothing is reserved while it's empty. #}
+<div id="tree-container">
+  {% include "tree/svg.html" %}
+</div>
+
+<div class="offcanvas offcanvas-end" tabindex="-1" id="snpOffcanvas" aria-label="{{ t.get("tree.variants") }}">
+  <div class="offcanvas-body p-2">
     <div id="snpSidebar"></div>
   </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // Open the off-canvas SNP panel whenever a variant click swaps content into it.
+  document.body.addEventListener('htmx:afterSwap', function (e) {
+    var t = e.detail && e.detail.target;
+    if (t && t.id === 'snpSidebar' && t.innerHTML.trim() !== '') {
+      bootstrap.Offcanvas.getOrCreateInstance(document.getElementById('snpOffcanvas')).show();
+    }
+  });
+</script>
 {% endblock %}
