@@ -3,10 +3,11 @@
 //! list. One handler per lineage serves both the full page and the HTMX
 //! `#tree-container` fragment (history-restore/boosted nav get the full page).
 //!
-//! A depth-bounded window (`WINDOW_DEPTH` levels below the current root) keeps
-//! any view renderable; every node re-roots on click. Orientation is chosen by
-//! the `tree_orient` cookie, flipped by an `?orient=` toggle that also persists
-//! the cookie. Search resolves a haplogroup name *or* a defining variant.
+//! A depth-bounded window (default `DEFAULT_DEPTH` levels below the current root,
+//! overridable via a client-persisted `?depth=`) keeps any view renderable;
+//! every node re-roots on click. Orientation is chosen by the `tree_orient`
+//! cookie, flipped by an `?orient=` toggle that also persists the cookie. Search
+//! resolves a haplogroup name *or* a defining variant.
 
 use crate::error::AppError;
 use crate::htmx::{HxHeaders, HxRequest};
@@ -25,8 +26,14 @@ use serde::Deserialize;
 use std::collections::HashMap;
 
 const TARGET: &str = "tree-container";
-/// Levels rendered below the current display root.
-const WINDOW_DEPTH: i32 = 4;
+/// Levels rendered below the current display root when none is requested.
+const DEFAULT_DEPTH: i32 = 4;
+/// Clamp range for a client-supplied `?depth=` (the selector persists the choice
+/// in localStorage and injects it into every tree request — see page.html).
+const MIN_DEPTH: i32 = 1;
+const MAX_DEPTH: i32 = 8;
+/// Depths offered in the selector.
+const DEPTH_OPTIONS: [i32; 6] = [2, 3, 4, 5, 6, 7];
 const ORIENT_COOKIE: &str = "tree_orient";
 
 pub fn router() -> Router<AppState> {
@@ -43,6 +50,8 @@ struct TreeQuery {
     root: Option<String>,
     /// Orientation override ("h"/"v"); also persisted to the cookie.
     orient: Option<String>,
+    /// Levels to render below the root (clamped); the client persists it.
+    depth: Option<i32>,
 }
 
 // ── View models ────────────────────────────────────────────────────────────
@@ -63,6 +72,8 @@ struct TreePageTemplate {
     root_name: String,
     query: String,
     orientation: Orientation,
+    /// (depth value, is-current) for the selector options.
+    depth_options: Vec<(i32, bool)>,
     crumbs: Vec<Crumb>,
     laid: Option<Laid>,
 }
@@ -171,8 +182,11 @@ async fn render_tree(
         None => default_root_name(&st.pool, dna_type, default_root).await?,
     };
 
+    // Depth: client-supplied ?depth= (persisted in localStorage), clamped.
+    let depth = q.depth.unwrap_or(DEFAULT_DEPTH).clamp(MIN_DEPTH, MAX_DEPTH);
+
     // Window + nesting + layout.
-    let window = du_db::haplogroup::subtree_window(&st.pool, dna_type, &root_name, WINDOW_DEPTH).await?;
+    let window = du_db::haplogroup::subtree_window(&st.pool, dna_type, &root_name, depth).await?;
     let laid = build_root(&window).and_then(|root| tree_layout::layout(Some(&root), orientation));
 
     // Breadcrumbs: ancestors (root→parent) + the current node (no link).
@@ -195,6 +209,7 @@ async fn render_tree(
             root_name,
             query: query.unwrap_or_default().to_string(),
             orientation,
+            depth_options: DEPTH_OPTIONS.iter().map(|&d| (d, d == depth)).collect(),
             crumbs,
             laid,
         };

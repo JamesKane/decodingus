@@ -59,6 +59,7 @@ tree.formed=formado
 tree.search.placeholder=Haplogrupo o variante…
 tree.search.button=Ir
 tree.orientation=Orientación
+tree.depth=Profundidad
 tree.horizontal=Horizontal
 tree.vertical=Vertical
 tree.legend.backbone=Tronco principal

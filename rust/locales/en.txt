@@ -59,6 +59,7 @@ tree.formed=formed
 tree.search.placeholder=Haplogroup or variant…
 tree.search.button=Go
 tree.orientation=Orientation
+tree.depth=Depth
 tree.horizontal=Horizontal
 tree.vertical=Vertical
 tree.legend.backbone=Backbone

@@ -59,6 +59,7 @@ tree.formed=formé
 tree.search.placeholder=Haplogroupe ou variant…
 tree.search.button=Aller
 tree.orientation=Orientation
+tree.depth=Profondeur
 tree.horizontal=Horizontal
 tree.vertical=Vertical
 tree.legend.backbone=Tronc principal
