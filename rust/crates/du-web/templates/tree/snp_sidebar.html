@@ -5,6 +5,38 @@
     <button type="button" class="btn-close" aria-label="{{ t.get("tree.snp.close") }}"
             data-bs-dismiss="offcanvas"></button>
   </div>
+
+  {# Branch provenance — where this node came from (source, cross-source names,
+     when it was last updated, backbone, age). Grows in value as trees fold in. #}
+  {% if let Some(p) = provenance %}
+  <div class="card-body py-2 border-bottom small">
+    <div class="text-uppercase text-muted fw-semibold mb-1" style="font-size:.7rem;letter-spacing:.04em;">{{ t.get("tree.prov.title") }}</div>
+    <dl class="row mb-0 gx-2 gy-1">
+      <dt class="col-5 text-muted fw-normal">{{ t.get("tree.prov.source") }}</dt>
+      <dd class="col-7 mb-0">
+        <span class="badge text-bg-light border">{{ p.source }}</span>
+        {% if p.backbone %}<span class="badge text-bg-success ms-1">{{ t.get("tree.legend.backbone") }}</span>{% endif %}
+      </dd>
+      {% if !p.aliases.is_empty() %}
+      <dt class="col-5 text-muted fw-normal">{{ t.get("tree.prov.aka") }}</dt>
+      <dd class="col-7 mb-0">{% for a in p.aliases %}<code>{{ a }}</code>{% if !loop.last %}, {% endif %}{% endfor %}</dd>
+      {% endif %}
+      {% if let Some(u) = p.updated %}
+      <dt class="col-5 text-muted fw-normal">{{ t.get("tree.prov.updated") }}</dt>
+      <dd class="col-7 mb-0">{{ u }}</dd>
+      {% endif %}
+      {% if let Some(f) = p.formed_ybp %}
+      <dt class="col-5 text-muted fw-normal">{{ t.get("hg.field.formed") }}</dt>
+      <dd class="col-7 mb-0">{{ f }}</dd>
+      {% endif %}
+      {% if let Some(tm) = p.tmrca_ybp %}
+      <dt class="col-5 text-muted fw-normal">{{ t.get("hg.field.tmrca") }}</dt>
+      <dd class="col-7 mb-0">{{ tm }}</dd>
+      {% endif %}
+    </dl>
+  </div>
+  {% endif %}
+
   {% if variants.is_empty() %}
   <div class="card-body py-2">
     <p class="text-muted small mb-0">{{ t.get("tree.snp.none") }}</p>

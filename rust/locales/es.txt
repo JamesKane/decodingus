@@ -68,6 +68,10 @@ tree.variants=variantes
 tree.snp.none=No hay variantes definitorias registradas.
 tree.snp.aliases=alias
 tree.snp.close=Cerrar
+tree.prov.title=Procedencia
+tree.prov.source=Origen
+tree.prov.aka=También conocido como
+tree.prov.updated=Actualizado
 
 references.title=Referencias
 references.search.placeholder=Buscar por título, revista o DOI…

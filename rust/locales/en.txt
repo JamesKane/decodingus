@@ -68,6 +68,10 @@ tree.variants=variants
 tree.snp.none=No defining variants recorded.
 tree.snp.aliases=aka
 tree.snp.close=Close
+tree.prov.title=Provenance
+tree.prov.source=Source
+tree.prov.aka=Also known as
+tree.prov.updated=Updated
 
 references.title=References
 references.search.placeholder=Search by title, journal, or DOI…

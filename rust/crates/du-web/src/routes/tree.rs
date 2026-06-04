@@ -81,6 +81,7 @@ struct SvgFragment {
 struct SnpSidebar {
     t: T,
     name: String,
+    provenance: Option<Provenance>,
     variants: Vec<VariantRow>,
 }
 
@@ -89,6 +90,22 @@ struct VariantRow {
     mutation_type: String,
     aliases: Vec<String>,
     coordinates: Vec<String>,
+}
+
+/// Where a branch came from — increasingly important as multiple source trees
+/// (ISOGG, decoding-us, ytree.net, …) fold into one node.
+struct Provenance {
+    /// Originating source (the `tree.haplogroup.source` column).
+    source: String,
+    /// Cross-source alternate names (`provenance.aliases`) — e.g. the ISOGG path
+    /// name vs. a decoding-us `R1b-…` name for the same branch.
+    aliases: Vec<String>,
+    /// When the source last updated this node (date only), if recorded.
+    updated: Option<String>,
+    /// Curator-adopted backbone (a `provenance.backbone_source` marker).
+    backbone: bool,
+    formed_ybp: Option<i32>,
+    tmrca_ybp: Option<i32>,
 }
 
 // ── Handlers ────────────────────────────────────────────────────────────────
@@ -207,7 +224,26 @@ async fn snp_sidebar(
             coordinates: coord_list(&v.coordinates),
         })
         .collect();
-    Ok(html(&SnpSidebar { t: locale.t, name, variants }))
+
+    // Branch provenance: source, cross-source aliases, last-updated, backbone, age.
+    let provenance = du_db::haplogroup::get_by_name(&st.pool, &name, dna_type).await?.map(|h| {
+        let p = &h.provenance;
+        Provenance {
+            source: h.source.unwrap_or_else(|| "—".into()),
+            aliases: p
+                .get("aliases")
+                .and_then(serde_json::Value::as_array)
+                .map(|a| a.iter().filter_map(|s| s.as_str().map(str::to_string)).collect())
+                .unwrap_or_default(),
+            // Stored like "2025-05-24T13:58:48…[Etc/UTC]" — keep the date.
+            updated: p.get("source_updated").and_then(|v| v.as_str()).and_then(|s| s.split('T').next()).map(str::to_string),
+            backbone: p.get("backbone_source").is_some(),
+            formed_ybp: h.formed_ybp,
+            tmrca_ybp: h.tmrca_ybp,
+        }
+    });
+
+    Ok(html(&SnpSidebar { t: locale.t, name, provenance, variants }))
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
