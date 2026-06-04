@@ -171,10 +171,12 @@ APP_SECRET="<any 32+ char string>"   # signs session cookies
 
 Launch-critical first, then the post-launch feature mass.
 
-1. **Cutover** (see "Cutover blocker") — verification is **DONE** (real prod dump,
-   all aggregates reconcile). What remains is *executing* the cutover: run the ETL
-   against the final/live data (read-only EC2 or a same-day dump), then flip the
-   app's `DATABASE_URL` to the migrated DB. Re-run is idempotent.
+1. **Cutover** (see "Cutover strategy") — ETL verified end-to-end. Chosen strategy:
+   freeze prod read-only → fresh dump → prepare locally (ETL data + ISOGG-founded
+   tree build) → `pg_dump` → restore on AWS → flip. The one build task left is a
+   **`--skip-tree`** ETL option (so the tree is built ISOGG-founded by `tree-init`
+   instead of migrating the prod decoding-us tree), plus an alias-aware
+   name-resolution check.
 2. **Live AT Protocol OAuth handshake — the cross-host "Edge joint test."** Library
    + a dev public-client path are verified locally up to the **consent click**
    (gated `decodingus-shared/.../tests/live_pds.rs`: discovery + PAR + DPoP +
@@ -250,17 +252,62 @@ How it was run (repeatable):
 3. `decodingus-migrate --legacy <decodingus_prod> --target <decodingus_etl>`
    (recreate the target first; the run migrates + transforms + reconciles).
 
-**The finding (now fixed, commit fbc298a):** legacy `public.variant` is one row
-per (SNP, build); the redesigned `core.variant` is one row per physical SNP with
-a multi-build `coordinates` JSONB. The old 1:1 transform tripped the
-naming-authority partial unique index on the first multi-build SNP. The transform
-now **folds by SNP** (3,023,051 → 2,901,369; within-build homoplasy copies kept
-as UNNAMED variants) and `haplogroup_variant` repoints links to the fold anchor
-and dedups per-build duplicates (~209k → 86,810).
+**The variant fold (commits fbc298a → cd37657):** legacy `public.variant` is one
+row per (SNP, build, mutation DIRECTION); `core.variant` is one row per physical
+SNP **site**. The transform folds by site (`dense_rank` over position) and carries
+per-branch ancestral/derived onto `tree.haplogroup_variant` (ASR model — see
+[[etl-cutover-verified]] / migration 0021). Real-data: variant 3,023,051 →
+2,899,782; haplogroup_variant → 86,744; all aggregates reconcile.
 
-**To execute the real cutover:** point `--legacy` at the live EC2 (read-only, via
-opened SG / SSH tunnel) or a same-day dump, run the ETL, confirm reconcile, then
-flip the app's `DATABASE_URL` to the migrated DB. The run is idempotent.
+## Cutover strategy (chosen 2026-06) — read-only freeze, prepare local, ship to AWS
+
+1. **Freeze prod** read-only (no write drift during migration).
+2. **Take a fresh dump**; load locally → `decodingus_prod` (role `decoding_us_user`
+   + strip `\restrict` lines for psql 16; see above).
+3. **Prepare locally** (the new-schema DB):
+   - ETL the **non-tree** data (donors, biosamples, pubs, variants, genomics) —
+     all reconcile today.
+   - Build the **tree separately, ISOGG-founded** (the chosen direction — see
+     "Tree build direction" below): `tree-init --isogg <file> --apply` then
+     `--merge-prod <url> --snp-graft --graft --apply`.
+   - (Optional) run the YBrowse ingest for full coordinate coverage.
+4. **Ship to AWS:** `pg_dump -Fc` the prepared DB, restore on AWS, point the new
+   codebase at it, flip.
+
+**The one ETL change this needs:** the ETL currently *migrates the prod
+decoding-us tree*; for the ISOGG-founded build it must **skip the tree transforms**
+(`haplogroup` / `haplogroup_relationship` / `haplogroup_variant`) and leave the
+tree to `tree-init`. Add a `--skip-tree` flag (or split tree transforms out). NOT
+yet built.
+
+**Two integration points to settle:**
+- **Name resolution must be alias-aware.** `biosample→haplogroup` is by **name**,
+  not FK (`core.biosample.original_haplogroups` JSONB, `fed.biosample.y/mt_haplogroup`
+  text) — so an ISOGG-founded tree works *because* decoding-us names live as
+  aliases on the ISOGG nodes. Verify tree-search + biosample views resolve via
+  aliases once a flip DB has data.
+- **Postgres version.** Prod dump is PG 15; the local container is 16. `pg_dump`
+  16 → restore into 15 can break — run the new code's AWS instance on **PG 16**
+  (match local) or pin local to 15.
+
+### Tree build direction — ISOGG foundation + decoding-us SNP-graft (decided)
+
+The two trees use different naming (ISOGG path-strings vs decoding-us SNP-names)
+**and** different root depths (ISOGG roots at `A0000`/`A000-T`, above decoding-us's
+`A00`). So the exact-set name merge (`du_db::haplogroup::merge_into` /
+`du_domain::merge`) is useless cross-source — its subtree-scoping cascades a
+root-topology mismatch to NEW (matched=1, would duplicate 10,230 nodes). Use the
+**SNP-anchored graft** (`du_db::snp_graft`, `tree-init … --snp-graft`), which
+matches each node by defining-SNP overlap globally. Direction matters — tested
+both on fresh DBs:
+- **decoding-us-founded** (graft ISOGG on): 6,101 nodes, but **3,945 ISOGG nodes
+  dropped** (the deep-root region has no anchor), and grafted ISOGG nodes get
+  mistagged `source='decoding-us'`.
+- **ISOGG-founded** (graft decoding-us on): **10,549 nodes**, single root, deep
+  roots preserved, only **130 decoding-us nodes dropped**, source tags correct —
+  and it reproduces the dev `decodingus` tree (~10,553). **This is the chosen
+  build.** (1,423 decoding-us nodes matched ISOGG by SNP; their names become
+  aliases, e.g. ISOGG `R1b1a1b1a1a2c1a3a2a1a2d1` ← alias `R1b-A804`.)
 
 ## Key decisions & gotchas (don't relearn these)
 
