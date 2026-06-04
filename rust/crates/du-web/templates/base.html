@@ -5,58 +5,90 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}{{ t.get("app.name") }}{% endblock %}</title>
   <link href="/assets/vendor/bootstrap.min.css" rel="stylesheet">
+  <link href="/assets/vendor/bootstrap-icons.min.css" rel="stylesheet">
   <link href="/assets/main.css" rel="stylesheet">
   <script src="/assets/vendor/htmx.min.js"></script>
   {% block head %}{% endblock %}
 </head>
 <body hx-boost="true">
-  <nav class="navbar navbar-expand-lg navbar-dark bg-dark fixed-top">
-    <div class="container">
+  <nav class="navbar fixed-top navbar-expand-lg bg-body-tertiary" data-bs-theme="dark">
+    <div class="container-fluid">
       <a class="navbar-brand" href="/">{{ t.get("app.name") }}</a>
-      <div class="navbar-nav me-auto">
-        <a class="nav-link" href="/ytree">{{ t.get("nav.ytree") }}</a>
-        <a class="nav-link" href="/mtree">{{ t.get("nav.mtree") }}</a>
-        <a class="nav-link" href="/variants">{{ t.get("nav.variants") }}</a>
-        <a class="nav-link" href="/references">{{ t.get("nav.references") }}</a>
-        {# Full page load (not boosted) so Leaflet's scripts/styles initialize. #}
-        <a class="nav-link" href="/biosamples/map" hx-boost="false">{{ t.get("nav.map") }}</a>
-        <a class="nav-link" href="/coverage-benchmarks">{{ t.get("nav.coverage") }}</a>
-      </div>
-      <div class="d-flex align-items-center gap-2">
-        {% if let Some(u) = user %}
-        {% if u.is_curator %}<a class="nav-link" href="/curator">{{ t.get("nav.curator") }}</a>{% endif %}
-        <a class="nav-link" href="/profile">{{ u.display_name }}</a>
-        <form method="post" action="/logout" hx-boost="false" class="m-0">
-          <button class="btn btn-sm btn-outline-light" type="submit">{{ t.get("nav.logout") }}</button>
-        </form>
-        {% else %}
-        <a class="nav-link" href="/login">{{ t.get("nav.login") }}</a>
-        {% endif %}
-        <div class="dropdown">
-          <button class="btn btn-sm btn-outline-light dropdown-toggle" data-bs-toggle="dropdown"
-                  aria-expanded="false">{{ t.get("lang.label") }}</button>
-          <ul class="dropdown-menu dropdown-menu-end">
-            {% for o in t.languages() %}
-            <li>
-              <a class="dropdown-item{% if o.active %} active{% endif %}"
-                 href="/language/{{ o.code }}?next={{ next }}">{{ o.label }}</a>
-            </li>
-            {% endfor %}
-          </ul>
-        </div>
+      <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#mainNav"
+              aria-controls="mainNav" aria-expanded="false" aria-label="Toggle navigation">
+        <span class="navbar-toggler-icon"></span>
+      </button>
+      <div class="collapse navbar-collapse" id="mainNav">
+        <ul class="navbar-nav m-auto">
+          <li class="nav-item"><a class="nav-link" href="/ytree">{{ t.get("nav.ytree") }}</a></li>
+          <li class="nav-item"><a class="nav-link" href="/mtree">{{ t.get("nav.mtree") }}</a></li>
+          <li class="nav-item"><a class="nav-link" href="/references">{{ t.get("nav.references") }}</a></li>
+          <li class="nav-item dropdown">
+            <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">{{ t.get("nav.tools") }}</a>
+            <ul class="dropdown-menu">
+              <li><a class="dropdown-item" href="/variants"><i class="bi bi-search me-2"></i>{{ t.get("nav.variants") }}</a></li>
+              <li><a class="dropdown-item" href="/coverage-benchmarks"><i class="bi bi-bar-chart me-2"></i>{{ t.get("nav.coverage") }}</a></li>
+              {# Full page load (not boosted) so Leaflet's scripts/styles initialize. #}
+              <li><a class="dropdown-item" href="/biosamples/map" hx-boost="false"><i class="bi bi-geo-alt me-2"></i>{{ t.get("nav.map") }}</a></li>
+            </ul>
+          </li>
+        </ul>
+        <ul class="navbar-nav ms-auto">
+          <li class="nav-item dropdown">
+            <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+              <i class="bi bi-translate me-1"></i>{{ t.get("lang.label") }}
+            </a>
+            <ul class="dropdown-menu dropdown-menu-end">
+              {% for o in t.languages() %}
+              <li><a class="dropdown-item{% if o.active %} active{% endif %}" href="/language/{{ o.code }}?next={{ next }}">{{ o.label }}</a></li>
+              {% endfor %}
+            </ul>
+          </li>
+          {% if let Some(u) = user %}
+          {% if u.is_curator %}
+          <li class="nav-item"><a class="nav-link" href="/curator"><i class="bi bi-tools me-1"></i>{{ t.get("nav.curator") }}</a></li>
+          {% endif %}
+          <li class="nav-item dropdown">
+            <a class="nav-link dropdown-toggle d-flex align-items-center" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+              <i class="bi bi-person-circle me-1"></i>{{ u.display_name }}
+            </a>
+            <ul class="dropdown-menu dropdown-menu-end">
+              <li><a class="dropdown-item" href="/profile"><i class="bi bi-person me-2"></i>{{ t.get("nav.profile") }}</a></li>
+              <li><hr class="dropdown-divider"></li>
+              <li>
+                <form method="post" action="/logout" hx-boost="false" class="px-0 m-0">
+                  <button type="submit" class="dropdown-item"><i class="bi bi-box-arrow-right me-2"></i>{{ t.get("nav.logout") }}</button>
+                </form>
+              </li>
+            </ul>
+          </li>
+          {% else %}
+          <li class="nav-item"><a class="nav-link" href="/login">{{ t.get("nav.login") }}</a></li>
+          {% endif %}
+        </ul>
       </div>
     </div>
   </nav>
-  <main class="container">
+
+  <main class="container py-3">
     {% block content %}{% endblock %}
   </main>
-  <footer class="container text-muted small py-4 mt-4 border-top">
-    <a href="/about">{{ t.get("nav.about") }}</a> ·
-    <a href="/faq">{{ t.get("page.faq.title") }}</a> ·
-    <a href="/terms">{{ t.get("page.terms.title") }}</a> ·
-    <a href="/privacy">{{ t.get("page.privacy.title") }}</a> ·
-    <a href="/help/app-password">{{ t.get("page.apppw.title") }}</a> ·
-    <a href="/contact">{{ t.get("contact.title") }}</a>
+
+  <footer>
+    <nav class="navbar fixed-bottom navbar-expand-lg bg-body-tertiary" data-bs-theme="dark">
+      <div class="container-fluid">
+        <ul class="navbar-nav m-auto">
+          <li class="nav-item"><a class="nav-link" href="/about">{{ t.get("nav.about") }}</a></li>
+          <li class="nav-item"><a class="nav-link" href="/contact">{{ t.get("contact.title") }}</a></li>
+          <li class="nav-item"><a class="nav-link" href="/terms">{{ t.get("page.terms.title") }}</a></li>
+          <li class="nav-item"><a class="nav-link" href="/privacy">{{ t.get("page.privacy.title") }}</a></li>
+          <li class="nav-item"><a class="nav-link" href="/faq">{{ t.get("page.faq.title") }}</a></li>
+          <li class="nav-item"><a class="nav-link" href="/help/app-password">{{ t.get("page.apppw.title") }}</a></li>
+          <li class="nav-item"><a class="nav-link" href="/api" hx-boost="false" target="_blank">{{ t.get("nav.api") }}</a></li>
+        </ul>
+        <span class="navbar-text">{{ t.get("footer.copyright") }}</span>
+      </div>
+    </nav>
   </footer>
 
   {# GDPR cookie-consent banner — shown by JS only when no consent cookie is set. #}

@@ -1,5 +1,19 @@
-/* DecodingUs custom styles (vendored bootstrap handles the rest). */
-body { padding-top: 4.5rem; }
+/* DecodingUs custom styles (vendored bootstrap handles the rest). Mirrors the
+   Scala app's main.css for a consistent site feel: fixed top + bottom navbars,
+   smooth scroll, and a gray code style. */
+html { scroll-behavior: smooth; }
+body { padding-top: 56px; padding-bottom: 56px; }
+
+/* Override Bootstrap's default pink/cyan code styling to use gray (Scala parity). */
+code { color: #495057; background-color: #f8f9fa; }
+
+.logo-placeholder {
+  max-width: 900px;
+  display: block;
+  margin: 0 auto;
+  padding: 20px 0;
+}
+
 .detail-empty { color: var(--bs-secondary-color); }
 
 /* ── Phylogenetic tree (SVG cladogram) ─────────────────────────────────────── */
