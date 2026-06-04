@@ -8,7 +8,6 @@
 use du_db::fed;
 use du_db::fed::coverage::{self, CoverageRecord};
 use serde_json::json;
-use sqlx::PgPool;
 
 const COLL: &str = "com.decodingus.atmosphere.alignment";
 
@@ -16,11 +15,6 @@ fn database_url() -> Option<String> {
     std::env::var("DATABASE_URL").ok().filter(|s| !s.is_empty())
 }
 
-async fn cleanup(pool: &PgPool) {
-    let _ = sqlx::query("DELETE FROM fed.coverage_summary WHERE did LIKE 'did:test:%'")
-        .execute(pool)
-        .await;
-}
 
 fn rec(did: &str, rkey: &str, mean: f64, pct30: f64, time_us: i64) -> CoverageRecord {
     CoverageRecord {
@@ -50,9 +44,8 @@ async fn coverage_mirror_upsert_guard_aggregate_delete() {
         eprintln!("DATABASE_URL unset — skipping fed_coverage test");
         return;
     };
-    let pool = du_db::connect(&url, 4).await.expect("connect");
-    du_db::run_migrations(&pool).await.expect("migrate");
-    cleanup(&pool).await;
+    let db = du_db::testing::ephemeral_db(&url).await.expect("ephemeral db");
+    let pool = db.pool().clone();
 
     // Two distinct samples on GRCh38.
     coverage::upsert(&pool, &rec("did:test:a", "r1", 30.0, 90.0, 100)).await.expect("upsert a");
@@ -88,5 +81,4 @@ async fn coverage_mirror_upsert_guard_aggregate_delete() {
     fed::save_cursor(&pool, 67_890).await.expect("save cursor 2");
     assert_eq!(fed::load_cursor(&pool).await.expect("load cursor 2"), Some(67_890));
 
-    cleanup(&pool).await;
 }

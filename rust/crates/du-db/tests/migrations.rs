@@ -19,8 +19,8 @@ async fn migrations_apply_and_variant_jsonb_roundtrips() {
         return;
     };
 
-    let pool = du_db::connect(&url, 4).await.expect("connect");
-    du_db::run_migrations(&pool).await.expect("run migrations");
+    let db = du_db::testing::ephemeral_db(&url).await.expect("ephemeral db");
+    let pool = db.pool().clone();
 
     // A representative table from every schema in the redesign exists — proves
     // the full migration sequence (0001..0009) applies as a unit.

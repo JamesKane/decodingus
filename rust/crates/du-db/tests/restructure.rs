@@ -12,22 +12,6 @@ fn database_url() -> Option<String> {
     std::env::var("DATABASE_URL").ok().filter(|s| !s.is_empty())
 }
 
-async fn cleanup(pool: &PgPool) {
-    let _ = sqlx::query(
-        "DELETE FROM tree.haplogroup_relationship r USING tree.haplogroup h \
-         WHERE (r.child_haplogroup_id = h.id OR r.parent_haplogroup_id = h.id) AND h.name LIKE 'TESTRS-%'",
-    )
-    .execute(pool)
-    .await;
-    let _ = sqlx::query(
-        "DELETE FROM tree.haplogroup_variant hv USING tree.haplogroup h \
-         WHERE hv.haplogroup_id = h.id AND h.name LIKE 'TESTRS-%'",
-    )
-    .execute(pool)
-    .await;
-    let _ = sqlx::query("DELETE FROM tree.haplogroup WHERE name LIKE 'TESTRS-%'").execute(pool).await;
-    let _ = sqlx::query("DELETE FROM core.variant WHERE canonical_name LIKE 'TESTRS-%'").execute(pool).await;
-}
 
 async fn mk_hg(pool: &PgPool, name: &str) -> i64 {
     sqlx::query_scalar("INSERT INTO tree.haplogroup (name, haplogroup_type) VALUES ($1,'Y_DNA'::core.dna_type) RETURNING id")
@@ -60,9 +44,8 @@ async fn restructure_reparent_split_merge() {
         eprintln!("DATABASE_URL unset — skipping restructure test");
         return;
     };
-    let pool = du_db::connect(&url, 4).await.expect("connect");
-    du_db::run_migrations(&pool).await.expect("migrate");
-    cleanup(&pool).await;
+    let db = du_db::testing::ephemeral_db(&url).await.expect("ephemeral db");
+    let pool = db.pool().clone();
 
     // ROOT → A → {B, C}; B defined by v1, v2.
     let root = mk_hg(&pool, "TESTRS-ROOT").await;
@@ -102,5 +85,4 @@ async fn restructure_reparent_split_merge() {
         .bind(b).fetch_one(&pool).await.unwrap();
     assert_eq!(b_alive, 0, "B temporal-deleted");
 
-    cleanup(&pool).await;
 }

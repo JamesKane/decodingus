@@ -11,15 +11,6 @@ fn database_url() -> Option<String> {
     std::env::var("DATABASE_URL").ok().filter(|s| !s.is_empty())
 }
 
-async fn cleanup(pool: &PgPool) {
-    let _ = sqlx::query(
-        "DELETE FROM tree.haplogroup_ancestral_str WHERE haplogroup_id IN \
-         (SELECT id FROM tree.haplogroup WHERE name LIKE 'TESTPRED-%')",
-    )
-    .execute(pool)
-    .await;
-    let _ = sqlx::query("DELETE FROM tree.haplogroup WHERE name LIKE 'TESTPRED-%'").execute(pool).await;
-}
 
 async fn seed_branch(pool: &PgPool, name: &str, markers: &[(&str, i32)]) {
     let id: i64 =
@@ -52,9 +43,8 @@ async fn predict_ranks_closest_branch() {
         eprintln!("DATABASE_URL unset — skipping str_predict test");
         return;
     };
-    let pool = du_db::connect(&url, 4).await.expect("connect");
-    du_db::run_migrations(&pool).await.expect("migrate");
-    cleanup(&pool).await;
+    let db = du_db::testing::ephemeral_db(&url).await.expect("ephemeral db");
+    let pool = db.pool().clone();
 
     seed_branch(&pool, "TESTPRED-A", &[("DYS393", 13), ("DYS390", 24), ("DYS19", 14), ("DYS391", 11)]).await;
     seed_branch(&pool, "TESTPRED-B", &[("DYS393", 14), ("DYS390", 25), ("DYS19", 15), ("DYS391", 10)]).await;
@@ -79,5 +69,4 @@ async fn predict_ranks_closest_branch() {
     let gated = predict(&pool, &query, 10, 5).await.expect("predict gated");
     assert!(!gated.iter().any(|p| p.haplogroup.starts_with("TESTPRED-")), "min_compared excludes both");
 
-    cleanup(&pool).await;
 }

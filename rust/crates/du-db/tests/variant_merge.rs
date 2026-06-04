@@ -8,22 +8,6 @@ fn database_url() -> Option<String> {
     std::env::var("DATABASE_URL").ok().filter(|s| !s.is_empty())
 }
 
-async fn cleanup(pool: &PgPool) {
-    let _ = sqlx::query(
-        "DELETE FROM tree.haplogroup_variant hv USING core.variant v \
-         WHERE hv.variant_id = v.id AND v.canonical_name LIKE 'TESTMG-%'",
-    )
-    .execute(pool)
-    .await;
-    let _ = sqlx::query(
-        "DELETE FROM tree.haplogroup_variant hv USING tree.haplogroup h \
-         WHERE hv.haplogroup_id = h.id AND h.name LIKE 'TESTMG-%'",
-    )
-    .execute(pool)
-    .await;
-    let _ = sqlx::query("DELETE FROM tree.haplogroup WHERE name LIKE 'TESTMG-%'").execute(pool).await;
-    let _ = sqlx::query("DELETE FROM core.variant WHERE canonical_name LIKE 'TESTMG-%'").execute(pool).await;
-}
 
 async fn mk_hg(pool: &PgPool, name: &str) -> i64 {
     sqlx::query_scalar("INSERT INTO tree.haplogroup (name, haplogroup_type) VALUES ($1,'Y_DNA'::core.dna_type) RETURNING id")
@@ -46,9 +30,8 @@ async fn merge_into_folds_repoints_and_deletes() {
         eprintln!("DATABASE_URL unset — skipping variant_merge test");
         return;
     };
-    let pool = du_db::connect(&url, 4).await.expect("connect");
-    du_db::run_migrations(&pool).await.expect("migrate");
-    cleanup(&pool).await;
+    let db = du_db::testing::ephemeral_db(&url).await.expect("ephemeral db");
+    let pool = db.pool().clone();
 
     let (hg1, hg2, hg3) = (mk_hg(&pool, "TESTMG-HG1").await, mk_hg(&pool, "TESTMG-HG2").await, mk_hg(&pool, "TESTMG-HG3").await);
     let keep = mk_var(&pool, "TESTMG-A", serde_json::json!({})).await;
@@ -79,5 +62,4 @@ async fn merge_into_folds_repoints_and_deletes() {
     let mut expect = vec![hg1, hg2, hg3]; expect.sort();
     assert_eq!(hgs, expect, "links repointed to keep, HG2 collision deduped (each branch once)");
 
-    cleanup(&pool).await;
 }

@@ -6,25 +6,11 @@
 //!     eval "$(./scripts/test-db.sh up)" && cargo test -p du-db --test age_combine
 
 use du_db::age::{recompute_combined_ages, PRESENT_YEAR};
-use sqlx::PgPool;
 
 fn database_url() -> Option<String> {
     std::env::var("DATABASE_URL").ok().filter(|s| !s.is_empty())
 }
 
-async fn cleanup(pool: &PgPool) {
-    let _ = sqlx::query(
-        "DELETE FROM tree.haplogroup_age_estimate WHERE haplogroup_id IN (SELECT id FROM tree.haplogroup WHERE name LIKE 'TESTAGE-%')",
-    )
-    .execute(pool)
-    .await;
-    let _ = sqlx::query(
-        "DELETE FROM tree.genealogical_anchor WHERE haplogroup_id IN (SELECT id FROM tree.haplogroup WHERE name LIKE 'TESTAGE-%')",
-    )
-    .execute(pool)
-    .await;
-    let _ = sqlx::query("DELETE FROM tree.haplogroup WHERE name LIKE 'TESTAGE-%'").execute(pool).await;
-}
 
 #[tokio::test]
 async fn combine_str_and_genealogical_gapfills_tmrca() {
@@ -32,9 +18,8 @@ async fn combine_str_and_genealogical_gapfills_tmrca() {
         eprintln!("DATABASE_URL unset — skipping age_combine test");
         return;
     };
-    let pool = du_db::connect(&url, 4).await.expect("connect");
-    du_db::run_migrations(&pool).await.expect("migrate");
-    cleanup(&pool).await;
+    let db = du_db::testing::ephemeral_db(&url).await.expect("ephemeral db");
+    let pool = db.pool().clone();
 
     let hg: i64 =
         sqlx::query_scalar("INSERT INTO tree.haplogroup (name, haplogroup_type) VALUES ('TESTAGE-A','Y_DNA'::core.dna_type) RETURNING id")
@@ -93,5 +78,4 @@ async fn combine_str_and_genealogical_gapfills_tmrca() {
         .expect("tmrca2");
     assert_eq!(tmrca2, Some(9999), "curated tmrca_ybp preserved");
 
-    cleanup(&pool).await;
 }

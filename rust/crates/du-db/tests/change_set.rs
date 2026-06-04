@@ -13,24 +13,6 @@ fn database_url() -> Option<String> {
     std::env::var("DATABASE_URL").ok().filter(|s| !s.is_empty())
 }
 
-async fn cleanup(pool: &PgPool) {
-    // change_set cascade removes tree_change/comments. Then edges, then nodes.
-    let _ = sqlx::query("DELETE FROM tree.change_set WHERE source LIKE 'TESTCS-%'").execute(pool).await;
-    let _ = sqlx::query(
-        "DELETE FROM tree.haplogroup_relationship r USING tree.haplogroup h \
-         WHERE (r.child_haplogroup_id = h.id OR r.parent_haplogroup_id = h.id) AND h.name LIKE 'TESTCS-%'",
-    )
-    .execute(pool)
-    .await;
-    let _ = sqlx::query(
-        "DELETE FROM tree.haplogroup_variant hv USING tree.haplogroup h \
-         WHERE hv.haplogroup_id = h.id AND h.name LIKE 'TESTCS-%'",
-    )
-    .execute(pool)
-    .await;
-    let _ = sqlx::query("DELETE FROM tree.haplogroup WHERE name LIKE 'TESTCS-%'").execute(pool).await;
-    let _ = sqlx::query("DELETE FROM core.variant WHERE canonical_name LIKE 'TESTCS-%'").execute(pool).await;
-}
 
 async fn mk_hg(pool: &PgPool, name: &str) -> i64 {
     sqlx::query_scalar("INSERT INTO tree.haplogroup (name, haplogroup_type) VALUES ($1,'Y_DNA'::core.dna_type) RETURNING id")
@@ -68,9 +50,8 @@ async fn change_set_apply_writes_temporal_tree() {
         eprintln!("DATABASE_URL unset — skipping change_set test");
         return;
     };
-    let pool = du_db::connect(&url, 4).await.expect("connect");
-    du_db::run_migrations(&pool).await.expect("migrate");
-    cleanup(&pool).await;
+    let db = du_db::testing::ephemeral_db(&url).await.expect("ephemeral db");
+    let pool = db.pool().clone();
 
     // Seed: ROOT -> {A, C}.  Variants v1, v2.
     let root = mk_hg(&pool, "TESTCS-ROOT").await;
@@ -168,5 +149,4 @@ async fn change_set_apply_writes_temporal_tree() {
     // Re-applying an APPLIED set is rejected.
     assert!(du_db::change_set::apply(&pool, cs, "tester").await.is_err(), "re-apply must fail");
 
-    cleanup(&pool).await;
 }

@@ -32,8 +32,8 @@ async fn variant_naming_authority_flow() {
         eprintln!("DATABASE_URL unset — skipping variant_naming test");
         return;
     };
-    let pool = du_db::connect(&url, 4).await.expect("connect");
-    du_db::run_migrations(&pool).await.expect("migrate");
+    let db = du_db::testing::ephemeral_db(&url).await.expect("ephemeral db");
+    let pool = db.pool().clone();
 
     // Three test variants: an unnamed one + a named one at the SAME coord (dedup),
     // and one with a working name awaiting an official DU name.

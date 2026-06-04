@@ -71,12 +71,16 @@ pub async fn ephemeral_db(base_url: &str) -> Result<EphemeralDb, DbError> {
     let (host_part, query_suffix) = split_dsn(base_url)
         .ok_or_else(|| DbError::Decode(format!("DATABASE_URL missing db path: {base_url:?}")))?;
 
-    // Unique-enough name without an RNG dep: pid + nanos-since-epoch.
+    // Unique name without an RNG dep: pid + nanos + a process-wide counter, so
+    // tests running concurrently in one binary can't collide on a coarse clock.
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static SEQ: AtomicU64 = AtomicU64::new(0);
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or(0);
-    let db_name = format!("du_test_{}_{}", std::process::id(), nanos);
+    let seq = SEQ.fetch_add(1, Ordering::Relaxed);
+    let db_name = format!("du_test_{}_{}_{}", std::process::id(), nanos, seq);
 
     let admin_url = format!("{host_part}/postgres{query_suffix}");
     let new_url = format!("{host_part}/{db_name}{query_suffix}");
@@ -88,7 +92,9 @@ pub async fn ephemeral_db(base_url: &str) -> Result<EphemeralDb, DbError> {
         .await?;
     admin.close().await?;
 
-    let pool = connect(&new_url, 4).await?;
+    // Small pool — these tests issue sequential queries; keeps the total
+    // connection count low when many test binaries run in parallel.
+    let pool = connect(&new_url, 2).await?;
     run_migrations(&pool).await?;
 
     Ok(EphemeralDb { pool, admin_url, db_name })

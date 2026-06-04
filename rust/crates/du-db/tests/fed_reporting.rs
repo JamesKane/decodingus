@@ -7,25 +7,11 @@
 
 use du_db::fed::{self, analytics, core};
 use serde_json::json;
-use sqlx::PgPool;
 
 fn database_url() -> Option<String> {
     std::env::var("DATABASE_URL").ok().filter(|s| !s.is_empty())
 }
 
-async fn cleanup(pool: &PgPool) {
-    for t in [
-        "fed.biosample",
-        "fed.sequencerun",
-        "fed.project",
-        "fed.workspace",
-        "fed.genotype",
-        "fed.population_breakdown",
-        "fed.haplogroup_reconciliation",
-    ] {
-        let _ = sqlx::query(&format!("DELETE FROM {t} WHERE did LIKE 'did:test:%'")).execute(pool).await;
-    }
-}
 
 fn common(did: &str, rkey: &str, time_us: i64) -> fed::Common {
     fed::Common {
@@ -44,9 +30,8 @@ async fn fed_reporting_upsert_guard_aggregate_delete() {
         eprintln!("DATABASE_URL unset — skipping fed_reporting test");
         return;
     };
-    let pool = du_db::connect(&url, 4).await.expect("connect");
-    du_db::run_migrations(&pool).await.expect("migrate");
-    cleanup(&pool).await;
+    let db = du_db::testing::ephemeral_db(&url).await.expect("ephemeral db");
+    let pool = db.pool().clone();
 
     // Biosample with haplogroup + ordered-write guard.
     let mk_bs = |did: &str, y: &str, t: i64| core::Biosample {
@@ -140,5 +125,4 @@ async fn fed_reporting_upsert_guard_aggregate_delete() {
         .expect("count");
     assert_eq!(remaining, 1, "only did:test:a biosample remains");
 
-    cleanup(&pool).await;
 }

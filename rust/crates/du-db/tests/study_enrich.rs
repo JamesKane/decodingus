@@ -6,17 +6,11 @@
 //!     eval "$(./scripts/test-db.sh up)" && cargo test -p du-db --test study_enrich
 
 use chrono::NaiveDate;
-use sqlx::PgPool;
 
 fn database_url() -> Option<String> {
     std::env::var("DATABASE_URL").ok().filter(|s| !s.is_empty())
 }
 
-async fn cleanup(pool: &PgPool) {
-    let _ = sqlx::query("DELETE FROM pubs.genomic_study WHERE accession LIKE 'TESTENA-%'")
-        .execute(pool)
-        .await;
-}
 
 #[tokio::test]
 async fn ena_enrichment_fills_gaps() {
@@ -24,9 +18,8 @@ async fn ena_enrichment_fills_gaps() {
         eprintln!("DATABASE_URL unset — skipping study_enrich test");
         return;
     };
-    let pool = du_db::connect(&url, 4).await.expect("connect");
-    du_db::run_migrations(&pool).await.expect("migrate");
-    cleanup(&pool).await;
+    let db = du_db::testing::ephemeral_db(&url).await.expect("ephemeral db");
+    let pool = db.pool().clone();
 
     // An ENA study lacking title + center.
     let id: i64 = sqlx::query_scalar(
@@ -80,5 +73,4 @@ async fn ena_enrichment_fills_gaps() {
         .expect("title2");
     assert_eq!(title2.as_deref(), Some("Steppe ancient genomes"), "existing title preserved");
 
-    cleanup(&pool).await;
 }

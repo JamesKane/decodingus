@@ -13,19 +13,6 @@ fn database_url() -> Option<String> {
     std::env::var("DATABASE_URL").ok().filter(|s| !s.is_empty())
 }
 
-async fn cleanup(pool: &PgPool) {
-    let _ = sqlx::query("DELETE FROM tree.change_set WHERE source LIKE 'TESTMERGE%'").execute(pool).await;
-    let _ = sqlx::query(
-        "DELETE FROM tree.haplogroup_relationship r USING tree.haplogroup h \
-         WHERE (r.child_haplogroup_id=h.id OR r.parent_haplogroup_id=h.id) AND h.name LIKE 'TESTMERGE-%'",
-    ).execute(pool).await;
-    let _ = sqlx::query(
-        "DELETE FROM tree.haplogroup_variant hv USING tree.haplogroup h \
-         WHERE hv.haplogroup_id=h.id AND h.name LIKE 'TESTMERGE-%'",
-    ).execute(pool).await;
-    let _ = sqlx::query("DELETE FROM tree.haplogroup WHERE name LIKE 'TESTMERGE-%'").execute(pool).await;
-    let _ = sqlx::query("DELETE FROM core.variant WHERE canonical_name LIKE 'TESTMERGE-%'").execute(pool).await;
-}
 
 async fn hg(pool: &PgPool, name: &str) -> i64 {
     sqlx::query_scalar("INSERT INTO tree.haplogroup (name, haplogroup_type) VALUES ($1,'Y_DNA'::core.dna_type) RETURNING id")
@@ -69,14 +56,14 @@ async fn run_and_apply(pool: &PgPool, source: Vec<SourceNode>) {
 #[tokio::test]
 async fn merge_pipeline_end_to_end() {
     let Some(url) = database_url() else { eprintln!("DATABASE_URL unset — skipping"); return };
-    let pool = du_db::connect(&url, 4).await.unwrap();
-    du_db::run_migrations(&pool).await.unwrap();
-    new_subtree_chain(&pool).await;
-    node_contraction(&pool).await;
+    // Each phase gets its own throwaway DB (they reuse the `TESTMERGE-R` seed name).
+    new_subtree_chain(&url).await;
+    node_contraction(&url).await;
 }
 
-async fn new_subtree_chain(pool: &PgPool) {
-    cleanup(pool).await;
+async fn new_subtree_chain(url: &str) {
+    let db = du_db::testing::ephemeral_db(url).await.expect("ephemeral db");
+    let pool = db.pool();
 
     // Existing: just R (defined by M207).
     let r = hg(pool, "TESTMERGE-R").await;
@@ -101,12 +88,11 @@ async fn new_subtree_chain(pool: &PgPool) {
          WHERE hv.haplogroup_id=$1 AND v.canonical_name='TESTMERGE-M343' AND hv.valid_until IS NULL")
         .bind(r1b).fetch_one(pool).await.unwrap();
     assert_eq!(r1b_var, 1, "R1b defined by M343");
-
-    cleanup(pool).await;
 }
 
-async fn node_contraction(pool: &PgPool) {
-    cleanup(pool).await;
+async fn node_contraction(url: &str) {
+    let db = du_db::testing::ephemeral_db(url).await.expect("ephemeral db");
+    let pool = db.pool();
 
     // Existing lumps three SNPs on one coarse node: R(M207) -> RC(M343,L23,L51).
     let r = hg(pool, "TESTMERGE-R").await;
@@ -146,6 +132,4 @@ async fn node_contraction(pool: &PgPool) {
          WHERE hv.haplogroup_id=$1 AND v.canonical_name='TESTMERGE-M343' AND hv.valid_until IS NULL")
         .bind(r1b).fetch_one(pool).await.unwrap();
     assert_eq!(r1b_m343, 1, "R1b carries M343");
-
-    cleanup(pool).await;
 }

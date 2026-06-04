@@ -12,11 +12,6 @@ fn database_url() -> Option<String> {
     std::env::var("DATABASE_URL").ok().filter(|s| !s.is_empty())
 }
 
-async fn cleanup(pool: &PgPool) {
-    let _ = sqlx::query("DELETE FROM pubs.publication_candidate WHERE openalex_id LIKE 'TESTPC-%'").execute(pool).await;
-    let _ = sqlx::query("DELETE FROM pubs.publication WHERE open_alex_id LIKE 'TESTPC-%'").execute(pool).await;
-    let _ = sqlx::query("DELETE FROM ident.users WHERE handle = 'testpc-curator'").execute(pool).await;
-}
 
 async fn test_user(pool: &PgPool) -> Uuid {
     sqlx::query_scalar(
@@ -34,9 +29,8 @@ async fn candidate_review_and_promote() {
         eprintln!("DATABASE_URL unset — skipping publication_candidate test");
         return;
     };
-    let pool = du_db::connect(&url, 4).await.expect("connect");
-    du_db::run_migrations(&pool).await.expect("migrate");
-    cleanup(&pool).await;
+    let db = du_db::testing::ephemeral_db(&url).await.expect("ephemeral db");
+    let pool = db.pool().clone();
     let curator = test_user(&pool).await;
 
     // Discovery upserts two candidates.
@@ -83,5 +77,4 @@ async fn candidate_review_and_promote() {
         .await.unwrap().items.into_iter().filter(|c| c.openalex_id.starts_with("TESTPC-")).count();
     assert_eq!(still_pending, 0, "no TESTPC pending left");
 
-    cleanup(&pool).await;
 }

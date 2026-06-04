@@ -12,11 +12,6 @@ fn database_url() -> Option<String> {
     std::env::var("DATABASE_URL").ok().filter(|s| !s.is_empty())
 }
 
-async fn cleanup(pool: &PgPool) {
-    let _ = sqlx::query("DELETE FROM pubs.publication WHERE pubmed_id LIKE 'TESTPM-%' OR title LIKE 'TESTPM %'")
-        .execute(pool)
-        .await;
-}
 
 async fn insert(pool: &PgPool, sql: &str) -> i64 {
     sqlx::query_scalar(sql).fetch_one(pool).await.expect("insert")
@@ -34,9 +29,8 @@ async fn pubmed_enrichment_fills_gaps_safely() {
         eprintln!("DATABASE_URL unset — skipping pubmed_enrich test");
         return;
     };
-    let pool = du_db::connect(&url, 4).await.expect("connect");
-    du_db::run_migrations(&pool).await.expect("migrate");
-    cleanup(&pool).await;
+    let db = du_db::testing::ephemeral_db(&url).await.expect("ephemeral db");
+    let pool = db.pool().clone();
 
     // A publication with a PMID but no journal/authors/date/doi.
     let _id1 = insert(
@@ -112,5 +106,4 @@ async fn pubmed_enrichment_fills_gaps_safely() {
         .expect("d3");
     assert_eq!(d3, None, "duplicate DOI not taken");
 
-    cleanup(&pool).await;
 }

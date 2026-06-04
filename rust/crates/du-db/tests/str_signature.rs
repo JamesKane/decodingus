@@ -13,17 +13,6 @@ fn database_url() -> Option<String> {
     std::env::var("DATABASE_URL").ok().filter(|s| !s.is_empty())
 }
 
-async fn cleanup(pool: &PgPool) {
-    let _ = sqlx::query(
-        "DELETE FROM tree.haplogroup_ancestral_str WHERE haplogroup_id IN \
-         (SELECT id FROM tree.haplogroup WHERE name LIKE 'TESTSTR-%')",
-    )
-    .execute(pool)
-    .await;
-    let _ = sqlx::query("DELETE FROM tree.haplogroup WHERE name LIKE 'TESTSTR-%'").execute(pool).await;
-    let _ = sqlx::query("DELETE FROM fed.str_profile WHERE did LIKE 'did:teststr:%'").execute(pool).await;
-    let _ = sqlx::query("DELETE FROM fed.biosample WHERE did LIKE 'did:teststr:%'").execute(pool).await;
-}
 
 fn common(did: &str, rkey: &str, at_uri: &str) -> fed::Common {
     fed::Common { did: did.into(), rkey: rkey.into(), at_uri: at_uri.into(), cid: None, record_created_at: None, time_us: 1 }
@@ -75,9 +64,8 @@ async fn str_signature_recompute_and_read() {
         eprintln!("DATABASE_URL unset — skipping str_signature test");
         return;
     };
-    let pool = du_db::connect(&url, 4).await.expect("connect");
-    du_db::run_migrations(&pool).await.expect("migrate");
-    cleanup(&pool).await;
+    let db = du_db::testing::ephemeral_db(&url).await.expect("ephemeral db");
+    let pool = db.pool().clone();
 
     sqlx::query("INSERT INTO tree.haplogroup (name, haplogroup_type) VALUES ('TESTSTR-R1', 'Y_DNA'::core.dna_type)")
         .execute(&pool)
@@ -131,5 +119,4 @@ async fn str_signature_recompute_and_read() {
     assert_eq!(d393b.method.as_deref(), Some("MANUAL"), "manual override preserved");
     assert_eq!(d393b.ancestral_value, Some(99));
 
-    cleanup(&pool).await;
 }

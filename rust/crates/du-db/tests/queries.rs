@@ -7,26 +7,12 @@
 use du_domain::enums::DnaType;
 use du_domain::ids::{PublicationId, SampleGuid};
 use serde_json::json;
-use sqlx::PgPool;
 use uuid::Uuid;
 
 fn database_url() -> Option<String> {
     std::env::var("DATABASE_URL").ok().filter(|s| !s.is_empty())
 }
 
-async fn cleanup(pool: &PgPool) {
-    // Order respects FKs: edges -> haplogroups; the rest are independent.
-    let _ = sqlx::query(
-        "DELETE FROM tree.haplogroup_relationship r USING tree.haplogroup h \
-         WHERE (r.child_haplogroup_id = h.id OR r.parent_haplogroup_id = h.id) AND h.name LIKE 'TESTQ-%'",
-    )
-    .execute(pool)
-    .await;
-    let _ = sqlx::query("DELETE FROM tree.haplogroup WHERE name LIKE 'TESTQ-%'").execute(pool).await;
-    let _ = sqlx::query("DELETE FROM core.variant WHERE canonical_name LIKE 'TESTQ-%'").execute(pool).await;
-    let _ = sqlx::query("DELETE FROM pubs.publication WHERE title LIKE 'TESTQ-%'").execute(pool).await;
-    let _ = sqlx::query("DELETE FROM core.biosample WHERE accession LIKE 'TESTQ-%'").execute(pool).await;
-}
 
 #[tokio::test]
 async fn query_modules_against_live_db() {
@@ -34,9 +20,8 @@ async fn query_modules_against_live_db() {
         eprintln!("DATABASE_URL unset — skipping live-DB query test");
         return;
     };
-    let pool = du_db::connect(&url, 4).await.expect("connect");
-    du_db::run_migrations(&pool).await.expect("migrate");
-    cleanup(&pool).await; // in case a prior run left sentinels behind
+    let db = du_db::testing::ephemeral_db(&url).await.expect("ephemeral db");
+    let pool = db.pool().clone();
 
     // ── seed ──────────────────────────────────────────────────────────────
     let v1: i64 = sqlx::query_scalar(
@@ -141,5 +126,4 @@ async fn query_modules_against_live_db() {
     // ensure the unused binding is acknowledged
     let _ = v1;
 
-    cleanup(&pool).await;
 }
