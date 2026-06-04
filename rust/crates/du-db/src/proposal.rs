@@ -251,7 +251,7 @@ pub async fn promote(pool: &PgPool, id: i64, action_by: &str) -> Result<i64, DbE
         let coords = match dv.position {
             Some(pos) => serde_json::json!({ "GRCh38": {
                 "contig": "chrY", "position": pos,
-                "reference_allele": dv.reference, "alternate_allele": dv.alternate
+                "ancestral": dv.reference, "derived": dv.alternate
             }}),
             None => serde_json::json!({}),
         };

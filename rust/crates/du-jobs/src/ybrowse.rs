@@ -145,8 +145,8 @@ fn to_mirror(snp: &GffSnp, targets: &[LiftTarget]) -> (MirrorRow, usize) {
         BuildCoordinate {
             contig: snp.contig.clone(),
             position: snp.pos,
-            reference_allele: snp.anc.clone(),
-            alternate_allele: snp.der.clone(),
+            ancestral: snp.anc.clone(),
+            derived: snp.der.clone(),
         },
     );
     let mut unmapped = 0usize;
@@ -157,8 +157,8 @@ fn to_mirror(snp: &GffSnp, targets: &[LiftTarget]) -> (MirrorRow, usize) {
                 BuildCoordinate {
                     contig,
                     position,
-                    reference_allele: snp.anc.clone(),
-                    alternate_allele: snp.der.clone(),
+                    ancestral: snp.anc.clone(),
+                    derived: snp.der.clone(),
                 },
             ),
             None => unmapped += 1,

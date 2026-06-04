@@ -48,6 +48,11 @@
       <li class="list-group-item px-3 py-1">
         <span class="fw-semibold">{{ v.name }}</span>
         <span class="badge bg-light text-secondary border ms-1">{{ v.mutation_type }}</span>
+        {% if v.back_mutation %}<span class="badge text-bg-warning ms-1" title="{{ t.get("tree.snp.backMutation.help") }}">{{ t.get("tree.snp.backMutation") }}</span>
+        {% else if v.recurrent %}<span class="badge text-bg-info ms-1" title="{{ t.get("tree.snp.recurrent.help") }}">{{ t.get("tree.snp.recurrent") }}</span>{% endif %}
+        {% if let Some(tr) = v.transition %}
+        <span class="ms-1 font-monospace small">{{ tr }}</span>
+        {% endif %}
         {% if !v.aliases.is_empty() %}
         <div class="small text-muted">{{ t.get("tree.snp.aliases") }}: {{ v.aliases|join(", ") }}</div>
         {% endif %}

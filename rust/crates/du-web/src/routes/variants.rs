@@ -148,8 +148,8 @@ async fn detail(
             build: build.clone(),
             contig: c.contig.clone(),
             position: c.position,
-            change: match (&c.reference_allele, &c.alternate_allele) {
-                (Some(r), Some(a)) => Some(format!("{r}>{a}")),
+            change: match (&c.ancestral, &c.derived) {
+                (Some(anc), Some(der)) => Some(format!("{anc}>{der}")),
                 _ => None,
             },
         })

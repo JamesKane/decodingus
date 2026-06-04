@@ -133,12 +133,12 @@ pub async fn reconcile(pool: &PgPool) -> Result<ReconcileReport, DbError> {
            SELECT v.id AS vid, \
                   v.coordinates->'GRCh38'->>'contig' AS contig, \
                   (v.coordinates->'GRCh38'->>'position')::bigint AS position, \
-                  core.ysnp_canon(v.coordinates->'GRCh38'->>'reference_allele', \
-                                  v.coordinates->'GRCh38'->>'alternate_allele') AS akey \
+                  core.ysnp_canon(v.coordinates->'GRCh38'->>'ancestral', \
+                                  v.coordinates->'GRCh38'->>'derived') AS akey \
            FROM core.variant v \
            WHERE v.coordinates->'GRCh38'->>'contig' IS NOT NULL \
-             AND v.coordinates->'GRCh38'->>'reference_allele' IS NOT NULL \
-             AND v.coordinates->'GRCh38'->>'alternate_allele' IS NOT NULL",
+             AND v.coordinates->'GRCh38'->>'ancestral' IS NOT NULL \
+             AND v.coordinates->'GRCh38'->>'derived' IS NOT NULL",
     )
     .execute(&mut *tx)
     .await?;

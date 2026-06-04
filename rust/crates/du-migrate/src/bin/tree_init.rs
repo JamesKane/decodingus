@@ -152,7 +152,7 @@ fn prod_build(gk: &str) -> Option<&'static str> {
 /// Extract each decoding-us variant's multi-build coordinates as `(name,
 /// universal-coordinates-jsonb)`, mapping the API shape
 /// (`{ "chrY [b38]": {start, stop, anc, der} }`) to ours
-/// (`{ GRCh38: {contig, position, reference_allele, alternate_allele} }`).
+/// (`{ GRCh38: {contig, position, ancestral, derived} }`).
 fn prod_variant_coords(body: &Value) -> Vec<(String, Value)> {
     use std::collections::BTreeMap;
     let Some(arr) = body.as_array() else { return Vec::new() };
@@ -172,8 +172,8 @@ fn prod_variant_coords(body: &Value) -> Vec<(String, Value)> {
                     serde_json::json!({
                         "contig": contig,
                         "position": pos,
-                        "reference_allele": c.get("anc").and_then(Value::as_str),
-                        "alternate_allele": c.get("der").and_then(Value::as_str),
+                        "ancestral": c.get("anc").and_then(Value::as_str),
+                        "derived": c.get("der").and_then(Value::as_str),
                     }),
                 );
             }

@@ -605,13 +605,22 @@ pub async fn resolve_name_or_variant(
     Ok(name)
 }
 
-/// A defining variant of a haplogroup, for the SNP-detail sidebar.
+/// A defining variant of a haplogroup, for the SNP-detail sidebar. Carries this
+/// branch's ancestral->derived transition (ASR) and whether the SNP is recurrent
+/// (occurs on other branches too — homoplasy).
 #[derive(Debug, Clone)]
 pub struct VariantInfo {
-    pub canonical_name: String,
+    /// NULL for UNNAMED variants (e.g. a homoplasy site whose name went to the
+    /// primary locus); the UI falls back to an alias.
+    pub canonical_name: Option<String>,
     pub mutation_type: String,
     pub aliases: serde_json::Value,
     pub coordinates: serde_json::Value,
+    /// This branch's ancestral/derived alleles (NULL for legacy/forward links).
+    pub link_ancestral: Option<String>,
+    pub link_derived: Option<String>,
+    /// True if this SNP also defines/occurs on another current branch.
+    pub recurrent: bool,
 }
 
 /// All current defining variants of the named haplogroup, ordered by name.
@@ -620,8 +629,22 @@ pub async fn variants_of(
     name: &str,
     dna_type: DnaType,
 ) -> Result<Vec<VariantInfo>, DbError> {
-    let rows: Vec<(String, String, serde_json::Value, serde_json::Value)> = sqlx::query_as(
-        "SELECT v.canonical_name, v.mutation_type::text, v.aliases, v.coordinates \
+    #[derive(sqlx::FromRow)]
+    struct Row {
+        canonical_name: Option<String>,
+        mutation_type: String,
+        aliases: serde_json::Value,
+        coordinates: serde_json::Value,
+        link_ancestral: Option<String>,
+        link_derived: Option<String>,
+        recurrent: bool,
+    }
+    let rows: Vec<Row> = sqlx::query_as(
+        "SELECT v.canonical_name, v.mutation_type::text AS mutation_type, v.aliases, v.coordinates, \
+                hv.ancestral_allele AS link_ancestral, hv.derived_allele AS link_derived, \
+                EXISTS (SELECT 1 FROM tree.haplogroup_variant hv2 \
+                        WHERE hv2.variant_id = v.id AND hv2.valid_until IS NULL \
+                          AND hv2.haplogroup_id <> hv.haplogroup_id) AS recurrent \
          FROM core.variant v \
          JOIN tree.haplogroup_variant hv ON hv.variant_id = v.id AND hv.valid_until IS NULL \
          JOIN tree.haplogroup h ON h.id = hv.haplogroup_id \
@@ -634,11 +657,14 @@ pub async fn variants_of(
     .await?;
     Ok(rows
         .into_iter()
-        .map(|(canonical_name, mutation_type, aliases, coordinates)| VariantInfo {
-            canonical_name,
-            mutation_type,
-            aliases,
-            coordinates,
+        .map(|r| VariantInfo {
+            canonical_name: r.canonical_name,
+            mutation_type: r.mutation_type,
+            aliases: r.aliases,
+            coordinates: r.coordinates,
+            link_ancestral: r.link_ancestral,
+            link_derived: r.link_derived,
+            recurrent: r.recurrent,
         })
         .collect())
 }

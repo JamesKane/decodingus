@@ -81,8 +81,8 @@ async fn migrations_apply_and_variant_jsonb_roundtrips() {
         BuildCoordinate {
             contig: "chrY".into(),
             position: 2_787_319,
-            reference_allele: Some("C".into()),
-            alternate_allele: Some("T".into()),
+            ancestral: Some("C".into()),
+            derived: Some("T".into()),
         },
     );
     let coords_json = serde_json::to_value(&coords).unwrap();

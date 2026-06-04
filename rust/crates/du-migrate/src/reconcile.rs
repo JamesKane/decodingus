@@ -17,17 +17,17 @@ const CHECKS: &[Check] = &[
         legacy_sql: "SELECT (SELECT count(*) FROM public.biosample) + (SELECT count(*) FROM public.citizen_biosample) + (SELECT count(*) FROM public.pgp_biosample)",
         target_sql: "SELECT count(*) FROM core.biosample",
     },
-    // Legacy variants are per-build; the target folds them by SNP (see
-    // transform::variant). Compare against the folded group count.
+    // Legacy variants are per-(build, direction); the target folds them by SNP
+    // SITE (see transform::variant). Compare against the folded site count.
     Check {
         label: "variant",
         legacy_sql: "SELECT count(*)::bigint FROM ( \
             SELECT 1 FROM ( \
               SELECT COALESCE(v.common_name, v.rs_id, gc.common_name||':'||v.position::text) AS cname, \
-                     row_number() OVER (PARTITION BY COALESCE(v.common_name, v.rs_id, gc.common_name||':'||v.position::text), \
-                       COALESCE(gc.reference_genome,'GRCh38') ORDER BY v.variant_id) AS copy_idx \
+                     dense_rank() OVER (PARTITION BY COALESCE(v.common_name, v.rs_id, gc.common_name||':'||v.position::text), \
+                       COALESCE(gc.reference_genome,'GRCh38') ORDER BY v.position) AS site_idx \
               FROM public.variant v JOIN public.genbank_contig gc ON gc.genbank_contig_id=v.genbank_contig_id \
-            ) b GROUP BY cname, copy_idx) x",
+            ) b GROUP BY cname, site_idx) x",
         target_sql: "SELECT count(*) FROM core.variant",
     },
     Check { label: "haplogroup", legacy_sql: "SELECT count(*) FROM tree.haplogroup", target_sql: "SELECT count(*) FROM tree.haplogroup" },
@@ -39,11 +39,11 @@ const CHECKS: &[Check] = &[
         legacy_sql: "SELECT count(*)::bigint FROM ( \
             SELECT DISTINCT hv.haplogroup_id, r.fold_id FROM tree.haplogroup_variant hv \
             JOIN ( \
-              SELECT variant_id AS legacy_id, min(variant_id) OVER (PARTITION BY cname, copy_idx) AS fold_id FROM ( \
+              SELECT variant_id AS legacy_id, min(variant_id) OVER (PARTITION BY cname, site_idx) AS fold_id FROM ( \
                 SELECT v.variant_id, \
                        COALESCE(v.common_name, v.rs_id, gc.common_name||':'||v.position::text) AS cname, \
-                       row_number() OVER (PARTITION BY COALESCE(v.common_name, v.rs_id, gc.common_name||':'||v.position::text), \
-                         COALESCE(gc.reference_genome,'GRCh38') ORDER BY v.variant_id) AS copy_idx \
+                       dense_rank() OVER (PARTITION BY COALESCE(v.common_name, v.rs_id, gc.common_name||':'||v.position::text), \
+                         COALESCE(gc.reference_genome,'GRCh38') ORDER BY v.position) AS site_idx \
                 FROM public.variant v JOIN public.genbank_contig gc ON gc.genbank_contig_id=v.genbank_contig_id \
               ) b \
             ) r ON r.legacy_id = hv.variant_id) x",

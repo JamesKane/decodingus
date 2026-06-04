@@ -102,3 +102,10 @@ aes-gcm = "0.10"
 lto = "thin"
 codegen-units = 1
 strip = true
+
+# Local co-dev against decodingus-shared working tree (anc/der model change).
+# Remove + bump the git rev above once the change is pushed.
+[patch."https://github.com/JamesKane/decodingus-shared.git"]
+du-domain  = { path = "../../decodingus-shared/crates/du-domain" }
+du-atproto = { path = "../../decodingus-shared/crates/du-atproto" }
+du-bio     = { path = "../../decodingus-shared/crates/du-bio" }

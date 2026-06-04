@@ -101,6 +101,12 @@ struct VariantRow {
     mutation_type: String,
     aliases: Vec<String>,
     coordinates: Vec<String>,
+    /// This branch's ancestral>derived transition (ASR), e.g. "T>G".
+    transition: Option<String>,
+    /// SNP occurs on other branches too (homoplasy).
+    recurrent: bool,
+    /// This branch reverted to the ancestral state (derived == variant ancestral).
+    back_mutation: bool,
 }
 
 /// Where a branch came from — increasingly important as multiple source trees
@@ -232,11 +238,29 @@ async fn snp_sidebar(
     let variants = du_db::haplogroup::variants_of(&st.pool, &name, dna_type)
         .await?
         .into_iter()
-        .map(|v| VariantRow {
-            name: v.canonical_name,
-            mutation_type: v.mutation_type,
-            aliases: json_str_list(&v.aliases),
-            coordinates: coord_list(&v.coordinates),
+        .map(|v| {
+            let transition = match (&v.link_ancestral, &v.link_derived) {
+                (Some(a), Some(d)) => Some(format!("{a}>{d}")),
+                _ => None,
+            };
+            // Back-mutation: this branch's derived state is the SNP's ancestral allele.
+            let back_mutation =
+                matches!((&v.link_derived, coord_ancestral(&v.coordinates)), (Some(d), Some(a)) if *d == a);
+            let aliases = json_str_list(&v.aliases);
+            // UNNAMED variants (homoplasy collisions) fall back to an alias.
+            let name = v
+                .canonical_name
+                .or_else(|| aliases.first().cloned())
+                .unwrap_or_else(|| "(unnamed)".into());
+            VariantRow {
+                name,
+                mutation_type: v.mutation_type,
+                aliases: aliases.clone(),
+                coordinates: coord_list(&v.coordinates),
+                transition,
+                recurrent: v.recurrent,
+                back_mutation,
+            }
         })
         .collect();
 
@@ -355,24 +379,32 @@ fn json_str_list(v: &serde_json::Value) -> Vec<String> {
 }
 
 /// Render coordinates JSONB as `"contig:pos anc>der [b38]"` strings — the locus
-/// plus the ancestral→derived allele states. Accepts the universal-variant field
-/// names (`reference_allele`/`alternate_allele`) and the legacy `ref`/`alt`; when
-/// no alleles are recorded, shows just the locus.
+/// plus the SNP's ancestral→derived states (the reference genome is not the
+/// phylogenetic root, so these are `ancestral`/`derived`, not ref/alt). When no
+/// alleles are recorded, shows just the locus.
 fn coord_list(v: &serde_json::Value) -> Vec<String> {
-    let allele = |c: &serde_json::Value, a: &str, b: &str| {
-        c.get(a).or_else(|| c.get(b)).and_then(|x| x.as_str()).unwrap_or("").to_string()
+    let allele = |c: &serde_json::Value, k: &str| {
+        c.get(k).and_then(|x| x.as_str()).unwrap_or("").to_string()
     };
     let Some(obj) = v.as_object() else { return vec![] };
     obj.iter()
         .filter_map(|(genome, c)| {
             let contig = c.get("contig").and_then(|x| x.as_str()).unwrap_or("?");
             let pos = c.get("position").and_then(serde_json::Value::as_i64)?;
-            let anc = allele(c, "reference_allele", "ref");
-            let der = allele(c, "alternate_allele", "alt");
+            let anc = allele(c, "ancestral");
+            let der = allele(c, "derived");
             let alleles = if anc.is_empty() && der.is_empty() { String::new() } else { format!(" {anc}>{der}") };
             Some(format!("{contig}:{pos}{alleles} [{}]", short_genome(genome)))
         })
         .collect()
+}
+
+/// The SNP's representative ancestral allele (prefer GRCh38, else any build), used
+/// to flag back-mutations against a branch's derived state.
+fn coord_ancestral(v: &serde_json::Value) -> Option<String> {
+    let obj = v.as_object()?;
+    let pick = obj.get("GRCh38").or_else(|| obj.values().next())?;
+    pick.get("ancestral").and_then(|x| x.as_str()).map(str::to_string)
 }
 
 fn short_genome(g: &str) -> &str {

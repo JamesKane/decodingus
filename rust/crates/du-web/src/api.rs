@@ -649,11 +649,11 @@ async fn export_variants_gff(State(st): State<AppState>) -> Result<Response, App
         let Some(c) = v.coordinates.0.get("GRCh38") else { continue };
         let name = &v.canonical_name;
         let mut attrs = format!("ID={name};Name={name}");
-        if let Some(r) = &c.reference_allele {
-            attrs.push_str(&format!(";Reference_seq={r}"));
+        if let Some(anc) = &c.ancestral {
+            attrs.push_str(&format!(";allele_anc={anc}"));
         }
-        if let Some(a) = &c.alternate_allele {
-            attrs.push_str(&format!(";Variant_seq={a}"));
+        if let Some(der) = &c.derived {
+            attrs.push_str(&format!(";allele_der={der}"));
         }
         // GFF3 is 1-based, inclusive; a SNV spans a single position.
         gff.push_str(&format!(

@@ -77,7 +77,7 @@ async fn reconcile_folds_enriches_mints_and_is_idempotent() {
     sqlx::query(
         "INSERT INTO core.variant (canonical_name, mutation_type, naming_status, coordinates) \
          VALUES ('TESTYB-COORD-EXIST','SNP'::core.mutation_type,'NAMED'::core.naming_status, \
-                 '{\"GRCh38\":{\"contig\":\"chrY\",\"position\":8910005,\"reference_allele\":\"A\",\"alternate_allele\":\"G\"}}'::jsonb)",
+                 '{\"GRCh38\":{\"contig\":\"chrY\",\"position\":8910005,\"ancestral\":\"A\",\"derived\":\"G\"}}'::jsonb)",
     )
     .execute(&pool)
     .await
@@ -87,7 +87,7 @@ async fn reconcile_folds_enriches_mints_and_is_idempotent() {
     sqlx::query(
         "INSERT INTO core.variant (canonical_name, mutation_type, naming_status, coordinates) \
          VALUES ('TESTYB-TYPEFIX','SNP'::core.mutation_type,'NAMED'::core.naming_status, \
-                 '{\"GRCh38\":{\"contig\":\"chrY\",\"position\":8910009,\"reference_allele\":\"T\",\"alternate_allele\":\"TC\"}}'::jsonb)",
+                 '{\"GRCh38\":{\"contig\":\"chrY\",\"position\":8910009,\"ancestral\":\"T\",\"derived\":\"TC\"}}'::jsonb)",
     )
     .execute(&pool)
     .await
