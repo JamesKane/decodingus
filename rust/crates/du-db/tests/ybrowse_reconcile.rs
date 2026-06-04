@@ -1,7 +1,11 @@
 //! Live-DB test for YBrowse mirror reconciliation (`du_db::ybrowse`). Exercises
 //! synonym folding, additive enrichment of an existing NAMED variant (canonical
-//! locked), DU-minting for a provisional-only cluster, and idempotency. Prefix
-//! `TESTYB-` / `YFS-TESTX`. Skips when DATABASE_URL is unset.
+//! locked), DU-minting for a provisional-only cluster, and idempotency.
+//!
+//! Runs against a private, throwaway database (`du_db::testing::ephemeral_db`)
+//! created on the same server as DATABASE_URL, because reconcile processes the
+//! WHOLE mirror — it must never touch the shared dev catalog. Skips when
+//! DATABASE_URL is unset.
 
 use serde_json::json;
 use sqlx::PgPool;
@@ -20,14 +24,6 @@ fn row(name: &str, pos: i64, anc: &str, der: &str) -> du_db::ybrowse::MirrorRow 
         coordinates: json!({ "GRCh38": { "contig": "chrY", "position": pos } }),
         evidence: json!({ "source": "YBrowse" }),
     }
-}
-
-async fn cleanup(pool: &PgPool) {
-    let _ = du_db::variant::delete_by_evidence_source(pool, "YBrowse").await;
-    let _ = sqlx::query("DELETE FROM core.variant WHERE canonical_name LIKE 'TESTYB-%'").execute(pool).await;
-    let _ = sqlx::query("DELETE FROM source.ybrowse_snp WHERE name LIKE 'TESTYB-%' OR name LIKE 'YFS-TEST%'")
-        .execute(pool)
-        .await;
 }
 
 /// (canonical_name, naming_status, common_names) for a variant by any of its names.
@@ -64,9 +60,8 @@ async fn reconcile_folds_enriches_mints_and_is_idempotent() {
         eprintln!("DATABASE_URL unset — skipping ybrowse_reconcile test");
         return;
     };
-    let pool = du_db::connect(&url, 4).await.expect("connect");
-    du_db::run_migrations(&pool).await.expect("migrate");
-    cleanup(&pool).await;
+    let db = du_db::testing::ephemeral_db(&url).await.expect("ephemeral db");
+    let pool = db.pool().clone();
 
     // A pre-existing, curator-NAMED variant the EXIST cluster will match by name.
     sqlx::query(
@@ -191,5 +186,5 @@ async fn reconcile_folds_enriches_mints_and_is_idempotent() {
     let du2 = by_name(&pool, "YFS-TESTX").await.unwrap();
     assert_eq!(du.0, du2.0, "DU name stable (matched via alias, not re-minted)");
 
-    cleanup(&pool).await;
+    // No cleanup — `db` drops the whole throwaway database when it goes out of scope.
 }

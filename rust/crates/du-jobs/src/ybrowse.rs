@@ -261,8 +261,9 @@ mod tests {
     }
 
     /// End-to-end: a self-written synthetic GFF3 (isolated `TESTYB-` SNPs) →
-    /// mirror → reconcile → curated `core.variant`. Skips when DATABASE_URL is
-    /// unset. Cleans up after itself (catalog + mirror).
+    /// mirror → reconcile → curated `core.variant`. Runs against a private,
+    /// throwaway database (reconcile processes the WHOLE mirror, so it must not
+    /// touch the shared dev catalog). Skips when DATABASE_URL is unset.
     #[tokio::test]
     async fn ingest_synthetic_gff_end_to_end() {
         let Ok(url) = std::env::var("DATABASE_URL") else {
@@ -279,14 +280,12 @@ chrY\tpoint\tsnp\t8900001\t8900001\t.\t+\t.\tID=TESTYB-1;Name=TESTYB-1;allele_an
 chrY\tpoint\tsnp\t8900002\t8900002\t.\t+\t.\tID=TESTYB-2;Name=TESTYB-2;allele_anc=A;allele_der=G;isogg_haplogroup=J2;ref=TBD\n\
 \n\
 chrY\tpoint\tsnp\t8900003\t8900003\t.\t+\t.\tID=;allele_anc=A\n";
-        let path = std::env::temp_dir().join("testyb_slice.gff3");
+        let path = std::env::temp_dir().join(format!("testyb_slice_{}.gff3", std::process::id()));
         std::fs::write(&path, gff).unwrap();
 
-        let pool = du_db::connect(&url, 4).await.expect("connect");
-        du_db::run_migrations(&pool).await.expect("migrate");
-        // Start clean (prior run).
-        du_db::variant::delete_by_evidence_source(&pool, "YBrowse").await.ok();
-        du_db::ybrowse::clear_mirror(&pool).await.ok();
+        // Private throwaway DB — dropped when `db` goes out of scope.
+        let db = du_db::testing::ephemeral_db(&url).await.expect("ephemeral db");
+        let pool = db.pool().clone();
 
         let cfg = Config { gff_path: path.to_string_lossy().into(), chain_grch37: None, chain_hs1: None };
         run(&pool, &cfg).await.expect("ingest");
@@ -297,8 +296,6 @@ chrY\tpoint\tsnp\t8900003\t8900003\t.\t+\t.\tID=;allele_anc=A\n";
         let found = du_db::variant::search(&pool, Some("TESTYB-1"), 1, 5).await.unwrap();
         assert!(found.items.iter().any(|v| v.canonical_name == "TESTYB-1"), "TESTYB-1 in catalog");
 
-        du_db::variant::delete_by_evidence_source(&pool, "YBrowse").await.unwrap();
-        du_db::ybrowse::clear_mirror(&pool).await.unwrap();
         let _ = std::fs::remove_file(&path);
     }
 }
