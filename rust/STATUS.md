@@ -16,10 +16,10 @@ YBrowse mirror→reconcile catalog pipeline (≈3M variants), federated **report
 (mirror **and** web endpoints), branch ages, and Y-STR signatures/prediction/age.
 
 The launch-critical path is now just two things: **(1) the data cutover** — the
-ETL transformers are validated against the **current production schema**
-(confirmed 2026-06); what's left is a verification run against real data (a fresh
-dump or read-only EC2 rehearsal), not transformer correctness — and **(2) the
-live AT Proto OAuth handshake** (the cross-host "Edge joint test").
+ETL has been **verified end-to-end against a real production dump** (2026-06-04,
+363 MB / PG 15): all 34 aggregates reconcile; what's left is executing the cutover
+against live/final data — and **(2) the live AT Proto OAuth handshake** (the
+cross-host "Edge joint test").
 The remaining *feature* mass is post-launch: **haplogroup-discovery automation**
 and **multi-test-type completion**. Several subsystems are intentionally absent
 (see "Out of scope").
@@ -171,11 +171,10 @@ APP_SECRET="<any 32+ char string>"   # signs session cookies
 
 Launch-critical first, then the post-launch feature mass.
 
-1. **Cutover** (see "Cutover blocker") — the one hard gate to going live. The
-   transformers are validated against the current production schema; what remains
-   is a verification run against real data — pull a fresh dump (the existing one
-   is likely current per the schema match) or do a read-only EC2 rehearsal, then
-   `decodingus-migrate --verify` and reconcile counts.
+1. **Cutover** (see "Cutover blocker") — verification is **DONE** (real prod dump,
+   all aggregates reconcile). What remains is *executing* the cutover: run the ETL
+   against the final/live data (read-only EC2 or a same-day dump), then flip the
+   app's `DATABASE_URL` to the migrated DB. Re-run is idempotent.
 2. **Live AT Protocol OAuth handshake — the cross-host "Edge joint test."** Library
    + a dev public-client path are verified locally up to the **consent click**
    (gated `decodingus-shared/.../tests/live_pds.rs`: discovery + PAR + DPoP +
@@ -234,19 +233,34 @@ Launch-critical first, then the post-launch feature mass.
   patronage/billing, group-projects** — not in production (schemas 0007/0009 +
   genomics lab tables exist as placeholders; no ETL, no endpoints).
 
-## Cutover blocker
+## Cutover blocker — VERIFIED (2026-06-04)
 
-**Schema risk is retired (2026-06):** `~/db.schema` is confirmed to be the current
-production schema, and the ETL transformers are written and validated against it
-(plus the current-schema mock with data — all 9 aggregates reconcile). So the
-"transformers encode a reconstructed legacy layout" caveat no longer applies.
+The ETL has been run end-to-end against a **real production dump**
+(`/Users/jkane/backup_file.sql`, 363 MB, PG 15.18) and **all 34 aggregates
+reconcile**. Schema risk was already retired (`~/db.schema` is current prod);
+this run retired the data risk too.
 
-What's left is a **verification run against real production data**. The historical
-35MB `/Volumes/nas/stuff/dump.sql` is an older export and may lag the current
-schema; the user expects a fresh dump to match. Before cutover: pull a current
-dump (or do a **read-only EC2 rehearsal** — production is a self-managed EC2
-instance), point `decodingus-migrate --legacy` at it, run `--verify`, and confirm
-the per-aggregate counts reconcile against real volumes.
+How it was run (repeatable):
+1. `CREATE ROLE decoding_us_user;` (the dump owns objects as this role), then a
+   fresh `decodingus_prod` DB.
+2. Load the dump, stripping the two `\restrict`/`\unrestrict` lines — the
+   container psql is **16.4**, which predates those meta-commands (added in the
+   Sept-2025 security releases): `grep -vE '^\\(un)?restrict' dump.sql |
+   container exec -i du-pg psql -U postgres -d decodingus_prod -q`.
+3. `decodingus-migrate --legacy <decodingus_prod> --target <decodingus_etl>`
+   (recreate the target first; the run migrates + transforms + reconciles).
+
+**The finding (now fixed, commit fbc298a):** legacy `public.variant` is one row
+per (SNP, build); the redesigned `core.variant` is one row per physical SNP with
+a multi-build `coordinates` JSONB. The old 1:1 transform tripped the
+naming-authority partial unique index on the first multi-build SNP. The transform
+now **folds by SNP** (3,023,051 → 2,901,369; within-build homoplasy copies kept
+as UNNAMED variants) and `haplogroup_variant` repoints links to the fold anchor
+and dedups per-build duplicates (~209k → 86,810).
+
+**To execute the real cutover:** point `--legacy` at the live EC2 (read-only, via
+opened SG / SSH tunnel) or a same-day dump, run the ETL, confirm reconcile, then
+flip the app's `DATABASE_URL` to the migrated DB. The run is idempotent.
 
 ## Key decisions & gotchas (don't relearn these)
 
