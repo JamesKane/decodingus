@@ -205,6 +205,85 @@ fn prod_source_nodes(body: &Value) -> Vec<du_db::snp_graft::SourceNode> {
         .collect()
 }
 
+/// Flatten the nested ISOGG tree into the SNP-graft's flat `SourceNode` list
+/// (name + parent_name + defining SNP names). Lets ISOGG be SNP-anchor grafted
+/// onto whatever catalog is loaded, instead of the topology-sensitive name merge.
+fn isogg_graft_nodes(root: &Value) -> Vec<du_db::snp_graft::SourceNode> {
+    fn walk(node: &Value, parent: Option<&str>, out: &mut Vec<du_db::snp_graft::SourceNode>) {
+        let Some(name) = node.get("name").and_then(Value::as_str) else { return };
+        let defining_snps = node
+            .get("variants")
+            .and_then(Value::as_array)
+            .map(|a| a.iter().filter_map(|v| v.get("name").and_then(Value::as_str).map(str::to_string)).collect())
+            .unwrap_or_default();
+        out.push(du_db::snp_graft::SourceNode {
+            name: name.to_string(),
+            parent_name: parent.map(str::to_string),
+            defining_snps,
+            is_backbone: false,
+            last_updated: None,
+        });
+        if let Some(kids) = node.get("children").and_then(Value::as_array) {
+            for c in kids {
+                walk(c, Some(name), out);
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(root, None, &mut out);
+    out
+}
+
+/// The shared SNP-anchored graft pipeline (classify → enrich → graft → review),
+/// source-agnostic. Dry-run by default; writes gated by `--apply`/`--graft`.
+async fn run_snp_graft(
+    pool: &PgPool,
+    source: &[du_db::snp_graft::SourceNode],
+    dna: DnaType,
+    label: &str,
+    args: &Args,
+) -> anyhow::Result<()> {
+    anyhow::ensure!(!source.is_empty(), "no source nodes to graft");
+    tracing::info!(%label, nodes = source.len(), "classifying source tree by SNP anchor (dry-run)");
+    let report = du_db::snp_graft::classify(pool, source, dna).await?;
+    print_graft_report(&report);
+    let enr = du_db::snp_graft::enrich(pool, source, dna, &report, args.apply).await?;
+    tracing::info!(
+        applied = enr.applied, anchors = enr.anchors,
+        aliases_added = enr.aliases_added, backbone_set = enr.backbone_set,
+        samples = ?enr.samples, "Phase 2 enrich"
+    );
+    let want_review = args.export_flags.is_some() || args.stage_review;
+    let graft_rep = if args.graft || want_review {
+        let apply_graft = args.graft && args.apply;
+        let g = du_db::snp_graft::graft(pool, source, dna, &report, &args.by, apply_graft).await?;
+        if args.graft {
+            print_graft_write_report(&g);
+        }
+        Some(g)
+    } else {
+        None
+    };
+    if want_review {
+        let g = graft_rep.as_ref().expect("graft report computed when reviewing");
+        let ex = du_db::snp_graft::export_review(pool, source, dna, &report, g).await?;
+        if let Some(path) = &args.export_flags {
+            std::fs::write(path, serde_json::to_string_pretty(&ex)?)?;
+            tracing::info!(
+                path = %path, items = ex.items.len(),
+                weak = ex.summary.weak_plurality, parent_inconsistent = ex.summary.parent_inconsistent,
+                name_collision = ex.summary.name_collision, graft_blocked = ex.summary.graft_blocked,
+                "Phase 4 curator-review export written"
+            );
+        }
+        if args.stage_review {
+            let (cs_id, n) = du_db::snp_graft::stage_review(pool, source, dna, &ex, &args.by).await?;
+            tracing::info!(change_set_id = cs_id, staged = n, "Phase 4 staged for curator review (/curator/reviews)");
+        }
+    }
+    Ok(())
+}
+
 /// Log the dry-run classification breakdown + a few samples per category.
 fn print_graft_report(r: &du_db::snp_graft::GraftReport) {
     use du_db::snp_graft::{Disposition, FlagReason};
@@ -328,6 +407,7 @@ async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     let url = args
         .database_url
+        .clone()
         .or_else(|| std::env::var("DATABASE_URL").ok())
         .ok_or_else(|| anyhow::anyhow!("set --database-url or DATABASE_URL"))?;
     let (dna, dna_label) = parse_dna(&args.dna)?;
@@ -356,8 +436,15 @@ async fn main() -> anyhow::Result<()> {
                 .and_then(|j| j.get("sourceName").and_then(Value::as_str))
                 .unwrap_or("ISOGG")
                 .to_string();
-            let isogg_roots = parse_isogg(root).map(|r| vec![r]).ok_or_else(|| anyhow::anyhow!("could not parse ISOGG sourceTree"))?;
-            merge_into(&pool, &isogg_roots, &source_name, dna, dna_label, &args.by, args.apply).await?;
+            if args.snp_graft {
+                // SNP-anchored graft — robust to topology/naming differences (the
+                // name merge cascades to NEW when the roots don't align).
+                let source = isogg_graft_nodes(root);
+                run_snp_graft(&pool, &source, dna, &source_name, &args).await?;
+            } else {
+                let isogg_roots = parse_isogg(root).map(|r| vec![r]).ok_or_else(|| anyhow::anyhow!("could not parse ISOGG sourceTree"))?;
+                merge_into(&pool, &isogg_roots, &source_name, dna, dna_label, &args.by, args.apply).await?;
+            }
         }
 
         // 2. Optional: merge the decoding-us production tree in.
@@ -381,51 +468,8 @@ async fn main() -> anyhow::Result<()> {
                 // Coordinate backfill is a standalone enrichment — don't fall
                 // through into the merge/graft pipeline.
             } else if args.snp_graft {
-                // SNP-anchored graft (dry-run classifier — no writes yet).
                 let source = prod_source_nodes(&body);
-                anyhow::ensure!(!source.is_empty(), "no nodes parsed from prod tree");
-                tracing::info!(nodes = source.len(), "classifying prod tree by SNP anchor (dry-run)");
-                let report = du_db::snp_graft::classify(&pool, &source, dna).await?;
-                print_graft_report(&report);
-                // Phase 2 — enrich matched ISOGG nodes (DRY-RUN unless --apply).
-                let enr = du_db::snp_graft::enrich(&pool, &source, dna, &report, args.apply).await?;
-                tracing::info!(
-                    applied = enr.applied, anchors = enr.anchors,
-                    aliases_added = enr.aliases_added, backbone_set = enr.backbone_set,
-                    samples = ?enr.samples, "Phase 2 enrich"
-                );
-                // Phase 3 — graft the truly-novel branches (DRY-RUN unless --apply).
-                // Also computed (dry-run) when only exporting, for its skip lists.
-                let want_review = args.export_flags.is_some() || args.stage_review;
-                let graft_rep = if args.graft || want_review {
-                    let apply_graft = args.graft && args.apply;
-                    let g = du_db::snp_graft::graft(&pool, &source, dna, &report, &args.by, apply_graft).await?;
-                    if args.graft {
-                        print_graft_write_report(&g);
-                    }
-                    Some(g)
-                } else {
-                    None
-                };
-
-                // Phase 4 — curator-review worklist (export to JSON and/or stage in-app).
-                if want_review {
-                    let g = graft_rep.as_ref().expect("graft report computed when reviewing");
-                    let ex = du_db::snp_graft::export_review(&pool, &source, dna, &report, g).await?;
-                    if let Some(path) = &args.export_flags {
-                        std::fs::write(path, serde_json::to_string_pretty(&ex)?)?;
-                        tracing::info!(
-                            path = %path, items = ex.items.len(),
-                            weak = ex.summary.weak_plurality, parent_inconsistent = ex.summary.parent_inconsistent,
-                            name_collision = ex.summary.name_collision, graft_blocked = ex.summary.graft_blocked,
-                            "Phase 4 curator-review export written"
-                        );
-                    }
-                    if args.stage_review {
-                        let (cs_id, n) = du_db::snp_graft::stage_review(&pool, &source, dna, &ex, &args.by).await?;
-                        tracing::info!(change_set_id = cs_id, staged = n, "Phase 4 staged for curator review (/curator/reviews)");
-                    }
-                }
+                run_snp_graft(&pool, &source, dna, "decoding-us", &args).await?;
             } else {
                 // Legacy exact-set merge (cannot reconcile cross-source trees).
                 let prod_roots = parse_prod_flat(&body);

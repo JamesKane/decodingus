@@ -542,6 +542,7 @@ pub async fn classify(pool: &PgPool, source: &[SourceNode], dna: DnaType) -> Res
          JOIN tree.haplogroup h ON h.id = hv.haplogroup_id \
          WHERE h.haplogroup_type::text = $1 AND h.valid_until IS NULL \
            AND h.source IS DISTINCT FROM 'decoding-us' \
+           AND v.canonical_name IS NOT NULL \
          UNION ALL \
          SELECT lower(a.alias), h.name FROM core.variant v \
          CROSS JOIN LATERAL jsonb_array_elements_text(v.aliases->'common_names') AS a(alias) \
@@ -720,6 +721,7 @@ pub async fn export_review(
          JOIN tree.haplogroup h ON h.id = hv.haplogroup_id \
          WHERE h.haplogroup_type::text = $1 AND h.valid_until IS NULL \
            AND h.source IS DISTINCT FROM 'decoding-us' \
+           AND v.canonical_name IS NOT NULL \
          UNION ALL \
          SELECT lower(a.alias), h.name FROM core.variant v \
          CROSS JOIN LATERAL jsonb_array_elements_text(v.aliases->'common_names') AS a(alias) \
