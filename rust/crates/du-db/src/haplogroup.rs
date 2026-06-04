@@ -237,11 +237,15 @@ pub async fn existing_tree(
     .bind(&dna)
     .fetch_all(pool)
     .await?;
+    // Merge matches branches by defining-SNP *name*, so UNNAMED variants
+    // (canonical_name NULL — e.g. folded legacy homoplasy/duplicate rows)
+    // contribute nothing and are excluded (also keeps the column non-null).
     let vars: Vec<(i64, String)> = sqlx::query_as(
         "SELECT hv.haplogroup_id, v.canonical_name FROM tree.haplogroup_variant hv \
          JOIN core.variant v ON v.id = hv.variant_id \
          JOIN tree.haplogroup h ON h.id = hv.haplogroup_id \
-         WHERE hv.valid_until IS NULL AND h.haplogroup_type::text = $1 AND h.valid_until IS NULL",
+         WHERE hv.valid_until IS NULL AND h.haplogroup_type::text = $1 AND h.valid_until IS NULL \
+           AND v.canonical_name IS NOT NULL",
     )
     .bind(&dna)
     .fetch_all(pool)
