@@ -1,11 +1,12 @@
 # DecodingUs Rust rewrite — status & handoff
 
-Living snapshot of the Play/Scala 3 → Rust port. Pairs with `README.md` (roadmap)
-and the plan at `~/.claude/plans/robust-knitting-lampson.md`. Last updated 2026-06-04
-(variant naming authority + SNP-graft & curator review surfaces + YBrowse
-mirror/reconcile + variant coordinate enrichment + federation reporting endpoints
-+ Y-STR signatures/prediction/ages + ephemeral-DB test isolation + tree depth
-selector).
+Living snapshot of the Play/Scala 3 → Rust port. Pairs with `README.md` (roadmap).
+Last updated **2026-06-05** (this session: FTDNA Y-tree SNP-graft + `--reattach`;
+recurrent-link scrub; mtDNA tree wired as an FTDNA RSRS foundation; ETL
+`--skip-tree` cutover option — all verified end-to-end. Prior: variant naming
+authority + SNP-graft & curator review surfaces + YBrowse mirror/reconcile +
+variant coordinate enrichment + federation reporting endpoints + Y-STR
+signatures/prediction/ages + ephemeral-DB test isolation + tree depth selector).
 
 ## TL;DR
 
@@ -17,9 +18,12 @@ YBrowse mirror→reconcile catalog pipeline (≈3M variants), federated **report
 
 The launch-critical path is now just two things: **(1) the data cutover** — the
 ETL has been **verified end-to-end against a real production dump** (2026-06-04,
-363 MB / PG 15): all 34 aggregates reconcile; what's left is executing the cutover
-against live/final data — and **(2) the live AT Proto OAuth handshake** (the
-cross-host "Edge joint test").
+363 MB / PG 15): all 34 aggregates reconcile, and the **`--skip-tree` + tree-init**
+cutover flow is verified (prod→`decodingus_cutover`: tree empty, non-tree
+aggregates reconcile, the multi-source tree builds into the empty namespace).
+What's left is *executing* the cutover against live/final data (+ alias-aware mt
+name resolution) — and **(2) the live AT Proto OAuth handshake** (the cross-host
+"Edge joint test").
 The remaining *feature* mass is post-launch: **haplogroup-discovery automation**,
 **multi-test-type completion**, **IBD matching + the social layer**, and
 **sequencer-lab inference** (the AppView coordinates IBD introductions, hosts the

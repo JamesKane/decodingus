@@ -8,11 +8,14 @@ privacy-preserving federated *reporting* (it aggregates, it does not analyze).
 
 **Status:** the spine is done — redesigned schema, data layer, public HTML/HTMX +
 JSON API, auth + the full curator suite, tree versioning + merge + SNP-graft, the
-production ETL, the YBrowse ingestion pipeline, the variant naming authority, and
-the federated reporting mirror. Workspace builds clean; live-DB integration tests
-(gated on `DATABASE_URL`) + unit tests pass. The main remaining mass is the live
-AT-Protocol OAuth handshake (verified to consent locally; confidential round-trip
-is an Edge joint test) and the ETL cutover. See [Roadmap](#roadmap). A living,
+multi-source tree build (ISOGG + decoding-us + FTDNA, Y + mt), the production ETL,
+the YBrowse ingestion pipeline, the variant naming authority, and the federated
+reporting mirror. Workspace builds clean; live-DB integration tests (gated on
+`DATABASE_URL`) + unit tests pass. The data cutover is **verified end-to-end** on a
+real prod dump (ETL `--skip-tree` + tree-init); what's left is executing it and the
+live AT-Protocol OAuth handshake (verified to consent locally; confidential
+round-trip is an Edge joint test), plus the re-scoped federation subsystems (IBD
+coordination, social, sequencer-lab inference). See [Roadmap](#roadmap). A living,
 detailed status lives in [`STATUS.md`](STATUS.md); the feature-by-feature
 comparison with the Scala app is in [`docs/scala-vs-rust-diff.md`](docs/scala-vs-rust-diff.md).
 
@@ -61,15 +64,15 @@ rust/                          (this repo — AppView/server-specific)
     du-external/  OpenAlex / ENA / NCBI / AWS SES / Secrets clients
     du-web/        Axum app: routes, Askama templates, i18n, HTMX, auth, OAuth, JSON API
     du-jobs/       tokio scheduler + scheduled jobs + the Jetstream reporting-mirror consumer
-    du-migrate/    legacy → new-schema ETL + the `decodingus-tree-init` ISOGG/graft loader
-  migrations/     redesigned schema (0001–0020)
+    du-migrate/    legacy → new-schema ETL + the `decodingus-tree-init` tree builder (ISOGG/decoding-us/FTDNA graft, Y + mt)
+  migrations/     redesigned schema (0001–0021)
   locales/        en / es / fr message catalogs
   docs/           STATUS pointers, Scala↔Rust diff, AT-Proto OAuth findings
   scripts/        test-db.sh (Apple container), mock-legacy.sql
   Dockerfile, compose.yaml, .env.example
 ```
 
-## Schema redesign (`migrations/0001`–`0020`)
+## Schema redesign (`migrations/0001`–`0021`)
 
 Postgres schemas: `core`, `tree`, `genomics`, `pubs`, `ident`, `fed`, `ibd`,
 `social`, `support`, `billing`, `source`. Key de-sprawl moves:
@@ -83,9 +86,13 @@ Postgres schemas: `core`, `tree`, `genomics`, `pubs`, `ident`, `fed`, `ibd`,
 - Scattered `at_uri`/`at_cid` columns → one consistent **`atproto` JSONB** column.
 - **Tree** is temporal: no `parent_id`; hierarchy lives in
   `tree.haplogroup_relationship` with bitemporal `valid_from`/`valid_until`.
-- **Universal variant model**: one `core.variant` per physical SNP;
+- **Universal variant model**: one `core.variant` per physical SNP **site**;
   `canonical_name` (nullable — unnamed variants are identified by coordinates),
   `aliases`/`coordinates`/`evidence` JSONB, `naming_status`, `mutation_type`.
+  Coordinates carry `ancestral`/`derived` (the reference genome ≠ phylogenetic
+  root); recurrence (homoplasy) is modeled per-link on `tree.haplogroup_variant`
+  (`ancestral_allele`/`derived_allele`), so forward / back-mutation / recurrent
+  occurrences are representable (mig 0021).
 - PostGIS (`geometry(Point,4326)`), `citext`, native enums, GIN/GiST/expression
   indexes on queried JSONB paths.
 
@@ -145,9 +152,16 @@ A separate **management API** for machine/curator callers lives under
   re-implementation against curated fixtures (the legacy was buggy):
   subtree-scoped matching, ambiguity-flagged-not-guessed, materialized into a
   reviewable change-set.
-- **SNP-anchored graft** (`du-db::snp_graft`) — reconciles an external source tree
-  (decoding-us now, ytree.net later) into the ISOGG foundation by SNP plurality:
-  enrich matches, graft truly-novel branches, flag the rest for curator review.
+- **SNP-anchored graft** (`du-db::snp_graft`) — reconciles external source trees
+  (decoding-us, **FTDNA**) into the **ISOGG foundation** by SNP plurality: enrich
+  matches, graft truly-novel branches, flag the rest for curator review. A
+  `--reattach` mode anchors FTDNA's complete-topology "bushes" via vetted MATCH
+  dispositions when their backbone ancestor is flagged. A **recurrent-link scrub**
+  (`scrub_recurrent_links`) prunes homoplasic / ASR-scatter defining-variant links
+  to each variant's primary lineage. The **mtDNA tree** is FTDNA-only (single RSRS
+  root), loaded as its own foundation (`--ftdna-foundation`). Result: a single-root
+  Y tree (ISOGG-named backbone + decoding-us + full FTDNA depth) + an RSRS-rooted
+  mt tree.
 
 ### Variant Naming Authority
 
@@ -196,9 +210,12 @@ idempotent; runs target migrations then the transformers + a reconciliation pass
 Covers the full production surface — catalog (donors, biosamples, variants, tree,
 studies, publications), ident/auth (users, RBAC, AT-Protocol OAuth/PDS, consent,
 audit), and genomics (labs, instruments, test types, libraries/files, alignment +
-pangenome coverage, genotype data, pangenome graph). Validated against `db.schema`
-(schema-only) and a current-schema mock with seed data. `decodingus-tree-init`
-seeds the Y tree from ISOGG and grafts the decoding-us production tree.
+pangenome coverage, genotype data, pangenome graph). Validated against a real
+production dump — **all aggregates reconcile**. `--skip-tree` omits the legacy
+haplogroup tree (it's built ISOGG-founded by `decodingus-tree-init` instead;
+biosamples carry their haplogroup names as JSON and resolve at read time).
+`decodingus-tree-init` builds the Y tree (ISOGG foundation + graft decoding-us +
+graft FTDNA + scrub) and the mt tree (FTDNA foundation).
 
 ## Getting started
 
@@ -258,10 +275,13 @@ decodingus-migrate \
   --legacy "postgres://user:pass@ec2-host:5432/decodingus?sslmode=require" \
   --target "$DATABASE_URL"            # runs transformers + reconciliation
 
-decodingus-migrate --legacy ... --target ... --verify   # counts only
+decodingus-migrate --legacy ... --target ... --verify      # counts only
+decodingus-migrate --legacy ... --target ... --skip-tree   # skip the tree (build via tree-init)
 ```
 
-Verify the transformers locally first with the mock legacy DB (`scripts/mock-legacy.sql`).
+For the cutover, run **`--skip-tree` first, then `decodingus-tree-init`** (below):
+the tree is built ISOGG-founded rather than migrated, and `tree-init`'s foundation
+load needs the tree namespace empty.
 
 > ⚠️ The transformer `SELECT`s encode the production column layout — validate
 > against the live EC2 schema (or a current-schema dump) before the production run.
@@ -269,10 +289,14 @@ Verify the transformers locally first with the mock legacy DB (`scripts/mock-leg
 ## Seeding / ingesting the tree & variants
 
 ```sh
-# Seed the Y tree from ISOGG, then graft the decoding-us prod tree (Phase 2/3/4):
+# Y tree: ISOGG foundation → graft decoding-us → graft FTDNA (reattach) → scrub:
 decodingus-tree-init --isogg /path/isogg_full_tree.json --apply
 decodingus-tree-init --merge-prod https://decoding-us.com/api/v1/y-tree --snp-graft --graft --apply
-decodingus-tree-init --merge-prod ... --snp-graft --stage-review   # → /curator/reviews
+decodingus-tree-init --ftdna /path/ftdna_ytree.json --graft --reattach --apply
+decodingus-tree-init --scrub-recurrent --apply
+# mt tree: FTDNA is the sole source (single RSRS root) — load as the foundation:
+decodingus-tree-init --ftdna /path/ftdna_mttree.json --ftdna-foundation --dna MT --apply
+# (any step without --apply is a dry-run; --stage-review routes flags to /curator/reviews)
 
 # YBrowse variant ingest (mirror + reconcile); deploy-time, large file:
 YBROWSE_GFF=/path/snps_hg38.gff3 [YBROWSE_CHAIN_GRCH37=… YBROWSE_CHAIN_HS1=…] cargo run -p du-jobs
@@ -289,11 +313,14 @@ build context).
 
 **Done** (✅): redesigned schema + temporal tree; `du-db` aggregates; public read
 surface + JSON API + OpenAPI; auth + the full curator suite; tree versioning +
-merge + SNP-graft + curator merge-review; the variant naming authority; YBrowse
-GFF3 ingestion (mirror + reconcile, synonym/strand/INDEL handling); federated
-reporting mirror + reports; STR signature/prediction + combined branch age;
-`du-bio` core; the scheduled-job suite; the full production ETL; shared crates
-extracted to `decodingus-shared` (git deps).
+merge + SNP-graft + curator merge-review; the **multi-source tree build**
+(ISOGG-founded Y + decoding-us + FTDNA graft/reattach + recurrent-link scrub; mt
+tree from FTDNA) + ancestral-state / recurrence modeling; the variant naming
+authority; YBrowse GFF3 ingestion (mirror + reconcile, synonym/strand/INDEL
+handling); federated reporting mirror + reports; STR signature/prediction +
+combined branch age; `du-bio` core; the scheduled-job suite; the full production
+ETL (verified against a real prod dump, `--skip-tree` cutover option); shared
+crates extracted to `decodingus-shared` (git deps).
 
 **Remaining, in scope** (⬜):
 
@@ -301,17 +328,32 @@ extracted to `decodingus-shared` (git deps).
       to the consent page against a local PDS; the confidential
       `private_key_jwt` round-trip is the **Edge joint test** (see
       `docs/atproto-oauth-findings.md`).
-- [ ] **ETL cutover.** Validate the transformer SQL against a current-schema dump
-      or read-only EC2 rehearsal, then `decodingus-migrate --verify`.
-- [ ] **Region management API + bootstrap-from-CHM13** (the S3/CHM13 pipeline; the
-      region CRUD UI already exists).
+- [ ] **ETL cutover — execution.** ETL + `--skip-tree` verified end-to-end against
+      a real prod dump; what's left is running it for real (freeze prod read-only →
+      dump → prepare locally → ship to AWS → flip) and **alias-aware
+      name-resolution** for biosample→haplogroup (mt has no ISOGG-style alias
+      source; ~15% of mt names need PhyloTree-version mapping).
+- [ ] **IBD matching** — the AppView is the only component that can spot IBD
+      *introduction candidates* across the federation (mine `fed.*` → dual-consent
+      → coordinate the Edge hand-off → persist match state). Placeholder tables
+      (`ibd`); logic forward.
+- [ ] **Social layer** — messaging/consent threads, notifications, blocks, public
+      feed, reputation, group projects (`social`). Underpins IBD consent/notify and
+      stands alone; logic forward.
+- [ ] **Sequencer-lab inference** — instrument-ID → lab lookup API (lets Edge nodes
+      skip a data-entry step) + consensus discovery + curator review. Lab tables
+      exist; logic forward.
 - [ ] **Discovery automation** — the curator review/promote half is built; the
       automated half (private-variant capture, consensus, auto-reassignment) is
       forward work.
 - [ ] **Multi-test-type completion** — taxonomy + chip ingest exist; marker
       coverage / confidence scoring tables are forward work.
+- [ ] **Region management API + bootstrap-from-CHM13** (the S3/CHM13 pipeline; the
+      region CRUD UI already exists).
 
-**Out of scope / not in production** (➖): inbound PDS firehose + fleet, IBD
-matching, social/messaging/reputation, group projects, patronage/billing,
-sequencer-lab inference, AppView→PDS backfeed (superseded by the outbound mirror /
-notify-fetch direction). Several have placeholder tables but no logic.
+**Out of scope / not in production** (➖): inbound PDS firehose + fleet,
+patronage/billing, manual sample ingestion (Navigator does it), AppView→PDS
+backfeed (superseded by the outbound mirror / notify-fetch direction), server-side
+BAM/CRAM. Several have placeholder tables but no logic. (IBD, social, and
+sequencer-lab inference were **re-scoped IN** — the AppView is their federation
+coordinator.)
