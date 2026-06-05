@@ -25,9 +25,9 @@ repository = "https://github.com/decodingus/decodingus"
 # To update: push decodingus-shared, then bump `rev` (or switch to a pushed tag,
 # e.g. `tag = "v0.1.0"`). For local co-dev against working-tree changes, add a
 # [patch] section pointing these back at ../../decodingus-shared/crates/*.
-du-domain  = { git = "https://github.com/JamesKane/decodingus-shared.git", rev = "c659a46878160ffb90a6606e8c4ded75ea7ad419" }
-du-atproto = { git = "https://github.com/JamesKane/decodingus-shared.git", rev = "c659a46878160ffb90a6606e8c4ded75ea7ad419" }
-du-bio     = { git = "https://github.com/JamesKane/decodingus-shared.git", rev = "c659a46878160ffb90a6606e8c4ded75ea7ad419" }
+du-domain  = { git = "https://github.com/JamesKane/decodingus-shared.git", rev = "f975a0835fe67b1e86d919fcb085fca4db1cb1f4" }
+du-atproto = { git = "https://github.com/JamesKane/decodingus-shared.git", rev = "f975a0835fe67b1e86d919fcb085fca4db1cb1f4" }
+du-bio     = { git = "https://github.com/JamesKane/decodingus-shared.git", rev = "f975a0835fe67b1e86d919fcb085fca4db1cb1f4" }
 # Internal (decodingus-only) crates
 du-db = { path = "crates/du-db" }
 du-external = { path = "crates/du-external" }

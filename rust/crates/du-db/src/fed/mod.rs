@@ -22,15 +22,19 @@ pub mod core;
 pub mod coverage;
 pub mod str_profile;
 
-// Collection NSIDs the AppView ingests for reporting.
-pub const NS_ALIGNMENT: &str = "com.decodingus.atmosphere.alignment";
-pub const NS_BIOSAMPLE: &str = "com.decodingus.atmosphere.biosample";
-pub const NS_SEQUENCERUN: &str = "com.decodingus.atmosphere.sequencerun";
+// Collection NSIDs the AppView ingests for reporting. The records Navigator computes +
+// publishes are defined in the shared `du-domain::fed` module, so the NSIDs for those
+// collections are sourced from there — publisher and consumer cannot drift. (project /
+// workspace / genotype / strProfile have no shared record contract yet, so they stay
+// local until one lands.)
+pub const NS_ALIGNMENT: &str = du_domain::fed::NS_ALIGNMENT;
+pub const NS_BIOSAMPLE: &str = du_domain::fed::NS_BIOSAMPLE;
+pub const NS_SEQUENCERUN: &str = du_domain::fed::NS_SEQUENCERUN;
 pub const NS_PROJECT: &str = "com.decodingus.atmosphere.project";
 pub const NS_WORKSPACE: &str = "com.decodingus.atmosphere.workspace";
 pub const NS_GENOTYPE: &str = "com.decodingus.atmosphere.genotype";
-pub const NS_POPULATION_BREAKDOWN: &str = "com.decodingus.atmosphere.populationBreakdown";
-pub const NS_HAPLOGROUP_RECONCILIATION: &str = "com.decodingus.atmosphere.haplogroupReconciliation";
+pub const NS_POPULATION_BREAKDOWN: &str = du_domain::fed::NS_POPULATION_BREAKDOWN;
+pub const NS_HAPLOGROUP_RECONCILIATION: &str = du_domain::fed::NS_HAPLOGROUP_RECONCILIATION;
 pub const NS_STR_PROFILE: &str = "com.decodingus.atmosphere.strProfile";
 
 /// Every collection mirrored for reporting (the consumer's `wantedCollections`).

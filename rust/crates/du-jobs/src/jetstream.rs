@@ -171,8 +171,15 @@ async fn handle(pool: &PgPool, ev: &Event) -> anyhow::Result<()> {
 fn str_at(v: &Value, key: &str) -> Option<String> {
     v.get(key).and_then(Value::as_str).map(String::from)
 }
+/// Read an `f64` that may arrive as a JSON number **or** a numeric string. Navigator's
+/// records encode every float as a string (atproto DAG-CBOR rejects floats), so a plain
+/// `as_f64` would silently drop `meanCoverage`/`confidenceLevel`/`meanInsertSize`.
 fn f64_at(v: &Value, key: &str) -> Option<f64> {
-    v.get(key).and_then(Value::as_f64)
+    match v.get(key) {
+        Some(Value::Number(n)) => n.as_f64(),
+        Some(Value::String(s)) => s.parse::<f64>().ok(),
+        _ => None,
+    }
 }
 fn i32_at(v: &Value, key: &str) -> Option<i32> {
     v.get(key).and_then(Value::as_i64).map(|n| n as i32)
@@ -308,6 +315,28 @@ fn build_genotype(c: fed::Common, record: &Value) -> analytics::Genotype {
 }
 
 fn build_population_breakdown(c: fed::Common, record: &Value) -> analytics::PopulationBreakdown {
+    // Preferred path: parse the shared `du-domain::fed` contract. Its `WireF64` decodes the
+    // string-encoded floats, and the storage projections re-emit real JSON numbers — so the
+    // JSONB `components`/`superPopulationSummary`/`pcaCoordinates` the report UI reads with
+    // `as_f64` hold numbers, not the strings Navigator put on the (float-free) wire.
+    if let Ok(rec) = serde_json::from_value::<du_domain::fed::PopulationBreakdownRecord>(record.clone()) {
+        return analytics::PopulationBreakdown {
+            biosample_ref: rec.biosample_ref.clone(),
+            analysis_method: Some(rec.analysis_method.clone()),
+            panel_type: Some(rec.panel_type.clone()),
+            reference_populations: rec.reference_populations.clone(),
+            snps_analyzed: Some(rec.snps_analyzed as i32),
+            snps_with_genotype: Some(rec.snps_with_genotype as i32),
+            snps_missing: Some(rec.snps_missing as i32),
+            confidence_level: Some(rec.confidence_level_number()),
+            components: rec.components_storage_json(),
+            super_population_summary: rec.super_population_summary_storage_json(),
+            pca_coordinates: rec.pca_coordinates_storage_json(),
+            common: c,
+        };
+    }
+    // Fallback: tolerant field extraction for numeric/foreign producers. `f64_at` accepts
+    // numeric strings, so scalar metrics survive; JSONB arrays pass through as published.
     analytics::PopulationBreakdown {
         biosample_ref: str_at(record, "biosampleRef"),
         analysis_method: str_at(record, "analysisMethod"),
@@ -442,6 +471,39 @@ mod tests {
         assert_eq!(p.panel_type.as_deref(), Some("genome-wide"));
         assert_eq!(p.confidence_level, Some(0.95));
         assert_eq!(p.super_population_summary.as_array().map(|a| a.len()), Some(1));
+    }
+
+    /// The real Navigator wire shape: floats encoded as STRINGS (DAG-CBOR-safe) under the
+    /// shared `du-domain::fed` contract. The typed path must decode them and store real
+    /// JSON numbers, so the report UI's `as_f64` reads on the JSONB arrays succeed.
+    #[test]
+    fn population_breakdown_decodes_string_floats_to_numbers() {
+        let record = json!({
+            "$type": du_db::fed::NS_POPULATION_BREAKDOWN,
+            "biosampleRef": "at://x/bs/1",
+            "analysisMethod": "PCA_PROJECTION_GMM",
+            "panelType": "genome-wide",
+            "snpsAnalyzed": 600000,
+            "snpsWithGenotype": 598000,
+            "snpsMissing": 2000,
+            "confidenceLevel": "0.97",
+            "components": [
+                { "population": "Steppe", "percentage": "49" },
+                { "population": "EEF", "populationName": "Early European Farmer", "percentage": "31" }
+            ],
+            "superPopulationSummary": [{ "superPopulation": "EUR", "percentage": "100", "populations": ["Steppe"] }],
+            "pcaCoordinates": ["0.012", "-0.044"],
+            "meta": { "version": 1, "createdAt": "2026-06-05T00:00:00Z" }
+        });
+        let p = build_population_breakdown(mk_common(), &record);
+        assert_eq!(p.analysis_method.as_deref(), Some("PCA_PROJECTION_GMM"));
+        assert_eq!(p.snps_analyzed, Some(600000));
+        assert_eq!(p.confidence_level, Some(0.97)); // string -> f64
+        // JSONB arrays carry real numbers (what the report UI reads with as_f64).
+        assert_eq!(p.components[0]["percentage"], 49.0);
+        assert_eq!(p.components[1]["populationName"], "Early European Farmer");
+        assert_eq!(p.super_population_summary[0]["percentage"], 100.0);
+        assert_eq!(p.pca_coordinates.as_ref().unwrap()[1], -0.044);
     }
 
     #[test]
