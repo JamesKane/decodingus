@@ -1,5 +1,5 @@
 //! Secondary surfaces: static informational pages (about, FAQ, terms, privacy,
-//! app-password help), SEO endpoints (sitemap.xml, robots.txt), the GDPR
+//! cookies, reputation), SEO endpoints (sitemap.xml, robots.txt), the GDPR
 //! cookie-consent record, the signed-in user's profile, and the public contact
 //! form (reCAPTCHA-protected when configured).
 
@@ -28,7 +28,8 @@ pub fn router() -> Router<AppState> {
         .route("/faq", get(|l, u| page("faq", l, u)))
         .route("/terms", get(|l, u| page("terms", l, u)))
         .route("/privacy", get(|l, u| page("privacy", l, u)))
-        .route("/help/app-password", get(|l, u| page("apppw", l, u)))
+        .route("/cookies", get(|l, u| page("cookies", l, u)))
+        .route("/reputation", get(|l, u| page("reputation", l, u)))
         .route("/sitemap.xml", get(sitemap))
         .route("/robots.txt", get(robots))
         .route("/cookie-consent", post(cookie_consent))
@@ -63,7 +64,8 @@ fn base_url() -> String {
 
 /// The public, indexable pages (curator/auth surfaces are intentionally omitted).
 const PUBLIC_PATHS: &[&str] =
-    &["/", "/ytree", "/mtree", "/variants", "/references", "/coverage-benchmarks", "/about", "/faq", "/terms", "/privacy"];
+    &["/", "/ytree", "/mtree", "/variants", "/references", "/coverage-benchmarks", "/about", "/contact",
+      "/reputation", "/terms", "/privacy", "/cookies", "/faq"];
 
 async fn sitemap() -> Response {
     let base = base_url();
