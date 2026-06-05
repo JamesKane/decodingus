@@ -20,7 +20,10 @@
       <tbody>
         {% for b in rows %}
         <tr title="{{ b.description }}">
-          <td><code>{{ b.accession }}</code></td>
+          <td>
+            {% if b.accession.is_empty() %}<code>{{ b.accession }}</code>
+            {% else %}<a href="/sample/{{ b.accession }}" hx-boost="false"><code>{{ b.accession }}</code></a>{% endif %}
+          </td>
           <td><span class="badge text-bg-light">{{ b.source }}</span></td>
           <td><small>{{ b.alias }}</small></td>
         </tr>

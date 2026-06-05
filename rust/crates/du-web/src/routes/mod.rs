@@ -28,6 +28,7 @@ pub mod publications;
 pub mod reconcile_flags;
 pub mod references;
 pub mod reviews;
+pub mod samples;
 pub mod tree;
 pub mod variants;
 pub mod versioning;
@@ -49,6 +50,7 @@ pub fn app(state: AppState) -> Router {
         .merge(variants::router())
         .merge(tree::router())
         .merge(references::router())
+        .merge(samples::router())
         .merge(maps::router())
         .merge(coverage::router())
         .merge(pages::router())

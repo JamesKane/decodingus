@@ -1084,3 +1084,67 @@ pub async fn split(
     tx.commit().await?;
     Ok(HaplogroupId(child_id))
 }
+
+// ── phylogenetic pathway (for the public per-sample report) ───────────────────
+
+/// One clade on the root→tip pathway: the node, its ages, and its defining SNPs.
+#[derive(Debug, Clone)]
+pub struct PathwayStep {
+    pub haplogroup_id: HaplogroupId,
+    pub name: String,
+    pub formed_ybp: Option<i32>,
+    pub tmrca_ybp: Option<i32>,
+    pub defining_snps: Vec<VariantInfo>,
+}
+
+/// A called haplogroup resolved to its place in the tree, root→tip.
+#[derive(Debug, Clone)]
+pub struct Pathway {
+    pub dna_type: DnaType,
+    /// The name as called on the sample (raw input).
+    pub called_name: String,
+    /// The matched tree node name, or `None` when the call isn't placed in the
+    /// tree (raw caller output, deprecated nomenclature, provisional `~` names).
+    pub resolved_name: Option<String>,
+    /// Root → tip clades. Empty when `resolved_name` is `None`.
+    pub steps: Vec<PathwayStep>,
+}
+
+/// Turn a called haplogroup NAME into its root→tip pathway with branch ages and
+/// defining SNPs, reusing [`resolve_name_or_variant`] / [`get_by_name`] /
+/// [`ancestors`] / [`variants_of`]. When the name can't be resolved to a tree
+/// node, returns a `Pathway` with `resolved_name: None` and no steps (the gap
+/// case) rather than erroring — the report shows the raw call as "not placed".
+pub async fn pathway(pool: &PgPool, called_name: &str, dna_type: DnaType) -> Result<Pathway, DbError> {
+    let gap = |resolved: Option<String>| Pathway {
+        dna_type,
+        called_name: called_name.to_string(),
+        resolved_name: resolved,
+        steps: Vec::new(),
+    };
+    let Some(resolved) = resolve_name_or_variant(pool, called_name, dna_type).await? else {
+        return Ok(gap(None));
+    };
+    let Some(tip) = get_by_name(pool, &resolved, dna_type).await? else {
+        return Ok(gap(None));
+    };
+
+    // root → parent, then append the tip itself for the full chain.
+    let mut chain = ancestors(pool, tip.id).await?;
+    chain.push((tip.id, tip.name.clone()));
+
+    let mut steps = Vec::with_capacity(chain.len());
+    for (id, name) in chain {
+        // ages live on the node; the chain only carries id+name.
+        let node = get_by_id(pool, id).await?;
+        let defining_snps = variants_of(pool, &name, dna_type).await?;
+        steps.push(PathwayStep {
+            haplogroup_id: id,
+            name,
+            formed_ybp: node.as_ref().and_then(|h| h.formed_ybp),
+            tmrca_ybp: node.as_ref().and_then(|h| h.tmrca_ybp),
+            defining_snps,
+        });
+    }
+    Ok(Pathway { dna_type, called_name: called_name.to_string(), resolved_name: Some(resolved), steps })
+}

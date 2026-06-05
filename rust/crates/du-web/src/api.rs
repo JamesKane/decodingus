@@ -180,6 +180,94 @@ impl From<du_domain::biosample::Biosample> for BiosampleDto {
     }
 }
 
+// ── per-sample report DTOs ─────────────────────────────────────────────────────
+
+#[derive(Serialize, ToSchema)]
+pub struct PathwayStepDto {
+    pub name: String,
+    pub formed_ybp: Option<i32>,
+    pub tmrca_ybp: Option<i32>,
+    pub defining_snps: Vec<String>,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct HaplogroupPathwayDto {
+    /// Name as called on the sample.
+    pub called_name: String,
+    /// Matched tree node, or null when the call isn't placed in the tree.
+    pub resolved_name: Option<String>,
+    pub dna_type: String,
+    /// `FED_CONSENSUS` or `ORIGINAL`.
+    pub origin: String,
+    /// Root → tip clades (empty when unplaced).
+    pub steps: Vec<PathwayStepDto>,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct SequencingRunDto {
+    pub platform_name: Option<String>,
+    pub instrument_model: Option<String>,
+    pub test_type: Option<String>,
+    pub library_layout: Option<String>,
+    pub total_reads: Option<i64>,
+    pub read_length: Option<i32>,
+    pub mean_insert_size: Option<f64>,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct CoverageSummaryDto {
+    pub reference_build: Option<String>,
+    pub aligner: Option<String>,
+    pub mean_coverage: Option<f64>,
+    pub median_coverage: Option<f64>,
+    pub pct_10x: Option<f64>,
+    pub pct_20x: Option<f64>,
+    pub pct_30x: Option<f64>,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct AncestryDto {
+    pub analysis_method: Option<String>,
+    pub panel_type: Option<String>,
+    pub confidence_level: Option<f64>,
+    /// Continental rollup: `[{superPopulation, percentage}]`.
+    #[schema(value_type = Object)]
+    pub super_populations: serde_json::Value,
+    /// Sub-continental percentages (payload shape passed through verbatim).
+    #[schema(value_type = Object)]
+    pub components: serde_json::Value,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct SamplePublicationDto {
+    pub id: i64,
+    pub title: String,
+    pub doi: Option<String>,
+    pub url: Option<String>,
+    pub publication_date: Option<chrono::NaiveDate>,
+}
+
+/// The public per-sample report (mirrors the `/sample/:slug` page).
+#[derive(Serialize, ToSchema)]
+pub struct SampleReportDto {
+    pub sample_guid: String,
+    pub source: String,
+    pub accession: Option<String>,
+    pub alias: Option<String>,
+    pub description: Option<String>,
+    pub center_name: Option<String>,
+    pub sex: Option<String>,
+    pub latitude: Option<f64>,
+    pub longitude: Option<f64>,
+    pub is_federated: bool,
+    pub y_haplogroup: Option<HaplogroupPathwayDto>,
+    pub mt_haplogroup: Option<HaplogroupPathwayDto>,
+    pub sequencing: Vec<SequencingRunDto>,
+    pub coverage: Vec<CoverageSummaryDto>,
+    pub ancestry: Option<AncestryDto>,
+    pub publications: Vec<SamplePublicationDto>,
+}
+
 #[derive(Serialize, ToSchema)]
 pub struct GenomeRegionDto {
     pub id: i64,
@@ -559,6 +647,125 @@ async fn biosample_report(
     Ok(Json(page.into()))
 }
 
+/// Best display name for a defining variant: canonical name, else first alias.
+fn snp_name(v: &du_db::haplogroup::VariantInfo) -> Option<String> {
+    if let Some(n) = v.canonical_name.as_deref().filter(|s| !s.is_empty()) {
+        return Some(n.to_string());
+    }
+    v.aliases
+        .get("common_names")
+        .and_then(serde_json::Value::as_array)
+        .and_then(|a| a.first())
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string)
+}
+
+fn pathway_dto(call: &du_db::biosample::HaplogroupCall, p: du_db::haplogroup::Pathway) -> HaplogroupPathwayDto {
+    use du_db::biosample::HaplogroupCallOrigin;
+    HaplogroupPathwayDto {
+        called_name: call.name.clone(),
+        resolved_name: p.resolved_name,
+        dna_type: call.dna_type.label().to_string(),
+        origin: match call.origin {
+            HaplogroupCallOrigin::FedConsensus => "FED_CONSENSUS",
+            HaplogroupCallOrigin::Original => "ORIGINAL",
+        }
+        .to_string(),
+        steps: p
+            .steps
+            .into_iter()
+            .map(|s| PathwayStepDto {
+                name: s.name,
+                formed_ybp: s.formed_ybp,
+                tmrca_ybp: s.tmrca_ybp,
+                defining_snps: s.defining_snps.iter().filter_map(snp_name).collect(),
+            })
+            .collect(),
+    }
+}
+
+#[utoipa::path(get, path = "/api/v1/samples/{slug}",
+    params(("slug" = String, Path, description = "Sample slug, accession, alias, or guid")), tag = "references",
+    responses((status = 200, description = "Public per-sample report", body = SampleReportDto),
+               (status = 404, description = "Not found or not public")))]
+async fn sample_report(State(st): State<AppState>, Path(slug): Path<String>) -> Result<Json<SampleReportDto>, AppError> {
+    // The API never exposes private samples (no curator preview here).
+    let rep = du_db::biosample::report(&st.pool, &slug)
+        .await?
+        .filter(|r| r.identity.is_public)
+        .ok_or_else(|| AppError::NotFound(format!("sample {slug}")))?;
+
+    let y_haplogroup = match &rep.y {
+        Some(c) => Some(pathway_dto(c, du_db::haplogroup::pathway(&st.pool, &c.name, c.dna_type).await?)),
+        None => None,
+    };
+    let mt_haplogroup = match &rep.mt {
+        Some(c) => Some(pathway_dto(c, du_db::haplogroup::pathway(&st.pool, &c.name, c.dna_type).await?)),
+        None => None,
+    };
+
+    let id = &rep.identity;
+    let dto = SampleReportDto {
+        sample_guid: id.sample_guid.0.to_string(),
+        source: id.source.label().to_string(),
+        accession: id.accession.clone(),
+        alias: id.alias.clone(),
+        description: id.description.clone(),
+        center_name: id.center_name.clone(),
+        sex: id.sex.clone(),
+        latitude: id.origin.map(|o| o.lat),
+        longitude: id.origin.map(|o| o.lon),
+        is_federated: id.is_federated,
+        y_haplogroup,
+        mt_haplogroup,
+        sequencing: rep
+            .sequencing
+            .iter()
+            .map(|r| SequencingRunDto {
+                platform_name: r.platform_name.clone(),
+                instrument_model: r.instrument_model.clone(),
+                test_type: r.test_type.clone(),
+                library_layout: r.library_layout.clone(),
+                total_reads: r.total_reads,
+                read_length: r.read_length,
+                mean_insert_size: r.mean_insert_size,
+            })
+            .collect(),
+        coverage: rep
+            .coverage
+            .iter()
+            .map(|c| CoverageSummaryDto {
+                reference_build: c.reference_build.clone(),
+                aligner: c.aligner.clone(),
+                mean_coverage: c.mean_coverage,
+                median_coverage: c.median_coverage,
+                pct_10x: c.pct_10x,
+                pct_20x: c.pct_20x,
+                pct_30x: c.pct_30x,
+            })
+            .collect(),
+        ancestry: rep.ancestry.as_ref().map(|a| AncestryDto {
+            analysis_method: a.analysis_method.clone(),
+            panel_type: a.panel_type.clone(),
+            confidence_level: a.confidence_level,
+            super_populations: a.super_populations.clone(),
+            components: a.components.clone(),
+        }),
+        publications: rep
+            .publications
+            .iter()
+            .map(|p| SamplePublicationDto {
+                id: p.id.0,
+                title: p.title.clone(),
+                doi: p.doi.clone(),
+                url: p.url.clone(),
+                publication_date: p.publication_date,
+            })
+            .collect(),
+    };
+    Ok(Json(dto))
+}
+
 #[utoipa::path(get, path = "/api/v1/biosample/studies", tag = "references",
     responses((status = 200, description = "Genomic studies with their linked samples", body = [StudyDto])))]
 async fn biosample_studies(State(st): State<AppState>) -> Result<Json<Vec<StudyDto>>, AppError> {
@@ -704,7 +911,7 @@ fn csv_field(s: &str) -> String {
 #[openapi(
     info(title = "DecodingUs API", version = "1.0.0", description = "Public read API for the DecodingUs AppView."),
     paths(
-        y_tree, mt_tree, coverage_benchmarks, references_details, biosample_report, biosample_studies,
+        y_tree, mt_tree, coverage_benchmarks, references_details, biosample_report, sample_report, biosample_studies,
         list_variants, get_variant, variants_by_haplogroup, export_metadata, export_variants,
         export_variants_gff, list_region_builds, regions_by_build,
         reports_coverage, reports_ancestry, reports_haplogroups,
@@ -712,6 +919,8 @@ fn csv_field(s: &str) -> String {
     ),
     components(schemas(
         VariantDto, HaplogroupNodeDto, TreeDto, CoverageBenchmarkDto, PublicationDto, BiosampleDto,
+        SampleReportDto, HaplogroupPathwayDto, PathwayStepDto, SequencingRunDto, CoverageSummaryDto,
+        AncestryDto, SamplePublicationDto,
         GenomeRegionDto, StudyDto, ExportMetadataDto, Page<VariantDto>, Page<PublicationDto>, Page<BiosampleDto>,
         FedCoverageByBuildDto, AncestryShareDto, HaplogroupCountDto, StrSignatureMarkerDto,
         StrPredictRequest, StrPredictionDto, StrPredictResponseDto, AgeEstimateDto,
@@ -737,6 +946,7 @@ pub fn router() -> Router<AppState> {
         .route("/api/v1/reports/haplogroups", get(reports_haplogroups))
         .route("/api/v1/references/details", get(references_details))
         .route("/api/v1/references/details/:publication_id/biosamples", get(biosample_report))
+        .route("/api/v1/samples/:slug", get(sample_report))
         .route("/api/v1/biosample/studies", get(biosample_studies))
         .route("/api/v1/variants", get(list_variants))
         .route("/api/v1/variants/export", get(export_variants))
