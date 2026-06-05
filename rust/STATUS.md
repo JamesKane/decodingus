@@ -347,9 +347,17 @@ investigation + recipe in memory [[tree-source-merge]]. Decisions:
   173 unanchored; ~19 land on `CT`), source names folded in as aliases, ~42k
   variants coord-enriched from FTDNA anc/der+position. Spot-verified:
   `I-BY136871 → I1a3a1b`, `G-FTH55879 → G2a2b2a1a1b1a1`; basal nodes near-empty.
-- **JUNK LINKS (real data-quality to-do):** ~3,063 catalog variants are linked to
-  >1 unrelated haplogroup (decoding-us ASR scatter onto A00/H/O), which nearly
-  broke the FTDNA reattach. Worth scrubbing independently — bad data regardless.
+- **JUNK LINKS — SCRUBBED (commit 7a0487d).** ~1.2k catalog variants were linked
+  to haplogroups across unrelated macro-clades (decoding-us ASR scatter onto
+  A00/H/O; also FTDNA shared-SNP blocks), which nearly broke the FTDNA reattach.
+  `du_db::haplogroup::scrub_recurrent_links` (`tree-init --scrub-recurrent
+  [--apply]`) keeps each variant's primary (most-concentrated) lineage — by tree
+  ancestry, not names — and soft-deletes the off-lineage occurrences (self-name
+  tiebreak for fully-scattered cases, e.g. `CTS9108`). Operates only on
+  `haplogroup_variant`, never on topology. Applied to `decodingus_hybrid2`:
+  cross-macro-clade variants 1,200 → 1, 10,908 links pruned, 81,297 nodes
+  unchanged. The 45 residue on `decodingus_etl` are legitimate basal chains
+  (Y→I1, NO→O) the ancestry criterion correctly keeps.
 
 ## Key decisions & gotchas (don't relearn these)
 
