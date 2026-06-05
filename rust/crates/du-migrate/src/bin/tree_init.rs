@@ -69,6 +69,11 @@ struct Args {
     /// already loaded (the merge is not safely re-runnable against itself).
     #[arg(long)]
     reprocess: bool,
+    /// Scrub recurrent (homoplasic / ASR-scatter) defining-variant links: a variant
+    /// linked off a single lineage keeps only its primary-lineage link, the
+    /// off-lineage occurrences are soft-deleted. Dry-run report unless --apply.
+    #[arg(long)]
+    scrub_recurrent: bool,
     /// DNA type (Y or MT). ISOGG/this tool target Y.
     #[arg(long, default_value = "Y")]
     dna: String,
@@ -599,6 +604,25 @@ async fn main() -> anyhow::Result<()> {
             collect_variant_aliases(root, &mut va);
             let n = du_db::variant::set_aliases_bulk(&pool, &va).await?;
             tracing::info!(variant_aliases = n, groups = va.len(), "populated core.variant.aliases");
+        }
+    }
+
+    // 5. Scrub recurrent (homoplasic / ASR-scatter) defining-variant links. Runs on
+    //    demand (standalone or after a merge); dry-run unless --apply.
+    if args.scrub_recurrent {
+        let r = du_db::haplogroup::scrub_recurrent_links(&pool, dna, args.apply).await?;
+        tracing::info!(
+            examined = r.variants_examined,
+            recurrent = r.variants_scrubbed,
+            links_removed = r.links_removed,
+            applied = args.apply,
+            "scrubbed recurrent off-lineage links"
+        );
+        for s in &r.samples {
+            tracing::info!("  e.g. {s}");
+        }
+        if !args.apply {
+            tracing::warn!("dry-run: re-run with --apply to soft-delete the off-lineage links");
         }
     }
 

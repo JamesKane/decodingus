@@ -538,6 +538,150 @@ pub async fn recompute_backbone(pool: &PgPool, dna_type: DnaType) -> Result<i64,
     Ok(n)
 }
 
+/// Summary of a recurrence scrub: how many multi-linked variants were examined,
+/// how many were recurrent (links off a single lineage), the off-lineage links
+/// soft-deleted, and a few human-readable samples.
+#[derive(Debug, Clone)]
+pub struct ScrubReport {
+    pub variants_examined: usize,
+    pub variants_scrubbed: usize,
+    pub links_removed: usize,
+    pub samples: Vec<String>,
+}
+
+/// Remove "recurrent" (homoplasic / ASR-scatter) defining-variant links. A single
+/// variant linked to haplogroups that do NOT all lie on one ancestor-descendant
+/// lineage is treated as recurrent: keep only the link(s) on its primary
+/// (most-concentrated) lineage and soft-delete the off-lineage occurrences. Uses
+/// the tree's ancestry, not names — so `CTS9108` keeps its O-lineage and drops the
+/// scattered I/J occurrences. `apply=false` reports without writing.
+pub async fn scrub_recurrent_links(
+    pool: &PgPool,
+    dna_type: DnaType,
+    apply: bool,
+) -> Result<ScrubReport, DbError> {
+    use std::collections::{HashMap, HashSet};
+    let dna = pg_enum_label(&dna_type)?;
+
+    // Parent edges (child -> parent) for this DNA tree.
+    let edges: Vec<(i64, Option<i64>)> = sqlx::query_as(
+        "SELECT r.child_haplogroup_id, r.parent_haplogroup_id \
+           FROM tree.haplogroup_relationship r \
+           JOIN tree.haplogroup h ON h.id = r.child_haplogroup_id AND h.valid_until IS NULL \
+          WHERE r.valid_until IS NULL AND h.haplogroup_type::text = $1",
+    )
+    .bind(&dna)
+    .fetch_all(pool)
+    .await?;
+    let mut parent_of: HashMap<i64, i64> = HashMap::new();
+    for (c, p) in edges {
+        if let Some(p) = p {
+            parent_of.insert(c, p);
+        }
+    }
+
+    // Current defining-variant links: (link_id, variant_id, haplogroup_id, hg_name, variant_name).
+    let links: Vec<(i64, i64, i64, String, Option<String>)> = sqlx::query_as(
+        "SELECT hv.id, hv.variant_id, hv.haplogroup_id, h.name, v.canonical_name \
+           FROM tree.haplogroup_variant hv \
+           JOIN tree.haplogroup h ON h.id = hv.haplogroup_id AND h.valid_until IS NULL \
+           JOIN core.variant v ON v.id = hv.variant_id \
+          WHERE hv.valid_until IS NULL AND h.haplogroup_type::text = $1",
+    )
+    .bind(&dna)
+    .fetch_all(pool)
+    .await?;
+
+    // Group links by variant: variant_id -> (variant_name, [(link_id, hg_id, hg_name)]).
+    let mut by_variant: HashMap<i64, (Option<String>, Vec<(i64, i64, String)>)> = HashMap::new();
+    for (lid, vid, hid, hname, vname) in links {
+        let e = by_variant.entry(vid).or_insert_with(|| (vname, Vec::new()));
+        e.1.push((lid, hid, hname));
+    }
+
+    // node + all its ancestors (root-ward path), with a cycle guard.
+    let path_to_root = |start: i64| -> HashSet<i64> {
+        let mut seen = HashSet::new();
+        let mut cur = Some(start);
+        while let Some(n) = cur {
+            if !seen.insert(n) {
+                break;
+            }
+            cur = parent_of.get(&n).copied();
+        }
+        seen
+    };
+
+    let mut to_remove: Vec<i64> = Vec::new();
+    let mut variants_examined = 0usize;
+    let mut variants_scrubbed = 0usize;
+    let mut samples: Vec<String> = Vec::new();
+
+    for (vname, group) in by_variant.values() {
+        if group.len() < 2 {
+            continue;
+        }
+        variants_examined += 1;
+        let hids: Vec<i64> = group.iter().map(|(_, h, _)| *h).collect();
+        let vn = vname.as_deref().unwrap_or("");
+        // The linked node whose root-ward path captures the most other linked
+        // nodes is the tip of the primary lineage. When concentration ties (e.g.
+        // a fully-scattered recurrent SNP, every count == 1), prefer the branch
+        // NAMED after the SNP (`CTS9108` → `O-CTS9108`), then the deeper node.
+        let mut best_path: HashSet<i64> = HashSet::new();
+        let mut best_key = (0usize, false, 0usize); // (concentration, self_named, depth)
+        for (_, hid, hname) in group {
+            let path = path_to_root(*hid);
+            let count = hids.iter().filter(|h| path.contains(h)).count();
+            let self_named = !vn.is_empty()
+                && hname.split(['-', '/']).any(|seg| seg.eq_ignore_ascii_case(vn));
+            let key = (count, self_named, path.len());
+            if key > best_key {
+                best_key = key;
+                best_path = path;
+            }
+        }
+        let best_count = best_key.0;
+        if best_count == group.len() {
+            continue; // all links on one lineage → legitimate chain, keep all
+        }
+        variants_scrubbed += 1;
+        let mut dropped: Vec<String> = Vec::new();
+        for (lid, hid, hname) in group {
+            if !best_path.contains(hid) {
+                to_remove.push(*lid);
+                dropped.push(hname.clone());
+            }
+        }
+        if samples.len() < 12 {
+            let v = vname.as_deref().unwrap_or("(unnamed)");
+            samples.push(format!("{v}: dropped {}", dropped.join(", ")));
+        }
+    }
+
+    let mut links_removed = 0usize;
+    if apply {
+        for chunk in to_remove.chunks(1000) {
+            links_removed += sqlx::query(
+                "UPDATE tree.haplogroup_variant SET valid_until = now() WHERE id = ANY($1)",
+            )
+            .bind(chunk)
+            .execute(pool)
+            .await?
+            .rows_affected() as usize;
+        }
+    } else {
+        links_removed = to_remove.len();
+    }
+
+    Ok(ScrubReport {
+        variants_examined,
+        variants_scrubbed,
+        links_removed,
+        samples,
+    })
+}
+
 /// Store a haplogroup's alternate (deprecated) names under `provenance.aliases`
 /// for alternate search. Replaces any existing alias list.
 pub async fn set_aliases(
