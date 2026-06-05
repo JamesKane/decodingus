@@ -92,10 +92,18 @@ const CHECKS: &[Check] = &[
     Check { label: "genotype_data", legacy_sql: "SELECT count(*) FROM public.genotype_data WHERE deleted IS NOT TRUE", target_sql: "SELECT count(*) FROM genomics.genotype_data" },
 ];
 
-pub async fn run(legacy: &PgPool, target: &PgPool) -> anyhow::Result<()> {
+/// Tree-structure checks skipped under `--skip-tree` (the tree is built by
+/// decodingus-tree-init, so its counts won't match the legacy tree).
+const TREE_CHECKS: &[&str] = &["haplogroup", "haplogroup_relationship", "haplogroup_variant"];
+
+pub async fn run(legacy: &PgPool, target: &PgPool, skip_tree: bool) -> anyhow::Result<()> {
     let mut mismatches = 0;
     println!("{:<26} {:>10} {:>10}  status", "aggregate", "legacy", "target");
     for c in CHECKS {
+        if skip_tree && TREE_CHECKS.contains(&c.label) {
+            println!("{:<26} {:>10} {:>10}  {}", c.label, "-", "-", "skipped (tree-init)");
+            continue;
+        }
         let l: i64 = sqlx::query_scalar(c.legacy_sql).fetch_one(legacy).await?;
         let t: i64 = sqlx::query_scalar(c.target_sql).fetch_one(target).await?;
         let status = if l == t {

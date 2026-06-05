@@ -30,6 +30,13 @@ struct Args {
     /// Reconcile counts only; perform no writes.
     #[arg(long)]
     verify: bool,
+    /// Skip migrating the legacy phylogenetic tree (haplogroup / relationship /
+    /// variant-link). Use when the tree is built separately by `decodingus-tree-init`
+    /// (ISOGG-founded + SNP-graft) into the empty tree namespace — biosamples carry
+    /// their haplogroup names as JSON and resolve against that tree at read time.
+    /// The 3 tree reconcile checks are skipped too. Run ETL first, then tree-init.
+    #[arg(long)]
+    skip_tree: bool,
 }
 
 #[tokio::main]
@@ -46,7 +53,7 @@ async fn main() -> anyhow::Result<()> {
     let target = du_db::connect(&args.target, 4).await?;
 
     if args.verify {
-        reconcile::run(&legacy, &target).await?;
+        reconcile::run(&legacy, &target, args.skip_tree).await?;
         return Ok(());
     }
 
@@ -73,9 +80,15 @@ async fn main() -> anyhow::Result<()> {
     transform::specimen_donor(&legacy, &target).await?;
     transform::biosample(&legacy, &target).await?;
     transform::variant(&legacy, &target).await?;
-    transform::haplogroup(&legacy, &target).await?;
-    transform::haplogroup_relationship(&legacy, &target).await?;
-    transform::haplogroup_variant(&legacy, &target).await?;
+    // The phylogenetic tree is built separately by decodingus-tree-init (ISOGG
+    // foundation + SNP-graft); --skip-tree leaves the namespace empty for it.
+    if args.skip_tree {
+        tracing::info!("--skip-tree: skipping legacy haplogroup tree (build via decodingus-tree-init)");
+    } else {
+        transform::haplogroup(&legacy, &target).await?;
+        transform::haplogroup_relationship(&legacy, &target).await?;
+        transform::haplogroup_variant(&legacy, &target).await?;
+    }
     transform::genomic_study(&legacy, &target).await?;
     transform::publication(&legacy, &target).await?;
     transform::publication_biosample(&legacy, &target).await?;
@@ -99,6 +112,6 @@ async fn main() -> anyhow::Result<()> {
 
     transform::fix_sequences(&target).await?;
     tracing::info!("ETL complete; reconciling");
-    reconcile::run(&legacy, &target).await?;
+    reconcile::run(&legacy, &target, args.skip_tree).await?;
     Ok(())
 }
