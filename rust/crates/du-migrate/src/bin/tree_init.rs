@@ -30,10 +30,16 @@ struct Args {
     /// merge only the prod tree, or to --reprocess an already-loaded tree.
     #[arg(long)]
     isogg: Option<String>,
-    /// Path to the FTDNA haplotree JSON (`allNodes` map). Always SNP-anchor
-    /// grafted onto the loaded catalog; `kitsCount==0` nodes are private (skipped).
+    /// Path to the FTDNA haplotree JSON (`allNodes` map). SNP-anchor grafted onto
+    /// the loaded catalog (default); `kitsCount==0` nodes are private (skipped).
     #[arg(long)]
     ftdna: Option<String>,
+    /// Load the --ftdna tree as the FOUNDATION (merge_into into an empty tree)
+    /// instead of grafting. Used for the mt-tree, which is FTDNA-only (single RSRS
+    /// root). Keeps backbone/internal nodes even at kitsCount==0; drops only
+    /// private leaves (kitsCount==0 with no kept descendants).
+    #[arg(long)]
+    ftdna_foundation: bool,
     /// Optional: URL of the decoding-us production Y-tree to merge in.
     #[arg(long)]
     merge_prod: Option<String>,
@@ -289,6 +295,56 @@ fn ftdna_graft_nodes(root: &Value) -> Vec<du_db::snp_graft::SourceNode> {
             })
         })
         .collect()
+}
+
+/// Build a nested `du_domain::merge::SourceNode` forest from FTDNA's `allNodes`
+/// for a FOUNDATION load (merge_into into an empty tree) — used for the mt-tree,
+/// which is FTDNA-only (single RSRS root). Unlike [`ftdna_graft_nodes`], this
+/// keeps backbone/internal nodes even at `kitsCount==0` (RSRS and many splits
+/// have no terminal kits but ARE real haplogroups); only private LEAVES
+/// (`kitsCount==0` with no kept descendants) are dropped. `variants` are the
+/// FTDNA variant names (e.g. mt `G263A`).
+fn ftdna_foundation_roots(root: &Value) -> Vec<SourceNode> {
+    use std::collections::HashMap;
+    let Some(all) = root.get("allNodes").and_then(Value::as_object) else { return Vec::new() };
+    let by_id: HashMap<i64, &Value> =
+        all.values().filter_map(|n| n.get("haplogroupId").and_then(Value::as_i64).map(|id| (id, n))).collect();
+    let mut children_of: HashMap<i64, Vec<i64>> = HashMap::new();
+    let mut roots: Vec<i64> = Vec::new();
+    for n in all.values() {
+        let Some(id) = n.get("haplogroupId").and_then(Value::as_i64) else { continue };
+        match n.get("parentId").and_then(Value::as_i64) {
+            Some(pid) if pid != 0 && by_id.contains_key(&pid) => children_of.entry(pid).or_default().push(id),
+            _ => roots.push(id),
+        }
+    }
+    let kits = |n: &Value| n.get("kitsCount").and_then(Value::as_i64).unwrap_or(0);
+    // Bottom-up: a node is kept if it has terminal kits OR any kept descendant.
+    fn build(
+        id: i64,
+        by_id: &HashMap<i64, &Value>,
+        kids: &HashMap<i64, Vec<i64>>,
+        kits: &dyn Fn(&Value) -> i64,
+    ) -> Option<SourceNode> {
+        let n = *by_id.get(&id)?;
+        let children: Vec<SourceNode> = kids
+            .get(&id)
+            .into_iter()
+            .flatten()
+            .filter_map(|&c| build(c, by_id, kids, kits))
+            .collect();
+        if kits(n) < 1 && children.is_empty() {
+            return None; // private leaf
+        }
+        let name = n.get("name").and_then(Value::as_str)?.to_string();
+        let variants = n
+            .get("variants")
+            .and_then(Value::as_array)
+            .map(|a| a.iter().filter_map(|v| v.get("variant").and_then(Value::as_str)).filter(|s| !s.is_empty()).map(str::to_string).collect())
+            .unwrap_or_default();
+        Some(SourceNode { name, variants, children })
+    }
+    roots.iter().filter_map(|&r| build(r, &by_id, &children_of, &kits)).collect()
 }
 
 /// FTDNA per-variant GRCh38 coordinates as `(snp_name, coords-jsonb)` for
@@ -564,20 +620,36 @@ async fn main() -> anyhow::Result<()> {
             }
         }
 
-        // 3. Optional: SNP-anchor graft the FTDNA haplotree onto the loaded catalog.
+        // 3. Load the FTDNA haplotree — as a FOUNDATION (mt: FTDNA-only, single RSRS
+        //    root) or SNP-anchor grafted onto the loaded catalog (Y: onto ISOGG).
         if let Some(path) = &args.ftdna {
-            tracing::info!(%path, "loading FTDNA haplotree");
+            tracing::info!(%path, foundation = args.ftdna_foundation, "loading FTDNA haplotree");
             let body: Value = serde_json::from_str(&std::fs::read_to_string(path)?)?;
-            // Enrich coordinates fill-if-absent from FTDNA's anc/der + GRCh38 position.
-            let coords = ftdna_variant_coords(&body, if dna == DnaType::YDna { "chrY" } else { "chrM" });
-            if args.apply {
-                let n = du_db::variant::set_coordinates_bulk(&pool, &coords).await?;
-                tracing::info!(rows = coords.len(), updated = n, "enriched coordinates from FTDNA (existing builds win)");
+            let contig = if dna == DnaType::YDna { "chrY" } else { "chrM" };
+            if args.ftdna_foundation {
+                // Foundation: merge into the empty tree (all created), THEN enrich
+                // coordinates (the variants don't exist until the merge runs).
+                let roots = ftdna_foundation_roots(&body);
+                merge_into(&pool, &roots, "FTDNA", dna, dna_label, &args.by, args.apply).await?;
+                let coords = ftdna_variant_coords(&body, contig);
+                if args.apply {
+                    let n = du_db::variant::set_coordinates_bulk(&pool, &coords).await?;
+                    tracing::info!(rows = coords.len(), updated = n, "enriched FTDNA foundation coordinates");
+                } else {
+                    tracing::info!(rows = coords.len(), "DRY-RUN: would enrich coordinates (pass --apply)");
+                }
             } else {
-                tracing::info!(rows = coords.len(), "DRY-RUN: would enrich coordinates from FTDNA (pass --apply)");
+                // Graft: enrich coordinates fill-if-absent, then SNP-anchor graft.
+                let coords = ftdna_variant_coords(&body, contig);
+                if args.apply {
+                    let n = du_db::variant::set_coordinates_bulk(&pool, &coords).await?;
+                    tracing::info!(rows = coords.len(), updated = n, "enriched coordinates from FTDNA (existing builds win)");
+                } else {
+                    tracing::info!(rows = coords.len(), "DRY-RUN: would enrich coordinates from FTDNA (pass --apply)");
+                }
+                let source = ftdna_graft_nodes(&body);
+                run_snp_graft(&pool, &source, dna, "FTDNA", &args).await?;
             }
-            let source = ftdna_graft_nodes(&body);
-            run_snp_graft(&pool, &source, dna, "FTDNA", &args).await?;
         }
     }
 
@@ -680,5 +752,48 @@ fn collect_aliases(node: &Value, out: &mut Vec<(String, Vec<String>)>) {
         for c in children {
             collect_aliases(c, out);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    /// The mt foundation builder keeps backbone/internal nodes even at
+    /// kitsCount==0 (RSRS, splits with no terminal kits) and drops only private
+    /// leaves (kitsCount==0 with no kept descendants). The empty root variant is
+    /// filtered, real variant names are carried.
+    #[test]
+    fn ftdna_foundation_keeps_backbone_drops_private_leaves() {
+        let tree = json!({"allNodes": {
+            "4350": {"haplogroupId":4350,"parentId":0,"name":"RSRS","kitsCount":0,
+                     "variants":[{"variant":"","snpId":0}]},
+            "4351": {"haplogroupId":4351,"parentId":4350,"name":"L0","kitsCount":9,
+                     "variants":[{"variant":"G263A","position":263,"ancestral":"G","derived":"A"}]},
+            "4352": {"haplogroupId":4352,"parentId":4351,"name":"PRIV","kitsCount":0,
+                     "variants":[{"variant":"A1G"}]},
+            "4353": {"haplogroupId":4353,"parentId":4351,"name":"BACKBONE","kitsCount":0,
+                     "variants":[{"variant":"C2T"}]},
+            "4354": {"haplogroupId":4354,"parentId":4353,"name":"L0a","kitsCount":2,
+                     "variants":[{"variant":"T3C"}]}
+        }});
+        let roots = ftdna_foundation_roots(&tree);
+        assert_eq!(roots.len(), 1, "single RSRS root");
+        let rsrs = &roots[0];
+        assert_eq!(rsrs.name, "RSRS");
+        assert!(rsrs.variants.is_empty(), "empty root variant filtered out");
+        // RSRS (kits=0) kept because it has descendants.
+        assert_eq!(rsrs.children.len(), 1);
+        let l0 = &rsrs.children[0];
+        assert_eq!(l0.name, "L0");
+        assert_eq!(l0.variants, vec!["G263A".to_string()]);
+        // PRIV (private leaf, kits=0, no children) dropped; BACKBONE (kits=0 but
+        // has a public child) kept.
+        let kids: Vec<&str> = l0.children.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(kids, vec!["BACKBONE"], "private leaf dropped, backbone kept");
+        let backbone = &l0.children[0];
+        let gk: Vec<&str> = backbone.children.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(gk, vec!["L0a"], "public grandchild retained under backbone");
     }
 }
