@@ -175,10 +175,17 @@ Launch-critical first, then the post-launch feature mass.
 
 1. **Cutover** (see "Cutover strategy") — ETL verified end-to-end. Chosen strategy:
    freeze prod read-only → fresh dump → prepare locally (ETL data + ISOGG-founded
-   tree build) → `pg_dump` → restore on AWS → flip. The one build task left is a
-   **`--skip-tree`** ETL option (so the tree is built ISOGG-founded by `tree-init`
-   instead of migrating the prod decoding-us tree), plus an alias-aware
-   name-resolution check.
+   tree build) → `pg_dump` → restore on AWS → flip. **`--skip-tree` DONE** (commit
+   0f83dbc): `decodingus-migrate --skip-tree` skips the 3 tree transforms +
+   reconcile checks (the tree is built by `tree-init` into the empty namespace);
+   biosamples carry haplogroup names as JSON and resolve at read time; `core.variant`
+   still migrates (tree-init reuses by `canonical_name`). Cutover order: migrate
+   `--skip-tree` → tree-init. Verified prod→`decodingus_cutover`: tree empty, all
+   non-tree aggregates reconcile, mt-tree built into it, 1,444/1,687 biosample mt
+   names resolve by name. **Remaining:** alias-aware resolution for the ~14% mt /
+   the Y aliases (mt has no ISOGG-style alias source — PhyloTree-version mapping is
+   a follow-up), and a perf pass on the per-variant `ON CONFLICT (canonical_name)`
+   against the 2.9M-row catalog (1s slow-statement during the tree build).
 2. **Live AT Protocol OAuth handshake — the cross-host "Edge joint test."** Library
    + a dev public-client path are verified locally up to the **consent click**
    (gated `decodingus-shared/.../tests/live_pds.rs`: discovery + PAR + DPoP +
