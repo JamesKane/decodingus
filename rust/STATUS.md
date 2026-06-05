@@ -359,6 +359,26 @@ investigation + recipe in memory [[tree-source-merge]]. Decisions:
   unchanged. The 45 residue on `decodingus_etl` are legitimate basal chains
   (Y→I1, NO→O) the ancestry criterion correctly keeps.
 
+### mtDNA tree — FTDNA-only foundation (wired, commit b7c9748)
+
+Legacy prod has only Y (2,695 nodes), **zero MT** — no decoding-us mt source, mt
+API, or biosample mt assignment. So the mt-tree is FTDNA-only: load FTDNA's single
+RSRS-rooted mt haplotree as the **foundation** (merge_into into an empty MT
+namespace) — no graft/merge/reattach/scrub.
+- `tree-init --ftdna /Volumes/nas/FTDNA/ftdna_mttree.json --ftdna-foundation
+  --dna MT --apply`. `ftdna_foundation_roots` builds the nested merge tree.
+- **Privacy differs from the Y graft:** `kitsCount==0` on RSRS and internal splits
+  means "no kit terminates here", NOT "private individual" — backbone/internal
+  nodes are kept; only private LEAVES (kits==0, no kept descendants) drop.
+- **NOT scrubbed:** mtDNA homoplasy (16189, 152, …) is real and FTDNA-curated;
+  1,759 multi-branch variants are legit recurrence, not ASR junk.
+- Variants are RSRS-frame (`G263A`: anc G, der A @263 — rCRS has A there);
+  coordinates `{chrM, position, ancestral, derived}`.
+- Verified on `decodingus_hybrid2`: 4,740 nodes, single RSRS root, 56 backbone
+  clades, correct PhyloTree topology (L0<RSRS, H1<H<HV, U5b2a1<U5b2a, K1a<K1),
+  3,882 coord-enriched. Web `/mtree` + `/mtree/snp` render it (generic DnaType
+  routing; default root falls back to RSRS since there's no bare `L` node).
+
 ## Key decisions & gotchas (don't relearn these)
 
 - **Tree merge was buggy in legacy** → re-implemented against curated fixtures,
