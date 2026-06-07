@@ -1,5 +1,11 @@
 # Patronage Donation System Proposal
 
+> **📝 Status (2026-06-07): deferred.** Not in scope for the current rewrite, but
+> **deferred, not dropped** — patronage/billing will likely return to fund
+> infrastructure once active users cross ~a few hundred (the `/faq` already names it
+> as the sustainability path). Refresh the Scala/Play/Stripe specifics to the Rust
+> stack when revived. Triage: `triage-report.md` §7.
+
 ## 1. Overview
 DecodingUs is committed to operating as a free-to-use community service for genetic genealogy and population research. However, as the platform scales, the operational costs associated with hardware, hosting, and maintaining the DecodingUs Atmosphere will grow. To ensure long-term sustainability without compromising user privacy or monetizing user data, we propose implementing a Patronage Donation System.
 

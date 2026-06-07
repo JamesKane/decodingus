@@ -33,8 +33,7 @@ and reconciliation with the new schema. Mostly schema-only today.
 **Bucket B — the collaboration / genealogy-platform layer.** This is what the
 Navigator FTDNA work (`ftdna-project-import.md` §8) depends on. It is **partly
 covered by older proposals** (`proposals/group-project-system.md`,
-`Messaging_and_Feed_System.md`, `Reputation_System_Implementation.md`,
-`pds-workbench-biosample-flow.md`) — but those **predate** the
+`Messaging_and_Feed_System.md`, `Reputation_System_Implementation.md`) — but those **predate** the
 ResearchSubject/assertion model *and take the opposite privacy stance* (see §3).
 The gap here is **reconciliation + the net-new pieces**, not greenfield.
 

@@ -33,7 +33,7 @@ Before implementing the discovery system, the variant schema must be migrated to
 2. **Parallel mutation handling** - Same variant name can exist for different lineages
 3. **JSONB aliases** - No separate `variant_alias` table
 
-See: `documents/proposals/variant-schema-simplification.md`
+See: realized in `core.variant` (mig 0002 — universal JSONB coordinates/aliases).
 
 **Key dependency**: The `tree.biosample_private_variant` and `tree.proposed_branch_variant` tables reference the variant table. The new schema changes how variants are identified:
 
@@ -1465,7 +1465,7 @@ decodingus.discovery {
 - [ ] Remove `variant_alias` table and related code
 - [ ] Rename `variant_v2` to `variant`
 
-**See:** `documents/proposals/variant-schema-simplification.md`
+**See:** realized in `core.variant` (mig 0002).
 
 **Risk Mitigation:**
 - Dual-write period: write to both old and new schema during transition
@@ -1700,7 +1700,7 @@ Foundation curator tools for manual tree management, independent of the automate
 3. **Publication Integration**: Automatically create proposals from new publications
 4. **Collaborative Curation**: Multi-curator review workflow with voting
 5. **Geographic Correlation**: Analyze proposal evidence by geographic distribution
-6. **DecodingUs Naming Authority**: Establish "DU" prefix for naming discovered variants; publish in format for YBrowse aggregation (see `documents/proposals/variant-schema-simplification.md`)
+6. **DecodingUs Naming Authority**: Establish "DU" prefix for naming discovered variants; publish in format for YBrowse aggregation (see `planning/variant-naming-authority.md`)
 7. **Pangenome Coordinates**: Extend variant coordinates JSONB to support graph-based pangenome references as they become available
 
 ### Scalability

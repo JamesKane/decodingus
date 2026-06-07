@@ -1,9 +1,18 @@
 # Proposal: Privacy-First Group Project System
 
+> **📝 Status (2026-06-07): forward; reconciled by D5.** This is the member-sovereign
+> group-project proposal; `planning/d5-group-project-reconciliation.md` is the
+> authoritative reconciliation with D1–D4 — it adopts this proposal's roles/policies/
+> succession, maps its aggregate records (`projectTreeView`/`projectModal`/
+> `strComparison`) onto D4's rails, makes governance/membership the AppView-enforced
+> `research.project`/`project_member` ACL, and treats the member-sovereign visibility
+> model as the post-claim state. Unbuilt (`social`/`research` placeholder schema).
+> Triage: `triage-report.md` §4.
+
 **Status:** Draft
 **Author:** DecodingUs Team
 **Created:** 2025-12-07
-**Related:** [Atmosphere Lexicon](../Atmosphere_Lexicon.md), [IBD Matching System](../planning/ibd-matching-system.md)
+**Related:** [Atmosphere Lexicon](../Atmosphere_Lexicon.md), IBD: [`d1-encrypted-edge-exchange.md`](../planning/d1-encrypted-edge-exchange.md) + [`d3-ibd-matching-impl.md`](../planning/d3-ibd-matching-impl.md)
 
 ## Overview
 

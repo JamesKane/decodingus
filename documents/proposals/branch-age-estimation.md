@@ -1,5 +1,16 @@
 # Branch Age Estimation System
 
+> **✅ Realized in the Rust build (status 2026-06-07).** The combined branch-age
+> framework is implemented: `tree.haplogroup_ancestral_str` + the combined age
+> (mig 0013/0014), `tree.genealogical_anchor`, `genomics.str_mutation_rate`,
+> `genomics.biosample_callable_loci`, `du_db::age` (`combine` +
+> `recompute_combined_ages`), `du_db::ystr`, the `branch-age-recompute` job, and
+> `GET /api/v1/haplogroups/{name}/age`. Caveats: the Rust combine is
+> **inverse-variance** (a simplification of the full PDF multiplication below) and
+> genealogical-anchor wiring may be partial. **Kept as the scientific methodology
+> reference** (mutation rates, multi-step STR frequencies, precision tables, the
+> McDonald port) for future refinement. Triage: `triage-report.md` §3.
+
 **Reference:** McDonald, I. (2021). "Improved Models of Coalescence Ages of Y-DNA Haplogroups." *Genes*, 12(6), 862. https://doi.org/10.3390/genes12060862
 
 **Status:** Backlog
@@ -18,7 +29,7 @@ This proposal integrates with other planning documents:
 |----------|-------------|
 | `../planning/haplogroup-discovery-system.md` | **Primary integration point.** SNP counts come from `tree.haplogroup_variant`. Private variants from `tree.biosample_private_variant` provide per-sample data for individual TMRCA calculations. Age recalculation should trigger when branches are promoted. |
 | `../planning/multi-test-type-roadmap.md` | **Test type coverage data.** Callable loci vary by test type (WGS ~3Gbp, BigY-700 ~15Mbp, Chip ~2000 SNPs). Uses `test_type_definition` table for platform characteristics. |
-| `../planning/appview-pds-backfeed-system.md` | **PDS data flow.** STR profiles and private SNP counts flow from user PDS via firehose. Age estimates are NOT backfed (computed results, not user data). |
+| Federation ingest (Jetstream → `fed.*`) | **PDS data flow.** STR profiles and private SNP counts flow from the user PDS via the Jetstream summary mirror. Age estimates are AppView-computed (not backfed). |
 | `group-project-system.md` | **Group TMRCA.** Group projects display TMRCA estimates in `projectTreeView`. Project-level modal haplotypes feed into STR-based age estimation. |
 
 **Schema Note:** All haplogroup-related tables reside in the `tree` schema. Branch age fields (`formed_ybp`, `tmrca_ybp`, etc.) were added to `tree.haplogroup` in evolution 48.
@@ -201,7 +212,7 @@ case class StrMarkerValue(
 
 ### Edge Computing Model
 
-**Critical Architecture Principle** (from `appview-pds-backfeed-system.md`): Raw genomic data (BAM/CRAM/VCF) **never** flows to DecodingUs. All raw data analysis happens locally in the Navigator Workbench.
+**Critical Architecture Principle**: Raw genomic data (BAM/CRAM/VCF) **never** flows to DecodingUs. All raw data analysis happens locally in the Navigator Workbench.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐

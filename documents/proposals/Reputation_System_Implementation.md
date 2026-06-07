@@ -1,5 +1,11 @@
 # Reputation System Implementation Plan
 
+> **📝 Status (2026-06-07): forward (Bucket B).** Schema present
+> (`social.{reputation_event_type, reputation_event, user_reputation_score}`,
+> mig 0009); **no logic**. The public `/reputation` page already describes it.
+> Refresh Slick→Rust when the social layer is scheduled (lower priority — depends on
+> social being live). Triage: `triage-report.md` §6.
+
 ## 1. Overview
 The Reputation System is a core mechanism to ensure quality interactions within the DecodingUs social features (Messaging, Feed, Lab Discovery). It rewards positive contributions and limits spam/abuse by gating features based on a user's `UserReputationScore`.
 

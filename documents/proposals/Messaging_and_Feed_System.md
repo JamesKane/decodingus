@@ -1,5 +1,13 @@
 # Messaging & Feed System Design
 
+> **📝 Status (2026-06-07): forward (Bucket B).** Schema present
+> (`social.{user_block, conversation, message, feed_post}`, mig 0009); **no logic**.
+> Refresh Slick→Rust when the social layer is scheduled. **Reconcile with the no-PII
+> direction:** DMs must NOT be central plaintext (`social.message`) — route them over
+> the **D1 encrypted relay** (or AT-Proto records); the public feed (AT-Proto
+> `feed.post` + AppView index) is fine. Reconcile threads with D4 assertions.
+> Triage: `triage-report.md` §5.
+
 ## 1. Overview
 This document outlines the design for a comprehensive messaging and social feed system for DecodingUs. The goal is to facilitate communication between:
 1.  **Java Edge Applications (PDS Managers):** Automated or semi-automated agents running on user hardware (The Navigator Workbench) that need to coordinate with other nodes or contact researchers.
