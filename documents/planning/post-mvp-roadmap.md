@@ -1,5 +1,16 @@
 # Post-MVP Feature Roadmap
 
+> **📝 Superseded for sequencing (2026-06-07).** The authoritative roadmap is now
+> [`design-roadmap-rust-rewrite.md`](./design-roadmap-rust-rewrite.md) — the gap
+> catalog, the two-track **D1–D8** plan, and the no-PII reconciliation. This doc
+> **predates and omits the entire collaboration/IBD-via-D1 platform (D1–D5)** and
+> still lists IBD as a standalone system (now superseded by D1 + D3). Status
+> drift below: tree versioning, the curator proposal/review half, and the multi-test
+> + sequencer-lab **schema** are built beyond what's checked; OpenAlex candidate
+> queue and the JSONB consolidation are done. Use the design-roadmap for current
+> sequencing; keep this for the per-phase detail + success metrics. Triage:
+> `design-doc-triage-report.md` §11.
+
 ## Overview
 
 This document serves as the central planning reference for features targeted after MVP completion. Each feature has a detailed planning document; this roadmap provides the high-level view, dependencies, and sequencing.
@@ -11,9 +22,9 @@ This document serves as the central planning reference for features targeted aft
 | Haplogroup Discovery System | [`haplogroup-discovery-system.md`](./haplogroup-discovery-system.md) | Planned |
 | Sequencer Lab Inference | [`sequencer-lab-inference-system.md`](./sequencer-lab-inference-system.md) | Planned |
 | Multi-Test-Type Support | [`multi-test-type-roadmap.md`](./multi-test-type-roadmap.md) | Planned |
-| IBD Matching System | [`ibd-matching-system.md`](./ibd-matching-system.md) | Planned |
+| IBD Matching System | superseded → [`d1-encrypted-edge-exchange.md`](./d1-encrypted-edge-exchange.md) + [`d3-ibd-matching-impl.md`](./d3-ibd-matching-impl.md) | Planned |
 | OpenAlex Publication Discovery | [`openalex-publication-discovery.md`](./openalex-publication-discovery.md) | In Progress |
-| JSONB Consolidation | [`jsonb-consolidation-analysis.md`](./jsonb-consolidation-analysis.md) | Technical Debt |
+| JSONB Consolidation | realized in the Rust redesign (mig 0002/0004) | Done |
 
 ### Non-Technical Summary
 
@@ -351,7 +362,7 @@ The JSONB consolidation work is distributed across feature phases to minimize di
 - [Haplogroup Discovery Overview](./haplogroup-discovery-system-overview.md) - Non-technical summary
 - [Sequencer Lab Inference](./sequencer-lab-inference-system.md) - Full technical design
 - [Multi-Test-Type Roadmap](./multi-test-type-roadmap.md) - Full technical design
-- [IBD Matching System](./ibd-matching-system.md) - Full technical design
+- IBD Matching System — superseded; see [`d1-encrypted-edge-exchange.md`](./d1-encrypted-edge-exchange.md) + [`d3-ibd-matching-impl.md`](./d3-ibd-matching-impl.md)
 - [OpenAlex Publication Discovery](./openalex-publication-discovery.md) - Automated literature discovery
-- [JSONB Consolidation Analysis](./jsonb-consolidation-analysis.md) - Technical debt analysis
+- JSONB Consolidation — realized in the Rust redesign (migrations 0002/0004)
 - [Atmosphere Lexicon](../Atmosphere_Lexicon.md) - AT Protocol record definitions

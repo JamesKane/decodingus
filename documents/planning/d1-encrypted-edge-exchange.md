@@ -3,8 +3,8 @@
 **Status:** Design (v0, 2026-06-06). The shared foundation in the AppView roadmap
 (`design-roadmap-rust-rewrite.md` §5). **Cross-repo:** specifies both the AppView
 **broker** (decodingus) and the Navigator/Edge **exchange endpoint** (DUNavigator).
-**Supersedes/generalizes** the crypto + Edge-coordination sections of
-`ibd-matching-system.md`, and is the substrate the Navigator FTDNA design
+**Supersedes/generalizes** the crypto + Edge-coordination sections of the
+original IBD requirements (now folded into D3), and is the substrate the Navigator FTDNA design
 (`ftdna-project-import.md` §8) calls for.
 
 ## 1. Purpose
@@ -14,7 +14,7 @@ sensitive payload between two AT-Proto identities (DIDs), with AppView acting on
 as a **broker** that never sees plaintext. Two consumers at launch:
 
 - **IBD comparison** — exchange encrypted variant positions / segment boundaries for
-  Edge-to-Edge IBD detection (the original `ibd-matching-system.md` use).
+  Edge-to-Edge IBD detection (the original IBD use; see D3).
 - **Genealogy PII** — exchange member names, MDKA, kit↔subject linkage, and
   PII-bearing assertions between **co-admins** of a project (FTDNA platform, §8).
 
@@ -109,8 +109,8 @@ and trusts it. (Do **not** birationally map Ed25519→X25519; publish a dedicate
 ```
 
 Steps 1–4 are the broker's job (PII-free); steps 5–7 are Edge-to-Edge (opaque to the
-broker). The state machine generalizes IBD's Phase 1–4 (`ibd-matching-system.md`
-§446–585): **intent → request → dual-consent → exchange-ready → ECDH → encrypted
+broker). The state machine generalizes IBD's Phase 1–4 (per D3):
+**intent → request → dual-consent → exchange-ready → ECDH → encrypted
 exchange → attest/ack.**
 
 ## 6. Transport — DECIDED (2026-06-06): AppView-hosted blind relay primary, direct P2P later

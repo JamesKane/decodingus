@@ -1,5 +1,22 @@
 # Haplogroup Discovery System
 
+> **⚖️ Rust status (2026-06-07).** Prerequisites (variant-schema simplification:
+> universal JSONB coordinates, parallel-mutation handling, JSONB aliases) are
+> **done**. Schema is present (`tree.proposed_branch` + `_evidence` + `_variant`,
+> `tree.biosample_private_variant`, `tree.discovery_config`, `tree.wip_*`), and the
+> **curator review/promote + proposal-pooling half is built** (`du-db::proposal`,
+> `/curator/proposals`, `/manage/curation/proposals` intake).
+>
+> **Architecture evolved:** the Rust model is **Edge-submits-proposals** —
+> Navigator extracts the private variants and submits a proposal; the AppView pools
+> by `(name, parent)` across submitters. There is **no AppView-side extraction from
+> `HaplogroupResult.mismatchingSnps`** as the pipeline below describes (this aligns
+> with the no-PII / edge-compute direction). The automated consensus/Jaccard engine
+> + auto-reassignment remain **forward = `design-roadmap-rust-rewrite.md` D6**.
+> Restate Scala/Slick/Tapir, "Firehose", and `/api/v1/discovery/*` /
+> `/api/v1/curator/proposals/*` specifics in Rust terms. Triage:
+> `design-doc-triage-report.md` §8.
+
 ## Executive Summary
 
 This document outlines a comprehensive system for evolving Y-DNA and mtDNA haplogroup trees based on discoveries from **all biosample sources**: both Citizen Biosamples (AT Protocol) and External/Publication Biosamples loaded by curators. The system manages "private branches" (proposed terminal variants), tracks consensus formation across multiple biosamples regardless of source, and provides curator oversight for tree modifications.

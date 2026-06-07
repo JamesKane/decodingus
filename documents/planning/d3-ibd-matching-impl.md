@@ -1,10 +1,11 @@
 # D3 — IBD Matching: Rust Implementation Spec
 
 **Status:** Design (v0, 2026-06-06). AppView roadmap §5 D3. **Implements** the
-requirements in `ibd-matching-system.md` (the 52 KB planning doc) **on top of D1**
+original IBD requirements **on top of D1**
 (`d1-encrypted-edge-exchange.md`) and the actual Rust schema; **supplies** D2's
-genetic resolver (`d2-research-subject-registry.md` §4.2). The planning doc is the
-*requirements*; this is the *build spec*. **Cross-repo:** AppView coordinator +
+genetic resolver (`d2-research-subject-registry.md` §4.2). This doc now carries the
+requirements (the standalone planning doc was removed as superseded) and the build
+spec. **Cross-repo:** AppView coordinator +
 Navigator Edge analysis (`navigator-analysis/src/ibd.rs` already exists).
 
 ## 1. What changed since the planning doc (the refresh)

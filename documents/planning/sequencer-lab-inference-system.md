@@ -1,5 +1,20 @@
 # Sequencer Lab Inference System
 
+> **⚖️ Rust status (2026-06-07).** The **full schema is built — including the
+> consensus tables this doc marks NEW**: `genomics.sequencing_lab`,
+> `genomics.sequencer_instrument`, `genomics.instrument_observation`, and
+> `genomics.instrument_association_proposal` (mig 0004). Deltas: `genomics` schema +
+> `BIGINT IDENTITY`; `sequencer_instrument` has **no `lab_id` FK** (and adds
+> `model_name`/`manufacturer`/`year_introduced`/`estimated_max_throughput`) —
+> instrument↔lab resolves via observation→proposal→accept, not a static FK; the
+> proposed instrument confidence columns live in the proposal table instead.
+> **No logic is built** (no lab-lookup API, no consensus/confidence engine, no
+> curator review UI) — forward work = `design-roadmap-rust-rewrite.md` D8. The
+> consensus source is `fed.sequencerun.instrument_id`; the `instrumentObservation`
+> lexicon + its `fed.*` mirror are not yet defined. The "Current State / existing API
+> endpoints / domain models" below are **Scala-era and were never ported**. Triage:
+> `design-doc-triage-report.md` §6.
+
 ## Executive Summary
 
 This document outlines enhancements to the existing sequencer lab lookup system to support:

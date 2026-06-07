@@ -1,5 +1,18 @@
 # Multi-Test-Type Support Roadmap
 
+> **⚖️ Rust status (2026-06-07).** **Phase-1 schema is built**, leaner than below:
+> `genomics.test_type_definition` (omits `expected_target_depth`,
+> `expected_marker_count`, `version`, `release_date`, `deprecated_at`,
+> `successor_test_type_id`, `documentation_url`), coverage thresholds in a separate
+> `genomics.coverage_expectation_profile`, and a **native `sequence_library.test_type_id`
+> FK** (no string column to migrate); `du-domain` `DataGenerationMethod` /
+> `TargetType` enums exist. **Seed data is not yet loaded.** Phases 2–6 (target
+> regions, `genotyping_test_summary`, marker-coverage reference, test-type-aware
+> confidence, cross-test-type IBD) are **forward work = `design-roadmap-rust-rewrite.md`
+> D7**. Read the Scala/Slick/Tapir/Pekko + removed `/api/private` specifics as
+> illustrative — restate in Rust (axum/utoipa; the Jetstream mirror) when built.
+> Triage: `design-doc-triage-report.md` §5.
+
 ## Executive Summary
 
 This document outlines the roadmap for extending DecodingUs beyond Whole Genome Sequencing (WGS) to support:
@@ -18,8 +31,8 @@ This roadmap integrates with other planning documents:
 | Document | Relationship |
 |----------|-------------|
 | `haplogroup-discovery-system.md` | **Primary integration point.** Y/mtDNA variants from all test types feed into the discovery system for tree building. This roadmap's chip and targeted sequencing services delegate to the discovery system's `PrivateVariantExtractionService`. |
-| `ibd-matching-system.md` | IBD comparisons happen Edge-to-Edge using autosomal data. This roadmap's test type metadata helps determine comparison compatibility. |
-| `jsonb-consolidation-analysis.md` | Some tables in this roadmap may be candidates for JSONB consolidation. |
+| `d3-ibd-matching-impl.md` (on `d1-encrypted-edge-exchange.md`) | IBD comparisons happen Edge-to-Edge using autosomal data. This roadmap's test type metadata helps determine comparison compatibility. |
+| JSONB consolidation (realized, mig 0002/0004) | The 1:1/1:few tables here were folded into JSONB on their parents in the redesign. |
 
 **Schema Note:** All haplogroup-related tables reside in the `tree` schema as defined in `haplogroup-discovery-system.md`. This includes:
 - `tree.haplogroup`, `tree.haplogroup_variant`, `tree.haplogroup_relationship`
@@ -1261,7 +1274,7 @@ class ParserFtdna extends ChipDataParser { ... }
 1. **Reference Data Download**: Edge App fetches marker coverage reference from DecodingUs to know which Y/mtDNA SNPs to extract
 2. **Metadata Registration**: Edge App submits `GenotypingTestSummary` after local processing
 3. **Haplogroup Variant Submission**: Edge App submits Y/mtDNA variants for tree building
-4. **IBD Coordination**: Autosomal comparisons happen Edge-to-Edge per `ibd-matching-system.md`
+4. **IBD Coordination**: Autosomal comparisons happen Edge-to-Edge per `d3-ibd-matching-impl.md`
 
 ---
 
