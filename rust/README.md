@@ -65,14 +65,14 @@ rust/                          (this repo — AppView/server-specific)
     du-web/        Axum app: routes, Askama templates, i18n, HTMX, auth, OAuth, JSON API
     du-jobs/       tokio scheduler + scheduled jobs + the Jetstream reporting-mirror consumer
     du-migrate/    legacy → new-schema ETL + the `decodingus-tree-init` tree builder (ISOGG/decoding-us/FTDNA graft, Y + mt)
-  migrations/     redesigned schema (0001–0021)
+  migrations/     redesigned schema (0001–0022)
   locales/        en / es / fr message catalogs
   docs/           STATUS pointers, Scala↔Rust diff, AT-Proto OAuth findings
   scripts/        test-db.sh (Apple container), mock-legacy.sql
   Dockerfile, compose.yaml, .env.example
 ```
 
-## Schema redesign (`migrations/0001`–`0021`)
+## Schema redesign (`migrations/0001`–`0022`)
 
 Postgres schemas: `core`, `tree`, `genomics`, `pubs`, `ident`, `fed`, `ibd`,
 `social`, `support`, `billing`, `source`. Key de-sprawl moves:
@@ -102,7 +102,8 @@ Postgres schemas: `core`, `tree`, `genomics`, `pubs`, `ident`, `fed`, `ibd`,
 
 | Area | Routes |
 |---|---|
-| Home / about / FAQ / terms / privacy / app-password help | `/` `/about` `/faq` `/terms` `/privacy` `/help/app-password` |
+| Home / about / contact / reputation / terms / privacy / cookies / FAQ | `/` `/about` `/contact` `/reputation` `/terms` `/privacy` `/cookies` `/faq` |
+| Per-sample report (public, `is_public`-gated) | `/sample/:slug` (identity, Y/mt haplogroup pathways, origin map, sequencing/coverage, ancestry; curator `is_public` toggle) |
 | Variant browser | `/variants` (+ fragments; JSONB alias/rs-id search) |
 | Y/MT tree — two SVG cladograms (horizontal + vertical) | `/ytree` `/mtree` (breadcrumb re-root, orientation toggle, name/variant search, SNP sidebar, backbone/recent coloring) |
 | References + per-publication biosamples; suggest-a-paper | `/references` (+ report), `/references/submit` (public DOI → candidate queue) |
@@ -116,8 +117,9 @@ Postgres schemas: `core`, `tree`, `genomics`, `pubs`, `ident`, `fed`, `ibd`,
 
 Y/MT tree, coverage benchmarks, references + biosamples, biosample studies,
 variant search/detail/by-haplogroup, variant **CSV** + **GFF3** export, genome
-regions, STR signature + prediction, branch age, and federated population
-**reports** (`/reports/{coverage,ancestry,haplogroups}`).
+regions, STR signature + prediction, branch age, the **per-sample report**
+(`/samples/:slug`), and federated population **reports**
+(`/reports/{coverage,ancestry,haplogroups}`).
 
 ### Auth & curator
 
@@ -320,7 +322,9 @@ authority; YBrowse GFF3 ingestion (mirror + reconcile, synonym/strand/INDEL
 handling); federated reporting mirror + reports; STR signature/prediction +
 combined branch age; `du-bio` core; the scheduled-job suite; the full production
 ETL (verified against a real prod dump, `--skip-tree` cutover option); shared
-crates extracted to `decodingus-shared` (git deps).
+crates extracted to `decodingus-shared` (git deps); the public **per-sample report**
+(`/sample/:slug`, `is_public` gate, mig 0022) over a unified core+fed read model;
+static/footer pages reconciled with the legacy content (App Passwords removed).
 
 **Remaining, in scope** (⬜):
 

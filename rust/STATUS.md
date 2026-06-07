@@ -1,12 +1,30 @@
 # DecodingUs Rust rewrite — status & handoff
 
 Living snapshot of the Play/Scala 3 → Rust port. Pairs with `README.md` (roadmap).
-Last updated **2026-06-05** (this session: FTDNA Y-tree SNP-graft + `--reattach`;
-recurrent-link scrub; mtDNA tree wired as an FTDNA RSRS foundation; ETL
-`--skip-tree` cutover option — all verified end-to-end. Prior: variant naming
-authority + SNP-graft & curator review surfaces + YBrowse mirror/reconcile +
-variant coordinate enrichment + federation reporting endpoints + Y-STR
-signatures/prediction/ages + ephemeral-DB test isolation + tree depth selector).
+Last updated **2026-06-07** (this session was **docs + one feature**, no change to
+the launch-critical path):
+- **Public per-sample report** — `/sample/:slug` (ExploreYourDNA-style): a new
+  `is_public` gate (mig **0022**), a unified `du_db::biosample::report` read model
+  joining `core.biosample` + the `fed.*` analytics via `atproto.uri`, Y/mt
+  haplogroup **pathways** (`du_db::haplogroup::pathway`), origin Leaflet map,
+  sequencing/coverage, ancestry bar, a curator `is_public` toggle, and
+  `GET /api/v1/samples/:slug`. Tested (`du-db` `sample_report` test) + smoke-verified.
+- **Static/footer pages reconciled with the legacy Scala content** — ported
+  terms / privacy / FAQ / **cookies** / **reputation** prose; footer set now
+  matches legacy (About · Contact · Reputation · Terms · Privacy · Cookies · FAQ ·
+  API); **App Passwords removed** (never used). Root **README rewritten** for the
+  Rust AppView (dropped the deprecated Nexus project).
+- **Collaboration-platform design docs added** — `documents/planning/d1`–`d5` +
+  `design-roadmap-rust-rewrite.md` (encrypted Edge exchange + ResearchSubject +
+  IBD impl + assertion store + group-project ACL; **no-PII broker** invariant).
+- **Design-doc triage** — walked the original `planning/` + `proposals/` docs vs the
+  Rust build; reports at `documents/{planning,proposals}/*triage*.md`. Superseded
+  docs **removed** (jsonb-consolidation, ibd-matching, appview-pds-backfeed,
+  variant-schema-simplification, tree-merge-api, pds-workbench-biosample-flow); the
+  rest got **Rust-status reconciliation headers**.
+
+Prior (2026-06-05): FTDNA Y-tree SNP-graft + `--reattach`; recurrent-link scrub;
+mtDNA tree wired as an FTDNA RSRS foundation; ETL `--skip-tree` cutover option.
 
 ## TL;DR
 
@@ -76,14 +94,15 @@ APP_SECRET="<any 32+ char string>"   # signs session cookies
 
 ## What's done (✅)
 
-- **Schema** — `migrations/0001–0020`. JSONB "document columns" (variant
+- **Schema** — `migrations/0001–0022`. JSONB "document columns" (variant
   coordinates/aliases/**evidence**, biosample source_attrs/atproto, haplogroup
   provenance, coverage, …). Highlights since the merge work: `ident.audit_log`
   (0010), fed reporting (0011–0012), Y-STR (0013–0014), backbone (0015), **variant
   naming authority** (0016, nullable `canonical_name` + partial unique index +
   `core.next_du_name()`), **variant evidence** (0017), **YBrowse mirror +
   reconcile machinery** (0018), **strand-canonical fold** (0019), **INDEL/MNP
-  canon** (0020).
+  canon** (0020), **ancestral-state / per-branch ASR** (0021), **`is_public`
+  biosample gate** (0022, the public per-sample report).
 - **`du-db`** — query modules for every aggregate (variant, haplogroup, biosample,
   publication, genome_region, coverage, proposal, study, change_set, merge, auth,
   naming, ybrowse, wip, ystr, age, fed, consent, support) + `testing` (ephemeral DB).
@@ -166,9 +185,25 @@ APP_SECRET="<any 32+ char string>"   # signs session cookies
   the `aws` feature.
 - **`du-atproto`** — DID/handle resolution, Ed25519 verify, PKCE/DPoP/private-key-
   JWT OAuth client + metadata builders (library; HTTP surface = the Edge test below).
-- **Secondary web surfaces** — static pages (about/FAQ/terms/privacy + app-password
-  help), `sitemap.xml`/`robots.txt`, footer nav, GDPR cookie-consent banner,
-  read-only **profile** page, reCAPTCHA-verified **contact** form.
+- **Public per-sample report** (`/sample/:slug`, `du-web/routes/samples.rs` +
+  `templates/samples/`) — ExploreYourDNA-style page gated by `core.biosample.is_public`
+  (mig 0022). `du_db::biosample::report` is the **unified read model**: anchors on the
+  canonical `core.biosample` (+ donor sex/origin, publications) and attaches the
+  federated analytics (`fed.biosample`/`fed.sequencerun`/`fed.coverage_summary`/
+  `fed.population_breakdown`) via `atproto.uri ↔ *.biosample_ref` — the seam the
+  eventual core/fed **biosample consolidation** collapses into (memory
+  `biosample-consolidation`). Sections: identity, Y+mt **haplogroup pathways**
+  (`du_db::haplogroup::pathway` — root→tip clades + ages + defining SNPs; graceful
+  "not placed" gap), origin Leaflet map, sequencing/coverage, ancestry stacked bar.
+  Curator `is_public` toggle (`/curator/samples/:slug/public`); JSON API
+  `GET /api/v1/samples/:slug`. Tested (`du-db/tests/sample_report.rs`). **Follow-up:**
+  the report shows one `populationBreakdown`; Navigator now publishes two methods —
+  pick PCA-GMM (memory `ancestry-method-pick-followup`).
+- **Secondary web surfaces** — static pages (about/contact/**reputation**/terms/
+  privacy/**cookies**/FAQ; content reconciled with the legacy Scala prose —
+  **App Passwords removed**), footer nav matching the legacy set, `sitemap.xml`/
+  `robots.txt`, GDPR cookie-consent banner, read-only **profile** page,
+  reCAPTCHA-verified **contact** form. Root README rewritten for the Rust AppView.
 - **Testing** — du-domain unit tests (no DB); du-db integration tests isolated to
   ephemeral databases (`du_db::testing::ephemeral_db`); du-web i18n parity test
   enforces es/fr cover every English key.
@@ -176,6 +211,16 @@ APP_SECRET="<any 32+ char string>"   # signs session cookies
 ## What's left, in scope (⬜)
 
 Launch-critical first, then the post-launch feature mass.
+
+> **Design landscape (2026-06-07).** The post-launch collaboration/IBD layer now has
+> drafted build specs: `documents/planning/d1`–`d5` + `design-roadmap-rust-rewrite.md`
+> — **D1** encrypted Edge-to-Edge exchange + AppView broker (the shared substrate),
+> **D2** PII-free ResearchSubject registry, **D3** IBD impl on D1, **D4** assertion
+> store (split PII rails), **D5** group-project ACL. Central invariant: **AppView
+> holds no PII — it brokers** (memory `collab-platform-d1-d5`). Two tracks join at
+> D1: Platform D1→D2→D4→D5, Match D1→D3; the Catalog track (D6 discovery, D7
+> multi-test, D8 sequencer-lab) is independent. The original planning docs were
+> triaged and reconciled/removed — see `documents/{planning,proposals}/*triage*.md`.
 
 1. **Cutover** (see "Cutover strategy") — ETL verified end-to-end. Chosen strategy:
    freeze prod read-only → fresh dump → prepare locally (ETL data + ISOGG-founded
@@ -220,14 +265,17 @@ Launch-critical first, then the post-launch feature mass.
    overlap scores / suggestions) for ongoing match lists + dedup. It stores **no
    raw autosomal data** and does **no** segment comparison — that's Edge-to-Edge.
    Schema `ibd` (mig 0007: `ibd_discovery_index`, `ibd_pds_attestation`, overlap)
-   exists as a placeholder; logic + endpoints to build.
-   (`documents/planning/ibd-matching-system.md`.)
-6. **Social layer — supports IBD coordination + stands alone.** Full layer:
-   messaging/consent threads, notifications, blocks, public feed, reputation,
-   group projects. Underpins the IBD introduction + match-confirmation flow
-   (consent/notify) and is a user-facing social surface in its own right. Schema
-   `social` (mig 0009) exists as a placeholder; logic + endpoints to build.
-   Includes the legacy **my-messages** surface.
+   exists as a placeholder; logic + endpoints to build **on the D1 exchange
+   substrate** (`ibd.match_request`/`match_consent` fold into `exchange.*`).
+   Authoritative design: `documents/planning/d3-ibd-matching-impl.md` (on
+   `d1-encrypted-edge-exchange.md`).
+6. **Collaboration + social layer.** The genealogy-collaboration platform (group
+   projects, ResearchSubject registry, assertions) is specced in **D2/D4/D5** on the
+   D1 channel; the broader social surfaces (messaging/feed/reputation/blocks) are the
+   reconciled forward proposals (`documents/proposals/{group-project-system,
+   Messaging_and_Feed_System,Reputation_System_Implementation}.md`). Schema `social`
+   + `research` placeholders (mig 0009) exist; logic + endpoints to build. **No-PII
+   caveat:** DMs must ride D1 (or AT-Proto), not a central plaintext `social.message`.
 7. **Sequencer-lab inference — AppView lookup + consensus (NOT dropped).** A public
    **instrument-ID → lab** lookup API lets Edge nodes auto-resolve the sequencing
    lab and skip a manual data-entry step. The AppView also runs consensus discovery
@@ -251,9 +299,11 @@ Launch-critical first, then the post-launch feature mass.
      canonical_name` `String` → `Option`, shared with Navigator).
    - More `fed.*` report shapes (genotype-provider mix, platform/test-type
      distribution) as the UI needs them.
-9. **Tech debt** — JSONB consolidation (7 tables → JSONB columns,
-   `documents/planning/jsonb-consolidation-analysis.md`); terms/privacy prose pending
-   legal review; optional internal/curator OpenAPI document.
+9. **Tech debt** — JSONB consolidation is **done** (realized in the de-sprawl,
+   mig 0002/0004 — that analysis doc was removed); terms/privacy prose now mirrors
+   the legacy Scala content but is still "subject to legal review"; optional
+   internal/curator OpenAPI document; harden `du_db::variant::get_by_id` for a NULL
+   `canonical_name` (unnamed-variant edge).
 
 ## Out of scope / deliberately absent (➖) — do NOT build
 
@@ -268,6 +318,8 @@ Launch-critical first, then the post-launch feature mass.
 - **AppView→PDS backfeed** — the AppView writes nothing back to PDSes (inbound-only
   / notify-fetch direction).
 - **Patronage / billing** — not in production (`billing` placeholder; no logic).
+  **Deferred, not dead:** revive to fund infrastructure past ~a few hundred active
+  users (`documents/proposals/Patronage_Donation_System.md`; FAQ already names it).
 - (IBD matching, the social layer, and sequencer-lab inference are **back in
   scope** — see "What's left" items 5–7. Their schemas remain placeholders pending
   that build.)
@@ -426,14 +478,23 @@ namespace) — no graft/merge/reattach/scrub.
    container is running.
 2. `cargo test --workspace` (du-domain needs no DB; du-db live tests provision
    ephemeral DBs from `DATABASE_URL`).
-3. Pick the next arc — launch-critical is **cutover** + the **OAuth Edge test**;
-   the next big feature arc is **haplogroup-discovery automation**.
+3. Pick the next arc — launch-critical is **cutover** + the **OAuth Edge test**.
+   Post-launch: the **collaboration/IBD platform** starts at **D1** (the shared
+   encrypted-exchange substrate, `documents/planning/d1-encrypted-edge-exchange.md`),
+   then D2→D4→D5 (platform) / D3 (IBD); the **Catalog** track (haplogroup-discovery
+   automation = D6, multi-test = D7, sequencer-lab = D8) is independent. Remaining
+   doc cleanup: `documents/atmosphere/` still references removed docs (flagged in the
+   triage reports).
 4. Reload the mock if needed: recreate `decodingus_legacy`, load
    `scripts/mock-legacy.sql`; recreate `decodingus_etl`; run `decodingus-migrate`.
 
 ## Reference paths
 
-- Plan: `~/.claude/plans/robust-knitting-lampson.md`
+- **Post-launch design specs:** `documents/planning/d1`–`d5` +
+  `design-roadmap-rust-rewrite.md` (collaboration/IBD platform, no-PII broker).
+- **Design-doc triage reports:** `documents/planning/design-doc-triage-report.md`,
+  `documents/proposals/triage-report.md` (what was removed/reconciled + remaining
+  `atmosphere/` ref cleanup).
 - Prod schema (authoritative for ETL, confirmed current 2026-06): `~/db.schema`
 - Old data dump (may lag — get a fresh one for cutover): `/Volumes/nas/stuff/dump.sql`
 - AT Proto notes: `docs/atproto-oauth-findings.md`, `docs/atproto-edge-reply.md`
