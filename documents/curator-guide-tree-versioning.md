@@ -1,503 +1,260 @@
 # Curator Guide: Tree Versioning System
 
-This guide explains how to use the Tree Versioning System to review, validate, and apply bulk changes to the haplogroup tree.
+This guide explains how to review, validate, and apply bulk changes to the
+haplogroup tree, and how to resolve the placements the merge/graft couldn't make
+confidently.
+
+The Rust AppView splits this across **two curator screens**:
+
+- **Change Sets** (`/curator/change-sets`) — the lifecycle: review the diff,
+  approve/reject changes, then apply or discard.
+- **Merge Reviews** (`/curator/reviews`) — resolve the ambiguous or blocked
+  placements the SNP-graft/merge staged for a human (the `wip_*` items).
+
+Both are reached from the **Curator dashboard** (`/curator`) and are gated by the
+**Curator** role (`Admin`, `TreeCurator`, or `Curator`) — there are no finer-grained
+per-action permissions.
 
 ---
 
 ## Overview
 
-When large external tree sources (like ISOGG or ytree.net) are merged into the system, the changes don't go directly to production. Instead, they're captured in a **Change Set** that you can review before applying.
+When large external tree sources (ISOGG, decoding-us, FTDNA) are merged or
+grafted in, the changes don't go straight to production. They're captured in a
+**Change Set** you review before applying.
 
 This gives you:
 - Time to review changes at your own pace
-- Ability to see what will change before it affects users
-- Tools to handle ambiguous placements
+- A diff of exactly what will change before it affects users
+- A separate worklist for ambiguous placements that need a human decision
 - An audit trail of all changes
 
 ---
 
-## Accessing the Change Sets Dashboard
+## Change Sets screen (`/curator/change-sets`)
 
-1. Navigate to **Curator > Change Sets** from the main menu
-2. Or go directly to `/curator/change-sets`
+A two-panel (master-detail) HTMX screen.
 
-**Required Permission:** `tree.version.view`
+### Left panel — the change-set list
 
----
+Each change set shows its name, source, DNA type (Y/mt), status, change count,
+and who created it. Filter by status with the dropdown.
 
-## Understanding the Dashboard
+### Right panel — the detail/diff
 
-The dashboard shows a master-detail layout:
+Selecting a change set loads its panel (`/curator/change-sets/:id/panel`) with:
+- Summary stats: **added / removed / modified / reparented**
+- The **diff** rows (type, node name, before→after detail) — rendered inline
+- The per-change list with each change's status
+- Comments, and the status-appropriate lifecycle actions
 
-### Left Panel: Change Set List
+### Statuses
 
-Each change set shows:
-- **Name**: Descriptive name (e.g., "isogg-2025-12")
-- **Source**: Where the data came from (ISOGG, ytree.net, etc.)
-- **Type**: Y-DNA or mtDNA
-- **Status**: Current state (see below)
-- **Changes**: Total count and pending items
-- **Created**: When and by whom
-
-### Right Panel: Change Set Details
-
-Click a change set to see:
-- Full statistics (nodes created, updated, reparented)
-- Ambiguity warnings
-- Available actions based on status
-- Comments from other curators
-
----
-
-## Change Set Statuses
-
-| Status | Meaning | Your Action |
+| Status | Meaning | Your action |
 |--------|---------|-------------|
-| **Draft** | Merge in progress | Wait for completion |
-| **Ready for Review** | Merge complete, needs review | Start review |
-| **Under Review** | Being actively reviewed | Continue reviewing |
-| **Applied** | Changes are in production | None (read-only) |
-| **Discarded** | Changes were abandoned | None (read-only) |
+| **DRAFT** | Merge/graft still materializing | Wait, then Start Review |
+| **READY_FOR_REVIEW** | Materialized, awaiting review | Start Review (or Apply) |
+| **UNDER_REVIEW** | Being actively reviewed | Approve/reject changes, then Apply |
+| **APPLIED** | Live in production | None (read-only) |
+| **DISCARDED** | Abandoned | None (read-only) |
+
+Per-change status runs `PENDING → APPROVED`/`REJECTED → APPLIED`.
+
+### Lifecycle actions
+
+| Action | Endpoint | Available when |
+|--------|----------|----------------|
+| **Start Review** | `POST /curator/change-sets/:id/start-review` | DRAFT or READY_FOR_REVIEW → UNDER_REVIEW |
+| **Review one change** (approve/reject) | `POST /curator/change-sets/:id/changes/:change_id/review` | UNDER_REVIEW |
+| **Approve All Pending** | `POST /curator/change-sets/:id/approve-all` | UNDER_REVIEW |
+| **Apply** | `POST /curator/change-sets/:id/apply` | READY_FOR_REVIEW or UNDER_REVIEW |
+| **Discard** | `POST /curator/change-sets/:id/discard` | any non-APPLIED state |
+| **Comment** | `POST /curator/change-sets/:id/comments` | any |
+
+**Apply** promotes only the **APPROVED** changes to the live (temporal) tree and
+marks the set APPLIED; it's idempotent (re-applying an APPLIED set is a no-op).
+**Discard** requires a reason.
 
 ---
 
-## Filtering Change Sets
+## Reviewing a change set
 
-Use the dropdown filters at the top:
-- **Type Filter**: Show only Y-DNA or mtDNA change sets
-- **Status Filter**: Show only sets in a specific status
+1. **Start the review** — select a READY_FOR_REVIEW set and click Start Review
+   (status → UNDER_REVIEW).
+2. **Read the diff** in the detail panel:
+   - added (new nodes), removed, modified (e.g. variant edits), reparented (moved).
+3. **Resolve any flagged placements** in the **Merge Reviews** screen (below) — the
+   merge/graft routes anything it couldn't place confidently there, rather than
+   guessing.
+4. **Approve individual changes**, or **Approve All Pending** once you've vetted the
+   flagged items.
+5. **Apply** when satisfied.
 
----
+### Confidence scores
 
-## Reviewing a Change Set
+Flagged placements carry an anchor strength (0–100%). Prioritize accordingly:
 
-### Step 1: Start the Review
+| Strength | Risk | Recommended action |
+|----------|------|--------------------|
+| **80–100%** | Low | Generally safe; spot-check a few |
+| **50–79%** | Medium | Review the shared SNPs make sense for the branch |
+| **20–49%** | High | Manual verification against known phylogeny |
+| **0–19%** | Very high | Likely wrong; defer or research before accepting |
 
-1. Click a change set with "Ready for Review" status
-2. Click **Start Review** in the detail panel
-3. Status changes to "Under Review"
-
-### Step 2: View the Full Diff
-
-Click **View Full Diff** to see all changes in the set:
-
-- **Green rows**: New nodes being created
-- **Yellow rows**: Existing nodes being updated
-- **Blue rows**: Nodes being reparented (moved in tree)
-
-The diff view shows:
-- What changed (name, variants, parent)
-- Before and after values for updates
-- Confidence scores for ambiguous placements
-
-### Step 2b: View Tree Preview (ASCII)
-
-For a structural overview of proposed changes, click the **Tree Preview** button in the change set detail panel (next to "View Diff"). The preview opens in a new browser tab.
-
-> **Direct URL:** You can also access it at `/curator/change-sets/{id}/tree-preview` if needed.
-
-This returns a plain-text ASCII tree showing affected subtrees with markers:
-
-```
-=== Tree Preview: Y merge from ISOGG ===
-Type: Y | Status: DRAFT
-New nodes: 8322 | Reparents: 306 | Variant additions: 76673
-
-Legend: [+] = new node, [→] = reparented, [~] = modified
-==================================================
-
-Y
-├── [+] A00-T (V60, V168, +3 more)
-│   ├── [→] A00
-│   └── [+] A0-T
-│       ├── [→] A0
-│       └── [→] A1
-└── BT
-
---- Nodes reparented to new WIP nodes ---
-  A00: Y → A00-T [+]
-  A0: Y → A0-T [+]
-
---- Variant additions to existing nodes ---
-  E1a-Y947: (M4671, CTS9320, +38 more)
-```
-
-**Legend:**
-| Marker | Meaning |
-|--------|---------|
-| `[+]` | New node to be created |
-| `[→]` | Existing node being reparented |
-| `[~]` | Existing node with variant additions |
-
-The preview shows:
-- New nodes in their proposed tree position
-- Existing siblings for context
-- Up to 5 variant names per node
-- Summary of reparent operations
-- Summary of variant additions to existing nodes
-
-#### Tips for Navigating Large Previews
-
-For large merges with thousands of nodes, the ASCII preview can be dense. Here are some practical tips:
-
-1. **Use browser search (Ctrl+F / Cmd+F)** - Search for specific haplogroup names or variant names to jump directly to areas of interest
-
-2. **Focus on the summary sections** - Scroll to the bottom for:
-   - "Nodes reparented to new WIP nodes" — shows all reparent operations in a compact list
-   - "Variant additions to existing nodes" — lists all existing nodes receiving new variants
-
-3. **Look for markers first** - Search for `[+]` to find all new nodes, or `[→]` to find all reparented nodes
-
-4. **Copy to a text editor** - For very large previews, copy the text to an editor with better navigation (code folding, outline view, etc.)
-
-5. **Cross-reference with the Diff view** - Use the Tree Preview to understand structure, then switch to the Diff view for detailed change-by-change review
-
-> **Future Enhancement:** A graphical side-by-side tree comparison view is planned for a future release, which will provide a more visual way to review structural changes.
-
-### Step 3: Handle Ambiguities
-
-If the change set has ambiguities:
-
-1. Look for the yellow warning banner showing the count
-2. Click **View Report** to see the ambiguity report
-3. For each ambiguity, decide:
-   - **Accept the placement** (approve the change)
-   - **Reject the placement** (skip this change)
-   - **Manually fix** the data before applying
-
-Ambiguities occur when:
-- Multiple possible parent placements exist
-- The algorithm chose based on heuristics
-- A confidence score below threshold was assigned
-
-#### Understanding Confidence Scores
-
-Each ambiguous placement includes a confidence score from 0.0 to 1.0. Use this guide to prioritize your review:
-
-| Score Range | Risk Level | Recommended Action |
-|-------------|------------|-------------------|
-| **0.80 – 1.00** | Low | Generally safe to approve. Algorithm had strong SNP overlap. Spot-check a few. |
-| **0.50 – 0.79** | Medium | Review the placement. Check if the shared SNPs make sense for this branch. |
-| **0.20 – 0.49** | High | Manual verification required. Compare source data against known phylogeny. |
-| **0.00 – 0.19** | Very High | Likely incorrect placement. Consider skipping or manually researching. |
-
-**What affects confidence:**
-- **SNP overlap** — More shared defining variants = higher confidence
-- **Conflicting variants** — Variants that contradict the placement lower confidence
-- **Tree depth** — Deeper placements with fewer distinguishing SNPs may have lower scores
-- **Source quality** — Some sources have more complete variant data than others
-
-### Step 4: Review Individual Changes
-
-In the "Under Review" status, you'll see pending changes:
-
-For each change you can:
-- **Approve**: Mark as validated
-- **Skip**: Exclude from this promotion (stays in set but won't apply)
-
-Use **Approve All Pending** to quickly approve remaining changes after you've reviewed the ambiguities.
+What affects it: SNP overlap (more shared defining variants = stronger), conflicting
+variants, tree depth, and source completeness.
 
 ---
 
-## Reviewing Large Change Sets
+## Merge Reviews screen (`/curator/reviews`)
 
-When dealing with thousands of changes (common for major source updates like ISOGG), a systematic approach is essential.
+This is where you resolve the items the SNP-graft/merge staged for a human — the
+`tree.wip_*` rows: SNP-graft Phase-4 flags, name collisions, and graft-blocked
+branches.
 
-### Current Workflow
+### Left panel — the worklist
 
-1. **Triage by confidence** — Start with the Ambiguity Report, sorted by lowest confidence first
-2. **Use Tree Preview** — Get a structural overview before diving into details
-3. **Spot-check by branch** — Use browser search (Ctrl+F) in the Tree Preview or Diff view to find specific clades
-4. **Approve in bulk** — After reviewing ambiguities, use "Approve All Pending" for remaining items
+The staged items, filterable by **status** and **category**. Each row shows the
+source, node name, category, best anchor, and any resolution already chosen.
 
-### Current Limitations
+### Right panel — one item's context + resolution form
 
-The following features are not yet available but are on the roadmap:
+Selecting an item loads its panel (`/curator/reviews/:wip_id/panel`) with the full
+decision context:
+- The reason it was flagged and its **category**
+- **Best anchor** + **anchor strength %**, and the candidate anchor nodes (with hit
+  counts)
+- Defining-SNP counts (and how many are known to the foundation)
+- The source parent and its status; whether it's backbone
+- The **tentative parent** and a preview of where it would land (that parent's
+  current children)
+- Open / resolved / deferred counts for the parent change set
 
-| Desired Feature | Current Workaround |
-|-----------------|-------------------|
-| Filter diff by branch (e.g., "only R1b") | Use Ctrl+F in Tree Preview or Diff view |
-| Bulk approve by subclade | Review ambiguities, then "Approve All Pending" |
-| Assign branches to expert curators | Coordinate manually; add comments noting who reviewed what |
-| Export diff to spreadsheet | Copy Tree Preview text to external tools |
+### Resolving an item
 
-### Recommended Review Strategy for 5,000+ Changes
+`POST /curator/reviews/:wip_id/resolve` with an `action`, an optional `target`
+(a **node name**, resolved server-side — not a numeric id), and `notes`:
 
-1. **Don't review every change** — Focus on ambiguities and structural changes (reparents)
-2. **Trust high-confidence placements** — Scores above 0.80 rarely need individual review
-3. **Divide by expertise** — If multiple curators are available, coordinate by major branch:
-   - "I'll review everything under R1b"
-   - "You take the E-M96 subtree"
-4. **Use comments** — Add comments to the change set noting what you reviewed
-5. **Time-box your review** — Set a limit (e.g., 2 hours) then assess if more review is needed
+| Action | `target` | Use case |
+|--------|----------|----------|
+| **REPARENT** | new parent's name (**required**) | Confirm the suggested anchor, or choose a different parent |
+| **MERGE_EXISTING** | existing node's name (**required**) | The staged node duplicates a production node — link instead of creating |
+| **DEFER** | — | Needs more research; excluded from Apply until resolved |
 
-> **Feature Requests:** If you need filtering by branch or bulk approval by subclade, please submit a feature request. These are high-priority UX improvements under consideration.
+An unknown `target` name is rejected with a notice (no node is created from a typo).
+Decisions are written to `wip_resolution` and attributed to you.
+
+### Applying resolutions
+
+`POST /curator/reviews/:wip_id/apply` bumps the parent change set to UNDER_REVIEW
+and runs the **same tested change-set apply engine**, enacting your resolutions. It
+reports created / variant-edits / skipped counts. Deferred items are skipped and
+remain in the worklist.
 
 ---
 
-## Conflict Resolution
+## Reviewing large change sets
 
-Beyond simply approving or skipping changes, you can now create **resolutions** to correct merge algorithm decisions before applying to production.
+Major source updates produce thousands of changes. A systematic pass:
 
-### Resolution Types
+1. **Triage by anchor strength** — handle the lowest-confidence flagged items first
+   in Merge Reviews.
+2. **Read the diff** for structural changes (reparents) before bulk-approving.
+3. **Search** — use the browser find (Ctrl/Cmd-F) to jump to specific clades in the
+   diff.
+4. **Approve in bulk** — after resolving the flagged items, use **Approve All
+   Pending** for the rest.
 
-| Type | Description | Use Case |
-|------|-------------|----------|
-| **REPARENT** | Change the parent of a node | Algorithm placed node under wrong parent |
-| **EDIT_VARIANTS** | Add or remove variant associations | Missing or incorrect SNP assignments |
-| **MERGE_EXISTING** | Map WIP node to existing production node | Duplicate detection — don't create, link instead |
-| **DEFER** | Move to manual review queue | Needs expert review or more research |
+Recommended strategy for 5,000+ changes:
+- Don't review every change — focus on flagged items and reparents.
+- Trust high-strength placements (>80%).
+- Divide by expertise across curators (e.g. "I'll take R1b, you take E-M96"); use
+  change-set **comments** to note who reviewed what.
+- Time-box the review, then reassess.
 
-### Creating Resolutions
+---
 
-Resolutions are created via the API. Each resolution targets either a WIP haplogroup (new node) or a WIP reparent (move operation).
+## Applying to production
 
-#### REPARENT Resolution
+When you're satisfied:
+1. Ensure flagged items are resolved (or deferred) in Merge Reviews.
+2. Click **Apply** on the change set.
+3. Confirm.
 
-When the algorithm placed a node under the wrong parent:
+The approved changes are applied to the live tree, the status becomes **APPLIED**,
+and an audit record (`promoted_by`/`promoted_at`) is written.
 
-```bash
-# Via curl (example)
-curl -X POST /curator/change-sets/123/resolve/reparent \
-  -d "wipHaplogroupId=456" \
-  -d "newParentId=789" \
-  -d "notes=Source data shows this should be under R-M269"
-```
+## Discarding a change set
 
-Parameters:
-- `wipHaplogroupId` or `wipReparentId` — What to resolve (one required)
-- `newParentId` or `newParentPlaceholderId` — New parent (one required)
-- `notes` — Explanation for audit trail
+If the changes shouldn't be applied, click **Discard** and enter a reason. Common
+reasons: data-quality issues, superseded by a newer merge, or a test merge.
 
-#### EDIT_VARIANTS Resolution
+---
 
-When variant associations need correction:
+## Machine / scripted access (management API)
 
-```bash
-curl -X POST /curator/change-sets/123/resolve/edit-variants \
-  -d "wipHaplogroupId=456" \
-  -d 'variantsToAdd=[101, 102, 103]' \
-  -d 'variantsToRemove=[50]' \
-  -d "notes=Adding missing defining SNPs per ISOGG"
-```
-
-Parameters:
-- `wipHaplogroupId` or `wipReparentId` — What to resolve
-- `variantsToAdd` — JSON array of variant IDs to add
-- `variantsToRemove` — JSON array of variant IDs to remove
-- `notes` — Explanation
-
-#### MERGE_EXISTING Resolution
-
-When a WIP node duplicates an existing production node:
-
-```bash
-curl -X POST /curator/change-sets/123/resolve/merge-existing \
-  -d "wipHaplogroupId=456" \
-  -d "mergeTargetId=200" \
-  -d "notes=R-M269 already exists as ID 200"
-```
-
-This prevents creating a duplicate — the WIP node's relationships will be redirected to the existing production node.
-
-#### DEFER Resolution
-
-When an item needs expert review before deciding:
-
-```bash
-curl -X POST /curator/change-sets/123/resolve/defer \
-  -d "wipHaplogroupId=456" \
-  -d "priority=HIGH" \
-  -d "reason=Disputed placement - needs phylogeny expert review" \
-  -d "notes=See ISOGG discussion thread #4521"
-```
-
-Priority levels: `LOW`, `NORMAL`, `HIGH`, `CRITICAL`
-
-Deferred items are excluded from Apply until resolved.
-
-### Viewing Resolutions
-
-**All resolutions for a change set:**
-```
-GET /curator/change-sets/123/resolutions
-```
-
-**Deferred items only:**
-```
-GET /curator/change-sets/123/deferred
-```
-
-### Cancelling a Resolution
-
-If you created a resolution by mistake:
-
-```bash
-curl -X DELETE /curator/change-sets/123/resolutions/999
-```
-
-This sets the resolution status to `CANCELLED`, effectively removing it.
-
-### Resolution Workflow
-
-1. **During review**, identify problematic placements via the Ambiguity Report or Tree Preview
-2. **Create resolutions** for items needing correction
-3. **View resolutions** to verify all corrections are in place
-4. **Apply** — the system applies your resolutions during promotion:
-   - REPARENT: Uses your specified parent instead of the original
-   - EDIT_VARIANTS: Adds/removes variants after node creation
-   - MERGE_EXISTING: Skips node creation, remaps relationships
-   - DEFER: Skips the item entirely (remains in WIP)
-5. **Resolution status** is updated to `APPLIED` after successful processing
-
-### API Summary
+The interactive screens above are for curators. A separate **management API**
+(under `/manage/*`, X-API-Key) drives the same lifecycle for automation — e.g. the
+tree-init/graft tooling:
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/curator/change-sets/:id/resolutions` | GET | List all resolutions |
-| `/curator/change-sets/:id/deferred` | GET | List deferred items |
-| `/curator/change-sets/:id/resolve/reparent` | POST | Create REPARENT resolution |
-| `/curator/change-sets/:id/resolve/edit-variants` | POST | Create EDIT_VARIANTS resolution |
-| `/curator/change-sets/:id/resolve/merge-existing` | POST | Create MERGE_EXISTING resolution |
-| `/curator/change-sets/:id/resolve/defer` | POST | Create DEFER resolution |
-| `/curator/change-sets/:csId/resolutions/:rId` | DELETE | Cancel a resolution |
-
-**Required Permission:** `tree.version.review`
+| `/manage/haplogroups/merge` · `/merge/preview` | POST | Run / preview a merge |
+| `/manage/change-sets` | GET / POST | List / create change sets |
+| `/manage/change-sets/:id` | GET | Change-set detail |
+| `/manage/change-sets/:id/changes` | POST | Add a change |
+| `/manage/change-sets/:id/diff` | GET | Full diff (JSON) |
+| `/manage/change-sets/:id/{start-review,approve-all,apply,discard}` | POST | Lifecycle |
+| `/manage/change-sets/:id/changes/:change_id/review` | POST | Review one change |
 
 ---
 
-## Applying to Production
+## Best practices
 
-When you're satisfied with the review:
-
-1. Ensure all high-priority items have been reviewed
-2. Click **Apply to Production**
-3. Confirm in the dialog
-
-**What happens:**
-- All approved changes are applied to the live tree
-- Users will see the updated tree structure
-- Change set status becomes "Applied"
-- An audit record is created
-
-**Required Permission:** `tree.version.promote`
+- **Before reviewing:** check the source (trusted authority?) and the scale.
+- **During review:** start with the lowest-confidence flagged items; read the diff
+  for unexpected reparents.
+- **Before applying:** have another curator spot-check large sets; apply outside
+  peak usage.
 
 ---
 
-## Discarding a Change Set
+## Workflow example
 
-If the changes should not be applied:
+**Scenario:** an ISOGG update with thousands of new nodes.
 
-1. Click **Discard** (red button)
-2. Enter a reason (required, minimum 10 characters)
-3. Click **Confirm Discard**
-
-**Common reasons to discard:**
-- Data quality issues discovered
-- Superseded by a newer merge
-- Test merge that was never intended for production
-
-**Required Permission:** `tree.version.discard`
-
----
-
-## Best Practices
-
-### Before Reviewing
-
-- Check when the change set was created
-- Review the source - is this a trusted authority?
-- Note the scale - more changes = more careful review needed
-
-### During Review
-
-- Start with the ambiguity report
-- Focus on low-confidence placements first
-- Use the diff view to understand structural changes
-- Look for unexpected reparenting operations
-
-### Before Applying
-
-- Have another curator spot-check large change sets
-- Verify the merge statistics look reasonable
-- Consider the timing (avoid applying during peak usage)
-
----
-
-## Workflow Example
-
-**Scenario:** ISOGG monthly update with 7,537 new nodes
-
-1. Receive notification that change set "isogg-2025-12" is ready
-2. Navigate to Change Sets dashboard
-3. Click the new change set to see details:
-   - 7,537 nodes created
-   - 2,695 nodes updated
-   - 684 ambiguities detected
-4. Click "Start Review"
-5. View the tree preview at `/curator/change-sets/{id}/tree-preview` to understand the structural changes
-6. Click "View Report" to handle the 684 ambiguities
-7. Review each ambiguity:
-   - Most are low-risk automatic placements (approve)
-   - Some need manual verification (check in tree view)
-   - A few should be skipped (data quality issues)
-8. **Create resolutions** for items needing correction:
-   - Use REPARENT to fix incorrect parent placements
-   - Use EDIT_VARIANTS to add missing SNPs
-   - Use MERGE_EXISTING for duplicate nodes
-   - Use DEFER for items needing expert research
-9. Return to detail panel
-10. Click "View Full Diff" to spot-check changes
-11. Check `/curator/change-sets/{id}/resolutions` to verify all corrections are in place
-12. Click "Approve All Pending" for remaining items
-13. Click "Apply to Production"
-14. Confirm in the dialog
-15. Done! Check the tree explorer to verify
+1. A change set appears as **READY_FOR_REVIEW** in `/curator/change-sets`.
+2. Open it; read the summary (e.g. *N created, M reparented*) and the diff.
+3. Click **Start Review** (→ UNDER_REVIEW).
+4. Switch to `/curator/reviews` and work the flagged worklist:
+   - **REPARENT** to fix or confirm a parent,
+   - **MERGE_EXISTING** for duplicates,
+   - **DEFER** items needing research.
+5. **Apply** the resolutions from a review item (enacts them via the change-set
+   apply engine).
+6. Back in `/curator/change-sets`, spot-check the diff and **Approve All Pending**.
+7. **Apply** the change set → **APPLIED**.
+8. Verify in the tree explorer (`/ytree` / `/mtree`).
 
 ---
 
 ## Troubleshooting
 
-| Symptom | Possible Cause | Solution |
+| Symptom | Possible cause | Solution |
 |---------|----------------|----------|
-| "No change sets found" | Filters hiding results | Reset filters to "All Types" and "All Statuses" |
-| "No change sets found" | Missing permissions | Request `tree.version.view` from Admin |
-| "No change sets found" | No recent merges | Check with data team if merges are scheduled |
-| "Apply" button disabled | Change set already applied | Check status — if "Applied", no action needed |
-| "Apply" button disabled | Missing permissions | Request `tree.version.promote` from Admin |
-| "Apply" button disabled | Unresolved ambiguities | View Ambiguity Report and resolve all items |
-| "Discard" button not visible | Missing permissions | Request `tree.version.discard` from Admin |
-| Changes not showing in production | Browser cache | Open in private/incognito window or clear cache |
-| Changes not showing in production | Page not refreshed | Refresh the tree explorer page |
-| Changes not showing in production | Not yet applied | Verify change set status is "Applied" |
-| Tree structure looks wrong | Viewing cached data | Hard refresh (Ctrl+Shift+R / Cmd+Shift+R) |
-| Tree structure looks wrong | Merge had errors | Check merge logs and ambiguity report |
-| Ambiguity count seems high | Large structural changes | Normal for major source updates — review systematically |
-| Resolution not applied | Status still "PENDING" | Check if Apply was run; resolutions apply during promotion |
-| Resolution API returns 400 | Missing required fields | Ensure wipHaplogroupId or wipReparentId is provided |
-| Deferred items still visible | Change set re-applied | Deferred items remain in WIP until manually resolved |
-| Cannot create resolution | Missing permissions | Request `tree.version.review` from Admin |
+| "No change sets found" | Status filter hiding results | Reset the status filter |
+| Can't reach the screen | Not a curator | Need the `Curator` / `TreeCurator` / `Admin` role |
+| **Apply** unavailable | Already APPLIED | No action needed |
+| **Apply** unavailable | Wrong status | Apply needs READY_FOR_REVIEW or UNDER_REVIEW (Start Review first) |
+| Resolve returns a notice | Unknown target node name | Use an existing node's exact name |
+| REPARENT/MERGE rejected | No `target` given | REPARENT and MERGE_EXISTING both require a target node name |
+| Deferred items still listed | By design | Deferred items stay in the worklist until resolved |
+| Changes not showing in production | Browser cache / not applied | Hard-refresh; confirm status is APPLIED |
 
 ---
 
-## Permissions Summary
+## Related documentation
 
-| Action | Permission Required |
-|--------|---------------------|
-| View change sets | `tree.version.view` |
-| View resolutions | `tree.version.view` |
-| Review changes | `tree.version.review` |
-| Create resolutions | `tree.version.review` |
-| Cancel resolutions | `tree.version.review` |
-| Apply to production | `tree.version.promote` |
-| Discard change set | `tree.version.discard` |
-
-Contact an administrator if you need additional permissions.
-
----
-
-## Related Documentation
-
-- [Tree Versioning System (Technical)](planning/tree-versioning-system.md) - Architecture and implementation details
-- [Conflict Resolution System (Technical)](planning/conflict-resolution-system.md) - Resolution types and data model
-- [Haplogroup Discovery System](planning/haplogroup-discovery-system.md) - How user observations propose new branches
+- [Tree Versioning System (technical)](planning/tree-versioning-system.md) — architecture and data model.
+- [Haplogroup Discovery System](planning/haplogroup-discovery-system.md) — how observations propose new branches.
+- [`rust/README.md`](../rust/README.md) — the curator suite, merge/SNP-graft, and the management API in context.
