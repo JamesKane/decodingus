@@ -549,6 +549,11 @@ pub struct ScrubReport {
     pub samples: Vec<String>,
 }
 
+/// Defining-variant links grouped for the scrub: `variant_id -> (variant_name,
+/// any_link_ASR_labeled, [(link_id, hg_id, hg_name)])`.
+type ScrubLinksByVariant =
+    std::collections::HashMap<i64, (Option<String>, bool, Vec<(i64, i64, String)>)>;
+
 /// Remove "recurrent" (homoplasic / ASR-scatter) defining-variant links. A single
 /// variant linked to haplogroups that do NOT all lie on one ancestor-descendant
 /// lineage is treated as recurrent: keep only the link(s) on its primary
@@ -598,7 +603,7 @@ pub async fn scrub_recurrent_links(
     .await?;
 
     // Group links by variant: variant_id -> (variant_name, any_labeled, [(link_id, hg_id, hg_name)]).
-    let mut by_variant: HashMap<i64, (Option<String>, bool, Vec<(i64, i64, String)>)> = HashMap::new();
+    let mut by_variant: ScrubLinksByVariant = HashMap::new();
     for (lid, vid, hid, hname, vname, labeled) in links {
         let e = by_variant.entry(vid).or_insert_with(|| (vname, false, Vec::new()));
         e.1 |= labeled;
@@ -708,6 +713,11 @@ pub struct RecurrenceLabelReport {
     pub samples: Vec<String>,
 }
 
+/// Multi-branch SNP links grouped for labeling: `variant_id -> (variant_name,
+/// GRCh38_ancestral, GRCh38_derived, [(link_id, hg_id)])`.
+type LabelLinksByVariant =
+    std::collections::HashMap<i64, (Option<String>, String, String, Vec<(i64, i64)>)>;
+
 /// Label the per-branch transition direction of every multi-branch SNP link by
 /// **topological parsimony** (Dollo/Camin-Sokal for a derived-state character).
 ///
@@ -772,7 +782,7 @@ pub async fn label_recurrence_transitions(
     .await?;
 
     // Group by variant: vid -> (name, anc, der, [(link_id, hg_id)]).
-    let mut by_variant: HashMap<i64, (Option<String>, String, String, Vec<(i64, i64)>)> = HashMap::new();
+    let mut by_variant: LabelLinksByVariant = HashMap::new();
     for (lid, vid, hid, vname, anc, der) in links {
         let e = by_variant.entry(vid).or_insert_with(|| (vname, anc, der, Vec::new()));
         e.3.push((lid, hid));
