@@ -101,7 +101,7 @@ pub async fn run(legacy: &PgPool, target: &PgPool, skip_tree: bool) -> anyhow::R
     println!("{:<26} {:>10} {:>10}  status", "aggregate", "legacy", "target");
     for c in CHECKS {
         if skip_tree && TREE_CHECKS.contains(&c.label) {
-            println!("{:<26} {:>10} {:>10}  {}", c.label, "-", "-", "skipped (tree-init)");
+            println!("{:<26} {:>10} {:>10}  skipped (tree-init)", c.label, "-", "-");
             continue;
         }
         let l: i64 = sqlx::query_scalar(c.legacy_sql).fetch_one(legacy).await?;
