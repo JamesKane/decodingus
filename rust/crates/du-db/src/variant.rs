@@ -3,7 +3,7 @@
 //! read through `sqlx::types::Json<T>` into the du-domain payload structs.
 
 use crate::{parse_pg_enum, pg_enum_label, DbError, Page};
-use du_domain::enums::{MutationType, NamingStatus};
+use du_domain::enums::{DnaType, MutationType, NamingStatus};
 use du_domain::ids::VariantId;
 use du_domain::variant::{Aliases, Annotations, Coordinates, NewVariant, Variant};
 use sqlx::types::Json;
@@ -208,6 +208,37 @@ pub async fn for_haplogroup_name(pool: &PgPool, name: &str) -> Result<Vec<Varian
     .fetch_all(pool)
     .await?;
     rows.into_iter().map(VariantRow::into_domain).collect()
+}
+
+/// Every current `(haplogroup_id, defining variant)` pair for a lineage, in one round
+/// trip. Backs the tree-with-variants ("full") tree API, which embeds each node's variants
+/// so a client (the Navigator desktop app) can build a placement tree without a per-node
+/// fetch. Current edges only (`valid_until IS NULL`); unnamed variants excluded.
+pub async fn for_dna_type_grouped(
+    pool: &PgPool,
+    dna_type: DnaType,
+) -> Result<Vec<(i64, Variant)>, DbError> {
+    #[derive(sqlx::FromRow)]
+    struct GroupedRow {
+        haplogroup_id: i64,
+        #[sqlx(flatten)]
+        variant: VariantRow,
+    }
+    let rows: Vec<GroupedRow> = sqlx::query_as(
+        "SELECT hv.haplogroup_id, v.id, v.canonical_name, v.mutation_type::text AS mutation_type, \
+                v.naming_status::text AS naming_status, v.aliases, v.coordinates, v.annotations \
+         FROM core.variant v \
+         JOIN tree.haplogroup_variant hv ON hv.variant_id = v.id AND hv.valid_until IS NULL \
+         JOIN tree.haplogroup h ON h.id = hv.haplogroup_id \
+         WHERE h.haplogroup_type::text = $1 AND h.valid_until IS NULL AND v.canonical_name IS NOT NULL \
+         ORDER BY hv.haplogroup_id, v.canonical_name",
+    )
+    .bind(pg_enum_label(&dna_type)?)
+    .fetch_all(pool)
+    .await?;
+    rows.into_iter()
+        .map(|r| Ok((r.haplogroup_id, r.variant.into_domain()?)))
+        .collect()
 }
 
 /// Total NAMED variant count (for the export metadata endpoint).

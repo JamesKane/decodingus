@@ -48,7 +48,7 @@ impl<D, T: From<D>> From<du_db::Page<D>> for Page<T> {
     }
 }
 
-#[derive(Serialize, ToSchema)]
+#[derive(Serialize, ToSchema, Clone)]
 pub struct VariantDto {
     pub id: i64,
     pub canonical_name: String,
@@ -83,6 +83,11 @@ pub struct HaplogroupNodeDto {
     pub haplogroup_type: String,
     pub formed_ybp: Option<i32>,
     pub tmrca_ybp: Option<i32>,
+    /// Defining variants for this node (with multi-build coordinates). Populated only by the
+    /// `/full` tree endpoints; omitted (empty) on the plain tree so existing clients are
+    /// unaffected.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub variants: Vec<VariantDto>,
     /// Child nodes. `no_recursion` stops utoipa's schema walk from recursing
     /// infinitely on this self-reference (it emits a `$ref` instead).
     #[schema(no_recursion)]
@@ -481,17 +486,21 @@ pub struct RootParams {
 
 // ── tree assembly ────────────────────────────────────────────────────────────
 
-fn assemble_forest(nodes: Vec<du_db::haplogroup::SubtreeNode>) -> Vec<HaplogroupNodeDto> {
+fn assemble_forest(
+    nodes: Vec<du_db::haplogroup::SubtreeNode>,
+    variants: &HashMap<i64, Vec<VariantDto>>,
+) -> Vec<HaplogroupNodeDto> {
     let mut by_parent: HashMap<Option<i64>, Vec<du_db::haplogroup::SubtreeNode>> = HashMap::new();
     for n in nodes {
         by_parent.entry(n.parent_id).or_default().push(n);
     }
-    build_level(None, &by_parent, 0)
+    build_level(None, &by_parent, variants, 0)
 }
 
 fn build_level(
     parent: Option<i64>,
     by_parent: &HashMap<Option<i64>, Vec<du_db::haplogroup::SubtreeNode>>,
+    variants: &HashMap<i64, Vec<VariantDto>>,
     depth: u16,
 ) -> Vec<HaplogroupNodeDto> {
     // Depth guard: tree-merge data can contain cycles; cap recursion defensively.
@@ -510,14 +519,27 @@ fn build_level(
             haplogroup_type: n.haplogroup_type.clone(),
             formed_ybp: n.formed_ybp,
             tmrca_ybp: n.tmrca_ybp,
-            children: build_level(Some(n.id), by_parent, depth + 1),
+            variants: variants.get(&n.id).cloned().unwrap_or_default(),
+            children: build_level(Some(n.id), by_parent, variants, depth + 1),
         })
         .collect()
 }
 
 async fn tree_response(st: &AppState, dna: DnaType, root: Option<&str>) -> Result<Json<TreeDto>, AppError> {
     let nodes = du_db::haplogroup::subtree(&st.pool, dna, root).await?;
-    Ok(Json(TreeDto { roots: assemble_forest(nodes) }))
+    Ok(Json(TreeDto { roots: assemble_forest(nodes, &HashMap::new()) }))
+}
+
+/// Like [`tree_response`] but embeds each node's defining variants (with multi-build
+/// coordinates) — one payload a client can build a placement tree from without per-node
+/// fetches. Variants are loaded for the whole lineage in one query and grouped by node.
+async fn tree_response_full(st: &AppState, dna: DnaType, root: Option<&str>) -> Result<Json<TreeDto>, AppError> {
+    let nodes = du_db::haplogroup::subtree(&st.pool, dna, root).await?;
+    let mut variants: HashMap<i64, Vec<VariantDto>> = HashMap::new();
+    for (hid, v) in du_db::variant::for_dna_type_grouped(&st.pool, dna).await? {
+        variants.entry(hid).or_default().push(VariantDto::from(v));
+    }
+    Ok(Json(TreeDto { roots: assemble_forest(nodes, &variants) }))
 }
 
 // ── handlers ─────────────────────────────────────────────────────────────────
@@ -532,6 +554,18 @@ async fn y_tree(State(st): State<AppState>, Query(q): Query<RootParams>) -> Resu
     responses((status = 200, description = "Mitochondrial haplogroup tree", body = TreeDto)))]
 async fn mt_tree(State(st): State<AppState>, Query(q): Query<RootParams>) -> Result<Json<TreeDto>, AppError> {
     tree_response(&st, DnaType::MtDna, q.root_haplogroup.as_deref().filter(|s| !s.is_empty())).await
+}
+
+#[utoipa::path(get, path = "/api/v1/y-tree/full", params(RootParams), tag = "tree",
+    responses((status = 200, description = "Y-chromosome haplogroup tree with per-node defining variants", body = TreeDto)))]
+async fn y_tree_full(State(st): State<AppState>, Query(q): Query<RootParams>) -> Result<Json<TreeDto>, AppError> {
+    tree_response_full(&st, DnaType::YDna, q.root_haplogroup.as_deref().filter(|s| !s.is_empty())).await
+}
+
+#[utoipa::path(get, path = "/api/v1/mt-tree/full", params(RootParams), tag = "tree",
+    responses((status = 200, description = "Mitochondrial haplogroup tree with per-node defining variants", body = TreeDto)))]
+async fn mt_tree_full(State(st): State<AppState>, Query(q): Query<RootParams>) -> Result<Json<TreeDto>, AppError> {
+    tree_response_full(&st, DnaType::MtDna, q.root_haplogroup.as_deref().filter(|s| !s.is_empty())).await
 }
 
 #[utoipa::path(get, path = "/api/v1/coverage/benchmarks", tag = "coverage",
@@ -911,7 +945,7 @@ fn csv_field(s: &str) -> String {
 #[openapi(
     info(title = "DecodingUs API", version = "1.0.0", description = "Public read API for the DecodingUs AppView."),
     paths(
-        y_tree, mt_tree, coverage_benchmarks, references_details, biosample_report, sample_report, biosample_studies,
+        y_tree, mt_tree, y_tree_full, mt_tree_full, coverage_benchmarks, references_details, biosample_report, sample_report, biosample_studies,
         list_variants, get_variant, variants_by_haplogroup, export_metadata, export_variants,
         export_variants_gff, list_region_builds, regions_by_build,
         reports_coverage, reports_ancestry, reports_haplogroups,
@@ -940,6 +974,8 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/api/v1/y-tree", get(y_tree))
         .route("/api/v1/mt-tree", get(mt_tree))
+        .route("/api/v1/y-tree/full", get(y_tree_full))
+        .route("/api/v1/mt-tree/full", get(mt_tree_full))
         .route("/api/v1/coverage/benchmarks", get(coverage_benchmarks))
         .route("/api/v1/reports/coverage", get(reports_coverage))
         .route("/api/v1/reports/ancestry", get(reports_ancestry))
@@ -960,4 +996,59 @@ pub fn router() -> Router<AppState> {
         .route("/api/v1/genome-regions", get(list_region_builds))
         .route("/api/v1/genome-regions/:build", get(regions_by_build))
         .merge(SwaggerUi::new("/api").url("/api/openapi.json", ApiDoc::openapi()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{HaplogroupNodeDto, TreeDto, VariantDto};
+
+    /// Pins the `/y-tree/full` JSON contract the Navigator's `parse_decodingus_json` consumes:
+    /// snake_case node fields, a nested `children` array, and per-node `variants[].coordinates`
+    /// keyed by build label (`hs1`/`GRCh38`). The plain tree omits `variants` entirely.
+    #[test]
+    fn full_tree_node_serializes_with_variants_and_coordinates() {
+        let variant = VariantDto {
+            id: 5,
+            canonical_name: "M207".into(),
+            mutation_type: "SNP".into(),
+            naming_status: "named".into(),
+            common_names: vec![],
+            rs_ids: vec![],
+            coordinates: serde_json::json!({
+                "hs1": {"contig": "chrY", "position": 2_800_000, "ancestral": "A", "derived": "G"}
+            }),
+        };
+        let node = HaplogroupNodeDto {
+            id: 10,
+            name: "R-M207".into(),
+            haplogroup_type: "Y_DNA".into(),
+            formed_ybp: None,
+            tmrca_ybp: None,
+            variants: vec![variant],
+            children: vec![],
+        };
+        let v = serde_json::to_value(TreeDto { roots: vec![node] }).unwrap();
+        let root = &v["roots"][0];
+        assert_eq!(root["id"], 10);
+        assert_eq!(root["haplogroup_type"], "Y_DNA"); // snake_case, no rename_all
+        let var = &root["variants"][0];
+        assert_eq!(var["canonical_name"], "M207");
+        assert_eq!(var["coordinates"]["hs1"]["position"], 2_800_000);
+        assert_eq!(var["coordinates"]["hs1"]["derived"], "G");
+    }
+
+    #[test]
+    fn plain_tree_omits_empty_variants() {
+        let node = HaplogroupNodeDto {
+            id: 1,
+            name: "A".into(),
+            haplogroup_type: "Y_DNA".into(),
+            formed_ybp: None,
+            tmrca_ybp: None,
+            variants: vec![],
+            children: vec![],
+        };
+        let v = serde_json::to_value(TreeDto { roots: vec![node] }).unwrap();
+        assert!(v["roots"][0].get("variants").is_none(), "empty variants must be omitted");
+    }
 }
