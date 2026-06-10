@@ -25,7 +25,7 @@ async fn edge(pool: &PgPool, child: i64, parent: i64) {
 async fn var_link(pool: &PgPool, hgid: i64, vname: &str) {
     let vid: i64 = sqlx::query_scalar(
         "INSERT INTO core.variant (canonical_name, mutation_type) VALUES ($1,'SNP'::core.mutation_type) \
-         ON CONFLICT (canonical_name) WHERE canonical_name IS NOT NULL \
+         ON CONFLICT (canonical_name, COALESCE(defining_haplogroup_id, -1)) WHERE canonical_name IS NOT NULL \
          DO UPDATE SET canonical_name=EXCLUDED.canonical_name RETURNING id")
         .bind(vname).fetch_one(pool).await.unwrap();
     sqlx::query("INSERT INTO tree.haplogroup_variant (haplogroup_id, variant_id) VALUES ($1,$2)")

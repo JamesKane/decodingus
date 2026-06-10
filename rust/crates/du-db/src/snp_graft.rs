@@ -252,10 +252,6 @@ pub struct GraftWriteReport {
     pub skipped_name_exists: Vec<String>,
     /// Skipped — parent unresolvable (flagged/missing, or depends on a skip).
     pub skipped_unresolved: Vec<String>,
-    /// Reattached: a bush whose chain broke at a flagged/ambiguous ancestor,
-    /// re-anchored to the nearest ancestor that a defining SNP points into the
-    /// backbone (reattach mode only).
-    pub reattached: usize,
     /// The DRAFT change-set written (only when `apply`).
     pub change_set_id: Option<i64>,
     pub applied: bool,
@@ -288,7 +284,6 @@ pub async fn graft(
     classified: &GraftReport,
     by: &str,
     apply: bool,
-    reattach: bool,
 ) -> Result<GraftWriteReport, DbError> {
     let dna_label = pg_enum_label(&dna)?;
     let by_name: HashMap<&str, &SourceNode> = source.iter().map(|n| (n.name.as_str(), n)).collect();
@@ -371,63 +366,6 @@ pub async fn graft(
         }
     }
 
-    // Reattach (opt-in): a bush blocked because its backbone parent is flagged
-    // (weak/inconsistent — an uncertain SNP placement) isn't dropped. Walk up the
-    // source ancestry to the nearest ancestor the classifier cleanly MATCHED, and
-    // attach the bush's top there — vetted by SNP *set* + subtree scope, so the
-    // catalog's junk single-SNP links don't mislead it. Intra-bush novel parents
-    // still chain (only the top jumps), preserving the shrub's structure.
-    let mut reattached = 0usize;
-    if reattach {
-        let parent_of: HashMap<&str, &str> = source
-            .iter()
-            .filter_map(|n| n.parent_name.as_deref().map(|p| (n.name.as_str(), p)))
-            .collect();
-        // Nearest source-ancestor with a clean MATCH disposition → its catalog id.
-        let nearest_match = |start: &SourceNode| -> Option<i64> {
-            let mut cur = start.parent_name.as_deref();
-            while let Some(name) = cur {
-                if let Some(Disposition::Match { anchor, .. }) = dispo.get(name).copied() {
-                    if let Some(&id) = id_of.get(anchor) {
-                        return Some(id);
-                    }
-                }
-                cur = parent_of.get(name).copied();
-            }
-            None
-        };
-        loop {
-            let mut changed = false;
-            for sn in &novels {
-                if !matches!(status.get(&sn.name), Some(St::Blocked)) {
-                    continue;
-                }
-                match &sn.parent_name {
-                    // Parent became buildable (an ancestor reattached) → chain.
-                    Some(p) if matches!(status.get(p.as_str()), Some(St::Ok(_))) => {
-                        status.insert(sn.name.clone(), St::Ok(PTarget::NewParent(p.clone())));
-                        changed = true;
-                    }
-                    // Parent is a (still-blocked) novel → wait for it; don't jump,
-                    // or the bush would scatter above its own parent.
-                    Some(p) if novel_names.contains(p.as_str()) => {}
-                    // Parent is flagged/absent (a backbone break) → this is a bush
-                    // top: jump it to the nearest cleanly-matched ancestor.
-                    _ => {
-                        if let Some(id) = nearest_match(sn) {
-                            status.insert(sn.name.clone(), St::Ok(PTarget::Existing(id)));
-                            reattached += 1;
-                            changed = true;
-                        }
-                    }
-                }
-            }
-            if !changed {
-                break;
-            }
-        }
-    }
-
     // Topo order the buildable set: parent before child (placeholders resolve in
     // change-set id order during apply).
     let mut emitted: HashSet<String> = HashSet::new();
@@ -455,7 +393,7 @@ pub async fn graft(
     }
 
     // Build the report (counts + samples) — this is the whole dry-run output.
-    let mut rep = GraftWriteReport { novel_total: novels.len(), applied: apply, reattached, ..Default::default() };
+    let mut rep = GraftWriteReport { novel_total: novels.len(), applied: apply, ..Default::default() };
     for sn in &novels {
         match status.get(&sn.name) {
             Some(St::NameExists) => rep.skipped_name_exists.push(sn.name.clone()),
@@ -582,7 +520,7 @@ async fn get_or_create_variant(
     let id: i64 = sqlx::query_scalar(
         "INSERT INTO core.variant (canonical_name, mutation_type, naming_status) \
          VALUES ($1, 'SNP'::core.mutation_type, 'UNNAMED'::core.naming_status) \
-         ON CONFLICT (canonical_name) WHERE canonical_name IS NOT NULL \
+         ON CONFLICT (canonical_name, COALESCE(defining_haplogroup_id, -1)) WHERE canonical_name IS NOT NULL \
          DO UPDATE SET canonical_name = EXCLUDED.canonical_name RETURNING id",
     )
     .bind(name)

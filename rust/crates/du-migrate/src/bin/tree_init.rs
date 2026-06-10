@@ -30,16 +30,6 @@ struct Args {
     /// merge only the prod tree, or to --reprocess an already-loaded tree.
     #[arg(long)]
     isogg: Option<String>,
-    /// Path to the FTDNA haplotree JSON (`allNodes` map). SNP-anchor grafted onto
-    /// the loaded catalog (default); `kitsCount==0` nodes are private (skipped).
-    #[arg(long)]
-    ftdna: Option<String>,
-    /// Load the --ftdna tree as the FOUNDATION (merge_into into an empty tree)
-    /// instead of grafting. Used for the mt-tree, which is FTDNA-only (single RSRS
-    /// root). Keeps backbone/internal nodes even at kitsCount==0; drops only
-    /// private leaves (kitsCount==0 with no kept descendants).
-    #[arg(long)]
-    ftdna_foundation: bool,
     /// Optional: URL of the decoding-us production Y-tree to merge in.
     #[arg(long)]
     merge_prod: Option<String>,
@@ -51,11 +41,6 @@ struct Args {
     /// as new nodes under their parents' anchors. Dry-run unless --apply.
     #[arg(long)]
     graft: bool,
-    /// Reattach bushes blocked by a flagged/ambiguous backbone ancestor to the
-    /// nearest node their defining SNP points into (for complete-topology sources
-    /// like FTDNA). Off by default (conservative: block & review).
-    #[arg(long)]
-    reattach: bool,
     /// Phase 4: write the curator-review worklist (flagged + name-collision +
     /// graft-blocked nodes, with SNP-scatter context) to this JSON path. Read-only.
     #[arg(long)]
@@ -80,6 +65,17 @@ struct Args {
     /// off-lineage occurrences are soft-deleted. Dry-run report unless --apply.
     #[arg(long)]
     scrub_recurrent: bool,
+    /// Resolve ISOGG name-decorated (`.1`/`.2` recurrence, `^^` marker) coordless
+    /// variants into the universal-variant recurrence model: rewrite onto the base
+    /// SNP identity with `defining_haplogroup_id` = the branch, inheriting the base
+    /// coordinate. Dry-run report unless --apply.
+    #[arg(long)]
+    resolve_recurrence: bool,
+    /// Label each multi-branch SNP link's transition direction (forward/recurrence
+    /// vs reverse/back-mutation) by topological parsimony, writing the per-branch
+    /// allele columns so the scrub keeps them. Dry-run report unless --apply.
+    #[arg(long)]
+    label_recurrence: bool,
     /// DNA type (Y or MT). ISOGG/this tool target Y.
     #[arg(long, default_value = "Y")]
     dna: String,
@@ -254,126 +250,6 @@ fn isogg_graft_nodes(root: &Value) -> Vec<du_db::snp_graft::SourceNode> {
     out
 }
 
-/// Flatten the FTDNA haplotree (`{allNodes: {id: {haplogroupId, parentId, name,
-/// kitsCount, variants[], isBackbone, …}}}`) into SNP-graft `SourceNode`s.
-/// `kitsCount==0` nodes are **private** (skipped); a kept node's parent is its
-/// nearest non-private ancestor (private nodes are spliced out). Defining SNPs are
-/// the variant names. (Borrows the Scala `FtdnaTreeProvider` shape.)
-fn ftdna_graft_nodes(root: &Value) -> Vec<du_db::snp_graft::SourceNode> {
-    use std::collections::HashMap;
-    let Some(all) = root.get("allNodes").and_then(Value::as_object) else { return Vec::new() };
-    let by_id: HashMap<i64, &Value> =
-        all.values().filter_map(|n| n.get("haplogroupId").and_then(Value::as_i64).map(|id| (id, n))).collect();
-    let kits = |n: &Value| n.get("kitsCount").and_then(Value::as_i64).unwrap_or(0);
-    // Nearest ancestor with kitsCount>=1 (public), walking parentId; None at the top.
-    let public_parent = |n: &Value| -> Option<String> {
-        let mut pid = n.get("parentId").and_then(Value::as_i64);
-        while let Some(id) = pid {
-            let Some(p) = by_id.get(&id) else { return None };
-            if kits(p) >= 1 {
-                return p.get("name").and_then(Value::as_str).map(str::to_string);
-            }
-            pid = p.get("parentId").and_then(Value::as_i64);
-        }
-        None
-    };
-    all.values()
-        .filter(|n| kits(n) >= 1)
-        .filter_map(|n| {
-            let name = n.get("name")?.as_str()?.to_string();
-            let defining_snps = n
-                .get("variants")
-                .and_then(Value::as_array)
-                .map(|a| a.iter().filter_map(|v| v.get("variant").and_then(Value::as_str)).filter(|s| !s.is_empty()).map(str::to_string).collect())
-                .unwrap_or_default();
-            Some(du_db::snp_graft::SourceNode {
-                name,
-                parent_name: public_parent(n),
-                defining_snps,
-                is_backbone: n.get("isBackbone").and_then(Value::as_bool).unwrap_or(false),
-                last_updated: None,
-            })
-        })
-        .collect()
-}
-
-/// Build a nested `du_domain::merge::SourceNode` forest from FTDNA's `allNodes`
-/// for a FOUNDATION load (merge_into into an empty tree) — used for the mt-tree,
-/// which is FTDNA-only (single RSRS root). Unlike [`ftdna_graft_nodes`], this
-/// keeps backbone/internal nodes even at `kitsCount==0` (RSRS and many splits
-/// have no terminal kits but ARE real haplogroups); only private LEAVES
-/// (`kitsCount==0` with no kept descendants) are dropped. `variants` are the
-/// FTDNA variant names (e.g. mt `G263A`).
-fn ftdna_foundation_roots(root: &Value) -> Vec<SourceNode> {
-    use std::collections::HashMap;
-    let Some(all) = root.get("allNodes").and_then(Value::as_object) else { return Vec::new() };
-    let by_id: HashMap<i64, &Value> =
-        all.values().filter_map(|n| n.get("haplogroupId").and_then(Value::as_i64).map(|id| (id, n))).collect();
-    let mut children_of: HashMap<i64, Vec<i64>> = HashMap::new();
-    let mut roots: Vec<i64> = Vec::new();
-    for n in all.values() {
-        let Some(id) = n.get("haplogroupId").and_then(Value::as_i64) else { continue };
-        match n.get("parentId").and_then(Value::as_i64) {
-            Some(pid) if pid != 0 && by_id.contains_key(&pid) => children_of.entry(pid).or_default().push(id),
-            _ => roots.push(id),
-        }
-    }
-    let kits = |n: &Value| n.get("kitsCount").and_then(Value::as_i64).unwrap_or(0);
-    // Bottom-up: a node is kept if it has terminal kits OR any kept descendant.
-    fn build(
-        id: i64,
-        by_id: &HashMap<i64, &Value>,
-        kids: &HashMap<i64, Vec<i64>>,
-        kits: &dyn Fn(&Value) -> i64,
-    ) -> Option<SourceNode> {
-        let n = *by_id.get(&id)?;
-        let children: Vec<SourceNode> = kids
-            .get(&id)
-            .into_iter()
-            .flatten()
-            .filter_map(|&c| build(c, by_id, kids, kits))
-            .collect();
-        if kits(n) < 1 && children.is_empty() {
-            return None; // private leaf
-        }
-        let name = n.get("name").and_then(Value::as_str)?.to_string();
-        let variants = n
-            .get("variants")
-            .and_then(Value::as_array)
-            .map(|a| a.iter().filter_map(|v| v.get("variant").and_then(Value::as_str)).filter(|s| !s.is_empty()).map(str::to_string).collect())
-            .unwrap_or_default();
-        Some(SourceNode { name, variants, children })
-    }
-    roots.iter().filter_map(|&r| build(r, &by_id, &children_of, &kits)).collect()
-}
-
-/// FTDNA per-variant GRCh38 coordinates as `(snp_name, coords-jsonb)` for
-/// fill-if-absent enrichment. `abs(position)` works around FTDNA's negative-position
-/// data bug; only rows with a position + both alleles are emitted.
-fn ftdna_variant_coords(root: &Value, contig: &str) -> Vec<(String, Value)> {
-    let Some(all) = root.get("allNodes").and_then(Value::as_object) else { return Vec::new() };
-    let mut out = Vec::new();
-    for n in all.values() {
-        if n.get("kitsCount").and_then(Value::as_i64).unwrap_or(0) < 1 {
-            continue;
-        }
-        for v in n.get("variants").and_then(Value::as_array).into_iter().flatten() {
-            let (Some(name), Some(pos)) =
-                (v.get("variant").and_then(Value::as_str).filter(|s| !s.is_empty()), v.get("position").and_then(Value::as_i64))
-            else { continue };
-            let (anc, der) = (v.get("ancestral").and_then(Value::as_str), v.get("derived").and_then(Value::as_str));
-            if anc.is_none() && der.is_none() {
-                continue;
-            }
-            out.push((
-                name.to_string(),
-                serde_json::json!({ "GRCh38": { "contig": contig, "position": pos.abs(), "ancestral": anc, "derived": der } }),
-            ));
-        }
-    }
-    out
-}
-
 /// The shared SNP-anchored graft pipeline (classify → enrich → graft → review),
 /// source-agnostic. Dry-run by default; writes gated by `--apply`/`--graft`.
 async fn run_snp_graft(
@@ -396,7 +272,7 @@ async fn run_snp_graft(
     let want_review = args.export_flags.is_some() || args.stage_review;
     let graft_rep = if args.graft || want_review {
         let apply_graft = args.graft && args.apply;
-        let g = du_db::snp_graft::graft(pool, source, dna, label, &report, &args.by, apply_graft, args.reattach).await?;
+        let g = du_db::snp_graft::graft(pool, source, dna, label, &report, &args.by, apply_graft).await?;
         if args.graft {
             print_graft_write_report(&g);
         }
@@ -475,7 +351,6 @@ fn print_graft_write_report(g: &du_db::snp_graft::GraftWriteReport) {
         under_existing = g.under_existing,
         under_new = g.under_new,
         roots = g.roots,
-        reattached = g.reattached,
         skipped_name_exists = g.skipped_name_exists.len(),
         skipped_unresolved = g.skipped_unresolved.len(),
         change_set_id = g.change_set_id,
@@ -620,37 +495,6 @@ async fn main() -> anyhow::Result<()> {
             }
         }
 
-        // 3. Load the FTDNA haplotree — as a FOUNDATION (mt: FTDNA-only, single RSRS
-        //    root) or SNP-anchor grafted onto the loaded catalog (Y: onto ISOGG).
-        if let Some(path) = &args.ftdna {
-            tracing::info!(%path, foundation = args.ftdna_foundation, "loading FTDNA haplotree");
-            let body: Value = serde_json::from_str(&std::fs::read_to_string(path)?)?;
-            let contig = if dna == DnaType::YDna { "chrY" } else { "chrM" };
-            if args.ftdna_foundation {
-                // Foundation: merge into the empty tree (all created), THEN enrich
-                // coordinates (the variants don't exist until the merge runs).
-                let roots = ftdna_foundation_roots(&body);
-                merge_into(&pool, &roots, "FTDNA", dna, dna_label, &args.by, args.apply).await?;
-                let coords = ftdna_variant_coords(&body, contig);
-                if args.apply {
-                    let n = du_db::variant::set_coordinates_bulk(&pool, &coords).await?;
-                    tracing::info!(rows = coords.len(), updated = n, "enriched FTDNA foundation coordinates");
-                } else {
-                    tracing::info!(rows = coords.len(), "DRY-RUN: would enrich coordinates (pass --apply)");
-                }
-            } else {
-                // Graft: enrich coordinates fill-if-absent, then SNP-anchor graft.
-                let coords = ftdna_variant_coords(&body, contig);
-                if args.apply {
-                    let n = du_db::variant::set_coordinates_bulk(&pool, &coords).await?;
-                    tracing::info!(rows = coords.len(), updated = n, "enriched coordinates from FTDNA (existing builds win)");
-                } else {
-                    tracing::info!(rows = coords.len(), "DRY-RUN: would enrich coordinates from FTDNA (pass --apply)");
-                }
-                let source = ftdna_graft_nodes(&body);
-                run_snp_graft(&pool, &source, dna, "FTDNA", &args).await?;
-            }
-        }
     }
 
     // 4. Post-process the materialized tree (after a fresh --apply, or on demand
@@ -695,6 +539,44 @@ async fn main() -> anyhow::Result<()> {
         }
         if !args.apply {
             tracing::warn!("dry-run: re-run with --apply to soft-delete the off-lineage links");
+        }
+    }
+
+    // 6. Resolve ISOGG name-decorated coordless variants (.1/.2 recurrence, ^^
+    //    marker) into the universal-variant recurrence model. Dry-run unless --apply.
+    if args.resolve_recurrence {
+        let r = du_db::variant::resolve_isogg_recurrence(&pool, dna, args.apply).await?;
+        tracing::info!(
+            candidates = r.candidates,
+            recurrence_set = r.recurrence_set,
+            redundant_folded = r.redundant_folded,
+            multi_link = r.multi_link,
+            no_base_coords = r.no_base_coords,
+            applied = args.apply,
+            samples = ?r.samples,
+            "resolved ISOGG-decorated recurrence variants"
+        );
+        if !args.apply {
+            tracing::warn!("dry-run: re-run with --apply to write the recurrence rows");
+        }
+    }
+
+    // 7. Label multi-branch SNP link directions (forward/recurrence vs reverse/
+    //    back-mutation) by topological parsimony. Dry-run unless --apply.
+    if args.label_recurrence {
+        let r = du_db::haplogroup::label_recurrence_transitions(&pool, dna, args.apply).await?;
+        tracing::info!(
+            variants_examined = r.variants_examined,
+            forward_links = r.forward_links,
+            reverse_links = r.reverse_links,
+            back_mutation_variants = r.back_mutation_variants,
+            homoplasy_variants = r.homoplasy_variants,
+            applied = args.apply,
+            samples = ?r.samples,
+            "labeled multi-branch recurrence transitions"
+        );
+        if !args.apply {
+            tracing::warn!("dry-run: re-run with --apply to write the per-branch transition labels");
         }
     }
 
@@ -755,45 +637,3 @@ fn collect_aliases(node: &Value, out: &mut Vec<(String, Vec<String>)>) {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    /// The mt foundation builder keeps backbone/internal nodes even at
-    /// kitsCount==0 (RSRS, splits with no terminal kits) and drops only private
-    /// leaves (kitsCount==0 with no kept descendants). The empty root variant is
-    /// filtered, real variant names are carried.
-    #[test]
-    fn ftdna_foundation_keeps_backbone_drops_private_leaves() {
-        let tree = json!({"allNodes": {
-            "4350": {"haplogroupId":4350,"parentId":0,"name":"RSRS","kitsCount":0,
-                     "variants":[{"variant":"","snpId":0}]},
-            "4351": {"haplogroupId":4351,"parentId":4350,"name":"L0","kitsCount":9,
-                     "variants":[{"variant":"G263A","position":263,"ancestral":"G","derived":"A"}]},
-            "4352": {"haplogroupId":4352,"parentId":4351,"name":"PRIV","kitsCount":0,
-                     "variants":[{"variant":"A1G"}]},
-            "4353": {"haplogroupId":4353,"parentId":4351,"name":"BACKBONE","kitsCount":0,
-                     "variants":[{"variant":"C2T"}]},
-            "4354": {"haplogroupId":4354,"parentId":4353,"name":"L0a","kitsCount":2,
-                     "variants":[{"variant":"T3C"}]}
-        }});
-        let roots = ftdna_foundation_roots(&tree);
-        assert_eq!(roots.len(), 1, "single RSRS root");
-        let rsrs = &roots[0];
-        assert_eq!(rsrs.name, "RSRS");
-        assert!(rsrs.variants.is_empty(), "empty root variant filtered out");
-        // RSRS (kits=0) kept because it has descendants.
-        assert_eq!(rsrs.children.len(), 1);
-        let l0 = &rsrs.children[0];
-        assert_eq!(l0.name, "L0");
-        assert_eq!(l0.variants, vec!["G263A".to_string()]);
-        // PRIV (private leaf, kits=0, no children) dropped; BACKBONE (kits=0 but
-        // has a public child) kept.
-        let kids: Vec<&str> = l0.children.iter().map(|c| c.name.as_str()).collect();
-        assert_eq!(kids, vec!["BACKBONE"], "private leaf dropped, backbone kept");
-        let backbone = &l0.children[0];
-        let gk: Vec<&str> = backbone.children.iter().map(|c| c.name.as_str()).collect();
-        assert_eq!(gk, vec!["L0a"], "public grandchild retained under backbone");
-    }
-}

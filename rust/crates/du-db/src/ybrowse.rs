@@ -112,15 +112,19 @@ pub async fn reconcile(pool: &PgPool) -> Result<ReconcileReport, DbError> {
     // hash-joins on text equality — a per-source-row `aliases ? s.name` probe over
     // 3M+ mirror rows can't use the jsonb_path_ops GIN index (it serves @>, not ?)
     // and degrades to a seq nested-loop that never finishes at full scale.
+    // Match only PRIMARY identities (defining_haplogroup_id IS NULL). Recurrence
+    // siblings share the canonical name + coordinate but are ISOGG-tree-internal
+    // (homoplasy occurrences); ybrowse must not collide with them or it would see
+    // every recurrent SNP as a multi-variant split and mass-flag it.
     sqlx::query(
         "CREATE TEMP TABLE _nv ON COMMIT DROP AS \
            SELECT s.name, v.id AS vid FROM source.ybrowse_snp s \
-             JOIN core.variant v ON v.canonical_name = s.name \
+             JOIN core.variant v ON v.canonical_name = s.name AND v.defining_haplogroup_id IS NULL \
            UNION \
            SELECT s.name, cn.vid FROM source.ybrowse_snp s \
              JOIN ( \
                SELECT v.id AS vid, jsonb_array_elements_text(v.aliases->'common_names') AS nm \
-               FROM core.variant v WHERE v.aliases ? 'common_names' \
+               FROM core.variant v WHERE v.aliases ? 'common_names' AND v.defining_haplogroup_id IS NULL \
              ) cn ON cn.nm = s.name",
     )
     .execute(&mut *tx)
@@ -136,7 +140,8 @@ pub async fn reconcile(pool: &PgPool) -> Result<ReconcileReport, DbError> {
                   core.ysnp_canon(v.coordinates->'GRCh38'->>'ancestral', \
                                   v.coordinates->'GRCh38'->>'derived') AS akey \
            FROM core.variant v \
-           WHERE v.coordinates->'GRCh38'->>'contig' IS NOT NULL \
+           WHERE v.defining_haplogroup_id IS NULL \
+             AND v.coordinates->'GRCh38'->>'contig' IS NOT NULL \
              AND v.coordinates->'GRCh38'->>'ancestral' IS NOT NULL \
              AND v.coordinates->'GRCh38'->>'derived' IS NOT NULL",
     )
@@ -195,7 +200,8 @@ pub async fn reconcile(pool: &PgPool) -> Result<ReconcileReport, DbError> {
              CASE WHEN c.min_rank >= 90 THEN c.names ELSE c.names[2:] END)), \
            c.coords, c.evidence \
          FROM _clv c WHERE array_length(c.vids, 1) IS NULL \
-         ON CONFLICT (canonical_name) WHERE canonical_name IS NOT NULL DO NOTHING",
+         ON CONFLICT (canonical_name, COALESCE(defining_haplogroup_id, -1)) \
+           WHERE canonical_name IS NOT NULL DO NOTHING",
     )
     .execute(&mut *tx)
     .await?

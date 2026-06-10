@@ -4,6 +4,42 @@ Created 2026-06-10. Repo: decodingus (AppView), branch `rust-rewrite-foundation`
 the Navigator (DUNavigator) DecodingUs Y-tree provider — see that repo's
 `documents/design/DecodingUsTreeProvider.md` + `memory/decodingus-tree-provider.md`.
 
+## RESOLUTION (2026-06-10)
+
+Done in-place (no tree rebuild — the dev DB was already ISOGG + decoding-us, no FTDNA):
+
+1. **FTDNA descoped from code** — removed the Y-graft + mt-foundation paths from
+   `tree_init.rs` and the `reattach` path from `du_db::snp_graft` (FTDNA-only).
+2. **Root cause of the coordinate gap found + fixed:** the YBrowse mirror had been
+   ingested **without chain files**, so GRCh37/hs1 were empty on all 3.1M rows.
+   Re-ran `decodingus-jobs run-once ybrowse` with `YBROWSE_CHAIN_GRCH37`
+   (`hg38ToHg19`) + `YBROWSE_CHAIN_HS1` (`hg38ToHs1`), chains at
+   `~/Development/decodingus-data/chains/`. Reconcile enriched 2.98M variants.
+   **Live `/api/v1/y-tree/full` hs1 coverage: 29% → 88%** (GRCh37 28% → 88%).
+3. **ISOGG name-only resolution** — the residual coordless tips were ISOGG
+   name-*decoration* mismatches, not missing SNPs (ybrowse has the base SNP):
+   `.1`/`.2` = recurrence (same site, different branch), `^^` = stability marker.
+   Modeled per the universal-variant design via a new
+   `core.variant.defining_haplogroup_id` (migration 0023) — each recurrence is a
+   sibling row sharing name+coordinate, scoped to its branch. Ran
+   `tree-init --resolve-recurrence --apply` → 2,590 recurrence-ized + 2 folded;
+   empty-coordless tree variants 6,256 → 3,665 (residue: 3,122 reconcile-flags for
+   the curator, ~580 no-base/compound, ~118 genuinely not in ybrowse).
+4. **decoding-us multi-branch / back-mutation (forward/reverse) labeling** — 715
+   variants link the same SNP to >1 branch. `tree-init --label-recurrence --apply`
+   classifies each link by topological parsimony (Dollo: even defining-ancestors =
+   forward, odd = reverse/back-mutation) and writes the migration-0021 per-link
+   `ancestral_allele`/`derived_allele`. 630 labeled (381 homoplasy, 251
+   back-mutations). `scrub_recurrent_links` now **skips ASR-labeled variants**, so
+   genuine recurrence survives (scrub examined 715→85 after labeling). NOTE: purely
+   topological — no tip genotypes/character-state data exist for true ASR.
+
+Remaining: the 18 multi-link ISOGG-decorated variants (need one recurrence row per
+branch), the reconcile-flag curator queue, and genotype-based ASR if/when sample
+call data lands.
+
+## (original issue follows)
+
 ## TL;DR
 
 The Navigator desktop app now places Y haplogroups against **our** DecodingUs tree (served by

@@ -103,7 +103,7 @@ pub async fn upsert_by_name(pool: &PgPool, v: &NewVariant) -> Result<VariantId, 
     let id: i64 = sqlx::query_scalar(
         "INSERT INTO core.variant (canonical_name, mutation_type, aliases, coordinates) \
          VALUES ($1, $2::core.mutation_type, $3, $4) \
-         ON CONFLICT (canonical_name) WHERE canonical_name IS NOT NULL \
+         ON CONFLICT (canonical_name, COALESCE(defining_haplogroup_id, -1)) WHERE canonical_name IS NOT NULL \
          DO UPDATE SET mutation_type = EXCLUDED.mutation_type, \
            aliases = EXCLUDED.aliases, coordinates = EXCLUDED.coordinates, updated_at = now() \
          RETURNING id",
@@ -392,4 +392,153 @@ pub async fn set_aliases_bulk(pool: &PgPool, items: &[(String, Vec<String>)]) ->
         .rows_affected();
     }
     Ok(updated)
+}
+
+/// Report from [`resolve_isogg_recurrence`].
+#[derive(Debug, Default, Clone)]
+pub struct RecurrenceReport {
+    /// Decorated (`.N`/`^^`) coordless tree-linked variants considered.
+    pub candidates: i64,
+    /// Converted into recurrence rows on their base identity (got coordinates).
+    pub recurrence_set: u64,
+    /// Folded into the base because the base already defines the same branch (true dup).
+    pub redundant_folded: u64,
+    /// Deferred: variant defines >1 branch (would need one recurrence row per branch).
+    pub multi_link: i64,
+    /// Residue: no base primary carrying a GRCh38 coordinate (base absent from ybrowse,
+    /// itself coordless, or a compound `.`-joined name) — can't resolve here.
+    pub no_base_coords: i64,
+    pub samples: Vec<String>,
+}
+
+/// Resolve ISOGG name-decorated coordless variants into the universal-variant
+/// recurrence model. ISOGG suffixes a SNP name with `.1`/`.2` when the SAME
+/// physical site recurs on a second lineage (homoplasy) and `^^` as a "below
+/// criteria but phylogenetically stable" marker — neither is a distinct identity.
+///
+/// For each decorated coordless variant linked to exactly one branch H whose base
+/// SNP exists as a coordinate-bearing primary P (`defining_haplogroup_id IS NULL`):
+/// rewrite it in place to `canonical_name = base`, `defining_haplogroup_id = H`,
+/// inheriting P's coordinate (same physical site) and folding the old decorated
+/// name into aliases. Each row then defines exactly one lineage, so
+/// [`crate::haplogroup::scrub_recurrent_links`] leaves the genuine recurrence
+/// alone. When the base already defines H (a true duplicate) the row is folded
+/// into P instead. Dry-run (counts only) unless `apply`. Idempotent.
+pub async fn resolve_isogg_recurrence(
+    pool: &PgPool,
+    dna: DnaType,
+    apply: bool,
+) -> Result<RecurrenceReport, DbError> {
+    let dna_label = pg_enum_label(&dna)?;
+    let mut rep = RecurrenceReport::default();
+    let mut tx = pool.begin().await?;
+
+    // Materialize the working set ONCE (the candidate scan is a single regex pass
+    // over the coordless variants; recomputing the CTE per query seq-scanned 3M
+    // rows repeatedly). Everything below reads these temp tables.
+    //
+    // _cand: decorated coordless PRIMARY variants with ≥1 current link in this tree.
+    sqlx::query(
+        "CREATE TEMP TABLE _cand ON COMMIT DROP AS \
+           SELECT v.id AS vid, v.canonical_name AS oldname, \
+                  regexp_replace(regexp_replace(v.canonical_name, '\\^+', '', 'g'), '\\.[0-9]+$', '') AS base \
+           FROM core.variant v \
+           WHERE v.defining_haplogroup_id IS NULL \
+             AND (v.coordinates = '{}'::jsonb OR NOT v.coordinates ? 'GRCh38') \
+             AND v.canonical_name ~ '(\\.[0-9]+$|\\^)' \
+             AND EXISTS (SELECT 1 FROM tree.haplogroup_variant hv \
+                           JOIN tree.haplogroup h ON h.id = hv.haplogroup_id AND h.valid_until IS NULL \
+                                                 AND h.haplogroup_type::text = $1 \
+                         WHERE hv.variant_id = v.id AND hv.valid_until IS NULL)",
+    )
+    .bind(&dna_label)
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query("CREATE INDEX ON _cand (vid)").execute(&mut *tx).await?;
+    sqlx::query("CREATE INDEX ON _cand (base)").execute(&mut *tx).await?;
+
+    // _single: candidates linked to exactly ONE branch (its defining haplogroup).
+    sqlx::query(
+        "CREATE TEMP TABLE _single ON COMMIT DROP AS \
+           SELECT c.vid, c.oldname, c.base, (array_agg(hv.haplogroup_id))[1] AS hg \
+           FROM _cand c \
+             JOIN tree.haplogroup_variant hv ON hv.variant_id = c.vid AND hv.valid_until IS NULL \
+             JOIN tree.haplogroup h ON h.id = hv.haplogroup_id AND h.valid_until IS NULL \
+                                   AND h.haplogroup_type::text = $1 \
+           GROUP BY c.vid, c.oldname, c.base HAVING count(*) = 1",
+    )
+    .bind(&dna_label)
+    .execute(&mut *tx)
+    .await?;
+
+    // _res: singles whose base SNP is a coordinate-bearing primary; flag the true
+    // duplicates (base already defines this branch). INDELs are excluded — YBrowse
+    // encodes them as bare `ins`/`del` markers (not bases), so the coordinate can't
+    // be folded or directioned; they need curator moderation, not auto-resolution.
+    sqlx::query(
+        "CREATE TEMP TABLE _res ON COMMIT DROP AS \
+           SELECT s.vid, s.oldname, s.base, s.hg, p.id AS pid, p.coordinates AS pcoords, p.mutation_type AS pmt, \
+                  EXISTS (SELECT 1 FROM tree.haplogroup_variant pv \
+                          WHERE pv.variant_id = p.id AND pv.valid_until IS NULL AND pv.haplogroup_id = s.hg) AS redundant \
+           FROM _single s \
+             JOIN core.variant p ON p.canonical_name = s.base AND p.defining_haplogroup_id IS NULL \
+                                AND p.coordinates ? 'GRCh38' AND p.mutation_type <> 'INDEL'",
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    rep.candidates = sqlx::query_scalar("SELECT count(*) FROM _cand").fetch_one(&mut *tx).await?;
+    rep.multi_link = sqlx::query_scalar(
+        "SELECT count(*) FROM _cand c WHERE NOT EXISTS (SELECT 1 FROM _single s WHERE s.vid = c.vid)",
+    )
+    .fetch_one(&mut *tx)
+    .await?;
+    rep.no_base_coords = sqlx::query_scalar(
+        "SELECT count(*) FROM _single s WHERE NOT EXISTS (SELECT 1 FROM _res r WHERE r.vid = s.vid)",
+    )
+    .fetch_one(&mut *tx)
+    .await?;
+    rep.samples = sqlx::query_scalar(
+        "SELECT oldname || ' -> ' || base FROM _res WHERE NOT redundant ORDER BY oldname LIMIT 12",
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
+    if !apply {
+        return Ok(rep); // tx rolls back on drop — temp tables discarded.
+    }
+
+    // Step A — recurrence-ize: rewrite each non-redundant resolvable row onto its
+    // base identity, scoped to its branch, inheriting the base coordinate.
+    rep.recurrence_set = sqlx::query(
+        "UPDATE core.variant v SET \
+           canonical_name = r.base, \
+           defining_haplogroup_id = r.hg, \
+           coordinates = r.pcoords, \
+           mutation_type = r.pmt, \
+           aliases = jsonb_set(COALESCE(v.aliases, '{}'::jsonb), '{common_names}', ( \
+             SELECT COALESCE(jsonb_agg(DISTINCT x), '[]'::jsonb) FROM ( \
+               SELECT jsonb_array_elements_text(COALESCE(v.aliases->'common_names', '[]'::jsonb)) AS x \
+               UNION SELECT r.oldname) u WHERE x <> r.base), true), \
+           evidence = COALESCE(v.evidence, '{}'::jsonb) || jsonb_build_object('isogg_recurrence', true), \
+           updated_at = now() \
+         FROM _res r WHERE v.id = r.vid AND NOT r.redundant",
+    )
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
+
+    // Collect the true-duplicate folds before committing (merge_into needs its own
+    // transaction and can't see the temp tables).
+    let redundant: Vec<(i64, i64)> =
+        sqlx::query_as("SELECT pid, vid FROM _res WHERE redundant").fetch_all(&mut *tx).await?;
+    tx.commit().await?;
+
+    // Step B — fold the true duplicates (base already defines the same branch).
+    for (keep, drop) in redundant {
+        merge_into(pool, keep, drop).await?;
+        rep.redundant_folded += 1;
+    }
+
+    Ok(rep)
 }

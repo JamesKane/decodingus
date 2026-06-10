@@ -580,23 +580,29 @@ pub async fn scrub_recurrent_links(
         }
     }
 
-    // Current defining-variant links: (link_id, variant_id, haplogroup_id, hg_name, variant_name).
-    let links: Vec<(i64, i64, i64, String, Option<String>)> = sqlx::query_as(
-        "SELECT hv.id, hv.variant_id, hv.haplogroup_id, h.name, v.canonical_name \
+    // Current defining-variant links: (link_id, variant_id, haplogroup_id, hg_name,
+    // variant_name, asr_labeled). A link with a per-branch transition recorded
+    // (`ancestral_allele` set) is an ASR-explained recurrence/back-mutation — see
+    // [`label_recurrence_transitions`] — so its variant is left intact, not scrubbed.
+    let links: Vec<(i64, i64, i64, String, Option<String>, bool)> = sqlx::query_as(
+        "SELECT hv.id, hv.variant_id, hv.haplogroup_id, h.name, v.canonical_name, \
+                hv.ancestral_allele IS NOT NULL \
            FROM tree.haplogroup_variant hv \
            JOIN tree.haplogroup h ON h.id = hv.haplogroup_id AND h.valid_until IS NULL \
            JOIN core.variant v ON v.id = hv.variant_id \
-          WHERE hv.valid_until IS NULL AND h.haplogroup_type::text = $1",
+          WHERE hv.valid_until IS NULL AND h.haplogroup_type::text = $1 \
+            AND v.mutation_type <> 'INDEL'",
     )
     .bind(&dna)
     .fetch_all(pool)
     .await?;
 
-    // Group links by variant: variant_id -> (variant_name, [(link_id, hg_id, hg_name)]).
-    let mut by_variant: HashMap<i64, (Option<String>, Vec<(i64, i64, String)>)> = HashMap::new();
-    for (lid, vid, hid, hname, vname) in links {
-        let e = by_variant.entry(vid).or_insert_with(|| (vname, Vec::new()));
-        e.1.push((lid, hid, hname));
+    // Group links by variant: variant_id -> (variant_name, any_labeled, [(link_id, hg_id, hg_name)]).
+    let mut by_variant: HashMap<i64, (Option<String>, bool, Vec<(i64, i64, String)>)> = HashMap::new();
+    for (lid, vid, hid, hname, vname, labeled) in links {
+        let e = by_variant.entry(vid).or_insert_with(|| (vname, false, Vec::new()));
+        e.1 |= labeled;
+        e.2.push((lid, hid, hname));
     }
 
     // node + all its ancestors (root-ward path), with a cycle guard.
@@ -617,8 +623,12 @@ pub async fn scrub_recurrent_links(
     let mut variants_scrubbed = 0usize;
     let mut samples: Vec<String> = Vec::new();
 
-    for (vname, group) in by_variant.values() {
+    for (vname, labeled, group) in by_variant.values() {
         if group.len() < 2 {
+            continue;
+        }
+        // ASR-explained recurrence/back-mutation → intentional, never scrub.
+        if *labeled {
             continue;
         }
         variants_examined += 1;
@@ -680,6 +690,167 @@ pub async fn scrub_recurrent_links(
         links_removed,
         samples,
     })
+}
+
+/// Summary of an ASR recurrence-labeling pass.
+#[derive(Debug, Default, Clone)]
+pub struct RecurrenceLabelReport {
+    /// Multi-branch variants examined (linked to >1 current node, with alleles).
+    pub variants_examined: usize,
+    /// Links labeled forward (anc→der: defining or independent recurrence).
+    pub forward_links: usize,
+    /// Links labeled reverse (der→anc: a back-mutation on that branch).
+    pub reverse_links: usize,
+    /// Variants carrying ≥1 back-mutation link.
+    pub back_mutation_variants: usize,
+    /// Variants with ≥2 forward links (independent recurrence / homoplasy).
+    pub homoplasy_variants: usize,
+    pub samples: Vec<String>,
+}
+
+/// Label the per-branch transition direction of every multi-branch SNP link by
+/// **topological parsimony** (Dollo/Camin-Sokal for a derived-state character).
+///
+/// The SNP is ancestral at the root; each *defining* node on a root-ward path
+/// flips its state. So a defining node with an **even** number of defining
+/// ancestors (in this variant's own link set) is **forward** (anc→der — the first
+/// derivation, or an independent recurrence on an unrelated lineage), and one with
+/// an **odd** count is **reverse** (der→anc — a back-mutation, since the allele was
+/// already derived above it). The exact transition is written to
+/// `tree.haplogroup_variant.ancestral_allele`/`derived_allele` (migration 0021),
+/// which both records the homoplasy/back-mutation explicitly and lets
+/// [`scrub_recurrent_links`] keep these explained links instead of pruning them.
+///
+/// NOTE: with no tip genotypes or per-node ancestral calls in the catalog, this is
+/// purely topological — it explains the asserted links parsimoniously, it does not
+/// validate them against sample evidence. INDELs are excluded: YBrowse encodes them
+/// as bare `ins`/`del` markers (not bases), so anc→der/der→anc carries no real
+/// direction — they need curator moderation. Dry-run (counts) unless `apply`.
+pub async fn label_recurrence_transitions(
+    pool: &PgPool,
+    dna_type: DnaType,
+    apply: bool,
+) -> Result<RecurrenceLabelReport, DbError> {
+    use std::collections::{HashMap, HashSet};
+    let dna = pg_enum_label(&dna_type)?;
+
+    // child -> parent for this tree (current edges).
+    let edges: Vec<(i64, Option<i64>)> = sqlx::query_as(
+        "SELECT r.child_haplogroup_id, r.parent_haplogroup_id \
+           FROM tree.haplogroup_relationship r \
+           JOIN tree.haplogroup h ON h.id = r.child_haplogroup_id AND h.valid_until IS NULL \
+          WHERE r.valid_until IS NULL AND h.haplogroup_type::text = $1",
+    )
+    .bind(&dna)
+    .fetch_all(pool)
+    .await?;
+    let mut parent_of: HashMap<i64, i64> = HashMap::new();
+    for (c, p) in edges {
+        if let Some(p) = p {
+            parent_of.insert(c, p);
+        }
+    }
+
+    // Current defining links of multi-branch SNPs that carry GRCh38 alleles
+    // (the transition direction is meaningless without the canonical anc/der).
+    let links: Vec<(i64, i64, i64, Option<String>, String, String)> = sqlx::query_as(
+        "SELECT hv.id, hv.variant_id, hv.haplogroup_id, v.canonical_name, \
+                v.coordinates->'GRCh38'->>'ancestral', v.coordinates->'GRCh38'->>'derived' \
+           FROM tree.haplogroup_variant hv \
+           JOIN tree.haplogroup h ON h.id = hv.haplogroup_id AND h.valid_until IS NULL \
+           JOIN core.variant v ON v.id = hv.variant_id \
+          WHERE hv.valid_until IS NULL AND h.haplogroup_type::text = $1 \
+            AND v.mutation_type <> 'INDEL' \
+            AND v.coordinates->'GRCh38'->>'ancestral' IS NOT NULL \
+            AND v.coordinates->'GRCh38'->>'derived' IS NOT NULL \
+            AND hv.variant_id IN ( \
+              SELECT variant_id FROM tree.haplogroup_variant \
+               WHERE valid_until IS NULL GROUP BY variant_id HAVING count(*) > 1)",
+    )
+    .bind(&dna)
+    .fetch_all(pool)
+    .await?;
+
+    // Group by variant: vid -> (name, anc, der, [(link_id, hg_id)]).
+    let mut by_variant: HashMap<i64, (Option<String>, String, String, Vec<(i64, i64)>)> = HashMap::new();
+    for (lid, vid, hid, vname, anc, der) in links {
+        let e = by_variant.entry(vid).or_insert_with(|| (vname, anc, der, Vec::new()));
+        e.3.push((lid, hid));
+    }
+
+    let mut rep = RecurrenceLabelReport::default();
+    // (link_id, ancestral_allele, derived_allele) to write.
+    let mut updates: Vec<(i64, String, String)> = Vec::new();
+
+    for (vname, anc, der, group) in by_variant.values() {
+        if group.len() < 2 {
+            continue;
+        }
+        rep.variants_examined += 1;
+        let node_set: HashSet<i64> = group.iter().map(|(_, h)| *h).collect();
+        let (mut fwd, mut rev) = (0usize, 0usize);
+        for (lid, hid) in group {
+            // Count this node's defining ancestors within the variant's own set.
+            let mut depth_in_set = 0usize;
+            let mut cur = parent_of.get(hid).copied();
+            let mut guard = 0;
+            while let Some(n) = cur {
+                if node_set.contains(&n) {
+                    depth_in_set += 1;
+                }
+                cur = parent_of.get(&n).copied();
+                guard += 1;
+                if guard > 10_000 {
+                    break;
+                }
+            }
+            // even ancestors → state above is ancestral → forward; odd → reverse.
+            if depth_in_set % 2 == 0 {
+                updates.push((*lid, anc.clone(), der.clone()));
+                fwd += 1;
+            } else {
+                updates.push((*lid, der.clone(), anc.clone()));
+                rev += 1;
+            }
+        }
+        rep.forward_links += fwd;
+        rep.reverse_links += rev;
+        if rev > 0 {
+            rep.back_mutation_variants += 1;
+        }
+        if fwd > 1 {
+            rep.homoplasy_variants += 1;
+        }
+        if rep.samples.len() < 12 {
+            rep.samples.push(format!(
+                "{} ({} fwd, {} rev)",
+                vname.as_deref().unwrap_or("(unnamed)"),
+                fwd,
+                rev
+            ));
+        }
+    }
+
+    if apply {
+        for chunk in updates.chunks(1000) {
+            let ids: Vec<i64> = chunk.iter().map(|(i, _, _)| *i).collect();
+            let ancs: Vec<&str> = chunk.iter().map(|(_, a, _)| a.as_str()).collect();
+            let ders: Vec<&str> = chunk.iter().map(|(_, _, d)| d.as_str()).collect();
+            sqlx::query(
+                "UPDATE tree.haplogroup_variant hv \
+                   SET ancestral_allele = u.an, derived_allele = u.de \
+                   FROM unnest($1::bigint[], $2::text[], $3::text[]) AS u(lid, an, de) \
+                  WHERE hv.id = u.lid",
+            )
+            .bind(&ids)
+            .bind(&ancs)
+            .bind(&ders)
+            .execute(pool)
+            .await?;
+        }
+    }
+
+    Ok(rep)
 }
 
 /// Store a haplogroup's alternate (deprecated) names under `provenance.aliases`

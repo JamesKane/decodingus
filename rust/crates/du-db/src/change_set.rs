@@ -639,7 +639,7 @@ async fn get_or_create_variant(tx: &mut Transaction<'_, Postgres>, name: &str) -
     Ok(sqlx::query_scalar(
         "INSERT INTO core.variant (canonical_name, mutation_type, naming_status) \
          VALUES ($1, 'SNP'::core.mutation_type, 'UNNAMED'::core.naming_status) \
-         ON CONFLICT (canonical_name) WHERE canonical_name IS NOT NULL \
+         ON CONFLICT (canonical_name, COALESCE(defining_haplogroup_id, -1)) WHERE canonical_name IS NOT NULL \
          DO UPDATE SET canonical_name = EXCLUDED.canonical_name RETURNING id",
     )
     .bind(name)
