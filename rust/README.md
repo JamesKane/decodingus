@@ -224,11 +224,15 @@ graft FTDNA + scrub) and the mt tree (FTDNA foundation).
 ### Prerequisites
 
 - Rust (stable) — `cargo`.
-- **Apple `container`** for the local database. First run once:
+- A container runtime for the local database. `test-db.sh` prefers **Apple
+  `container`** (Docker-less, the default on Apple Silicon) and falls back to
+  **Docker** only if Apple `container` isn't installed. With Apple `container`,
+  set it up once (and again whenever the service is stopped):
   ```sh
-  container system start        # installs the default Linux kernel on first run
+  container system start        # starts the service; installs the Linux kernel on first run
   ```
-  (No Docker required. Any `DATABASE_URL` also works as a fallback.)
+  (Already running Postgres elsewhere? Set `DATABASE_URL` and `test-db.sh` uses
+  it as-is, starting no container at all.)
 
 ### Run the app
 

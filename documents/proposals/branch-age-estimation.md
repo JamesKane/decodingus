@@ -108,12 +108,31 @@ Must account for:
 
 ### 1. Reference Data (System-Level)
 
-#### SNP Mutation Rate Table
-| Region | Rate (SNPs/bp/yr) | 95% CI | Source |
-|--------|-------------------|--------|--------|
-| MSY Combined | 8.33 × 10⁻¹⁰ | 7.57–9.17 × 10⁻¹⁰ | Helgason 2015 |
-| X-degenerate + Ampliconic | 8.71 × 10⁻¹⁰ | 8.03–9.43 × 10⁻¹⁰ | Helgason 2015 |
-| Palindromic | 7.37 × 10⁻¹⁰ | 6.41–8.48 × 10⁻¹⁰ | Helgason 2015 |
+#### SNP Mutation Rate
+
+**The method uses a *single* combined rate** (McDonald 2021 §2.2.1, Eq 2–3; §3: "the
+combined Y-SNP mutation rate of Helgason et al. is used"): `µ_SNP = 8.33 × 10⁻¹⁰`
+SNPs/bp/yr (95% CI 7.57–9.17 × 10⁻¹⁰). It is **not** applied per-region.
+
+The per-region figures below are **evidence that the rate is ~constant across the
+MSY** (McDonald Appendix A.4, from Helgason 2015) — *not* a directive to apply
+different rates to different regions. The paper's conclusion: "the mutation rate is
+constant when sufficiently large regions of the MSY are considered."
+
+| Region | Rate (SNPs/bp/yr) | 95% CI | Notes |
+|--------|-------------------|--------|-------|
+| MSY combined (used) | 8.33 × 10⁻¹⁰ | 7.57–9.17 × 10⁻¹⁰ | The rate the model applies |
+| X-transposed + X-degenerate + ampliconic (15.2 Mbp) | 8.71 × 10⁻¹⁰ | 8.03–9.43 × 10⁻¹⁰ | ~constant evidence |
+| Palindromic (6.1 Mbp) | 7.37 × 10⁻¹⁰ | 6.41–8.48 × 10⁻¹⁰ | slightly lower (gene conversion), P=0.04 |
+
+**Region handling is by self-consistent *masking*, not per-region rates** (McDonald
+Appendix A.2): "As highly recurrent base pairs are excised from mutation-rate
+estimations, they should also be self-consistently removed from TMRCA calculations
+and excised from the subset of base pairs b̄." A.3 names the regions to mask
+(centromere, DYZ19; palindromic arms depending on calling). Ampliconic sequence is
+**kept** (same rate as X-degenerate). The implication for `b`: drop only the
+recurrent/heterochromatic regions — *not* all of ampliconic/palindromic — and ensure
+the SNP count `m` is excised over the same regions (`m ⊆ b`, McDonald §2.2.3).
 
 #### STR Mutation Rate Database
 Per-marker mutation rates needed for ~700+ Y-STR markers:
