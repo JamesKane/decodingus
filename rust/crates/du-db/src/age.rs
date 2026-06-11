@@ -12,14 +12,206 @@
 //! exists (sparse until ETL cutover / curation), but the framework is correct and
 //! extends to the full combined age as that data lands.
 
+use crate::pdf::Pdf;
 use crate::DbError;
 use sqlx::PgPool;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 /// MSY combined SNP mutation rate (SNPs/bp/year, Helgason 2015).
 pub const SNP_RATE: f64 = 8.33e-10;
 /// "Before present" reference year (radiocarbon convention) for calendar anchors.
 pub const PRESENT_YEAR: i32 = 1950;
+
+// ── PDF-based tree propagation (McDonald 2021 §2.2, Eq 5–8) ───────────────────
+//
+// The SNP age of a clade is built bottom-up: a node's TMRCA is the product over
+// its children of (the child's own TMRCA convolved with the parent→child branch
+// time), per Eq 8. Each factor is a Poisson age PDF (Eq 3) over the branch's SNP
+// count and callable bp. A node's "formed" age is its TMRCA convolved with its
+// own branch time — i.e. when its lineage split from its parent. This is the pure
+// algorithm; `recompute_combined_ages` (below) supplies the DB-derived inputs.
+//
+// Not yet modelled here (documented follow-ups): the exact b̄ coverage
+// *intersection* across sub-clades (Eq 4 — needs per-sample callable intervals,
+// not just totals), and the Eq 9/10 causality back-correction (the bottom-up
+// convolution already keeps a parent older than its children in the common case).
+
+/// One clade (haplogroup node) of the propagation input.
+#[derive(Debug, Clone, Default)]
+pub struct Clade {
+    /// SNPs on the edge from this node's parent down to it (`m_{parent→node}`):
+    /// the branch time when this node feeds its parent, and its own "formed" age.
+    /// 0 for a root.
+    pub branch_snps: i64,
+    /// Effective callable bp (`b̄`) over which this clade's SNPs are counted.
+    pub callable_bp: f64,
+    /// Child clade indices.
+    pub children: Vec<usize>,
+    /// Private-SNP counts of testers sitting directly on this node (terminal tips);
+    /// each contributes a Poisson age factor (tester birth ≈ present is omitted as
+    /// a negligible offset).
+    pub tester_snps: Vec<i64>,
+}
+
+/// A clade's computed age PDFs.
+#[derive(Debug, Clone)]
+pub struct CladeAge {
+    /// TMRCA of the node's sampled descendants.
+    pub tmrca: Pdf,
+    /// When the node's lineage split from its parent (`TMRCA ⊛ branch time`).
+    pub formed: Pdf,
+}
+
+/// Grid for the whole-tree propagation. Coarser/wider than the PDF default: Y
+/// TMRCAs run from recent surname clades to ~300 ky (A00), so 50-yr bins over
+/// 350 ky keep convolution affordable while spanning the deepest nodes.
+pub const TREE_RESOLUTION_YEARS: f64 = 50.0;
+pub const TREE_MAX_AGE_YEARS: f64 = 350_000.0;
+
+/// Branch-time PDF for clade `x`: `P(t | m_branch)` over its callable bp.
+fn branch_time(clades: &[Clade], x: usize, mu: f64, res: f64, max_age: f64) -> Pdf {
+    Pdf::poisson_on(clades[x].branch_snps, clades[x].callable_bp, mu, res, max_age)
+}
+
+fn compute_tmrca(
+    i: usize,
+    clades: &[Clade],
+    mu: f64,
+    res: f64,
+    max_age: f64,
+    memo: &mut [Option<Option<Pdf>>],
+) {
+    if memo[i].is_some() {
+        return;
+    }
+    memo[i] = Some(None); // guard against accidental cycles
+    let mut factors: Vec<Pdf> = Vec::new();
+    for &ch in &clades[i].children {
+        compute_tmrca(ch, clades, mu, res, max_age, memo);
+        if let Some(Some(ct)) = &memo[ch] {
+            factors.push(ct.convolve(&branch_time(clades, ch, mu, res, max_age)));
+        }
+    }
+    for &s in &clades[i].tester_snps {
+        factors.push(Pdf::poisson_on(s, clades[i].callable_bp, mu, res, max_age));
+    }
+    let result = factors.split_first().map(|(first, rest)| {
+        rest.iter().fold(first.clone(), |acc, f| acc.multiply(f))
+    });
+    memo[i] = Some(result);
+}
+
+/// Compute every clade's TMRCA + formed-age PDFs bottom-up (Eq 8) on a
+/// `res`-year grid spanning `[0, max_age]`. A clade with no evidence (no children
+/// with ages, no testers) yields `None`.
+pub fn propagate(clades: &[Clade], mu: f64, res: f64, max_age: f64) -> Vec<Option<CladeAge>> {
+    let mut memo: Vec<Option<Option<Pdf>>> = vec![None; clades.len()];
+    for i in 0..clades.len() {
+        compute_tmrca(i, clades, mu, res, max_age, &mut memo);
+    }
+    (0..clades.len())
+        .map(|i| {
+            let Some(Some(tmrca)) = memo[i].take() else { return None };
+            let formed = tmrca.convolve(&branch_time(clades, i, mu, res, max_age));
+            Some(CladeAge { tmrca, formed })
+        })
+        .collect()
+}
+
+/// SNPs in heterochromatic sequence are masked from age counting — they sit
+/// outside the callable denominator (`y_xdegen+y_ampliconic+y_palindromic`) and
+/// the paper excises recurrent regions self-consistently (Appendix A.2/A.3).
+/// Ampliconic and palindromic SNPs are kept (same rate as X-degenerate). This is
+/// a SQL fragment testing `core.variant v` for any `heterochromatin:` overlap.
+const HET_MASK: &str = "NOT EXISTS (SELECT 1 FROM \
+    jsonb_array_elements_text(COALESCE(v.annotations->'region_overlaps','[]'::jsonb)) e \
+    WHERE e LIKE 'heterochromatin:%')";
+
+/// Build the propagation input from the current Y tree: nodes, parent→child
+/// edges, het-masked branch (defining) SNP counts, and per-node tester data
+/// (active private-SNP counts + callable bp). Returns `(clades, haplogroup_ids)`
+/// where `haplogroup_ids[i]` is the DB id of clade `i`.
+async fn build_clades(pool: &PgPool) -> Result<(Vec<Clade>, Vec<i64>), DbError> {
+    // Stable index over current Y nodes.
+    let ids: Vec<i64> = sqlx::query_scalar(
+        "SELECT id FROM tree.haplogroup \
+         WHERE haplogroup_type='Y_DNA'::core.dna_type AND valid_until IS NULL ORDER BY id",
+    )
+    .fetch_all(pool)
+    .await?;
+    let idx: HashMap<i64, usize> = ids.iter().enumerate().map(|(i, &id)| (id, i)).collect();
+    let mut clades = vec![Clade::default(); ids.len()];
+
+    // Edges → children (a child carries its own branch SNPs).
+    let edges: Vec<(i64, i64)> = sqlx::query_as(
+        "SELECT c.id, p.id FROM tree.haplogroup_relationship r \
+         JOIN tree.haplogroup c ON c.id=r.child_haplogroup_id AND c.valid_until IS NULL \
+            AND c.haplogroup_type='Y_DNA'::core.dna_type \
+         JOIN tree.haplogroup p ON p.id=r.parent_haplogroup_id AND p.valid_until IS NULL \
+         WHERE r.valid_until IS NULL",
+    )
+    .fetch_all(pool)
+    .await?;
+    for (c, p) in edges {
+        if let (Some(&ci), Some(&pi)) = (idx.get(&c), idx.get(&p)) {
+            clades[pi].children.push(ci);
+        }
+    }
+
+    // Branch defining-SNP counts (het-masked).
+    let branch: Vec<(i64, i64)> = sqlx::query_as(&format!(
+        "SELECT hv.haplogroup_id, count(*)::bigint FROM tree.haplogroup_variant hv \
+         JOIN core.variant v ON v.id=hv.variant_id \
+         WHERE hv.valid_until IS NULL AND {HET_MASK} GROUP BY hv.haplogroup_id"
+    ))
+    .fetch_all(pool)
+    .await?;
+    for (hg, n) in branch {
+        if let Some(&i) = idx.get(&hg) {
+            clades[i].branch_snps = n;
+        }
+    }
+
+    // Testers: per (node, sample) active private-SNP count (het-masked) + that
+    // sample's Y callable bp (xdegen+ampliconic+palindromic, else total).
+    let cbp = "COALESCE(NULLIF(COALESCE(cl.y_xdegen_callable_bp,0)+COALESCE(cl.y_ampliconic_callable_bp,0)\
+               +COALESCE(cl.y_palindromic_callable_bp,0),0), cl.total_callable_bp, 0)";
+    let testers: Vec<(i64, i64, f64)> = sqlx::query_as(&format!(
+        "SELECT pv.terminal_haplogroup_id, count(*)::bigint, max({cbp})::float8 \
+         FROM tree.biosample_private_variant pv \
+         JOIN core.variant v ON v.id=pv.variant_id \
+         LEFT JOIN genomics.biosample_callable_loci cl \
+            ON cl.sample_guid=pv.sample_guid AND cl.chromosome IN ('chrY','Y') \
+         WHERE pv.status='ACTIVE' AND pv.haplogroup_type='Y_DNA'::core.dna_type \
+            AND pv.terminal_haplogroup_id IS NOT NULL AND {HET_MASK} \
+         GROUP BY pv.terminal_haplogroup_id, pv.sample_guid"
+    ))
+    .fetch_all(pool)
+    .await?;
+    let (mut bp_sum, mut bp_cnt) = (vec![0.0f64; ids.len()], vec![0u32; ids.len()]);
+    for (hg, snps, b) in testers {
+        if let (Some(&i), true) = (idx.get(&hg), b > 0.0) {
+            clades[i].tester_snps.push(snps);
+            bp_sum[i] += b;
+            bp_cnt[i] += 1;
+        }
+    }
+
+    // Representative b̄ per node: mean of its testers' callable bp, else the
+    // catalog-wide mean (so SNP-less internal branches still get a branch time).
+    let default_b: f64 = sqlx::query_scalar::<_, Option<f64>>(&format!(
+        "SELECT avg({cbp})::float8 FROM genomics.biosample_callable_loci cl WHERE cl.chromosome IN ('chrY','Y')"
+    ))
+    .fetch_one(pool)
+    .await?
+    .filter(|b| *b > 0.0)
+    .unwrap_or(15_000_000.0);
+    for i in 0..ids.len() {
+        clades[i].callable_bp = if bp_cnt[i] > 0 { bp_sum[i] / bp_cnt[i] as f64 } else { default_b };
+    }
+
+    Ok((clades, ids))
+}
 
 /// Combine independent Gaussian age estimates `(mean_ybp, sigma_ybp)` by
 /// inverse-variance weighting: `µ = Σ(wᵢµᵢ)/Σwᵢ`, `σ² = 1/Σwᵢ`, `wᵢ = 1/σᵢ²`.
@@ -75,32 +267,32 @@ pub async fn recompute_combined_ages(pool: &PgPool) -> Result<CombineStats, DbEr
         .execute(&mut *tx)
         .await?;
 
-    // ── SNP-Poisson term ──────────────────────────────────────────────────────
-    // Pooled MLE per branch: t = Σm / (µ · Σb), m = ACTIVE private Y-SNPs whose
-    // terminal haplogroup is the branch, b = those samples' Y callable bp.
-    let snp: Vec<(i64, i64, i64)> = sqlx::query_as(
-        "WITH s AS ( \
-            SELECT DISTINCT terminal_haplogroup_id AS hg, sample_guid \
-            FROM tree.biosample_private_variant \
-            WHERE status='ACTIVE' AND haplogroup_type='Y_DNA'::core.dna_type AND terminal_haplogroup_id IS NOT NULL \
-         ), m AS ( \
-            SELECT terminal_haplogroup_id AS hg, count(*) AS m \
-            FROM tree.biosample_private_variant \
-            WHERE status='ACTIVE' AND haplogroup_type='Y_DNA'::core.dna_type AND terminal_haplogroup_id IS NOT NULL \
-            GROUP BY terminal_haplogroup_id \
-         ), b AS ( \
-            SELECT s.hg, sum(COALESCE(NULLIF(COALESCE(cl.y_xdegen_callable_bp,0)+COALESCE(cl.y_ampliconic_callable_bp,0)+COALESCE(cl.y_palindromic_callable_bp,0),0), cl.total_callable_bp)) AS b \
-            FROM s JOIN genomics.biosample_callable_loci cl ON cl.sample_guid = s.sample_guid AND cl.chromosome IN ('chrY','Y') \
-            GROUP BY s.hg \
-         ) \
-         SELECT m.hg, m.m, b.b FROM m JOIN b ON b.hg = m.hg WHERE b.b > 0",
-    )
-    .fetch_all(&mut *tx)
-    .await?;
-    for (hg, m, b) in snp {
-        let years = m as f64 / (SNP_RATE * b as f64);
-        let rel = ((1.0 / (m.max(1) as f64)) + 0.08f64.powi(2)).sqrt();
-        upsert_estimate(&mut tx, hg, "SNP_POISSON", years, rel, Some(m as i32), None).await?;
+    // ── SNP-Poisson term: tree propagation (McDonald Eq 5–8) ──────────────────
+    // Build the clade tree, propagate TMRCA/formed PDFs bottom-up, then store a
+    // SNP_POISSON term per scored node (median + 95% CI of its TMRCA) and gap-fill
+    // `formed_ybp`. The COMBINED step below fills `tmrca_ybp`. Heterochromatic SNPs
+    // are masked from both `m` and (already) the callable denominator (`HET_MASK`).
+    let (clades, ids) = build_clades(pool).await?;
+    let ages = propagate(&clades, SNP_RATE, TREE_RESOLUTION_YEARS, TREE_MAX_AGE_YEARS);
+    for (i, age) in ages.iter().enumerate() {
+        let Some(age) = age else { continue };
+        let (med, lo, hi) = age.tmrca.ci95();
+        upsert_estimate_ci(
+            &mut tx,
+            ids[i],
+            "SNP_POISSON",
+            med.round() as i32,
+            lo.round() as i32,
+            hi.round() as i32,
+            clades[i].tester_snps.len() as i32,
+        )
+        .await?;
+        // Node formation age — gap-fill only (never overwrite a curated value).
+        sqlx::query("UPDATE tree.haplogroup SET formed_ybp=$2 WHERE id=$1 AND formed_ybp IS NULL")
+            .bind(ids[i])
+            .bind(age.formed.median().round() as i32)
+            .execute(&mut *tx)
+            .await?;
         stats.snp += 1;
     }
 
@@ -245,5 +437,157 @@ mod tests {
         let (mean2, _) = combine(&[(3000.0, 50.0), (5000.0, 1000.0)]).unwrap();
         assert!(mean2 < 3100.0, "tight 3000±50 dominates, got {mean2}");
         assert!(combine(&[]).is_none());
+    }
+
+    // Propagation tests use b·µ = 0.01 (b = 1.25e7, µ = 8e-10) so a Poisson age has
+    // a clean mode of m/(b·µ) = 100·m years.
+    const B: f64 = 1.25e7;
+    const MU: f64 = 8e-10;
+    // Small ages here → use the fine default PDF grid.
+    const RES: f64 = crate::pdf::RESOLUTION_YEARS;
+    const MAXA: f64 = crate::pdf::MAX_AGE_YEARS;
+
+    #[test]
+    fn tmrca_of_single_tester_is_poisson_mode() {
+        let clades = vec![Clade { branch_snps: 0, callable_bp: B, children: vec![], tester_snps: vec![3] }];
+        let ages = propagate(&clades, MU, RES, MAXA);
+        let tmrca = &ages[0].as_ref().unwrap().tmrca;
+        assert!((tmrca.mode() - 300.0).abs() <= 10.0, "mode {}", tmrca.mode());
+    }
+
+    #[test]
+    fn parent_is_older_than_child_and_formed_exceeds_tmrca() {
+        // parent(0) → child(1); child has 2 private SNPs and is 1 SNP below parent.
+        let clades = vec![
+            Clade { branch_snps: 0, callable_bp: B, children: vec![1], tester_snps: vec![] },
+            Clade { branch_snps: 1, callable_bp: B, children: vec![], tester_snps: vec![2] },
+        ];
+        let ages = propagate(&clades, MU, RES, MAXA);
+        let parent = ages[0].as_ref().unwrap();
+        let child = ages[1].as_ref().unwrap();
+        // Parent TMRCA = child TMRCA convolved with the branch → strictly older.
+        assert!(parent.tmrca.median() > child.tmrca.median(), "causality");
+        // A node's formed age (split from parent) is older than its own TMRCA.
+        assert!(child.formed.median() > child.tmrca.median(), "formed > tmrca");
+    }
+
+    #[test]
+    fn more_children_tighten_the_parent_ci() {
+        let leaf = |b| Clade { branch_snps: 1, callable_bp: b, children: vec![], tester_snps: vec![2] };
+        let one = vec![
+            Clade { branch_snps: 0, callable_bp: B, children: vec![1], tester_snps: vec![] },
+            leaf(B),
+        ];
+        let two = vec![
+            Clade { branch_snps: 0, callable_bp: B, children: vec![1, 2], tester_snps: vec![] },
+            leaf(B),
+            leaf(B),
+        ];
+        let width = |ages: &[Option<CladeAge>]| {
+            let (_, lo, hi) = ages[0].as_ref().unwrap().tmrca.ci95();
+            hi - lo
+        };
+        assert!(
+            width(&propagate(&two, MU, RES, MAXA)) < width(&propagate(&one, MU, RES, MAXA)),
+            "two independent sub-clades give a tighter parent TMRCA than one"
+        );
+    }
+
+    // ── DB-gated: full path over a seeded root→mid→leaf tree ──────────────────
+    async fn ins_hg(pool: &PgPool, name: &str) -> i64 {
+        sqlx::query_scalar(
+            "INSERT INTO tree.haplogroup (name, haplogroup_type) \
+             VALUES ($1, 'Y_DNA'::core.dna_type) RETURNING id",
+        )
+        .bind(name)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+    }
+    async fn ins_var(pool: &PgPool, name: &str, het: bool) -> i64 {
+        let ann = if het {
+            serde_json::json!({ "region_overlaps": ["heterochromatin:DYZ1"] })
+        } else {
+            serde_json::json!({})
+        };
+        sqlx::query_scalar(
+            "INSERT INTO core.variant (canonical_name, mutation_type, naming_status, annotations) \
+             VALUES ($1, 'SNP'::core.mutation_type, 'NAMED'::core.naming_status, $2) RETURNING id",
+        )
+        .bind(name)
+        .bind(ann)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+    }
+
+    /// Seed a 3-node chain with one tester, run the whole pipeline, and check the
+    /// het-mask, causality (parent older), and formed > tmrca — against real PG.
+    #[tokio::test]
+    async fn recompute_over_seeded_tree() {
+        let Ok(url) = std::env::var("DATABASE_URL") else {
+            eprintln!("DATABASE_URL unset — skipping seeded age test");
+            return;
+        };
+        if url.is_empty() {
+            return;
+        }
+        let db = crate::testing::ephemeral_db(&url).await.expect("ephemeral db");
+        let pool = db.pool().clone();
+        const GUID: &str = "00000000-0000-0000-0000-0000000000aa";
+
+        let (root, mid, leaf) =
+            (ins_hg(&pool, "Y-ROOT").await, ins_hg(&pool, "Y-MID").await, ins_hg(&pool, "Y-LEAF").await);
+        for (p, c) in [(root, mid), (mid, leaf)] {
+            sqlx::query("INSERT INTO tree.haplogroup_relationship (parent_haplogroup_id, child_haplogroup_id) VALUES ($1,$2)")
+                .bind(p).bind(c).execute(&pool).await.unwrap();
+        }
+        // Defining (branch) SNPs: mid 4, leaf 3 — plus one heterochromatic defining
+        // SNP on leaf that must be masked out.
+        for i in 0..4 {
+            let v = ins_var(&pool, &format!("MIDDEF{i}"), false).await;
+            sqlx::query("INSERT INTO tree.haplogroup_variant (haplogroup_id, variant_id) VALUES ($1,$2)").bind(mid).bind(v).execute(&pool).await.unwrap();
+        }
+        for i in 0..3 {
+            let v = ins_var(&pool, &format!("LEAFDEF{i}"), false).await;
+            sqlx::query("INSERT INTO tree.haplogroup_variant (haplogroup_id, variant_id) VALUES ($1,$2)").bind(leaf).bind(v).execute(&pool).await.unwrap();
+        }
+        let hetdef = ins_var(&pool, "LEAFDEFHET", true).await;
+        sqlx::query("INSERT INTO tree.haplogroup_variant (haplogroup_id, variant_id) VALUES ($1,$2)").bind(leaf).bind(hetdef).execute(&pool).await.unwrap();
+
+        // One tester under leaf: 12.5 Mbp callable, 5 private SNPs + 1 het (masked).
+        sqlx::query("INSERT INTO core.biosample (sample_guid, source) VALUES ($1::uuid, 'CITIZEN')").bind(GUID).execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO genomics.biosample_callable_loci (sample_guid, chromosome, y_xdegen_callable_bp) VALUES ($1::uuid, 'chrY', 12500000)").bind(GUID).execute(&pool).await.unwrap();
+        for i in 0..5 {
+            let v = ins_var(&pool, &format!("PRIV{i}"), false).await;
+            sqlx::query("INSERT INTO tree.biosample_private_variant (sample_guid, variant_id, haplogroup_type, terminal_haplogroup_id) VALUES ($1::uuid,$2,'Y_DNA'::core.dna_type,$3)").bind(GUID).bind(v).bind(leaf).execute(&pool).await.unwrap();
+        }
+        let hv = ins_var(&pool, "PRIVHET", true).await;
+        sqlx::query("INSERT INTO tree.biosample_private_variant (sample_guid, variant_id, haplogroup_type, terminal_haplogroup_id) VALUES ($1::uuid,$2,'Y_DNA'::core.dna_type,$3)").bind(GUID).bind(hv).bind(leaf).execute(&pool).await.unwrap();
+
+        // (a) build_clades: het-masking + structure.
+        let (clades, ids) = build_clades(&pool).await.unwrap();
+        let at = |id: i64| ids.iter().position(|&x| x == id).unwrap();
+        assert_eq!(clades[at(leaf)].tester_snps, vec![5], "het private SNP masked → 5 counted");
+        assert_eq!(clades[at(leaf)].branch_snps, 3, "het defining SNP masked → 3");
+        assert!(clades[at(mid)].children.contains(&at(leaf)));
+        assert!(clades[at(root)].children.contains(&at(mid)));
+        assert!((clades[at(leaf)].callable_bp - 12_500_000.0).abs() < 1.0);
+
+        // (b) full recompute: ages written, causality, formed > tmrca.
+        let stats = recompute_combined_ages(&pool).await.unwrap();
+        assert!(stats.snp >= 3, "root/mid/leaf all scored, got {}", stats.snp);
+        let rows: Vec<(i64, Option<i32>, Option<i32>)> = sqlx::query_as(
+            "SELECT id, tmrca_ybp, formed_ybp FROM tree.haplogroup WHERE id = ANY($1)",
+        )
+        .bind(vec![root, mid, leaf])
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        let tmrca = |id: i64| rows.iter().find(|r| r.0 == id).unwrap().1.unwrap();
+        let formed = |id: i64| rows.iter().find(|r| r.0 == id).unwrap().2.unwrap();
+        assert!(tmrca(leaf) > 0, "leaf has a positive TMRCA");
+        assert!(tmrca(root) > tmrca(mid) && tmrca(mid) > tmrca(leaf), "causality: root>mid>leaf");
+        assert!(formed(leaf) >= tmrca(leaf), "leaf formed age ≥ its TMRCA");
     }
 }

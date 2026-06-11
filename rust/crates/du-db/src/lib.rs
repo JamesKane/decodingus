@@ -21,6 +21,7 @@ pub mod haplogroup;
 pub mod merge;
 pub mod naming;
 pub mod pagination;
+pub mod pdf;
 pub mod proposal;
 pub mod publication;
 pub mod snp_graft;
