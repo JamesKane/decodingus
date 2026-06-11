@@ -24,6 +24,7 @@ This document serves as the central planning reference for features targeted aft
 | Multi-Test-Type Support | [`multi-test-type-roadmap.md`](./multi-test-type-roadmap.md) | Planned |
 | IBD Matching System | superseded → [`d1-encrypted-edge-exchange.md`](./d1-encrypted-edge-exchange.md) + [`d3-ibd-matching-impl.md`](./d3-ibd-matching-impl.md) | Planned |
 | OpenAlex Publication Discovery | [`openalex-publication-discovery.md`](./openalex-publication-discovery.md) | In Progress |
+| Tree-endpoint cache revalidation (ETag/version) | [`y-tree-cache-revalidation.md`](./y-tree-cache-revalidation.md) | Backlog |
 | JSONB Consolidation | realized in the Rust redesign (mig 0002/0004) | Done |
 
 ### Non-Technical Summary
