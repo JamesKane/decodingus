@@ -14,6 +14,7 @@ mod jetstream;
 mod publications;
 mod scheduler;
 mod ybrowse;
+mod yregions;
 use scheduler::{Job, Scheduler};
 
 #[tokio::main]
@@ -46,11 +47,30 @@ async fn main() -> anyhow::Result<()> {
             "reconcile" => {
                 let rec = du_db::ybrowse::reconcile(&pool).await?;
                 tracing::info!(
-                    clusters = rec.clusters, created = rec.created,
-                    enriched = rec.enriched, flagged = rec.flagged, "reconcile complete"
+                    clusters = rec.clusters, created = rec.created, enriched = rec.enriched,
+                    flagged = rec.flagged, region_flagged = rec.region_flagged, "reconcile complete"
                 );
             }
-            other => anyhow::bail!("unknown run-once job '{other}' (known: ybrowse, reconcile)"),
+            // Load the T2T-CHM13v2.0 (hs1) Y structural regions (AZF/DYZ/
+            // ampliconic/palindrome/inverted-repeat) into core.genome_region.
+            // One-shot: the source BEDs are tiny + versioned, not a daily feed.
+            "yregions" => {
+                yregions::run(&pool).await?;
+            }
+            // Recompute STR signatures + the combined branch ages (SNP tree
+            // propagation + genealogical + combine) on demand.
+            "branch-age" => {
+                let s = du_db::ystr::recompute_signatures(&pool).await?;
+                let c = du_db::age::recompute_combined_ages(&pool).await?;
+                tracing::info!(
+                    str_ages = s.age_estimates, snp = c.snp,
+                    genealogical = c.genealogical, combined = c.combined,
+                    "branch-age recompute complete"
+                );
+            }
+            other => anyhow::bail!(
+                "unknown run-once job '{other}' (known: ybrowse, reconcile, yregions, branch-age)"
+            ),
         }
         return Ok(());
     }
