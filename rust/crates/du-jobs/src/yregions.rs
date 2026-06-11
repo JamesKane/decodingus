@@ -55,8 +55,11 @@ struct Classification {
 
 const SOURCES: &[Source] = &[
     Source { file: "chm13v2.0Y_AZF_DYZ_v1.bed", classify: classify_azf_dyz },
-    Source { file: "chm13v2.0Y_amplicons_v1.bed", classify: |_| Classification { region_type: "ampliconic", class: None } },
-    Source { file: "chm13v2.0Y_inverted_repeats_v1.bed", classify: classify_inverted },
+    // amplicons/inverted-repeats use the v2 annotations Hallast et al. 2026 build
+    // on (v2 adds inverted repeat IR2; amplicon coords refined). Coordinate shifts
+    // mint new locus-qualified names, so `run` prunes the superseded v1 rows.
+    Source { file: "chm13v2.0Y_amplicons_v2.bed", classify: |_| Classification { region_type: "ampliconic", class: None } },
+    Source { file: "chm13v2.0Y_inverted_repeats_v2.bed", classify: classify_inverted },
     // The authoritative chrXY sequence-class partition (X-DEG/XTR/AMPL/HET/PAR/…).
     // Loaded as a separate `sequence_class` layer for bp accounting; deliberately
     // NOT one of the fine-grained flag types, so it never double-flags variants.
@@ -171,37 +174,46 @@ async fn fetch(url: &str) -> anyhow::Result<String> {
     Ok(reqwest::get(url).await?.error_for_status()?.text().await?)
 }
 
-/// Fetch, parse, and upsert every Y annotation BED in [`SOURCES`].
+/// Fetch, parse, and sync every Y annotation BED in [`SOURCES`] into
+/// `core.genome_region`. Full-snapshot semantics: rows are upserted, then rows
+/// from a prior load that this snapshot no longer contains are pruned.
 pub async fn run(pool: &PgPool) -> anyhow::Result<()> {
     let base = base();
-    let (mut total, mut inserted, mut updated) = (0usize, 0usize, 0usize);
+    // Fetch + parse everything up front so a network failure mid-run never leaves
+    // the table half-updated.
+    let mut rows: Vec<Region> = Vec::new();
     for src in SOURCES {
-        let url = format!("{base}/{}", src.file);
-        let text = fetch(&url).await?;
-        let rows = parse_bed(&text, src.file, src.classify);
-        tracing::info!(file = src.file, rows = rows.len(), "parsed Y-region BED");
-        for r in &rows {
-            let new = du_db::genome_region::upsert_by_key(
-                pool,
-                r.region_type,
-                &r.name,
-                &r.coordinates,
-                &r.properties,
-            )
-            .await?;
-            if new {
-                inserted += 1;
-            } else {
-                updated += 1;
-            }
-            total += 1;
+        let text = fetch(&format!("{base}/{}", src.file)).await?;
+        let parsed = parse_bed(&text, src.file, src.classify);
+        tracing::info!(file = src.file, rows = parsed.len(), "parsed Y-region BED");
+        rows.extend(parsed);
+    }
+
+    let (mut inserted, mut updated) = (0usize, 0usize);
+    for r in &rows {
+        let new = du_db::genome_region::upsert_by_key(
+            pool,
+            r.region_type,
+            &r.name,
+            &r.coordinates,
+            &r.properties,
+        )
+        .await?;
+        if new {
+            inserted += 1;
+        } else {
+            updated += 1;
         }
     }
+    // Drop superseded rows (e.g. v1 names orphaned by a v2 coordinate shift).
+    let keep: Vec<String> = rows.iter().map(|r| r.name.clone()).collect();
+    let pruned = du_db::genome_region::prune_source_orphans(pool, SOURCE, &keep).await?;
+
     // Regions changed → recompute variant placement flags so the new geometry
     // takes effect immediately (idempotent; the reconcile job also calls this).
     let region_flagged = du_db::variant::refresh_region_overlaps(pool).await?;
 
-    tracing::info!(total, inserted, updated, region_flagged, build = BUILD, "y-region ingest complete");
+    tracing::info!(total = rows.len(), inserted, updated, pruned, region_flagged, build = BUILD, "y-region ingest complete");
     Ok(())
 }
 

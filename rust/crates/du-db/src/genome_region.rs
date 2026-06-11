@@ -142,6 +142,24 @@ pub async fn upsert_by_key(
     Ok(inserted)
 }
 
+/// Delete reference rows for `source` whose `name` is not in `keep`. Prunes
+/// orphans left when a source's regions change — e.g. a versioned BED bump that
+/// shifts coordinates mints new locus-qualified names, leaving the old rows
+/// behind. Returns the number removed. Paired with [`upsert_by_key`] this gives
+/// the Y-region load full-snapshot (sync) semantics.
+pub async fn prune_source_orphans(pool: &PgPool, source: &str, keep: &[String]) -> Result<u64, DbError> {
+    let removed = sqlx::query(
+        "DELETE FROM core.genome_region \
+         WHERE properties->>'source' = $1 AND name <> ALL($2::text[])",
+    )
+    .bind(source)
+    .bind(keep)
+    .execute(pool)
+    .await?
+    .rows_affected();
+    Ok(removed)
+}
+
 pub async fn update(
     pool: &PgPool,
     id: i64,
