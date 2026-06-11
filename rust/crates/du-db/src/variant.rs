@@ -94,6 +94,58 @@ pub async fn update(
     Ok(affected > 0)
 }
 
+/// Region types whose sequence is structurally unreliable for Y-SNP placement
+/// (multi-copy / repeat-rich), so a variant landing inside one should not be
+/// trusted as branch-defining without scrutiny. AZF intervals are deliberately
+/// excluded: that's a functional annotation, and AZFa is largely single-copy
+/// X-degenerate sequence. Sourced from `du_jobs::yregions` (T2T-CHM13 Y BEDs).
+const UNRELIABLE_REGION_TYPES: [&str; 4] =
+    ["palindromic", "ampliconic", "inverted_repeat", "heterochromatin"];
+
+/// Recompute `annotations.region_overlaps` for every variant from the current
+/// `core.genome_region` set, comparing hs1 coordinates (1-based inclusive on
+/// both sides). Each entry is `"<region_type>:<label>"` (e.g. `"palindromic:P8"`);
+/// a non-empty array marks a placement the Y-tree should treat as low-confidence.
+///
+/// Idempotent and churn-free: only variants whose overlap set actually changes
+/// are written (so `updated_at` is stable across re-runs), and a variant that no
+/// longer overlaps any region has the key removed. Variants without an hs1
+/// position (lift gap) are left untouched. Returns the number of rows changed.
+pub async fn refresh_region_overlaps(pool: &PgPool) -> Result<u64, DbError> {
+    let types: Vec<&str> = UNRELIABLE_REGION_TYPES.to_vec();
+    let affected = sqlx::query(
+        "WITH desired AS ( \
+           SELECT v.id, \
+                  COALESCE( \
+                    jsonb_agg(DISTINCT (r.region_type || ':' || (r.properties->>'label')) \
+                              ORDER BY (r.region_type || ':' || (r.properties->>'label'))) \
+                      FILTER (WHERE r.id IS NOT NULL), \
+                    '[]'::jsonb) AS labels \
+           FROM core.variant v \
+           LEFT JOIN core.genome_region r \
+             ON r.region_type = ANY($1::text[]) \
+            AND r.coordinates->'hs1'->>'contig' = v.coordinates->'hs1'->>'contig' \
+            AND (v.coordinates->'hs1'->>'position')::bigint \
+                  BETWEEN (r.coordinates->'hs1'->>'start')::bigint \
+                      AND (r.coordinates->'hs1'->>'end')::bigint \
+           WHERE v.coordinates->'hs1'->>'position' IS NOT NULL \
+           GROUP BY v.id) \
+         UPDATE core.variant v \
+         SET annotations = CASE WHEN d.labels = '[]'::jsonb \
+                                THEN v.annotations - 'region_overlaps' \
+                                ELSE jsonb_set(v.annotations, '{region_overlaps}', d.labels) END, \
+             updated_at = now() \
+         FROM desired d \
+         WHERE v.id = d.id \
+           AND COALESCE(v.annotations->'region_overlaps', '[]'::jsonb) IS DISTINCT FROM d.labels",
+    )
+    .bind(&types)
+    .execute(pool)
+    .await?
+    .rows_affected();
+    Ok(affected)
+}
+
 /// Upsert a variant by canonical name (the ingestion path, e.g. YBrowse).
 /// Updates mutation_type, aliases, and the multi-build coordinates; preserves
 /// the existing `naming_status` (curator-owned). Returns the variant id.
@@ -541,4 +593,87 @@ pub async fn resolve_isogg_recurrence(
     }
 
     Ok(rep)
+}
+
+#[cfg(test)]
+mod tests {
+    use sqlx::PgPool;
+
+    /// Insert a variant with an hs1 coordinate; returns its id.
+    async fn insert_variant(pool: &PgPool, name: &str, hs1_pos: Option<i64>) -> i64 {
+        let coords = match hs1_pos {
+            Some(p) => serde_json::json!({ "hs1": { "contig": "chrY", "position": p } }),
+            None => serde_json::json!({ "GRCh38": { "contig": "chrY", "position": 1 } }),
+        };
+        sqlx::query_scalar(
+            "INSERT INTO core.variant (canonical_name, mutation_type, naming_status, coordinates) \
+             VALUES ($1, 'SNP'::core.mutation_type, 'NAMED'::core.naming_status, $2) RETURNING id",
+        )
+        .bind(name)
+        .bind(coords)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+    }
+
+    async fn insert_region(pool: &PgPool, rtype: &str, label: &str, start: i64, end: i64) {
+        sqlx::query(
+            "INSERT INTO core.genome_region (region_type, name, coordinates, properties) \
+             VALUES ($1, $2, $3, $4)",
+        )
+        .bind(rtype)
+        .bind(format!("{label} (chrY:{start}-{end})"))
+        .bind(serde_json::json!({ "hs1": { "contig": "chrY", "start": start, "end": end } }))
+        .bind(serde_json::json!({ "label": label }))
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    async fn overlaps(pool: &PgPool, id: i64) -> Option<serde_json::Value> {
+        sqlx::query_scalar("SELECT annotations->'region_overlaps' FROM core.variant WHERE id = $1")
+            .bind(id)
+            .fetch_one(pool)
+            .await
+            .unwrap()
+    }
+
+    /// A variant inside an unreliable region gets flagged; one outside (and one
+    /// without hs1 coords) does not; an excluded region type (azf) never flags;
+    /// and the pass is idempotent (a second run changes nothing).
+    #[tokio::test]
+    async fn region_overlaps_flagging() {
+        let Ok(url) = std::env::var("DATABASE_URL") else {
+            eprintln!("DATABASE_URL unset — skipping region-overlap flagging test");
+            return;
+        };
+        if url.is_empty() {
+            return;
+        }
+        let db = crate::testing::ephemeral_db(&url).await.expect("ephemeral db");
+        let pool = db.pool().clone();
+
+        insert_region(&pool, "palindromic", "P8", 100, 200).await;
+        insert_region(&pool, "azf", "AZFa", 100, 200).await; // excluded type — must not flag
+        let inside = insert_variant(&pool, "TESTRO-IN", Some(150)).await;
+        let outside = insert_variant(&pool, "TESTRO-OUT", Some(500)).await;
+        let no_hs1 = insert_variant(&pool, "TESTRO-NOHS1", None).await;
+
+        let changed = super::refresh_region_overlaps(&pool).await.unwrap();
+        assert_eq!(changed, 1, "only the inside variant changes");
+        assert_eq!(overlaps(&pool, inside).await, Some(serde_json::json!(["palindromic:P8"])));
+        assert_eq!(overlaps(&pool, outside).await, None, "outside variant unflagged");
+        assert_eq!(overlaps(&pool, no_hs1).await, None, "no-hs1 variant untouched");
+
+        // Idempotent: re-running over the same regions changes nothing.
+        assert_eq!(super::refresh_region_overlaps(&pool).await.unwrap(), 0);
+
+        // Drop the region → the stale flag is cleared on the next pass.
+        sqlx::query("DELETE FROM core.genome_region WHERE region_type = 'palindromic'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert_eq!(super::refresh_region_overlaps(&pool).await.unwrap(), 1, "inside variant cleared");
+        assert_eq!(overlaps(&pool, inside).await, None, "flag removed");
+    }
 }

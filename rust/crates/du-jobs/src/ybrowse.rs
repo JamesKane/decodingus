@@ -214,7 +214,8 @@ pub async fn run(pool: &PgPool, cfg: &Config) -> anyhow::Result<()> {
 
     tracing::info!(
         parsed, mirrored, skipped, unmapped_lifts = unmapped, targets = targets.len(),
-        clusters = rec.clusters, created = rec.created, enriched = rec.enriched, flagged = rec.flagged,
+        clusters = rec.clusters, created = rec.created, enriched = rec.enriched,
+        flagged = rec.flagged, region_flagged = rec.region_flagged,
         "ybrowse GFF3 ingest + reconcile complete"
     );
     Ok(())

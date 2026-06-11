@@ -17,6 +17,7 @@ du-bio = { workspace = true }
 du-domain = { workspace = true }
 du-external = { workspace = true }
 tokio = { workspace = true }
+reqwest = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 anyhow = { workspace = true }

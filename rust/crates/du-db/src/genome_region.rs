@@ -115,6 +115,33 @@ pub async fn create(
     Ok(id)
 }
 
+/// Insert or update a region keyed on its unique `(region_type, name)`,
+/// returning `true` when a new row was inserted and `false` when an existing
+/// one was updated. Used by the Y-region reference ingest so re-runs are
+/// idempotent (see `du_jobs::yregions`).
+pub async fn upsert_by_key(
+    pool: &PgPool,
+    region_type: &str,
+    name: &str,
+    coordinates: &serde_json::Value,
+    properties: &serde_json::Value,
+) -> Result<bool, DbError> {
+    let inserted: bool = sqlx::query_scalar(
+        "INSERT INTO core.genome_region (region_type, name, coordinates, properties) \
+         VALUES ($1, $2, $3, $4) \
+         ON CONFLICT (region_type, name) DO UPDATE \
+           SET coordinates = EXCLUDED.coordinates, properties = EXCLUDED.properties, updated_at = now() \
+         RETURNING (xmax = 0)",
+    )
+    .bind(region_type)
+    .bind(name)
+    .bind(coordinates)
+    .bind(properties)
+    .fetch_one(pool)
+    .await?;
+    Ok(inserted)
+}
+
 pub async fn update(
     pool: &PgPool,
     id: i64,

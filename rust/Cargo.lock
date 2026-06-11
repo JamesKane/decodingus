@@ -1425,6 +1425,7 @@ dependencies = [
  "du-domain",
  "du-external",
  "futures-util",
+ "reqwest",
  "serde",
  "serde_json",
  "tokio",

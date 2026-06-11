@@ -99,6 +99,9 @@ pub struct ReconcileReport {
     pub enriched: u64,
     /// Clusters split across multiple existing variants, flagged for review.
     pub flagged: u64,
+    /// Variants whose `annotations.region_overlaps` placement flag changed
+    /// (recomputed against `core.genome_region` after the catalog is updated).
+    pub region_flagged: u64,
 }
 
 /// Derive `core.variant` from the current mirror (see module docs). Idempotent:
@@ -243,7 +246,13 @@ pub async fn reconcile(pool: &PgPool) -> Result<ReconcileReport, DbError> {
     .rows_affected();
 
     tx.commit().await?;
-    Ok(ReconcileReport { clusters, created, enriched, flagged })
+
+    // Now that the catalog reflects this snapshot, recompute the Y-structural
+    // placement flags (variants in palindrome/ampliconic/repeat/heterochromatin
+    // sequence). Idempotent and outside the tx — needs the committed rows.
+    let region_flagged = crate::variant::refresh_region_overlaps(pool).await?;
+
+    Ok(ReconcileReport { clusters, created, enriched, flagged, region_flagged })
 }
 
 // ── reconcile-flag review queue ─────────────────────────────────────────────
