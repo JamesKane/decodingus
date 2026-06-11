@@ -31,14 +31,12 @@ of them and add features we don't yet load.
   `rust/crates/du-db/src/genome_region.rs`, `du_db::variant::refresh_region_overlaps`.
 
 ### Tasks
-- [ ] **Verify the v2 BED filenames exist in the bucket before changing anything.**
-      Paper Methods (Assembly evaluation / QC, ~line 817-818) cite:
-      - `chm13v2.0Y_inverted_repeats_v2.bed` (we load `..._v1.bed`)
-      - `chm13v2.0Y_amplicons_v2.bed` (we load `..._v1.bed`)
-      Check `https://s3-us-west-2.amazonaws.com/human-pangenomics/T2T/CHM13/assemblies/annotation/<file>`
-      (the `YREGIONS_BASE`-overridable `DEFAULT_BASE` already points here). If v2 exists,
-      bump those two `SOURCES` entries and diff the parsed output against v1 (coords may
-      have shifted; names may have changed → watch the `(region_type, name)` upsert key).
+- [x] **v2 BEDs wired** (commit `d39b314`). Both v2 files exist; bumped the two
+      `SOURCES` entries. v2 changes: inverted-repeats adds `IR2` (10→12 inverted_repeat
+      rows); amplicon coords refined. The `(region_type, name)` orphan risk is handled —
+      `run` now has full-snapshot sync (fetch-all-first → upsert → `prune_source_orphans`).
+      Live v2 reload pruned 9 orphaned v1 rows, 0 leftovers. P9/Rep1 NOT literally in v2
+      (still a separate hunt, below).
 - [ ] **Add the AZFc color-blocks.** Paper uses GRCh38 AZFc colorblock coords from
       Teitz et al. (ref 23) projected onto CHM13. These are the blue/teal/red/green/
       yellow/grey repeat blocks that define AZFc structural haplotypes — high-recurrence,
