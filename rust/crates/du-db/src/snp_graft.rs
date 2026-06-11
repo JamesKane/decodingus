@@ -37,6 +37,11 @@ pub enum FlagReason {
     WeakPlurality,
     /// The node's anchor is not at/below its parent's anchor (topology clash).
     ParentInconsistent,
+    /// An otherwise-strong, consistent anchor whose every supporting SNP sits in
+    /// structurally unreliable Y sequence (palindrome/ampliconic/repeat/
+    /// heterochromatin per `core.variant.annotations.region_overlaps`) — likely a
+    /// mismapping/homoplasy artefact, so don't auto-match it.
+    UnreliableAnchor,
 }
 
 /// What the classifier decided for one source node.
@@ -60,6 +65,9 @@ pub struct GraftReport {
     pub graft_novel: usize,
     pub flag_weak: usize,
     pub flag_inconsistent: usize,
+    /// Otherwise-good anchors rejected because every supporting SNP is in
+    /// unreliable Y sequence (see [`FlagReason::UnreliableAnchor`]).
+    pub flag_unreliable: usize,
     /// Matched nodes the source marks as backbone (adopted curated flags).
     pub backbone_adopt: usize,
     pub items: Vec<Classified>,
@@ -97,6 +105,28 @@ fn anchor(snps: &[String], snp2nodes: &HashMap<String, Vec<String>>) -> Option<(
     hits.into_iter()
         .max_by(|a, b| a.1.cmp(&b.1).then_with(|| b.0.cmp(a.0)))
         .map(|(n, c)| (n.to_string(), c, total))
+}
+
+/// How many of `snps` land on `node` via a **reliable** variant (i.e. not in
+/// `unreliable`). Zero means the anchor rests entirely on SNPs in structurally
+/// unreliable Y sequence — the signal for [`FlagReason::UnreliableAnchor`].
+fn reliable_anchor_support(
+    snps: &[String],
+    node: &str,
+    snp2nodes: &HashMap<String, Vec<String>>,
+    unreliable: &HashSet<String>,
+) -> i64 {
+    let mut n = 0i64;
+    for s in snps {
+        let key = s.to_ascii_lowercase();
+        if unreliable.contains(&key) {
+            continue;
+        }
+        if let Some(nodes) = snp2nodes.get(&key) {
+            n += nodes.iter().filter(|x| x.as_str() == node).count() as i64;
+        }
+    }
+    n
 }
 
 /// Is `a` an ancestor of `n` in the ISOGG tree (via current parent edges)?
@@ -530,6 +560,24 @@ async fn get_or_create_variant(
     Ok(id)
 }
 
+/// Lowercased SNP names (canonical + common-name aliases) of every variant
+/// flagged as structurally unreliable for placement — `annotations.region_overlaps`
+/// non-empty (see `du_db::variant::refresh_region_overlaps`).
+async fn unreliable_snp_names(pool: &PgPool) -> Result<HashSet<String>, DbError> {
+    let names: Vec<String> = sqlx::query_scalar(
+        "SELECT lower(v.canonical_name) FROM core.variant v \
+         WHERE v.canonical_name IS NOT NULL \
+           AND jsonb_array_length(COALESCE(v.annotations->'region_overlaps', '[]'::jsonb)) > 0 \
+         UNION \
+         SELECT lower(a.alias) FROM core.variant v \
+         CROSS JOIN LATERAL jsonb_array_elements_text(v.aliases->'common_names') AS a(alias) \
+         WHERE jsonb_array_length(COALESCE(v.annotations->'region_overlaps', '[]'::jsonb)) > 0",
+    )
+    .fetch_all(pool)
+    .await?;
+    Ok(names.into_iter().collect())
+}
+
 /// Classify every source node against the current ISOGG tree (read-only).
 pub async fn classify(pool: &PgPool, source: &[SourceNode], dna: DnaType, source_label: &str) -> Result<GraftReport, DbError> {
     let dna_label = pg_enum_label(&dna)?;
@@ -563,6 +611,12 @@ pub async fn classify(pool: &PgPool, source: &[SourceNode], dna: DnaType, source
     for (snp, node) in snp_rows {
         snp2nodes.entry(snp).or_default().push(node);
     }
+
+    // SNP names (canonical + alias, lowercased) flagged as structurally
+    // unreliable for placement (`annotations.region_overlaps` non-empty). A
+    // property of the variant, independent of tree/source — see
+    // `du_db::variant::refresh_region_overlaps`.
+    let unreliable: HashSet<String> = unreliable_snp_names(pool).await?;
 
     // ISOGG child → parent (current edges), for parent-consistency checks.
     let edges: Vec<(String, String)> = sqlx::query_as(
@@ -606,12 +660,20 @@ pub async fn classify(pool: &PgPool, source: &[SourceNode], dna: DnaType, source
                 // (e.g. R1b-S5676 → B2) that are otherwise strong + consistent.
                 let clade_ok = sn.name.chars().next().map(|c| c.to_ascii_uppercase())
                     == node.chars().next().map(|c| c.to_ascii_uppercase());
+                // Only gate otherwise-good matches: a strong, consistent,
+                // clade-agreeing anchor that nonetheless rests entirely on
+                // unreliable-region SNPs is a likely artefact → curator review.
+                let anchor_reliable =
+                    reliable_anchor_support(&sn.defining_snps, node, &snp2nodes, &unreliable) > 0;
                 if !strong {
                     report.flag_weak += 1;
                     Disposition::Flag { reason: FlagReason::WeakPlurality, anchor: Some(node.clone()) }
                 } else if !consistent || !clade_ok {
                     report.flag_inconsistent += 1;
                     Disposition::Flag { reason: FlagReason::ParentInconsistent, anchor: Some(node.clone()) }
+                } else if !anchor_reliable {
+                    report.flag_unreliable += 1;
+                    Disposition::Flag { reason: FlagReason::UnreliableAnchor, anchor: Some(node.clone()) }
                 } else {
                     report.matched += 1;
                     if sn.is_backbone {
@@ -666,6 +728,9 @@ pub struct ReviewItem {
 pub struct ReviewSummary {
     pub weak_plurality: usize,
     pub parent_inconsistent: usize,
+    /// Strong anchors rejected because all supporting SNPs are in unreliable
+    /// Y sequence (see [`FlagReason::UnreliableAnchor`]).
+    pub unreliable_anchor: usize,
     pub name_collision: usize,
     /// Novel branches blocked from grafting (their lineage is flagged); they
     /// graft automatically once the flagged ancestor is adjudicated + re-run.
@@ -757,6 +822,9 @@ pub async fn export_review(
                 Some(Disposition::Flag { reason: FlagReason::ParentInconsistent, .. }) => {
                     "flag_parent_inconsistent".to_string()
                 }
+                Some(Disposition::Flag { reason: FlagReason::UnreliableAnchor, .. }) => {
+                    "flag_unreliable_anchor".to_string()
+                }
                 None => "(not in source / existing node)".to_string(),
             },
         }
@@ -788,6 +856,10 @@ pub async fn export_review(
             FlagReason::ParentInconsistent => {
                 summary.parent_inconsistent += 1;
                 ("parent_inconsistent", "Anchor is not at/below the parent's anchor, or its major clade differs (possible recurrent-SNP cross-lineage anchor or topology disagreement).")
+            }
+            FlagReason::UnreliableAnchor => {
+                summary.unreliable_anchor += 1;
+                ("unreliable_anchor", "Anchor is strong and consistent, but every supporting SNP sits in structurally unreliable Y sequence (palindrome/ampliconic/repeat/heterochromatin) — likely mismapping or homoplasy; confirm before matching.")
             }
         };
         items.push(ReviewItem {
@@ -921,4 +993,48 @@ pub async fn stage_review(
     let cs_id = crate::change_set::create(pool, &export.source, Some(&dna_label), Some(&description), by).await?;
     let n = crate::wip::stage(pool, cs_id, &export.source, &items).await?;
     Ok((cs_id, n))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn snp2nodes(pairs: &[(&str, &str)]) -> HashMap<String, Vec<String>> {
+        let mut m: HashMap<String, Vec<String>> = HashMap::new();
+        for (snp, node) in pairs {
+            m.entry(snp.to_ascii_lowercase()).or_default().push(node.to_string());
+        }
+        m
+    }
+
+    /// The anchor's reliable support counts only SNPs that hit the node AND are
+    /// not flagged unreliable; an anchor held up solely by unreliable SNPs is 0.
+    #[test]
+    fn reliable_support_excludes_unreliable_snps() {
+        // R1: L11 (reliable) + P1x (unreliable) both define node "R1b"; P1x also
+        // recurs on "B2". Q-node has only an unreliable SNP.
+        let idx = snp2nodes(&[("L11", "R1b"), ("P1x", "R1b"), ("P1x", "B2"), ("DYZ-s", "Q1")]);
+        let unreliable: HashSet<String> = ["p1x", "dyz-s"].iter().map(|s| s.to_string()).collect();
+
+        // R1b anchor keeps L11 → still supported.
+        let snps = vec!["L11".to_string(), "P1x".to_string()];
+        assert_eq!(reliable_anchor_support(&snps, "R1b", &idx, &unreliable), 1);
+
+        // Q1 anchor rests only on the unreliable DYZ-s → unsupported.
+        let only_bad = vec!["DYZ-s".to_string()];
+        assert_eq!(reliable_anchor_support(&only_bad, "Q1", &idx, &unreliable), 0);
+
+        // Case-insensitive name match.
+        let lower = vec!["l11".to_string()];
+        assert_eq!(reliable_anchor_support(&lower, "R1b", &idx, &unreliable), 1);
+    }
+
+    /// A SNP unknown to the foundation contributes nothing (no node hit).
+    #[test]
+    fn reliable_support_ignores_unknown_snps() {
+        let idx = snp2nodes(&[("L11", "R1b")]);
+        let none = HashSet::new();
+        let snps = vec!["NOVEL1".to_string()];
+        assert_eq!(reliable_anchor_support(&snps, "R1b", &idx, &none), 0);
+    }
 }

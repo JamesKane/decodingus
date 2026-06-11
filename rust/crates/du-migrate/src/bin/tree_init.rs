@@ -288,6 +288,7 @@ async fn run_snp_graft(
             tracing::info!(
                 path = %path, items = ex.items.len(),
                 weak = ex.summary.weak_plurality, parent_inconsistent = ex.summary.parent_inconsistent,
+                unreliable_anchor = ex.summary.unreliable_anchor,
                 name_collision = ex.summary.name_collision, graft_blocked = ex.summary.graft_blocked,
                 "Phase 4 curator-review export written"
             );
@@ -306,7 +307,7 @@ fn print_graft_report(r: &du_db::snp_graft::GraftReport) {
     tracing::info!(
         total = r.total, matched = r.matched, graft_novel = r.graft_novel,
         flag_weak = r.flag_weak, flag_inconsistent = r.flag_inconsistent,
-        backbone_adopt = r.backbone_adopt,
+        flag_unreliable = r.flag_unreliable, backbone_adopt = r.backbone_adopt,
         "SNP-graft dry-run classification"
     );
     let fmt = |c: &du_db::snp_graft::Classified| match &c.disposition {
@@ -315,7 +316,11 @@ fn print_graft_report(r: &du_db::snp_graft::GraftReport) {
             format!("{} ⤚graft under {}", c.node, parent_anchor.as_deref().unwrap_or("?"))
         }
         Disposition::Flag { reason, anchor } => {
-            let why = match reason { FlagReason::WeakPlurality => "weak", FlagReason::ParentInconsistent => "parent≠" };
+            let why = match reason {
+                FlagReason::WeakPlurality => "weak",
+                FlagReason::ParentInconsistent => "parent≠",
+                FlagReason::UnreliableAnchor => "unreliable",
+            };
             format!("{} ⚑{} (~{})", c.node, why, anchor.as_deref().unwrap_or("?"))
         }
     };
