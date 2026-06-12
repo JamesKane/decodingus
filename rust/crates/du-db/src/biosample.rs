@@ -189,6 +189,39 @@ pub struct CoverageSummary {
     pub pct_30x: Option<f64>,
     /// at:// uri of the sequencing run this coverage belongs to (may be NULL).
     pub sequence_run_ref: Option<String>,
+    /// The run's test type, when resolvable (drives the conformance check).
+    pub test_type: Option<String>,
+    /// Advertised minimum depth for the test type (`test_type_definition`), if set.
+    pub expected_min_depth: Option<f64>,
+    /// The empirical cohort median depth for the test type (`test_type_coverage_norm`).
+    pub norm_median_depth: Option<f64>,
+    /// Conformance vs. the advertised spec (or cohort norm when no spec): `BELOW` /
+    /// `AT` / `ABOVE`, or `None` when there's nothing to compare against.
+    pub conformance: Option<String>,
+}
+
+/// Classify a sample's aligned mean depth against the **empirical cohort norm**
+/// for its test type (preferred), falling back to the advertised spec only when no
+/// cohort norm exists yet. The cohort norm is the fair baseline: an advertised
+/// "30× WGS" is really a raw-yield spec (~90 Gb of reads), which aligns to less than
+/// 30× after QC/dedup, and D2C lab products don't target 30× aligned at all — so
+/// comparing aligned depth to a literal advertised number would mislabel them. The
+/// cohort norm is measured in the same aligned-depth units and reflects what each
+/// test type actually delivers. ±5% of the baseline counts as `AT`.
+fn conformance(mean: Option<f64>, expected: Option<f64>, norm: Option<f64>) -> Option<String> {
+    let mean = mean?;
+    let baseline = norm.or(expected)?;
+    if baseline <= 0.0 {
+        return None;
+    }
+    Some(if mean < baseline * 0.95 {
+        "BELOW"
+    } else if mean > baseline * 1.05 {
+        "ABOVE"
+    } else {
+        "AT"
+    }
+    .to_string())
 }
 
 #[derive(Debug, Clone)]
@@ -383,11 +416,22 @@ pub async fn report_by_guid(pool: &PgPool, guid: SampleGuid) -> Result<Option<Sa
             pct_20x: Option<f64>,
             pct_30x: Option<f64>,
             sequence_run_ref: Option<String>,
+            test_type: Option<String>,
+            expected_min_depth: Option<f64>,
+            norm_median_depth: Option<f64>,
         }
+        // Resolve each coverage row's test type (via its run), the advertised spec
+        // (test_type_definition, opportunistic), and the empirical cohort norm.
         let cov: Vec<CovRow> = sqlx::query_as(
-            "SELECT reference_build, aligner, mean_coverage, median_coverage, pct_10x, pct_20x, pct_30x, \
-                    sequence_run_ref \
-             FROM fed.coverage_summary WHERE biosample_ref = $1 ORDER BY mean_coverage DESC NULLS LAST",
+            "SELECT cs.reference_build, cs.aligner, cs.mean_coverage, cs.median_coverage, \
+                    cs.pct_10x, cs.pct_20x, cs.pct_30x, cs.sequence_run_ref, \
+                    sr.test_type AS test_type, ttd.expected_min_depth AS expected_min_depth, \
+                    n.median_mean_depth AS norm_median_depth \
+             FROM fed.coverage_summary cs \
+             LEFT JOIN fed.sequencerun sr ON sr.at_uri = cs.sequence_run_ref \
+             LEFT JOIN genomics.test_type_definition ttd ON upper(ttd.code) = upper(sr.test_type) \
+             LEFT JOIN genomics.test_type_coverage_norm n ON n.test_type = sr.test_type \
+             WHERE cs.biosample_ref = $1 ORDER BY cs.mean_coverage DESC NULLS LAST",
         )
         .bind(at_uri)
         .fetch_all(pool)
@@ -395,6 +439,7 @@ pub async fn report_by_guid(pool: &PgPool, guid: SampleGuid) -> Result<Option<Sa
         coverage = cov
             .into_iter()
             .map(|r| CoverageSummary {
+                conformance: conformance(r.mean_coverage, r.expected_min_depth, r.norm_median_depth),
                 reference_build: r.reference_build,
                 aligner: r.aligner,
                 mean_coverage: r.mean_coverage,
@@ -403,6 +448,9 @@ pub async fn report_by_guid(pool: &PgPool, guid: SampleGuid) -> Result<Option<Sa
                 pct_20x: r.pct_20x,
                 pct_30x: r.pct_30x,
                 sequence_run_ref: r.sequence_run_ref,
+                test_type: r.test_type,
+                expected_min_depth: r.expected_min_depth,
+                norm_median_depth: r.norm_median_depth,
             })
             .collect();
 
@@ -512,4 +560,26 @@ pub async fn find_by_alias_or_accession(
             .fetch_all(pool)
             .await?;
     rows.into_iter().map(BiosampleRow::into_domain).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::conformance;
+
+    #[test]
+    fn conformance_prefers_cohort_norm_then_spec() {
+        // The cohort norm wins over the advertised spec: a sample at 28× whose test
+        // type's cohort delivers ~29× is AT — NOT flagged BELOW against an advertised
+        // 30× aligned bar (the D2C case the user called out).
+        assert_eq!(conformance(Some(28.0), Some(30.0), Some(29.0)).as_deref(), Some("AT"));
+        // Genuinely under its cohort.
+        assert_eq!(conformance(Some(20.0), Some(30.0), Some(29.0)).as_deref(), Some("BELOW"));
+        // Above its cohort.
+        assert_eq!(conformance(Some(33.0), None, Some(29.0)).as_deref(), Some("ABOVE"));
+        // No cohort norm yet → fall back to the advertised spec.
+        assert_eq!(conformance(Some(20.0), Some(30.0), None).as_deref(), Some("BELOW"));
+        // Nothing to compare against.
+        assert_eq!(conformance(Some(30.0), None, None), None);
+        assert_eq!(conformance(None, Some(30.0), Some(29.0)), None);
+    }
 }

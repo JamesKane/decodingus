@@ -325,10 +325,25 @@ Launch-critical first, then the post-launch feature mass.
    discovery-consensus` (+ hourly). Mirrors the sequencer engine's structure. Memory
    `discovery-consensus-engine`. **Remaining (future):** split *execution* (flagging
    only), a deepest-defined-branch read-path, geographic/temporal confidence signals.
-4. **Multi-test-type completion** — taxonomy (`genomics.test_type_definition`) +
-   chip/targeted metadata ingest (via `fed.*`) are built; marker-coverage /
-   target-region / test-type-aware confidence-scoring tables are **not**, and
-   `test_type_definition` isn't seeded by a migration (only ETL-backfilled).
+4. **Multi-test-type — coverage norms & conformance DONE (2026-06-12).** Reframed
+   (per the user) from the Scala doc's haplogroup-marker/accuracy-tier/IBD machinery
+   to grounded coverage QA: **callable loci + depths per test type vs the norm**.
+   `genomics.test_type_coverage_norm` (mig 0030) holds the **empirically-derived**
+   cohort norm per test type (median/p25/p75 depth, median pct tiers, typical Y/mt
+   marker counts), recomputed from `fed.coverage_summary ⋈ fed.sequencerun` (+
+   `fed.genotype` markers) by `du_db::coverage::recompute_norms` (advisory-locked,
+   declarative; `du-jobs run-once coverage-norms` + hourly). The **per-sample report**
+   now shows actual depth vs the cohort norm (+ advertised spec) with a BELOW/AT/ABOVE
+   badge — `conformance()` baselines on the **empirical cohort norm**, not the
+   advertised aligned bar (a "30× WGS" is a ~90 Gb raw-yield spec; D2C labs don't
+   target 30× aligned, so an advertised number would mislabel them). Vendor tracking:
+   `coverage::benchmarks` DTO gains `meets_spec`/`depth_delta` (lab × test type).
+   Read API `GET /api/v1/test-types[/:code]` (taxonomy + norm). Memory
+   `test-type-coverage-norms`. **Deferred:** age-contribution wiring (typical SNP
+   counts captured, not yet fed into `age.rs` — Eq-4 callable-interval); raw-yield
+   (Gbases) norm; cataloged-coverage union. **Out:** haplogroup marker-coverage /
+   accuracy-tier, cross-test-type IBD (D1/D3). No `test_type_definition` seed (read
+   opportunistically; key off the federated test-type string).
    (`documents/planning/multi-test-type-roadmap.md`.)
 5. **IBD matching — AppView as coordinator (NOT dropped).** The AppView is the
    only component with the cross-federation view to identify **introduction

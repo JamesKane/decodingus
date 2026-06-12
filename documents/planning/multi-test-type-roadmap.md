@@ -1,5 +1,22 @@
 # Multi-Test-Type Support Roadmap
 
+> **⚖️ D7 DONE (2026-06-12) — reframed.** Per the product owner, multi-test-type
+> support is **coverage QA**, not the haplogroup-marker-coverage / accuracy-tier /
+> cross-test-type-IBD machinery this doc describes (those are **superseded** —
+> Phases 4–6 dropped; IBD is the separate D1/D3 Edge-to-Edge track). Built:
+> `genomics.test_type_coverage_norm` (mig 0030) — the **empirically-derived** cohort
+> norm per test type (median/quartile depth, pct tiers, typical Y/mt marker counts),
+> recomputed from `fed.coverage_summary ⋈ fed.sequencerun` + `fed.genotype` by
+> `du_db::coverage::recompute_norms` (`du-jobs run-once coverage-norms` + hourly);
+> per-sample **conformance** on the report (actual depth vs cohort norm + advertised
+> spec → BELOW/AT/ABOVE), baselined on the empirical norm because an advertised "30×
+> WGS" is a ~90 Gb raw-yield spec and D2C labs don't target 30× aligned; vendor
+> conformance on `coverage::benchmarks` (`meets_spec`/`depth_delta`); read API
+> `GET /api/v1/test-types[/:code]`. Deferred: age-contribution wiring (typical SNP
+> counts captured), raw-yield (Gbases) norm. Memory `test-type-coverage-norms`.
+> The Phase-1 schema notes below remain accurate for `test_type_definition` /
+> `coverage_expectation_profile`.
+>
 > **⚖️ Rust status (2026-06-07).** **Phase-1 schema is built**, leaner than below:
 > `genomics.test_type_definition` (omits `expected_target_depth`,
 > `expected_marker_count`, `version`, `release_date`, `deprecated_at`,

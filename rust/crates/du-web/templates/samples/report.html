@@ -112,16 +112,27 @@
       <thead><tr>
         <th>{{ t.get("sample.cov.build") }}</th>
         <th>{{ t.get("sample.cov.aligner") }}</th>
+        <th>{{ t.get("sample.cov.testtype") }}</th>
         <th class="text-end">{{ t.get("sample.cov.mean") }}</th>
+        <th class="text-end">{{ t.get("sample.cov.expected") }}</th>
         <th class="text-end">{{ t.get("sample.cov.10x") }}</th>
         <th class="text-end">{{ t.get("sample.cov.20x") }}</th>
         <th class="text-end">{{ t.get("sample.cov.30x") }}</th>
+        <th>{{ t.get("sample.cov.conformance") }}</th>
       </tr></thead>
       <tbody>
         {% for c in s.coverage %}
         <tr>
-          <td>{{ c.build }}</td><td>{{ c.aligner }}</td><td class="text-end">{{ c.mean }}</td>
+          <td>{{ c.build }}</td><td>{{ c.aligner }}</td><td>{{ c.test_type }}</td>
+          <td class="text-end">{{ c.mean }}</td>
+          <td class="text-end text-muted">{{ c.expected }}<br><span class="small">{{ t.get("sample.cov.cohort") }} {{ c.norm }}</span></td>
           <td class="text-end">{{ c.pct_10x }}</td><td class="text-end">{{ c.pct_20x }}</td><td class="text-end">{{ c.pct_30x }}</td>
+          <td>
+            {% if c.conformance == "BELOW" %}<span class="badge text-bg-danger">{{ t.get("sample.cov.below") }}</span>
+            {% else if c.conformance == "AT" %}<span class="badge text-bg-success">{{ t.get("sample.cov.at") }}</span>
+            {% else if c.conformance == "ABOVE" %}<span class="badge text-bg-info">{{ t.get("sample.cov.above") }}</span>
+            {% endif %}
+          </td>
         </tr>
         {% endfor %}
       </tbody>

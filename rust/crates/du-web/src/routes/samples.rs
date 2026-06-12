@@ -70,10 +70,16 @@ struct SeqView {
 struct CovView {
     build: String,
     aligner: String,
+    test_type: String,
     mean: String,
     pct_10x: String,
     pct_20x: String,
     pct_30x: String,
+    /// Advertised spec / cohort norm shown alongside the actual depth.
+    expected: String,
+    norm: String,
+    /// BELOW / AT / ABOVE (empty when nothing to compare against).
+    conformance: String,
 }
 
 struct AncestryComp {
@@ -288,10 +294,14 @@ impl SampleView {
             .map(|c| CovView {
                 build: dash(c.reference_build.clone()),
                 aligner: dash(c.aligner.clone()),
+                test_type: dash(c.test_type.clone()),
                 mean: num_f64(c.mean_coverage, 1),
                 pct_10x: num_f64(c.pct_10x, 1),
                 pct_20x: num_f64(c.pct_20x, 1),
                 pct_30x: num_f64(c.pct_30x, 1),
+                expected: num_f64(c.expected_min_depth, 0),
+                norm: num_f64(c.norm_median_depth, 1),
+                conformance: c.conformance.clone().unwrap_or_default(),
             })
             .collect();
 

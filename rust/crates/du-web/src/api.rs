@@ -205,10 +205,19 @@ pub struct CoverageBenchmarkDto {
     pub avg_mean_depth: Option<f64>,
     pub avg_cov_10x: Option<f64>,
     pub expected_min_depth: Option<f64>,
+    /// Whether the lab's average depth meets the advertised spec (when both known).
+    pub meets_spec: Option<bool>,
+    /// Average depth minus the advertised spec (positive = over, negative = under).
+    pub depth_delta: Option<f64>,
 }
 
 impl From<du_domain::coverage::CoverageBenchmark> for CoverageBenchmarkDto {
     fn from(c: du_domain::coverage::CoverageBenchmark) -> Self {
+        // Vendor conformance: compare the lab's average against the advertised spec.
+        let (meets_spec, depth_delta) = match (c.avg_mean_depth, c.expected_min_depth) {
+            (Some(avg), Some(exp)) => (Some(avg >= exp), Some(avg - exp)),
+            _ => (None, None),
+        };
         CoverageBenchmarkDto {
             lab: c.lab,
             test_type: c.test_type,
@@ -216,6 +225,49 @@ impl From<du_domain::coverage::CoverageBenchmark> for CoverageBenchmarkDto {
             avg_mean_depth: c.avg_mean_depth,
             avg_cov_10x: c.avg_cov_10x,
             expected_min_depth: c.expected_min_depth,
+            meets_spec,
+            depth_delta,
+        }
+    }
+}
+
+/// A test type's definition + its empirical coverage norm.
+#[derive(Serialize, ToSchema)]
+pub struct TestTypeDto {
+    pub code: String,
+    pub display_name: String,
+    pub category: String,
+    pub vendor: Option<String>,
+    pub target_type: Option<String>,
+    pub expected_min_depth: Option<f64>,
+    pub supports_haplogroup_y: bool,
+    pub supports_haplogroup_mt: bool,
+    pub supports_autosomal_ibd: bool,
+    pub supports_ancestry: bool,
+    pub typical_file_formats: Vec<String>,
+    /// Federated-cohort norm: samples observed + typical depth / 30× coverage.
+    pub norm_sample_count: Option<i32>,
+    pub norm_median_depth: Option<f64>,
+    pub norm_median_pct_30x: Option<f64>,
+}
+
+impl From<du_db::test_type::TestTypeInfo> for TestTypeDto {
+    fn from(t: du_db::test_type::TestTypeInfo) -> Self {
+        Self {
+            code: t.code,
+            display_name: t.display_name,
+            category: t.category,
+            vendor: t.vendor,
+            target_type: t.target_type,
+            expected_min_depth: t.expected_min_depth,
+            supports_haplogroup_y: t.supports_haplogroup_y,
+            supports_haplogroup_mt: t.supports_haplogroup_mt,
+            supports_autosomal_ibd: t.supports_autosomal_ibd,
+            supports_ancestry: t.supports_ancestry,
+            typical_file_formats: t.typical_file_formats,
+            norm_sample_count: t.norm_sample_count,
+            norm_median_depth: t.norm_median_depth,
+            norm_median_pct_30x: t.norm_median_pct_30x,
         }
     }
 }
@@ -325,6 +377,13 @@ pub struct CoverageSummaryDto {
     pub pct_10x: Option<f64>,
     pub pct_20x: Option<f64>,
     pub pct_30x: Option<f64>,
+    pub test_type: Option<String>,
+    /// Advertised minimum depth for the test type, when known.
+    pub expected_min_depth: Option<f64>,
+    /// Empirical cohort median depth for the test type.
+    pub norm_median_depth: Option<f64>,
+    /// `BELOW` / `AT` / `ABOVE` the advertised spec (or cohort norm when no spec).
+    pub conformance: Option<String>,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -815,6 +874,23 @@ async fn discovery_proposal(State(st): State<AppState>, Path(id): Path<i64>) -> 
         .ok_or_else(|| AppError::NotFound(format!("proposal {id}")))
 }
 
+#[utoipa::path(get, path = "/api/v1/test-types", tag = "test-types",
+    responses((status = 200, description = "Test-type taxonomy + empirical coverage norms", body = [TestTypeDto])))]
+async fn test_types(State(st): State<AppState>) -> Result<Json<Vec<TestTypeDto>>, AppError> {
+    Ok(Json(du_db::test_type::list(&st.pool).await?.into_iter().map(TestTypeDto::from).collect()))
+}
+
+#[utoipa::path(get, path = "/api/v1/test-types/{code}",
+    params(("code" = String, Path, description = "Test-type code (e.g. WGS, BIG_Y_700)")), tag = "test-types",
+    responses((status = 200, description = "A test type + its coverage norm", body = TestTypeDto),
+              (status = 404, description = "Unknown test type")))]
+async fn test_type_by_code(State(st): State<AppState>, Path(code): Path<String>) -> Result<Json<TestTypeDto>, AppError> {
+    du_db::test_type::get(&st.pool, &code)
+        .await?
+        .map(|t| Json(TestTypeDto::from(t)))
+        .ok_or_else(|| AppError::NotFound(format!("test type {code}")))
+}
+
 #[utoipa::path(get, path = "/api/v1/haplogroups/{haplogroupName}/str-signature", tag = "tree",
     responses((status = 200, description = "Aggregated modal Y-STR signature for a haplogroup", body = [StrSignatureMarkerDto])))]
 async fn haplogroup_str_signature(
@@ -1016,6 +1092,10 @@ async fn sample_report(State(st): State<AppState>, Path(slug): Path<String>) -> 
                 pct_10x: c.pct_10x,
                 pct_20x: c.pct_20x,
                 pct_30x: c.pct_30x,
+                test_type: c.test_type.clone(),
+                expected_min_depth: c.expected_min_depth,
+                norm_median_depth: c.norm_median_depth,
+                conformance: c.conformance.clone(),
             })
             .collect(),
         ancestry: rep.ancestry.as_ref().map(|a| AncestryDto {
@@ -1185,14 +1265,14 @@ fn csv_field(s: &str) -> String {
 #[openapi(
     info(title = "DecodingUs API", version = "1.0.0", description = "Public read API for the DecodingUs AppView."),
     paths(
-        y_tree, mt_tree, y_tree_full, mt_tree_full, y_tree_version, mt_tree_version, coverage_benchmarks, sequencer_lab, sequencer_lab_instruments, discovery_proposals, discovery_proposal, references_details, biosample_report, sample_report, biosample_studies,
+        y_tree, mt_tree, y_tree_full, mt_tree_full, y_tree_version, mt_tree_version, coverage_benchmarks, sequencer_lab, sequencer_lab_instruments, discovery_proposals, discovery_proposal, test_types, test_type_by_code, references_details, biosample_report, sample_report, biosample_studies,
         list_variants, get_variant, variants_by_haplogroup, export_metadata, export_variants,
         export_variants_gff, list_region_builds, regions_by_build,
         reports_coverage, reports_ancestry, reports_haplogroups,
         haplogroup_str_signature, haplogroup_age, str_predict,
     ),
     components(schemas(
-        VariantDto, HaplogroupNodeDto, TreeDto, TreeVersionDto, CoverageBenchmarkDto, SequencerLabDto, DiscoveryProposalDto, DiscoveryVariantDto, Page<DiscoveryProposalDto>, PublicationDto, BiosampleDto,
+        VariantDto, HaplogroupNodeDto, TreeDto, TreeVersionDto, CoverageBenchmarkDto, SequencerLabDto, DiscoveryProposalDto, DiscoveryVariantDto, Page<DiscoveryProposalDto>, TestTypeDto, PublicationDto, BiosampleDto,
         SampleReportDto, HaplogroupPathwayDto, PathwayStepDto, SequencingRunDto, CoverageSummaryDto,
         AncestryDto, SamplePublicationDto,
         GenomeRegionDto, StudyDto, ExportMetadataDto, Page<VariantDto>, Page<PublicationDto>, Page<BiosampleDto>,
@@ -1205,6 +1285,7 @@ fn csv_field(s: &str) -> String {
         (name = "coverage", description = "Sequencing coverage benchmarks"),
         (name = "sequencer", description = "Sequencer instrument → lab lookup"),
         (name = "discovery", description = "Proposed haplogroup branches (discovery consensus)"),
+        (name = "test-types", description = "Test-type taxonomy + empirical coverage norms"),
         (name = "references", description = "Publications, biosamples, studies"),
         (name = "genome-regions", description = "Multi-build genome regions"),
         (name = "reports", description = "Population reports aggregated from the federated mirror"),
@@ -1225,6 +1306,8 @@ pub fn router() -> Router<AppState> {
         .route("/api/v1/sequencer/lab-instruments", get(sequencer_lab_instruments))
         .route("/api/v1/discovery/proposals", get(discovery_proposals))
         .route("/api/v1/discovery/proposals/:id", get(discovery_proposal))
+        .route("/api/v1/test-types", get(test_types))
+        .route("/api/v1/test-types/:code", get(test_type_by_code))
         .route("/api/v1/reports/coverage", get(reports_coverage))
         .route("/api/v1/reports/ancestry", get(reports_ancestry))
         .route("/api/v1/reports/haplogroups", get(reports_haplogroups))
@@ -1448,5 +1531,30 @@ mod tests {
         let page: serde_json::Value = serde_json::from_slice(&to_bytes(rl.into_body(), usize::MAX).await.unwrap()).unwrap();
         assert_eq!(page["total"], 0);
         assert!(page["items"].as_array().unwrap().is_empty());
+    }
+
+    /// Test-type endpoints over HTTP: an unknown code → 404, the list → 200 `[]`
+    /// against an unseeded catalog.
+    #[tokio::test]
+    async fn test_type_endpoints_route_and_404() {
+        let Some(url) = std::env::var("DATABASE_URL").ok().filter(|s| !s.is_empty()) else {
+            eprintln!("DATABASE_URL unset — skipping test-type endpoint test");
+            return;
+        };
+        use axum::body::{to_bytes, Body};
+        use axum::http::{Request, StatusCode};
+        use tower::ServiceExt;
+
+        let db = du_db::testing::ephemeral_db(&url).await.expect("ephemeral db");
+        let state = super::AppState { pool: db.pool().clone(), key: tower_cookies::Key::generate(), oauth: None };
+        let app = super::router().with_state(state);
+
+        let r404 = app.clone().oneshot(Request::builder().uri("/api/v1/test-types/NOPE").body(Body::empty()).unwrap()).await.unwrap();
+        assert_eq!(r404.status(), StatusCode::NOT_FOUND);
+
+        let rl = app.clone().oneshot(Request::builder().uri("/api/v1/test-types").body(Body::empty()).unwrap()).await.unwrap();
+        assert_eq!(rl.status(), StatusCode::OK);
+        let list: serde_json::Value = serde_json::from_slice(&to_bytes(rl.into_body(), usize::MAX).await.unwrap()).unwrap();
+        assert!(list.as_array().unwrap().is_empty());
     }
 }
