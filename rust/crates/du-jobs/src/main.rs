@@ -90,8 +90,12 @@ async fn main() -> anyhow::Result<()> {
                     auto_promoted = rep.auto_promoted, "discovery-consensus complete"
                 );
             }
+            "coverage-norms" => {
+                let rep = du_db::coverage::recompute_norms(&pool).await?;
+                tracing::info!(test_types = rep.test_types, pruned = rep.pruned, "coverage-norms complete");
+            }
             other => anyhow::bail!(
-                "unknown run-once job '{other}' (known: ybrowse, reconcile, yregions, branch-age, sequencer-consensus, discovery-consensus)"
+                "unknown run-once job '{other}' (known: ybrowse, reconcile, yregions, branch-age, sequencer-consensus, discovery-consensus, coverage-norms)"
             ),
         }
         return Ok(());
@@ -233,6 +237,21 @@ async fn main() -> anyhow::Result<()> {
             }
         }));
         tracing::info!("discovery-consensus registered");
+    }
+
+    // Empirical per-test-type coverage norms: derive the cohort median depth/coverage
+    // (+ typical marker counts) from the federated coverage for conformance checks.
+    {
+        let pool = pool.clone();
+        sched.register(Job::new("coverage-norms", Duration::from_secs(3_600), move || {
+            let pool = pool.clone();
+            async move {
+                let rep = du_db::coverage::recompute_norms(&pool).await?;
+                tracing::info!(test_types = rep.test_types, pruned = rep.pruned, "coverage-norms done");
+                Ok(())
+            }
+        }));
+        tracing::info!("coverage-norms registered");
     }
 
     // TODO(jobs): variant-export to a file artifact (the /api/v1/variants/export
