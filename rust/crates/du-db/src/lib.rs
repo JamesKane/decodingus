@@ -20,6 +20,7 @@ pub mod discovery;
 pub mod fed;
 pub mod genome_region;
 pub mod haplogroup;
+pub mod ibd;
 pub mod merge;
 pub mod naming;
 pub mod pagination;

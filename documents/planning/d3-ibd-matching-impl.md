@@ -281,12 +281,17 @@ by construction.
 
 ## 13. Next step
 
-D3 closes the **Match track** (D1→D3). **D1-independent first slice:** candidate
-generation (§3) needs *no* exchange channel — it reads `fed.population_breakdown`
-(PCA coords + components) and the `ibd_discovery_index` graph and writes ranked
-`match_suggestion` rows. So `du-jobs ibd-discovery-recompute` (the §3.0 ancestry-block
-+ §3c graph-expansion engine, top-K capped) is **buildable now**, ahead of D1, and
-testable on seeded `fed.*` rows. The exchange/consent reuse of D1 + the
-attestation-ingest/index path layer on once D1's channel exists. Then the **Platform
+D3 closes the **Match track** (D1→D3). **D1-independent first slice — BUILT
+(2026-06-12):** candidate generation (§3) needs *no* exchange channel — `du_db::ibd::
+recompute_suggestions` reads `fed.population_breakdown` (PCA coords + components) +
+`fed.haplogroup_reconciliation` + the `ibd_discovery_index` graph and writes ranked
+`ibd.match_suggestion` rows. Ancestry blocking (§3.0: dominant super-pop × z-scored
+PCA cell), shared-haplogroup + 2-hop shared-match (§3c) signals, weighted-combine +
+**top-K cap** (§3.4 no-N:N), declarative recompute preserving DISMISSED/CONVERTED.
+`du-jobs run-once ibd-discovery-recompute` + daily; `suggestions_for` reader; advisory-
+locked. **Engine-only — no public API** (candidate pairs gate on consent). Test
+`du-db/tests/ibd_suggestions.rs` (blocking + signals + top-K + idempotency + dismiss).
+The exchange/consent reuse of D1 + the attestation-ingest/index path layer on once D1's
+channel exists. Then the **Platform
 track** continues at **D4 (assertion store, split rails)**, which consumes D3's
 same-person output (§7) and D1's PII channel.

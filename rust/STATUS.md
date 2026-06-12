@@ -368,10 +368,18 @@ Launch-critical first, then the post-launch feature mass.
    coordinate the Edge hand-off, and **persist match state** (attestations /
    overlap scores / suggestions) for ongoing match lists + dedup. It stores **no
    raw autosomal data** and does **no** segment comparison — that's Edge-to-Edge.
-   Schema `ibd` (mig 0007: `ibd_discovery_index`, `ibd_pds_attestation`, overlap)
-   exists as a placeholder; logic + endpoints to build **on the D1 exchange
-   substrate** (`ibd.match_request`/`match_consent` fold into `exchange.*`).
-   Authoritative design: `documents/planning/d3-ibd-matching-impl.md` (on
+   Schema `ibd` (mig 0007). The **candidate-generation engine is DONE (2026-06-12)** —
+   the D1-independent first slice: `du_db::ibd::recompute_suggestions` mines
+   introduction candidates from `fed.*` (population overlap **within ancestry blocks** =
+   dominant super-pop × z-scored PCA cell; shared terminal Y/mt consensus haplogroup;
+   2-hop shared-match over `ibd_discovery_index`), combines + ranks + **caps top-K per
+   sample** (the no-N:N guarantee), declaratively writing `ibd.match_suggestion`
+   (preserves DISMISSED/CONVERTED). `du-jobs run-once ibd-discovery-recompute` + daily;
+   `suggestions_for` reader. Engine-only — **no public API** (candidate pairs gate on
+   the D1 consent flow). Memory `ibd-candidate-generation`. **Remaining (needs D1):**
+   the request/consent/exchange + attestation-ingest path; `depth_score` from the tree;
+   PCA-LSH tuning. `ibd.match_request`/`match_consent` fold into `exchange.*`.
+   Authoritative design: `documents/planning/d3-ibd-matching-impl.md` §3 (on
    `d1-encrypted-edge-exchange.md`).
 6. **Collaboration + social layer.** The genealogy-collaboration platform (group
    projects, ResearchSubject registry, assertions) is specced in **D2/D4/D5** on the

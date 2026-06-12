@@ -94,8 +94,16 @@ async fn main() -> anyhow::Result<()> {
                 let rep = du_db::coverage::recompute_norms(&pool).await?;
                 tracing::info!(test_types = rep.test_types, pruned = rep.pruned, "coverage-norms complete");
             }
+            "ibd-discovery-recompute" => {
+                let rep = du_db::ibd::recompute_suggestions(&pool, &du_db::ibd::IbdConfig::default()).await?;
+                tracing::info!(
+                    samples = rep.samples, blocks = rep.blocks, population = rep.population_pairs,
+                    haplogroup = rep.haplogroup_pairs, shared_match = rep.shared_match_pairs,
+                    suggestions = rep.suggestions_written, "ibd-discovery-recompute complete"
+                );
+            }
             other => anyhow::bail!(
-                "unknown run-once job '{other}' (known: ybrowse, reconcile, yregions, branch-age, sequencer-consensus, discovery-consensus, coverage-norms)"
+                "unknown run-once job '{other}' (known: ybrowse, reconcile, yregions, branch-age, sequencer-consensus, discovery-consensus, coverage-norms, ibd-discovery-recompute)"
             ),
         }
         return Ok(());
@@ -252,6 +260,24 @@ async fn main() -> anyhow::Result<()> {
             }
         }));
         tracing::info!("coverage-norms registered");
+    }
+
+    // IBD candidate generation: mine introduction candidates from fed.* ancestry +
+    // the match graph into ibd.match_suggestion (block + top-K; no genotypes). Daily.
+    {
+        let pool = pool.clone();
+        sched.register(Job::new("ibd-discovery-recompute", Duration::from_secs(86_400), move || {
+            let pool = pool.clone();
+            async move {
+                let rep = du_db::ibd::recompute_suggestions(&pool, &du_db::ibd::IbdConfig::default()).await?;
+                tracing::info!(
+                    samples = rep.samples, blocks = rep.blocks, suggestions = rep.suggestions_written,
+                    "ibd-discovery-recompute done"
+                );
+                Ok(())
+            }
+        }));
+        tracing::info!("ibd-discovery-recompute registered");
     }
 
     // TODO(jobs): variant-export to a file artifact (the /api/v1/variants/export
