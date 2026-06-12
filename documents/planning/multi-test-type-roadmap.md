@@ -1,9 +1,23 @@
 # Multi-Test-Type Support Roadmap
 
-> **⚖️ D7 DONE (2026-06-12) — reframed.** Per the product owner, multi-test-type
-> support is **coverage QA**, not the haplogroup-marker-coverage / accuracy-tier /
-> cross-test-type-IBD machinery this doc describes (those are **superseded** —
-> Phases 4–6 dropped; IBD is the separate D1/D3 Edge-to-Edge track). Built:
+> **⚖️ This doc conflates AppView and Navigator concerns (2026-06-12).** Most of it —
+> per-test-type taxonomy/tracking, chip parsing, marker-coverage, file formats, the
+> `genotyping_test_summary`/accuracy-tier machinery — is **Navigator's** (the Edge
+> tracks data *by test*). The **AppView only cares that the calls are reliable enough
+> to build the shared genealogy components** (tree, IBD, reports). That reliability
+> has exactly two inputs:
+>   1. **Coverage conformance** — is a run's depth in line with the norm? **DONE** (D7
+>      below).
+>   2. **Cross-technology consensus** — the per-biosample call reconciled across all
+>      its sequencing technologies (`fed.haplogroup_reconciliation`: consensus_haplogroup
+>      + confidence + snp_concordance + run_count). **In the AppView the *consensus*
+>      drives tree evolution + reporting, never the individual runs.** This is mirrored
+>      but **not yet wired in** — the remaining AppView piece.
+>
+> Cross-test-type IBD (Phase 6) is the separate D1/D3 Edge-to-Edge track. The
+> haplogroup-marker-coverage / accuracy-tier machinery (Phases 4–5) is Navigator's.
+>
+> **⚖️ D7 coverage QA DONE (2026-06-12).** Built:
 > `genomics.test_type_coverage_norm` (mig 0030) — the **empirically-derived** cohort
 > norm per test type (median/quartile depth, pct tiers, typical Y/mt marker counts),
 > recomputed from `fed.coverage_summary ⋈ fed.sequencerun` + `fed.genotype` by
