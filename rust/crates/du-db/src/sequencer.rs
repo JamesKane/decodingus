@@ -118,13 +118,15 @@ pub struct ConsensusReport {
     pub auto_accepted: u64,
 }
 
-/// Confidence score in [0,1] from the spec's weighted blend. Recency and
-/// confidence-level terms are constants for now (observations derived from
-/// `fed.sequencerun` carry no per-claim confidence; treated as `INFERRED`=0.7).
-fn confidence(cfg: &ConsensusConfig, obs: i64, citizens: i64) -> f64 {
+/// Confidence score in [0,1] from the spec's weighted blend. `conf_level` is the
+/// mean per-claim confidence weight (KNOWN=1.0 / INFERRED=0.7 / GUESSED=0.3) and
+/// `recency` the freshest observation's recency factor (1.0 ≤30d, linear decay to
+/// 0 over a year, 0.5 when undated) — both computed in SQL across the instrument's
+/// observations, from explicit `instrumentObservation` records where present.
+fn confidence(cfg: &ConsensusConfig, obs: i64, citizens: i64, conf_level: f64, recency: f64) -> f64 {
     let f_obs = (obs as f64 / cfg.auto_accept_threshold.max(1) as f64).min(1.0);
     let f_cit = (citizens as f64 / cfg.min_distinct_citizens.max(1) as f64).min(1.0);
-    (cfg.w_observation * f_obs + cfg.w_citizen * f_cit + cfg.w_recency * 1.0 + cfg.w_level * 0.7).min(1.0)
+    (cfg.w_observation * f_obs + cfg.w_citizen * f_cit + cfg.w_recency * recency + cfg.w_level * conf_level).min(1.0)
 }
 
 /// Get-or-create a sequencing lab by name; returns its id.
@@ -179,13 +181,24 @@ async fn recompute_locked(pool: &PgPool, cfg: &ConsensusConfig) -> Result<Consen
     let mut rep = ConsensusReport::default();
     let generic: Vec<String> = GENERIC_CENTERS.iter().map(|s| s.to_string()).collect();
 
-    // 1) Ensure a sequencer_instrument row for every federated instrument id.
+    // 1) Ensure a sequencer_instrument row for every federated instrument id —
+    //    from both implicit sequenceruns and explicit instrumentObservation records.
     sqlx::query(
         "INSERT INTO genomics.sequencer_instrument (instrument_id, model_name) \
          SELECT s.instrument_id, (array_agg(s.instrument_model) FILTER (WHERE s.instrument_model IS NOT NULL))[1] \
          FROM fed.sequencerun s \
          WHERE s.instrument_id IS NOT NULL AND btrim(s.instrument_id) <> '' \
          GROUP BY s.instrument_id \
+         ON CONFLICT (instrument_id) DO NOTHING",
+    )
+    .execute(pool)
+    .await?;
+    sqlx::query(
+        "INSERT INTO genomics.sequencer_instrument (instrument_id, model_name) \
+         SELECT o.instrument_id, (array_agg(o.instrument_model) FILTER (WHERE o.instrument_model IS NOT NULL))[1] \
+         FROM fed.instrument_observation o \
+         WHERE o.instrument_id IS NOT NULL AND btrim(o.instrument_id) <> '' \
+         GROUP BY o.instrument_id \
          ON CONFLICT (instrument_id) DO NOTHING",
     )
     .execute(pool)
@@ -212,11 +225,37 @@ async fn recompute_locked(pool: &PgPool, cfg: &ConsensusConfig) -> Result<Consen
     .await?
     .rows_affected();
 
-    // Prune observations no longer backed by a current fed.sequencerun.
+    // 2b) Fold in explicit citizen instrumentObservation records — these carry a
+    //     real confidence level and observation timestamp (the implicit ones above
+    //     are all INFERRED/undated). Keyed by the record's own uri, so they coexist
+    //     with the sequencerun-derived rows rather than replacing them.
+    rep.observations_upserted += sqlx::query(
+        "INSERT INTO genomics.instrument_observation \
+            (instrument_id, lab_name, biosample_ref, platform, instrument_model, flowcell_id, run_date, confidence, observed_at, atproto) \
+         SELECT si.id, btrim(o.lab_name), o.biosample_ref, o.platform, o.instrument_model, o.flowcell_id, o.run_date, \
+                upper(coalesce(o.confidence, 'INFERRED')), o.observed_at, \
+                jsonb_build_object('uri', o.at_uri, 'cid', o.cid, 'repo_did', o.did) \
+         FROM fed.instrument_observation o \
+         JOIN genomics.sequencer_instrument si ON si.instrument_id = o.instrument_id \
+         WHERE o.instrument_id IS NOT NULL AND o.lab_name IS NOT NULL \
+           AND lower(btrim(o.lab_name)) <> ALL($1::text[]) \
+         ON CONFLICT ((atproto->>'uri')) WHERE atproto IS NOT NULL \
+         DO UPDATE SET instrument_id = EXCLUDED.instrument_id, lab_name = EXCLUDED.lab_name, \
+            biosample_ref = EXCLUDED.biosample_ref, platform = EXCLUDED.platform, \
+            instrument_model = EXCLUDED.instrument_model, flowcell_id = EXCLUDED.flowcell_id, \
+            run_date = EXCLUDED.run_date, confidence = EXCLUDED.confidence, observed_at = EXCLUDED.observed_at",
+    )
+    .bind(&generic)
+    .execute(pool)
+    .await?
+    .rows_affected();
+
+    // Prune observations no longer backed by a current fed record (either source).
     rep.observations_pruned = sqlx::query(
         "DELETE FROM genomics.instrument_observation o \
          WHERE o.atproto->>'uri' IS NOT NULL \
-           AND o.atproto->>'uri' NOT IN (SELECT at_uri FROM fed.sequencerun WHERE instrument_id IS NOT NULL)",
+           AND o.atproto->>'uri' NOT IN (SELECT at_uri FROM fed.sequencerun WHERE instrument_id IS NOT NULL) \
+           AND o.atproto->>'uri' NOT IN (SELECT at_uri FROM fed.instrument_observation WHERE instrument_id IS NOT NULL)",
     )
     .execute(pool)
     .await?
@@ -228,10 +267,18 @@ async fn recompute_locked(pool: &PgPool, cfg: &ConsensusConfig) -> Result<Consen
         si_id: i64,
         obs_total: i64,
         citizens_total: i64,
+        conf_level: f64,
+        recency: f64,
     }
     let totals: Vec<Total> = sqlx::query_as(
         "SELECT o.instrument_id AS si_id, count(*) AS obs_total, \
-                count(DISTINCT o.atproto->>'repo_did') AS citizens_total \
+                count(DISTINCT o.atproto->>'repo_did') AS citizens_total, \
+                avg(CASE upper(o.confidence) WHEN 'KNOWN' THEN 1.0 WHEN 'GUESSED' THEN 0.3 ELSE 0.7 END)::float8 AS conf_level, \
+                COALESCE(max(CASE \
+                     WHEN o.observed_at IS NULL THEN 0.5 \
+                     WHEN o.observed_at > now() - interval '30 days' THEN 1.0 \
+                     ELSE GREATEST(0.0, 1.0 - EXTRACT(EPOCH FROM now() - o.observed_at) / EXTRACT(EPOCH FROM interval '365 days')) \
+                   END), 0.5)::float8 AS recency \
          FROM genomics.instrument_observation o \
          JOIN genomics.sequencer_instrument si ON si.id = o.instrument_id \
          WHERE si.lab_id IS NULL AND o.lab_name IS NOT NULL \
@@ -239,7 +286,10 @@ async fn recompute_locked(pool: &PgPool, cfg: &ConsensusConfig) -> Result<Consen
     )
     .fetch_all(pool)
     .await?;
-    let totals: HashMap<i64, (i64, i64)> = totals.into_iter().map(|t| (t.si_id, (t.obs_total, t.citizens_total))).collect();
+    let totals: HashMap<i64, (i64, i64, f64, f64)> = totals
+        .into_iter()
+        .map(|t| (t.si_id, (t.obs_total, t.citizens_total, t.conf_level, t.recency)))
+        .collect();
 
     #[derive(sqlx::FromRow)]
     struct Claim {
@@ -294,7 +344,7 @@ async fn recompute_locked(pool: &PgPool, cfg: &ConsensusConfig) -> Result<Consen
         if accepted.contains(&si_id) {
             continue;
         }
-        let (obs_total, citizens_total) = totals.get(&si_id).copied().unwrap_or((0, 0));
+        let (obs_total, citizens_total, conf_level, recency) = totals.get(&si_id).copied().unwrap_or((0, 0, 0.7, 0.5));
         if obs_total < cfg.min_observations {
             continue;
         }
@@ -309,7 +359,7 @@ async fn recompute_locked(pool: &PgPool, cfg: &ConsensusConfig) -> Result<Consen
         if conflict {
             rep.conflicts += 1;
         }
-        let score = confidence(cfg, obs_total, citizens_total);
+        let score = confidence(cfg, obs_total, citizens_total, conf_level, recency);
         let ready = !conflict && obs_total >= cfg.ready_for_review && citizens_total >= cfg.min_distinct_citizens;
 
         if cfg.auto_accept

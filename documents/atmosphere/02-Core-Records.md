@@ -365,6 +365,87 @@ This record defines a research project that aggregates multiple biosamples withi
 
 ---
 
+## 6. Instrument Observation Record
+
+A citizen's explicit claim that a sequencer instrument id (from `@RG` headers)
+belongs to a particular laboratory, carrying a confidence level. The AppView
+mirrors these into `fed.instrument_observation` and the **consensus engine**
+(`du_db::sequencer::recompute_consensus`) folds them — weighted by `confidence` and
+recency — alongside the implicit `centerName` claims on biosamples, producing
+curator proposals that, when accepted, set the instrument→lab tie the public
+`/api/v1/sequencer/lab` lookup resolves. This is the only citizen-driven input to
+lab inference; everything else is read-only lookup. See
+`documents/planning/sequencer-lab-inference-system.md`.
+
+**NSID:** `com.decodingus.atmosphere.instrumentObservation`
+
+```json
+{
+  "lexicon": 1,
+  "id": "com.decodingus.atmosphere.instrumentObservation",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "An observation of a sequencer instrument and its associated laboratory, extracted from BAM/CRAM read headers.",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "required": ["instrumentId", "labName", "biosampleRef", "observedAt"],
+        "properties": {
+          "instrumentId": {
+            "type": "string",
+            "description": "The instrument ID extracted from the @RG header (e.g., 'A00123').",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "labName": {
+            "type": "string",
+            "description": "The name of the sequencing laboratory (as known by the user or inferred).",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "biosampleRef": {
+            "type": "string",
+            "description": "AT URI of the biosample this observation was extracted from."
+          },
+          "platform": {
+            "type": "string",
+            "description": "Sequencing platform.",
+            "knownValues": ["ILLUMINA", "PACBIO", "ONT", "MGI", "ELEMENT", "ULTIMA"]
+          },
+          "instrumentModel": {
+            "type": "string",
+            "description": "Inferred or known instrument model (e.g., 'NovaSeq 6000')."
+          },
+          "flowcellId": {
+            "type": "string",
+            "description": "Flowcell identifier if extractable from read headers."
+          },
+          "runDate": {
+            "type": "string",
+            "format": "datetime",
+            "description": "Date of the sequencing run if extractable."
+          },
+          "confidence": {
+            "type": "string",
+            "description": "Confidence level of the lab association (weights: KNOWN 1.0, INFERRED 0.7, GUESSED 0.3).",
+            "knownValues": ["KNOWN", "INFERRED", "GUESSED"],
+            "default": "INFERRED"
+          },
+          "observedAt": {
+            "type": "string",
+            "format": "datetime",
+            "description": "When this observation was recorded (drives the recency term of the consensus score)."
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+---
+
 ## Mapping to `decodingus` Backend
 
 To fully leverage these records, `decodingus` will evolve its internal data model:

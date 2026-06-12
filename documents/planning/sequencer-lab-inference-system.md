@@ -8,8 +8,15 @@
 > `model_name`/`manufacturer`/`year_introduced`/`estimated_max_throughput`) —
 > instrument↔lab resolves via observation→proposal→accept, not a static FK; the
 > proposed instrument confidence columns live in the proposal table instead.
-> **Lookup API + consensus engine are DONE (2026-06-12); only the curator review
-> UI + scoring refinements remain.** The consensus engine
+> **DONE (2026-06-12): lookup API, consensus engine (production-hardened), curator
+> HTMX review UI, AND the `instrumentObservation` lexicon end-to-end** — citizens
+> publish `com.decodingus.atmosphere.instrumentObservation` records (real confidence
+> level KNOWN/INFERRED/GUESSED + `observedAt`); the Jetstream consumer mirrors them
+> into `fed.instrument_observation` (mig 0027), and `recompute_consensus` folds them
+> in alongside the implicit `centerName` claims with **real confidence-level +
+> recency scoring** (the score's `recency`/`level` terms are no longer constants).
+> Nothing material remains; future items are the "Future Considerations" list below.
+> The consensus engine
 > (`du_db::sequencer::recompute_consensus`) derives observations from
 > `fed.sequencerun ⋈ fed.biosample.center_name` into `genomics.instrument_observation`,
 > aggregates per instrument into `instrument_association_proposal` (dominant lab,

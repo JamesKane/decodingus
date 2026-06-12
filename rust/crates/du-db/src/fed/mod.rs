@@ -20,6 +20,7 @@ use sqlx::PgPool;
 pub mod analytics;
 pub mod core;
 pub mod coverage;
+pub mod instrument_observation;
 pub mod str_profile;
 
 // Collection NSIDs the AppView ingests for reporting. The records Navigator computes +
@@ -36,6 +37,7 @@ pub const NS_GENOTYPE: &str = "com.decodingus.atmosphere.genotype";
 pub const NS_POPULATION_BREAKDOWN: &str = du_domain::fed::NS_POPULATION_BREAKDOWN;
 pub const NS_HAPLOGROUP_RECONCILIATION: &str = du_domain::fed::NS_HAPLOGROUP_RECONCILIATION;
 pub const NS_STR_PROFILE: &str = "com.decodingus.atmosphere.strProfile";
+pub const NS_INSTRUMENT_OBSERVATION: &str = "com.decodingus.atmosphere.instrumentObservation";
 
 /// Every collection mirrored for reporting (the consumer's `wantedCollections`).
 pub const INGEST_COLLECTIONS: &[&str] = &[
@@ -48,6 +50,7 @@ pub const INGEST_COLLECTIONS: &[&str] = &[
     NS_POPULATION_BREAKDOWN,
     NS_HAPLOGROUP_RECONCILIATION,
     NS_STR_PROFILE,
+    NS_INSTRUMENT_OBSERVATION,
 ];
 
 /// The `fed.*` reporting table backing a collection, or `None` if unsupported.
@@ -62,6 +65,7 @@ fn table_for(collection: &str) -> Option<&'static str> {
         NS_POPULATION_BREAKDOWN => "fed.population_breakdown",
         NS_HAPLOGROUP_RECONCILIATION => "fed.haplogroup_reconciliation",
         NS_STR_PROFILE => "fed.str_profile",
+        NS_INSTRUMENT_OBSERVATION => "fed.instrument_observation",
         _ => return None,
     })
 }

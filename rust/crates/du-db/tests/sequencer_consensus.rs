@@ -54,6 +54,70 @@ async fn run(pool: &PgPool, did: &str, run_uri: &str, biosample_ref: &str, instr
     .expect("insert run");
 }
 
+/// One explicit citizen instrumentObservation (mirrored from the lexicon record),
+/// observed `now()` with the given confidence level.
+async fn observation(pool: &PgPool, did: &str, at_uri: &str, instrument: &str, lab: &str, confidence: &str, t: i64) {
+    sqlx::query(
+        "INSERT INTO fed.instrument_observation \
+           (did, rkey, at_uri, instrument_id, lab_name, biosample_ref, platform, instrument_model, confidence, observed_at, time_us) \
+         VALUES ($1,$2,$3,$4,$5,$6,'ILLUMINA','NovaSeq 6000',$7, now(), $8)",
+    )
+    .bind(did)
+    .bind(format!("obs-{t}"))
+    .bind(at_uri)
+    .bind(instrument)
+    .bind(lab)
+    .bind(format!("at://{did}/bio"))
+    .bind(confidence)
+    .bind(t)
+    .execute(pool)
+    .await
+    .expect("insert observation");
+}
+
+/// Explicit instrumentObservation records (KNOWN, fresh) drive a proposal on their
+/// own — no sequencerun needed — and score higher than the implicit INFERRED path.
+#[tokio::test]
+async fn explicit_observations_drive_consensus() {
+    let Some(url) = database_url() else {
+        eprintln!("DATABASE_URL unset — skipping explicit-observation test");
+        return;
+    };
+    let db = du_db::testing::ephemeral_db(&url).await.expect("ephemeral db");
+    let pool = db.pool().clone();
+    let curator = test_user(&pool).await;
+
+    // Three citizens, five KNOWN observations claiming "YSEQ" for instrument B00100.
+    let mut t = 5000i64;
+    for (did, n_obs) in [("did:ex:ann", 2), ("did:ex:ben", 2), ("did:ex:cat", 1)] {
+        for r in 0..n_obs {
+            observation(&pool, did, &format!("at://{did}/obs/{r}"), "B00100", "YSEQ", "KNOWN", t).await;
+            t += 1;
+        }
+    }
+
+    let cfg = ConsensusConfig::default();
+    let rep = sequencer::recompute_consensus(&pool, &cfg).await.expect("recompute");
+    assert!(rep.observations_upserted >= 5);
+
+    let page = sequencer::list_proposals(&pool, None, 1, 50).await.expect("list");
+    let p = page.items.iter().find(|p| p.instrument_id == "B00100").expect("B00100 proposal");
+    assert_eq!(p.proposed_lab_name.as_deref(), Some("YSEQ"));
+    assert_eq!(p.observation_count, 5);
+    assert_eq!(p.distinct_citizen_count, 3);
+    assert_eq!(p.status, "READY_FOR_REVIEW");
+    // KNOWN (conf_level 1.0) + fresh (recency 1.0) → high score.
+    assert!(p.confidence_score.unwrap() >= 0.78, "KNOWN+recent score: {:?}", p.confidence_score);
+
+    let (_pv, obs) = sequencer::proposal_detail(&pool, p.id).await.expect("detail").expect("found");
+    assert_eq!(obs.len(), 5);
+    assert!(obs.iter().all(|o| o.confidence.as_deref() == Some("KNOWN")));
+
+    // Accept closes the loop to the lookup.
+    sequencer::accept_proposal(&pool, p.id, curator, "YSEQ", None, None, Some(false)).await.expect("accept");
+    assert!(sequencer::lookup_lab(&pool, "B00100").await.expect("lookup").is_some());
+}
+
 #[tokio::test]
 async fn consensus_aggregates_proposes_accepts_rejects() {
     let Some(url) = database_url() else {

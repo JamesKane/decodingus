@@ -358,10 +358,16 @@ Launch-critical first, then the post-launch feature mass.
    aggregation/queue indexes. The **curator HTMX review UI is DONE (2026-06-12)** —
    two-panel queue at `/curator/instrument-proposals` (status-filter chips, proposal
    detail with supporting observations, accept form [lab/manufacturer/model/d2c] +
-   reject-with-reason), Curator-gated, i18n en/es/fr, on the dashboard. **Still to
-   build:** the `instrumentObservation` lexicon (deriving from
-   `fed.sequencerun.center_name` for now) and recency/confidence-level scoring
-   refinements (constants for now). (`documents/planning/sequencer-lab-inference-system.md`.)
+   reject-with-reason), Curator-gated, i18n en/es/fr, on the dashboard. The
+   **`instrumentObservation` lexicon is DONE (2026-06-12)**: citizens publish
+   `com.decodingus.atmosphere.instrumentObservation` (real confidence KNOWN/INFERRED/
+   GUESSED + `observedAt`); the Jetstream consumer mirrors them into
+   `fed.instrument_observation` (mig 0027, `du_db::fed::instrument_observation`), and
+   `recompute_consensus` folds them in next to the implicit `center_name` claims with
+   **real confidence-level + recency scoring** (the score's recency/level terms were
+   constants, now computed in SQL). **D8 is complete** — remaining ideas are the
+   "Future Considerations" list (flowcell-level tracking, geographic inference,
+   publication cross-ref, reputation weighting). (`documents/planning/sequencer-lab-inference-system.md`.)
 8. **Smaller in-scope finishers:**
    - **Graft carries coordinates forward** at creation (fold into
      `get_or_create_variant`) so the decoding-us backfill isn't needed after each

@@ -13,7 +13,7 @@
 //! from the persisted `time_us` cursor and reconnects with capped backoff; every
 //! upsert is idempotent + ordered, so replay overlap on reconnect is harmless.
 
-use du_db::fed::{self, analytics, core, coverage, str_profile};
+use du_db::fed::{self, analytics, core, coverage, instrument_observation, str_profile};
 use du_db::PgPool;
 use futures_util::StreamExt;
 use serde::Deserialize;
@@ -161,6 +161,9 @@ async fn handle(pool: &PgPool, ev: &Event) -> anyhow::Result<()> {
             analytics::upsert_reconciliation(pool, &build_reconciliation(c, record)).await?
         }
         fed::NS_STR_PROFILE => str_profile::upsert(pool, &build_str_profile(c, record)).await?,
+        fed::NS_INSTRUMENT_OBSERVATION => {
+            instrument_observation::upsert(pool, &build_instrument_observation(c, record)).await?
+        }
         other => tracing::debug!(collection = other, "ignoring unwanted collection"),
     }
     Ok(())
@@ -366,6 +369,30 @@ fn build_str_profile(c: fed::Common, record: &Value) -> str_profile::StrProfile 
     }
 }
 
+/// Parse a `YYYY-MM-DD` date, tolerating a full datetime string (the lexicon types
+/// `runDate` as `datetime`, but the column is a DATE).
+fn date_at(v: &Value, key: &str) -> Option<chrono::NaiveDate> {
+    let s = v.get(key).and_then(Value::as_str)?;
+    fed::to_utc(s)
+        .map(|d| d.date_naive())
+        .or_else(|| s.get(0..10).and_then(|d| chrono::NaiveDate::parse_from_str(d, "%Y-%m-%d").ok()))
+}
+
+fn build_instrument_observation(c: fed::Common, record: &Value) -> instrument_observation::InstrumentObservation {
+    instrument_observation::InstrumentObservation {
+        instrument_id: str_at(record, "instrumentId"),
+        lab_name: str_at(record, "labName"),
+        biosample_ref: str_at(record, "biosampleRef"),
+        platform: str_at(record, "platform"),
+        instrument_model: str_at(record, "instrumentModel"),
+        flowcell_id: str_at(record, "flowcellId"),
+        run_date: date_at(record, "runDate"),
+        confidence: str_at(record, "confidence"),
+        observed_at: str_at(record, "observedAt").as_deref().and_then(fed::to_utc),
+        common: c,
+    }
+}
+
 fn build_reconciliation(c: fed::Common, record: &Value) -> analytics::Reconciliation {
     let status = record.get("status").cloned().unwrap_or_else(|| json!({}));
     analytics::Reconciliation {
@@ -524,6 +551,27 @@ mod tests {
         assert_eq!(p.total_markers, Some(2));
         assert_eq!(p.markers.as_array().map(|a| a.len()), Some(2));
         assert_eq!(p.biosample_ref.as_deref(), Some("at://x/bs/1"));
+    }
+
+    #[test]
+    fn instrument_observation_extracts_claim_and_confidence() {
+        let record = json!({
+            "instrumentId": "A00123",
+            "labName": "Nebula Genomics",
+            "biosampleRef": "at://x/bs/1",
+            "platform": "ILLUMINA",
+            "instrumentModel": "NovaSeq 6000",
+            "flowcellId": "HXXYZ",
+            "runDate": "2025-11-02T00:00:00Z",
+            "confidence": "KNOWN",
+            "observedAt": "2026-01-15T12:00:00Z"
+        });
+        let o = build_instrument_observation(mk_common(), &record);
+        assert_eq!(o.instrument_id.as_deref(), Some("A00123"));
+        assert_eq!(o.lab_name.as_deref(), Some("Nebula Genomics"));
+        assert_eq!(o.confidence.as_deref(), Some("KNOWN"));
+        assert_eq!(o.run_date.map(|d| d.to_string()).as_deref(), Some("2025-11-02"));
+        assert!(o.observed_at.is_some());
     }
 
     #[test]
