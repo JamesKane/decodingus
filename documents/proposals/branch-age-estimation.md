@@ -600,8 +600,13 @@ Group projects compute modal STR haplotypes (`projectModal`). These can feed int
 
 **Tasks:**
 1. [x] Create `genomics.str_mutation_rate` table (migration `0014_str_age`)
-2. [ ] Import mutation rates from Ballantyne/Willems studies (table ships empty;
-       `DEFAULT_STR_RATE = 0.0025` until populated)
+2. [x] Import mutation rates from Ballantyne/Willems studies —
+       `scripts/seed-str-mutation-rates.sql` seeds 137 markers: Willems 2016 (1000G
+       MUTEA, 116 markers + 95% CIs) primary, YHRD combined rates gap-filling 11
+       core markers Willems' short-read set misses (DYS393, DYS390, DYS449, …).
+       Only DYS447 among common single-copy markers still falls back to
+       `DEFAULT_STR_RATE = 0.0025`. (Ballantyne is McDonald's ref [8] — its
+       single:multi-step 25.23:1 already sets the global ω.)
 3. [x] Create `tree.haplogroup_ancestral_str` table (migrations `0013`/`0014`)
 4. [x] Implement ancestral STR motif calculation (modal values) — `ystr::compute_modal`
 5. [x] Implement P(g|m) mapping with multi-step mutations — `ystr` (Table 1 + convolution)
