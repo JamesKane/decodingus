@@ -2,10 +2,13 @@
 //! `documents/proposals/branch-age-estimation.md`). Independent evidence terms
 //! (STR variance, SNP counting, genealogical/aDNA anchors) are each stored as a
 //! method-labeled row in `tree.haplogroup_age_estimate`; this module computes the
-//! SNP and genealogical terms and **combines all available terms** as a product
-//! of Gaussians (inverse-variance weighting — the practical realization of
-//! `P(t|e)=k·∏P(t|eᵢ)`), writing a `COMBINED` estimate and gap-filling
-//! `tree.haplogroup.tmrca_ybp` (a curated value is never overwritten).
+//! SNP and genealogical terms and **combines all available terms** by the direct
+//! product of their PDFs (McDonald Eq 1, `P(t|e)=k·∏P(t|eᵢ)`) — preserving each
+//! term's non-Gaussian shape (Poisson skew, STR convergent-mutation tails) rather
+//! than inverse-variance-averaging medians. It writes a `COMBINED` estimate and
+//! gap-fills `tree.haplogroup.tmrca_ybp` (a curated value is never overwritten).
+//! Disjoint terms (no overlapping support) fall back to the inverse-variance
+//! Gaussian combine, which can't annihilate.
 //!
 //! The STR term is produced by [`crate::ystr`]. SNP/genealogical terms are
 //! data-gated: they only emit where private-variant/callable-loci or anchor data
@@ -15,7 +18,7 @@
 use crate::pdf::Pdf;
 use crate::DbError;
 use sqlx::PgPool;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 /// MSY combined SNP mutation rate (SNPs/bp/year, Helgason 2015). This is the rate
 /// the model applies — see `documents/proposals/branch-age-estimation.md`.
@@ -245,14 +248,6 @@ pub fn combine(estimates: &[(f64, f64)]) -> Option<(f64, f64)> {
     Some((wxsum / wsum, (1.0 / wsum).sqrt()))
 }
 
-/// `sigma` from a stored 95% CI (`(hi-lo)/(2·1.96)`); `None` if unusable.
-fn sigma_from_ci(lo: Option<i32>, hi: Option<i32>) -> Option<f64> {
-    match (lo, hi) {
-        (Some(l), Some(h)) if h > l => Some((h - l) as f64 / (2.0 * 1.96)),
-        _ => None,
-    }
-}
-
 #[derive(sqlx::FromRow)]
 struct AnchorRow {
     haplogroup_id: i64,
@@ -269,9 +264,12 @@ pub struct CombineStats {
 }
 
 /// Recompute the SNP and genealogical age terms, then the COMBINED estimate for
-/// every branch with ≥1 term, gap-filling `tmrca_ybp`. Full refresh of the
-/// computed methods (`SNP_POISSON`, `GENEALOGICAL`, `COMBINED`); `STR_VARIANCE`
-/// (from `ystr`) and any curated values are left intact.
+/// every branch with ≥1 term, gap-filling `tmrca_ybp`. COMBINED is the direct PDF
+/// product (Eq 1) of the SNP TMRCA PDF (propagation), the STR TMRCA PDF
+/// ([`crate::ystr::str_tmrca_pdfs`]), and the genealogical anchor PDF — all on the
+/// shared TREE grid. Full refresh of the computed methods (`SNP_POISSON`,
+/// `GENEALOGICAL`, `COMBINED`); `STR_VARIANCE` (from `ystr`) and curated values are
+/// left intact.
 pub async fn recompute_combined_ages(pool: &PgPool) -> Result<CombineStats, DbError> {
     let mut tx = pool.begin().await?;
     let mut stats = CombineStats::default();
@@ -287,9 +285,12 @@ pub async fn recompute_combined_ages(pool: &PgPool) -> Result<CombineStats, DbEr
     // are masked from both `m` and (already) the callable denominator (`HET_MASK`).
     let (clades, ids) = build_clades(pool).await?;
     let ages = propagate(&clades, SNP_RATE, TREE_RESOLUTION_YEARS, TREE_MAX_AGE_YEARS);
+    // Keep each term's actual PDF (on the shared TREE grid) for the Eq-1 product below.
+    let mut snp_pdf: HashMap<i64, Pdf> = HashMap::new();
     for (i, age) in ages.iter().enumerate() {
         let Some(age) = age else { continue };
         let (med, lo, hi) = age.tmrca.ci95();
+        snp_pdf.insert(ids[i], age.tmrca.clone());
         upsert_estimate_ci(
             &mut tx,
             ids[i],
@@ -336,36 +337,75 @@ pub async fn recompute_combined_ages(pool: &PgPool) -> Result<CombineStats, DbEr
             .unwrap_or((ybp * 0.10).max(25.0));
         by_hg.entry(a.haplogroup_id).or_default().push((ybp, sigma));
     }
+    let mut gen_pdf: HashMap<i64, Pdf> = HashMap::new();
     for (hg, ests) in &by_hg {
         if let Some((mean, sigma)) = combine(ests) {
             let rel = if mean > 0.0 { sigma / mean } else { 0.0 };
+            gen_pdf.insert(*hg, Pdf::gaussian_on(mean, sigma, TREE_RESOLUTION_YEARS, TREE_MAX_AGE_YEARS));
             upsert_estimate(&mut tx, *hg, "GENEALOGICAL", mean, rel, None, None).await?;
             stats.genealogical += 1;
         }
     }
 
-    // ── Combine all method terms per branch ───────────────────────────────────
-    let rows: Vec<(i64, i32, Option<i32>, Option<i32>)> = sqlx::query_as(
+    // STR term: tree-propagated TMRCA PDFs on the same grid (the STR_VARIANCE rows
+    // are written separately by `crate::ystr::recompute_signatures`, from the same
+    // computation). Any stored STR_VARIANCE row with no fresh PDF — a curated value,
+    // or one predating profile data — still contributes, reconstructed as a Gaussian.
+    let mut str_pdf = crate::ystr::str_tmrca_pdfs(pool, TREE_RESOLUTION_YEARS, TREE_MAX_AGE_YEARS).await?;
+    let str_rows: Vec<(i64, i32, Option<i32>, Option<i32>)> = sqlx::query_as(
         "SELECT haplogroup_id, estimate_ybp, ci_low_ybp, ci_high_ybp \
-         FROM tree.haplogroup_age_estimate \
-         WHERE method IN ('STR_VARIANCE','SNP_POISSON','GENEALOGICAL') AND estimate_ybp IS NOT NULL",
+         FROM tree.haplogroup_age_estimate WHERE method='STR_VARIANCE' AND estimate_ybp IS NOT NULL",
     )
     .fetch_all(&mut *tx)
     .await?;
-    let mut terms: BTreeMap<i64, Vec<(f64, f64)>> = BTreeMap::new();
-    for (hg, est, lo, hi) in rows {
+    for (hg, est, lo, hi) in str_rows {
+        if str_pdf.contains_key(&hg) {
+            continue;
+        }
         let mean = est as f64;
-        let sigma = sigma_from_ci(lo, hi).unwrap_or((mean * 0.25).max(1.0));
-        terms.entry(hg).or_default().push((mean, sigma));
+        let sigma = match (lo, hi) {
+            (Some(l), Some(h)) if h > l => (h - l) as f64 / (2.0 * 1.96),
+            _ => (mean * 0.25).max(1.0),
+        };
+        str_pdf.insert(hg, Pdf::gaussian_on(mean, sigma, TREE_RESOLUTION_YEARS, TREE_MAX_AGE_YEARS));
     }
-    for (hg, ests) in &terms {
-        let Some((mean, sigma)) = combine(ests) else { continue };
-        let (lo, hi) = ((mean - 1.96 * sigma).max(0.0).round() as i32, (mean + 1.96 * sigma).round() as i32);
-        upsert_estimate_ci(&mut tx, *hg, "COMBINED", mean.round() as i32, lo, hi, ests.len() as i32).await?;
+
+    // ── Combine all method terms per branch (McDonald Eq 1: P(t|all)=k·∏P(t|eᵢ)) ──
+    // Multiply the actual term PDFs rather than inverse-variance-averaging their
+    // medians, so non-Gaussian shape (Poisson skew, STR convergent-mutation tails)
+    // is preserved. If the terms are disjoint (product underflows to zero mass) the
+    // node falls back to the inverse-variance Gaussian combine, which can't annihilate.
+    let mut nodes: BTreeSet<i64> = BTreeSet::new();
+    nodes.extend(snp_pdf.keys().chain(gen_pdf.keys()).chain(str_pdf.keys()).copied());
+    for hg in nodes {
+        let factors: Vec<&Pdf> =
+            [snp_pdf.get(&hg), gen_pdf.get(&hg), str_pdf.get(&hg)].into_iter().flatten().collect();
+        let Some((first, rest)) = factors.split_first() else { continue };
+        let product = rest.iter().fold((*first).clone(), |acc, f| acc.multiply(f));
+        let combined = if product.total() > 0.0 {
+            product
+        } else {
+            let params: Vec<(f64, f64)> = factors.iter().map(|p| pdf_gaussian_params(p)).collect();
+            match combine(&params) {
+                Some((mean, sigma)) => Pdf::gaussian_on(mean, sigma, TREE_RESOLUTION_YEARS, TREE_MAX_AGE_YEARS),
+                None => (*first).clone(),
+            }
+        };
+        let (med, lo, hi) = combined.ci95();
+        upsert_estimate_ci(
+            &mut tx,
+            hg,
+            "COMBINED",
+            med.round() as i32,
+            lo.round() as i32,
+            hi.round() as i32,
+            factors.len() as i32,
+        )
+        .await?;
         // Gap-fill the authoritative tmrca_ybp (never overwrite a curated value).
         sqlx::query("UPDATE tree.haplogroup SET tmrca_ybp = $2 WHERE id = $1 AND tmrca_ybp IS NULL")
             .bind(hg)
-            .bind(mean.round() as i32)
+            .bind(med.round() as i32)
             .execute(&mut *tx)
             .await?;
         stats.combined += 1;
@@ -373,6 +413,13 @@ pub async fn recompute_combined_ages(pool: &PgPool) -> Result<CombineStats, DbEr
 
     tx.commit().await?;
     Ok(stats)
+}
+
+/// `(median, sigma)` Gaussian approximation of a PDF (sigma from its 95% CI) — used
+/// only for the disjoint-terms fallback in the combine.
+fn pdf_gaussian_params(p: &Pdf) -> (f64, f64) {
+    let (med, lo, hi) = p.ci95();
+    (med, ((hi - lo) / (2.0 * 1.96)).max(1.0))
 }
 
 /// Upsert a point estimate with a relative-error CI.

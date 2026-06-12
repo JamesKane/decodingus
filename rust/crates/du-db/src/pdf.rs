@@ -72,9 +72,13 @@ impl Pdf {
     }
 
     /// A Gaussian age PDF — for genealogical/aDNA anchors with a date ± sigma, or
-    /// for applying mutation-rate uncertainty as a broadening.
+    /// for applying mutation-rate uncertainty as a broadening. Uses the default grid.
     pub fn gaussian(mean_years: f64, sigma_years: f64) -> Pdf {
-        let mut pdf = Pdf::zeros(RESOLUTION_YEARS, MAX_AGE_YEARS);
+        Pdf::gaussian_on(mean_years, sigma_years, RESOLUTION_YEARS, MAX_AGE_YEARS)
+    }
+
+    pub fn gaussian_on(mean_years: f64, sigma_years: f64, res: f64, max_age: f64) -> Pdf {
+        let mut pdf = Pdf::zeros(res, max_age);
         let s = sigma_years.max(pdf.res / 2.0);
         for i in 0..pdf.mass.len() {
             let z = (pdf.age(i) - mean_years) / s;
@@ -292,6 +296,14 @@ mod tests {
         // A much tighter estimate dominates.
         let tight = Pdf::gaussian(3000.0, 50.0).multiply(&Pdf::gaussian(5000.0, 1000.0));
         assert!(tight.mean() < 3100.0, "tight estimate dominates, got {}", tight.mean());
+    }
+
+    #[test]
+    fn multiply_disjoint_is_empty() {
+        // Non-overlapping terms produce zero mass — the signal the combined-age step
+        // (du_db::age) uses to fall back from the PDF product to a Gaussian combine.
+        let disjoint = Pdf::gaussian(1000.0, 50.0).multiply(&Pdf::gaussian(50_000.0, 50.0));
+        assert_eq!(disjoint.total(), 0.0);
     }
 
     #[test]

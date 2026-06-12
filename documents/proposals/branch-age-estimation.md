@@ -612,10 +612,12 @@ Group projects compute modal STR haplotypes (`projectModal`). These can feed int
 5. [x] Implement P(g|m) mapping with multi-step mutations — `ystr` (Table 1 + convolution)
 6. [x] Create `StrAgeService` for STR-based age calculation — `ystr::compute_str_age`
        (multi-step PDF model; supersedes the legacy linear ΣΔ/Σµ estimator)
-7. [x] Integrate STR PDFs into combined calculation — tree-propagated STR ages
-       (`ystr::propagate_str`) feed the STR_VARIANCE term into the inverse-variance
-       `COMBINED` step in `du_db::age`. (Remaining: direct PDF×PDF combination of the
-       SNP/STR/genealogical terms in place of the Gaussian-of-medians combine.)
+7. [x] Integrate STR PDFs into combined calculation — `COMBINED` (`du_db::age`) is
+       the direct PDF product (Eq 1) of the SNP TMRCA PDF (propagation), the STR
+       TMRCA PDF (`ystr::str_tmrca_pdfs`), and the genealogical anchor PDF, all on
+       the shared TREE grid (50 yr / 350 ky) — preserving non-Gaussian shape instead
+       of inverse-variance-averaging medians. Disjoint terms fall back to the
+       Gaussian combine; a stored STR_VARIANCE row with no fresh PDF still contributes.
 
 **Data needed:**
 - Y-STR profiles from PDS (ensure Atmosphere capture)

@@ -347,7 +347,7 @@ pub struct StrAge {
 /// hidden mutation count m of the Poisson age PDF `P(t|m)` weighted by `P(g|m)`.
 /// Rate is per generation; ages are years via [`GENERATION_YEARS`]. `None` for a
 /// non-positive rate.
-fn marker_age_pdf(g: i64, model: &MarkerModel) -> Option<Pdf> {
+fn marker_age_pdf(g: i64, model: &MarkerModel, res: f64, max_age: f64) -> Option<Pdf> {
     let mu_year = model.mu_per_gen / GENERATION_YEARS;
     if mu_year <= 0.0 {
         return None;
@@ -355,7 +355,7 @@ fn marker_age_pdf(g: i64, model: &MarkerModel) -> Option<Pdf> {
     let comps: Vec<(f64, Pdf)> = (0..=STR_M_MAX)
         .filter_map(|m| {
             let w = model.p_g_given_m(g, m);
-            (w > 1e-9).then(|| (w, Pdf::poisson(m, 1.0, mu_year)))
+            (w > 1e-9).then(|| (w, Pdf::poisson_on(m, 1.0, mu_year, res, max_age)))
         })
         .collect();
     Pdf::mixture(&comps)
@@ -397,7 +397,9 @@ pub fn compute_str_age(
             let model = models.get(marker).unwrap_or(&default);
             let pdf = cache
                 .entry((marker.as_str(), g))
-                .or_insert_with(|| marker_age_pdf(g, model))
+                .or_insert_with(|| {
+                    marker_age_pdf(g, model, crate::pdf::RESOLUTION_YEARS, crate::pdf::MAX_AGE_YEARS)
+                })
                 .clone();
             let Some(pdf) = pdf else { continue };
             acc = Some(match acc.take() {
@@ -532,12 +534,15 @@ fn reconstruct_motifs(
 /// `P(t)` for the STR time between two motifs (Eq 14): the product over shared
 /// simple markers of `marker_age_pdf(|a−b|)`. Serves both tip times (tester vs node
 /// motif) and branch times (node motif vs parent motif). Cached by `(marker, g)`.
+#[allow(clippy::too_many_arguments)]
 fn motif_pair_pdf(
     a: &SimpleMotif,
     b: &SimpleMotif,
     models: &HashMap<String, MarkerModel>,
     default: &MarkerModel,
     cache: &mut HashMap<(String, i64), Option<Pdf>>,
+    res: f64,
+    max_age: f64,
 ) -> Option<Pdf> {
     let mut acc: Option<Pdf> = None;
     for (marker, &va) in a {
@@ -545,7 +550,7 @@ fn motif_pair_pdf(
         let g = (va - vb).unsigned_abs() as i64;
         let pdf = cache
             .entry((marker.clone(), g))
-            .or_insert_with(|| marker_age_pdf(g, models.get(marker).unwrap_or(default)))
+            .or_insert_with(|| marker_age_pdf(g, models.get(marker).unwrap_or(default), res, max_age))
             .clone();
         if let Some(pdf) = pdf {
             acc = Some(match acc.take() {
@@ -567,6 +572,8 @@ fn str_tmrca(
     default: &MarkerModel,
     cache: &mut HashMap<(String, i64), Option<Pdf>>,
     memo: &mut [Option<Option<Pdf>>],
+    res: f64,
+    max_age: f64,
 ) {
     if memo[i].is_some() {
         return;
@@ -574,9 +581,9 @@ fn str_tmrca(
     memo[i] = Some(None); // guard against accidental cycles
     let mut factors: Vec<Pdf> = Vec::new();
     for &c in &children[i] {
-        str_tmrca(c, children, motif, testers, models, default, cache, memo);
+        str_tmrca(c, children, motif, testers, models, default, cache, memo, res, max_age);
         if let Some(Some(ct)) = &memo[c] {
-            let branch = motif_pair_pdf(&motif[c], &motif[i], models, default, cache);
+            let branch = motif_pair_pdf(&motif[c], &motif[i], models, default, cache, res, max_age);
             factors.push(match branch {
                 Some(bp) => ct.convolve(&bp),
                 None => ct.clone(), // no shared markers → child age with no added branch
@@ -584,7 +591,7 @@ fn str_tmrca(
         }
     }
     for t in &testers[i] {
-        if let Some(tp) = motif_pair_pdf(t, &motif[i], models, default, cache) {
+        if let Some(tp) = motif_pair_pdf(t, &motif[i], models, default, cache, res, max_age) {
             factors.push(tp);
         }
     }
@@ -601,15 +608,115 @@ fn propagate_str(
     motif: &[SimpleMotif],
     testers: &[Vec<SimpleMotif>],
     models: &HashMap<String, MarkerModel>,
+    res: f64,
+    max_age: f64,
 ) -> Vec<Option<Pdf>> {
     let n = children.len();
     let default = MarkerModel { mu_per_gen: DEFAULT_STR_RATE, omega_pgm: None };
     let mut cache: HashMap<(String, i64), Option<Pdf>> = HashMap::new();
     let mut memo: Vec<Option<Option<Pdf>>> = vec![None; n];
     for i in 0..n {
-        str_tmrca(i, children, motif, testers, models, &default, &mut cache, &mut memo);
+        str_tmrca(i, children, motif, testers, models, &default, &mut cache, &mut memo, res, max_age);
     }
     memo.into_iter().map(|m| m.flatten()).collect()
+}
+
+/// STR propagation inputs derived from the tree + mirrored profiles.
+struct StrInputs {
+    /// DB id of node `i`.
+    ids: Vec<i64>,
+    children: Vec<Vec<usize>>,
+    /// Reconstructed ancestral simple-marker motif per node.
+    motif: Vec<SimpleMotif>,
+    /// Direct tester tips per node.
+    testers: Vec<Vec<SimpleMotif>>,
+    models: HashMap<String, MarkerModel>,
+    /// Modal markers of each scored node (for writing the signature rows).
+    modal_by_hg: BTreeMap<i64, Vec<ModalMarker>>,
+}
+
+/// Build the STR propagation inputs: group mirrored profiles by Y-haplogroup, take
+/// each node's direct modal + tips, fetch the tree, and reconstruct ancestral
+/// motifs. Shared by [`recompute_signatures`] (which writes the signatures + ages)
+/// and [`str_tmrca_pdfs`] (which the combined-age step consumes).
+async fn build_str_inputs(pool: &PgPool) -> Result<StrInputs, DbError> {
+    let rows: Vec<(i64, Value)> = sqlx::query_as(
+        "SELECT h.id, sp.markers \
+         FROM fed.str_profile sp \
+         JOIN fed.biosample b ON b.at_uri = sp.biosample_ref \
+         JOIN tree.haplogroup h ON h.name = b.y_haplogroup \
+              AND h.haplogroup_type::text = 'Y_DNA' AND h.valid_until IS NULL \
+         WHERE b.y_haplogroup IS NOT NULL",
+    )
+    .fetch_all(pool)
+    .await?;
+
+    let mut by_hg: BTreeMap<i64, Vec<Vec<(String, StrValue)>>> = BTreeMap::new();
+    for (hg_id, markers) in &rows {
+        by_hg.entry(*hg_id).or_default().push(parse_markers(markers));
+    }
+    let mut modal_by_hg: BTreeMap<i64, Vec<ModalMarker>> = BTreeMap::new();
+    let mut direct_motif: HashMap<i64, SimpleMotif> = HashMap::new();
+    let mut direct_testers: HashMap<i64, Vec<SimpleMotif>> = HashMap::new();
+    for (hg_id, profiles) in &by_hg {
+        let modal = compute_modal(profiles);
+        if modal.is_empty() {
+            continue;
+        }
+        direct_motif.insert(*hg_id, modal_motif(&modal));
+        direct_testers.insert(*hg_id, profiles.iter().map(|p| simple_motif(p)).collect());
+        modal_by_hg.insert(*hg_id, modal);
+    }
+
+    let models = load_marker_models(pool).await?;
+
+    let ids: Vec<i64> = sqlx::query_scalar(
+        "SELECT id FROM tree.haplogroup \
+         WHERE haplogroup_type='Y_DNA'::core.dna_type AND valid_until IS NULL ORDER BY id",
+    )
+    .fetch_all(pool)
+    .await?;
+    let idx: HashMap<i64, usize> = ids.iter().enumerate().map(|(i, &id)| (id, i)).collect();
+    let edges: Vec<(i64, i64)> = sqlx::query_as(
+        "SELECT c.id, p.id FROM tree.haplogroup_relationship r \
+         JOIN tree.haplogroup c ON c.id=r.child_haplogroup_id AND c.valid_until IS NULL \
+            AND c.haplogroup_type='Y_DNA'::core.dna_type \
+         JOIN tree.haplogroup p ON p.id=r.parent_haplogroup_id AND p.valid_until IS NULL \
+         WHERE r.valid_until IS NULL",
+    )
+    .fetch_all(pool)
+    .await?;
+    let mut children = vec![Vec::new(); ids.len()];
+    let mut parent: Vec<Option<usize>> = vec![None; ids.len()];
+    for (c, p) in edges {
+        if let (Some(&ci), Some(&pi)) = (idx.get(&c), idx.get(&p)) {
+            children[pi].push(ci);
+            parent[ci] = Some(pi);
+        }
+    }
+    let roots: Vec<usize> = (0..ids.len()).filter(|&i| parent[i].is_none()).collect();
+    let mut direct = vec![SimpleMotif::new(); ids.len()];
+    let mut testers = vec![Vec::new(); ids.len()];
+    for (hg, m) in &direct_motif {
+        if let Some(&i) = idx.get(hg) {
+            direct[i] = m.clone();
+        }
+    }
+    for (hg, t) in &direct_testers {
+        if let Some(&i) = idx.get(hg) {
+            testers[i] = t.clone();
+        }
+    }
+    let motif = reconstruct_motifs(&children, &parent, &roots, &direct);
+    Ok(StrInputs { ids, children, motif, testers, models, modal_by_hg })
+}
+
+/// Per-node tree-propagated STR TMRCA PDFs (keyed by haplogroup id) on the given
+/// grid — consumed by the combined-age PDF product in [`crate::age`].
+pub async fn str_tmrca_pdfs(pool: &PgPool, res: f64, max_age: f64) -> Result<HashMap<i64, Pdf>, DbError> {
+    let inp = build_str_inputs(pool).await?;
+    let ages = propagate_str(&inp.children, &inp.motif, &inp.testers, &inp.models, res, max_age);
+    Ok(inp.ids.iter().zip(ages).filter_map(|(&id, a)| a.map(|p| (id, p))).collect())
 }
 
 // ── queries ───────────────────────────────────────────────────────────────────
@@ -675,78 +782,17 @@ pub struct RecomputeStats {
 /// O(n²) per node on the PDF grid; fine while STR data is sparse, revisit if a
 /// densely-sampled subtree makes it bite.)
 pub async fn recompute_signatures(pool: &PgPool) -> Result<RecomputeStats, DbError> {
-    let rows: Vec<(i64, Value)> = sqlx::query_as(
-        "SELECT h.id, sp.markers \
-         FROM fed.str_profile sp \
-         JOIN fed.biosample b ON b.at_uri = sp.biosample_ref \
-         JOIN tree.haplogroup h ON h.name = b.y_haplogroup \
-              AND h.haplogroup_type::text = 'Y_DNA' AND h.valid_until IS NULL \
-         WHERE b.y_haplogroup IS NOT NULL",
-    )
-    .fetch_all(pool)
-    .await?;
-
-    // Group profiles by haplogroup, then derive each node's direct modal + tips.
-    let mut by_hg: BTreeMap<i64, Vec<Vec<(String, StrValue)>>> = BTreeMap::new();
-    for (hg_id, markers) in &rows {
-        by_hg.entry(*hg_id).or_default().push(parse_markers(markers));
-    }
-    let mut modal_by_hg: BTreeMap<i64, Vec<ModalMarker>> = BTreeMap::new();
-    let mut direct_motif: HashMap<i64, SimpleMotif> = HashMap::new();
-    let mut direct_testers: HashMap<i64, Vec<SimpleMotif>> = HashMap::new();
-    for (hg_id, profiles) in &by_hg {
-        let modal = compute_modal(profiles);
-        if modal.is_empty() {
-            continue;
-        }
-        direct_motif.insert(*hg_id, modal_motif(&modal));
-        direct_testers.insert(*hg_id, profiles.iter().map(|p| simple_motif(p)).collect());
-        modal_by_hg.insert(*hg_id, modal);
-    }
-
-    let models = load_marker_models(pool).await?;
-
-    // Tree structure over current Y nodes, for ancestral-motif reconstruction +
-    // age propagation.
-    let ids: Vec<i64> = sqlx::query_scalar(
-        "SELECT id FROM tree.haplogroup \
-         WHERE haplogroup_type='Y_DNA'::core.dna_type AND valid_until IS NULL ORDER BY id",
-    )
-    .fetch_all(pool)
-    .await?;
-    let idx: HashMap<i64, usize> = ids.iter().enumerate().map(|(i, &id)| (id, i)).collect();
-    let edges: Vec<(i64, i64)> = sqlx::query_as(
-        "SELECT c.id, p.id FROM tree.haplogroup_relationship r \
-         JOIN tree.haplogroup c ON c.id=r.child_haplogroup_id AND c.valid_until IS NULL \
-            AND c.haplogroup_type='Y_DNA'::core.dna_type \
-         JOIN tree.haplogroup p ON p.id=r.parent_haplogroup_id AND p.valid_until IS NULL \
-         WHERE r.valid_until IS NULL",
-    )
-    .fetch_all(pool)
-    .await?;
-    let mut children = vec![Vec::new(); ids.len()];
-    let mut parent: Vec<Option<usize>> = vec![None; ids.len()];
-    for (c, p) in edges {
-        if let (Some(&ci), Some(&pi)) = (idx.get(&c), idx.get(&p)) {
-            children[pi].push(ci);
-            parent[ci] = Some(pi);
-        }
-    }
-    let roots: Vec<usize> = (0..ids.len()).filter(|&i| parent[i].is_none()).collect();
-    let mut direct = vec![SimpleMotif::new(); ids.len()];
-    let mut testers = vec![Vec::new(); ids.len()];
-    for (hg, m) in &direct_motif {
-        if let Some(&i) = idx.get(hg) {
-            direct[i] = m.clone();
-        }
-    }
-    for (hg, t) in &direct_testers {
-        if let Some(&i) = idx.get(hg) {
-            testers[i] = t.clone();
-        }
-    }
-    let motif = reconstruct_motifs(&children, &parent, &roots, &direct);
-    let ages = propagate_str(&children, &motif, &testers, &models);
+    let StrInputs { ids, children, motif, testers, models, modal_by_hg } = build_str_inputs(pool).await?;
+    // Propagate on the combined-age grid so the stored STR_VARIANCE matches the PDF
+    // the COMBINED product uses (`crate::age`).
+    let ages = propagate_str(
+        &children,
+        &motif,
+        &testers,
+        &models,
+        crate::age::TREE_RESOLUTION_YEARS,
+        crate::age::TREE_MAX_AGE_YEARS,
+    );
 
     let mut tx = pool.begin().await?;
     // Full refresh of computed signatures + STR ages (manual overrides survive).
@@ -1022,9 +1068,10 @@ mod tests {
     #[test]
     fn marker_pdf_ages_with_distance() {
         // More observed repeats from the ancestral motif ⇒ older marker age.
-        let m0 = marker_age_pdf(0, &model(0.005)).unwrap();
-        let m1 = marker_age_pdf(1, &model(0.005)).unwrap();
-        let m2 = marker_age_pdf(2, &model(0.005)).unwrap();
+        let (res, max) = (crate::pdf::RESOLUTION_YEARS, crate::pdf::MAX_AGE_YEARS);
+        let m0 = marker_age_pdf(0, &model(0.005), res, max).unwrap();
+        let m1 = marker_age_pdf(1, &model(0.005), res, max).unwrap();
+        let m2 = marker_age_pdf(2, &model(0.005), res, max).unwrap();
         assert!(m0.median() < m1.median(), "g=0 younger than g=1");
         assert!(m1.median() < m2.median(), "g=1 younger than g=2");
     }
@@ -1080,7 +1127,14 @@ mod tests {
         let models: HashMap<String, MarkerModel> = (1..=5)
             .map(|i| (format!("DYS{i}"), MarkerModel { mu_per_gen: 0.01, omega_pgm: None }))
             .collect();
-        let ages = propagate_str(&children, &motifs, &testers, &models);
+        let ages = propagate_str(
+            &children,
+            &motifs,
+            &testers,
+            &models,
+            crate::pdf::RESOLUTION_YEARS,
+            crate::pdf::MAX_AGE_YEARS,
+        );
         let med: Vec<f64> = ages.iter().map(|a| a.as_ref().expect("aged").median()).collect();
         assert!(med[2] > 0.0, "leaf has a positive age");
         assert!(med[1] > med[2], "mid older than leaf ({} > {})", med[1], med[2]);
@@ -1090,7 +1144,14 @@ mod tests {
     #[test]
     fn propagation_skips_nodes_without_evidence() {
         // A lone node with no testers and no children yields no age.
-        let ages = propagate_str(&[vec![]], &[SimpleMotif::new()], &[vec![]], &HashMap::new());
+        let ages = propagate_str(
+            &[vec![]],
+            &[SimpleMotif::new()],
+            &[vec![]],
+            &HashMap::new(),
+            crate::pdf::RESOLUTION_YEARS,
+            crate::pdf::MAX_AGE_YEARS,
+        );
         assert!(ages[0].is_none());
     }
 
