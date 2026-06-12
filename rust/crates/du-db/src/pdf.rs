@@ -92,6 +92,29 @@ impl Pdf {
         pdf
     }
 
+    /// Weighted mixture `Σ wᵢ·pdfᵢ`, renormalized — used for the STR marker age
+    /// `P(t|g) = Σ_m P(g|m)·P(t|m)` (McDonald Eq 14, inner sum over the hidden
+    /// mutation count `m`). Components must share a grid; non-positive weights are
+    /// skipped. `None` if nothing contributes.
+    pub fn mixture(components: &[(f64, Pdf)]) -> Option<Pdf> {
+        let res = components.iter().find(|(w, _)| *w > 0.0).map(|(_, p)| p.res)?;
+        let len = components.iter().map(|(_, p)| p.mass.len()).max().unwrap_or(0);
+        let mut out = Pdf { res, mass: vec![0.0; len] };
+        for (w, p) in components {
+            if *w <= 0.0 {
+                continue;
+            }
+            debug_assert_eq!(p.res, res, "mixture PDFs must share a grid resolution");
+            for (i, &m) in p.mass.iter().enumerate() {
+                out.mass[i] += w * m;
+            }
+        }
+        (out.total() > 0.0).then(|| {
+            out.normalize();
+            out
+        })
+    }
+
     /// Combine independent evidence (Eq 1): pointwise product, renormalized.
     pub fn multiply(&self, other: &Pdf) -> Pdf {
         debug_assert_eq!(self.res, other.res, "PDFs must share a grid resolution");

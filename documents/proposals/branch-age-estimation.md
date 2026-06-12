@@ -90,10 +90,25 @@ Must account for:
 - **Parallel mutations** (independent lines mutate to same value)
 - **Multi-step mutations** (+2, -2, +3, etc.)
 
-**Multi-step frequencies:**
-- ω±1 ≈ 0.962 (single-step)
+**Multi-step frequencies** (McDonald §2.5.3, from ref [8]):
+- ω±1 ≈ 0.962 (single-step; adjusted to 0.96217 so Σω±n = 1)
 - ω±2 ≈ 0.032 (two-step)
 - ω±3 ≈ 0.004 (three-step)
+- ω±≥4 ÷√10 per further repeat
+
+**Implemented** (`du_db::ystr`): `P(g|m)` is McDonald's **Table 1**, embedded verbatim
+over its published range (g,m ≤ 10) and extended by the signed-step convolution of
+the ω above beyond it (deep-time, low-weight terms only — the convolution is the
+*exact* all-orders sum, so it differs from the f_r-truncated Table 1 by up to ~0.1 at
+a few cells; the embedded table is authoritative in-range). A marker's age term is
+`P(t|g) = Σ_m P(t|m)·P(g|m)` — a mixture over the hidden mutation count `m` of Poisson
+age PDFs (`du_db::pdf::Pdf::mixture`), rate per generation → years via
+`GENERATION_YEARS = 33`. Per-clade STR age multiplies the independent
+per-(tester, marker) PDFs (Eq 1) — the **star-phylogeny** approximation; propagating
+STR ages through the tree's internal structure (as the SNP term already does) is the
+remaining refinement. Per-marker `omega_plus`/`omega_minus`/`multi_step_rate`
+(`genomics.str_mutation_rate`) build a marker-specific `P(g|m)` table when they depart
+from the global symmetric single-step-dominated model.
 
 ### Confidence Intervals
 
@@ -580,13 +595,17 @@ Group projects compute modal STR haplotypes (`projectModal`). These can feed int
 **Goal:** Add Y-STR data to improve precision.
 
 **Tasks:**
-1. [ ] Create `genomics.str_mutation_rate` table
-2. [ ] Import mutation rates from Ballantyne/Willems studies
-3. [ ] Create `tree.haplogroup_ancestral_str` table
-4. [ ] Implement ancestral STR motif calculation (modal values)
-5. [ ] Implement P(g|m) mapping with multi-step mutations
-6. [ ] Create `StrAgeService` for STR-based age calculation
-7. [ ] Integrate STR PDFs into combined calculation
+1. [x] Create `genomics.str_mutation_rate` table (migration `0014_str_age`)
+2. [ ] Import mutation rates from Ballantyne/Willems studies (table ships empty;
+       `DEFAULT_STR_RATE = 0.0025` until populated)
+3. [x] Create `tree.haplogroup_ancestral_str` table (migrations `0013`/`0014`)
+4. [x] Implement ancestral STR motif calculation (modal values) — `ystr::compute_modal`
+5. [x] Implement P(g|m) mapping with multi-step mutations — `ystr` (Table 1 + convolution)
+6. [x] Create `StrAgeService` for STR-based age calculation — `ystr::compute_str_age`
+       (multi-step PDF model; supersedes the legacy linear ΣΔ/Σµ estimator)
+7. [~] Integrate STR PDFs into combined calculation — the STR_VARIANCE term feeds the
+       inverse-variance `COMBINED` step in `du_db::age`; direct PDF×PDF combination and
+       STR tree-propagation remain (star-phylogeny approximation today)
 
 **Data needed:**
 - Y-STR profiles from PDS (ensure Atmosphere capture)
