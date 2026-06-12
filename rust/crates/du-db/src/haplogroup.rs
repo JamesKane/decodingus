@@ -6,6 +6,7 @@ use du_domain::enums::DnaType;
 use du_domain::haplogroup::Haplogroup;
 use du_domain::ids::HaplogroupId;
 use sqlx::PgPool;
+use std::collections::{HashMap, HashSet};
 
 #[derive(sqlx::FromRow)]
 struct HaplogroupRow {
@@ -889,6 +890,13 @@ pub async fn set_aliases(
 /// Resolve a tree-search query to a haplogroup name: try a direct name match,
 /// then an alternate (old ISOGG) name in `provenance.aliases`, then a defining
 /// variant name; return the most-recent match. `None` if nothing matches.
+///
+/// If the raw query resolves nothing, retry against the normalized candidate
+/// tokens from [`normalize_haplogroup_call`] — heterogeneous publication calls
+/// (FTDNA terminal-SNP shorthand `R-M269`, path strings `R-DF27 > Z195 > Z198`,
+/// SNP synonyms `L151/PF6542`) resolve via the defining-variant phase once their
+/// SNP token is isolated. Old YCC nested-letter longhand (`R1b1a2a1a2c1g`) has no
+/// SNP to recover and stays unresolved (a historical crosswalk would be needed).
 pub async fn resolve_name_or_variant(
     pool: &PgPool,
     query: &str,
@@ -896,6 +904,27 @@ pub async fn resolve_name_or_variant(
 ) -> Result<Option<String>, DbError> {
     let dna = pg_enum_label(&dna_type)?;
     let q = query.trim();
+    if let Some(name) = resolve_one(pool, q, dna_type, &dna).await? {
+        return Ok(Some(name));
+    }
+    // Fallback: normalize a heterogeneous publication call to candidate SNP/name
+    // tokens (most-specific first) and retry each.
+    for cand in normalize_haplogroup_call(q) {
+        if let Some(name) = resolve_one(pool, &cand, dna_type, &dna).await? {
+            return Ok(Some(name));
+        }
+    }
+    Ok(None)
+}
+
+/// One resolution attempt for an already-prepared query token: direct name →
+/// `provenance.aliases` → defining-variant name. `dna` is the `pg_enum_label`.
+async fn resolve_one(
+    pool: &PgPool,
+    q: &str,
+    dna_type: DnaType,
+    dna: &str,
+) -> Result<Option<String>, DbError> {
     // Direct name hit.
     if let Some(h) = get_by_name(pool, q, dna_type).await? {
         return Ok(Some(h.name));
@@ -907,7 +936,7 @@ pub async fn resolve_name_or_variant(
            AND jsonb_exists(provenance->'aliases', $2) \
          ORDER BY valid_from DESC LIMIT 1",
     )
-    .bind(&dna)
+    .bind(dna)
     .bind(q)
     .fetch_optional(pool)
     .await?;
@@ -923,11 +952,60 @@ pub async fn resolve_name_or_variant(
            AND lower(v.canonical_name) = lower($2) \
          ORDER BY h.valid_from DESC LIMIT 1",
     )
-    .bind(&dna)
+    .bind(dna)
     .bind(q)
     .fetch_optional(pool)
     .await?;
     Ok(name)
+}
+
+/// Normalize a heterogeneous publication haplogroup call into ordered candidate
+/// tokens to retry resolution against, most-specific first. Handles:
+/// - FTDNA terminal-SNP shorthand: `R-M269` → `M269`
+/// - path strings: `R-DF27 > Z195 > Z198` → `Z198`, `Z195`, `DF27` (terminal first)
+/// - SNP synonyms: `L151/PF6542` → `L151`, `PF6542`
+///
+/// Returns empty for non-calls (`n/a`, `NA`, blank) and never re-emits the raw
+/// trimmed input (the caller already tried that).
+fn normalize_haplogroup_call(raw: &str) -> Vec<String> {
+    let q = raw.trim();
+    if q.is_empty() {
+        return Vec::new();
+    }
+    let low = q.to_ascii_lowercase();
+    if low == "na" || low == "?" || low == "unknown" || low.starts_with("n/a") {
+        return Vec::new();
+    }
+    // Path string: '>'-separated clades, terminal (most specific) first.
+    let segments: Vec<&str> = q.split('>').map(str::trim).filter(|s| !s.is_empty()).collect();
+    let mut out: Vec<String> = Vec::new();
+    for seg in segments.iter().rev() {
+        let stripped = strip_haplogroup_prefix(seg);
+        // SNP synonyms ('/'-separated); a no-slash token splits to itself.
+        for cand in stripped.split('/') {
+            let c = cand.trim().trim_matches(|ch: char| "*?.,()".contains(ch)).trim();
+            if !c.is_empty() && c != q && !out.iter().any(|e| e == c) {
+                out.push(c.to_string());
+            }
+        }
+    }
+    out
+}
+
+/// Strip a leading haplogroup-label prefix (`R-`, `I-`, `E1b1b-`) from FTDNA
+/// terminal-SNP shorthand, leaving the SNP token. No dash, or a non-label head,
+/// returns the segment unchanged.
+fn strip_haplogroup_prefix(seg: &str) -> &str {
+    if let Some(idx) = seg.find('-') {
+        let head = &seg[..idx];
+        let looks_like_label = !head.is_empty()
+            && head.chars().next().is_some_and(|c| c.is_ascii_uppercase())
+            && head.chars().all(|c| c.is_ascii_alphanumeric());
+        if looks_like_label {
+            return &seg[idx + 1..];
+        }
+    }
+    seg
 }
 
 /// A defining variant of a haplogroup, for the SNP-detail sidebar. Carries this
@@ -1328,4 +1406,388 @@ pub async fn pathway(pool: &PgPool, called_name: &str, dna_type: DnaType) -> Res
         });
     }
     Ok(Pathway { dna_type, called_name: called_name.to_string(), resolved_name: Some(resolved), steps })
+}
+
+// ── YCC → `<MajorClade>-<definingSNP>` renaming ──────────────────────────────
+
+/// Outcome of [`rename_to_snp_shorthand`].
+#[derive(Debug, Default, Clone)]
+pub struct RenameReport {
+    /// Current nodes examined.
+    pub examined: i64,
+    /// Nodes eligible (YCC longhand / clade-SNP shorthand under a single major clade).
+    pub targets: i64,
+    /// Renames planned/applied.
+    pub renamed: u64,
+    /// SNP taken from an existing clade-SNP shorthand (the node's own name or a
+    /// graft alias).
+    pub from_shorthand: u64,
+    /// SNP taken from ISOGG's designated (first) defining variant.
+    pub from_isogg: u64,
+    /// SNP taken from a DB-linked defining variant (deterministic last resort).
+    pub from_db_fallback: u64,
+    /// Targets with no resolvable SNP — kept their YCC name, flagged.
+    pub skipped_no_snp: Vec<String>,
+    /// Targets whose `<letter>-<snp>` name was already taken — kept YCC, flagged.
+    pub skipped_collision: Vec<String>,
+    /// First samples, `old → new (source)`.
+    pub samples: Vec<String>,
+}
+
+/// Whether `name` is a YCC longhand (`R1b1a2`) or a clade-SNP shorthand
+/// (`E1b-Z1721`) sitting under a single major clade — eligible to become
+/// `<MajorLetter>-<SNP>`. Macro/backbone names with no single major-clade letter
+/// (`BT`, `CT`, `DE`, `GHIJK`), the bare single letters (`A`, `R`), and the root
+/// are NOT targets and keep their curated spine name.
+fn is_shorthand_rename_target(name: &str) -> bool {
+    let mut ch = name.chars();
+    let Some(first) = ch.next() else { return false };
+    if !('A'..='T').contains(&first) {
+        return false;
+    }
+    // `<A-T><digit>…` (YCC) or `<A-T>…-…` (existing clade-SNP shorthand).
+    matches!(ch.next(), Some(c) if c.is_ascii_digit()) || name[first.len_utf8()..].contains('-')
+}
+
+/// The major-clade letter (A–T) a name sits under — its first character.
+fn major_clade_letter(name: &str) -> Option<char> {
+    name.chars().next().filter(|c| ('A'..='T').contains(c))
+}
+
+/// Extract the SNP token from a clade-SNP shorthand (`R-M269`, `E1b-Z1721`,
+/// `I-BY136871`): the part after the last `-`, decoration-stripped. The head must
+/// be a clade label (A–T then alphanumerics). `None` if not shorthand-shaped.
+fn snp_from_shorthand(s: &str) -> Option<String> {
+    let (head, tail) = s.rsplit_once('-')?;
+    let mut hc = head.chars();
+    if !hc.next().is_some_and(|c| ('A'..='T').contains(&c)) {
+        return None;
+    }
+    if !head.chars().all(|c| c.is_ascii_alphanumeric()) {
+        return None;
+    }
+    let snp = strip_snp_decoration(tail);
+    snp.chars().next().is_some_and(|c| c.is_ascii_alphabetic()).then_some(snp)
+}
+
+/// Drop ISOGG quality/recurrence markers (`^^`, slash-synonyms, surrounding
+/// punctuation) from a SNP name, leaving the base identity. `.N` recurrence
+/// suffixes are kept (some real SNP names embed a dot, e.g. `P37.2`).
+fn strip_snp_decoration(snp: &str) -> String {
+    snp.split(['^', '/']).next().unwrap_or(snp).trim().trim_matches(|c: char| "*?".contains(c)).to_string()
+}
+
+/// A clean SNP-style naming token: a letter then alphanumerics/dots only. Rejects
+/// coordinate strings (`CP086569.2:27513233 A->G`) that would make malformed node
+/// names — such nodes keep their YCC longhand instead.
+fn is_snp_shaped(s: &str) -> bool {
+    !s.is_empty()
+        && s.len() <= 32
+        && s.chars().next().is_some_and(|c| c.is_ascii_alphabetic())
+        && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '.')
+}
+
+/// Rename YCC-longhand nodes to `<MajorClade>-<definingSNP>`, retaining the old
+/// name in `provenance.aliases` (so YCC biosample calls still resolve via the
+/// alias phase of [`resolve_name_or_variant`]). The naming SNP is sourced, in
+/// order: an existing clade-SNP shorthand (the node's own name or a graft alias),
+/// then ISOGG's designated first defining variant (`isogg_defining`, keyed by the
+/// current YCC name), then a DB-linked defining variant. Macro/backbone nodes are
+/// left untouched. Targets whose computed name is already taken are skipped and
+/// flagged (no guessing). Dry-run unless `apply`.
+pub async fn rename_to_snp_shorthand(
+    pool: &PgPool,
+    dna_type: DnaType,
+    isogg_defining: &HashMap<String, String>,
+    apply: bool,
+) -> Result<RenameReport, DbError> {
+    let dna = pg_enum_label(&dna_type)?;
+    let mut rep = RenameReport::default();
+
+    let nodes: Vec<(i64, String, serde_json::Value)> = sqlx::query_as(
+        "SELECT id, name, provenance FROM tree.haplogroup \
+         WHERE haplogroup_type::text = $1 AND valid_until IS NULL",
+    )
+    .bind(&dna)
+    .fetch_all(pool)
+    .await?;
+    rep.examined = nodes.len() as i64;
+
+    // All names (current + expired) — the unique (name, haplogroup_type) index
+    // spans every row, so a target name held by any existing row is a collision.
+    let existing_names: HashSet<String> =
+        sqlx::query_scalar("SELECT name FROM tree.haplogroup WHERE haplogroup_type::text = $1")
+            .bind(&dna)
+            .fetch_all(pool)
+            .await?
+            .into_iter()
+            .collect();
+
+    // DB fallback source: each current node's linked defining-variant names.
+    let links: Vec<(i64, String)> = sqlx::query_as(
+        "SELECT hv.haplogroup_id, v.canonical_name FROM tree.haplogroup_variant hv \
+         JOIN core.variant v ON v.id = hv.variant_id \
+         JOIN tree.haplogroup h ON h.id = hv.haplogroup_id \
+         WHERE h.haplogroup_type::text = $1 AND h.valid_until IS NULL \
+           AND hv.valid_until IS NULL AND v.canonical_name IS NOT NULL",
+    )
+    .bind(&dna)
+    .fetch_all(pool)
+    .await?;
+    let mut db_variants: HashMap<i64, Vec<String>> = HashMap::new();
+    for (hid, vname) in links {
+        db_variants.entry(hid).or_default().push(vname);
+    }
+
+    // Plan renames; count target-name demand to detect intra-batch duplicates.
+    let mut planned: Vec<(i64, String, String, &'static str)> = Vec::new();
+    let mut want_count: HashMap<String, i32> = HashMap::new();
+    for (id, name, prov) in &nodes {
+        if !is_shorthand_rename_target(name) {
+            continue;
+        }
+        let Some(letter) = major_clade_letter(name) else { continue };
+        rep.targets += 1;
+
+        let (snp, src) = pick_naming_snp(name, prov, isogg_defining, db_variants.get(id));
+        let Some(snp) = snp.filter(|s| is_snp_shaped(s)) else {
+            rep.skipped_no_snp.push(name.clone());
+            continue;
+        };
+        let new = format!("{letter}-{snp}");
+        if &new == name {
+            continue; // already canonical
+        }
+        *want_count.entry(new.clone()).or_default() += 1;
+        planned.push((*id, name.clone(), new, src));
+    }
+
+    let freed: HashSet<&str> = planned.iter().map(|(_, old, _, _)| old.as_str()).collect();
+    let mut tx = pool.begin().await?;
+    for (id, old, new, src) in &planned {
+        let taken_elsewhere = existing_names.contains(new) && !freed.contains(new.as_str());
+        if want_count.get(new).copied().unwrap_or(0) > 1 || taken_elsewhere {
+            rep.skipped_collision.push(format!("{old} ⇏ {new}"));
+            continue;
+        }
+        match *src {
+            "shorthand" => rep.from_shorthand += 1,
+            "isogg" => rep.from_isogg += 1,
+            _ => rep.from_db_fallback += 1,
+        }
+        if rep.samples.len() < 20 {
+            rep.samples.push(format!("{old} → {new} ({src})"));
+        }
+        rep.renamed += 1;
+        if apply {
+            sqlx::query(
+                "UPDATE tree.haplogroup SET name = $2, \
+                   provenance = jsonb_set(COALESCE(provenance, '{}'::jsonb), '{aliases}', \
+                     (SELECT jsonb_agg(DISTINCT e) FROM ( \
+                        SELECT jsonb_array_elements_text(COALESCE(provenance->'aliases', '[]'::jsonb)) AS e \
+                        UNION SELECT $3) s), true) \
+                 WHERE id = $1",
+            )
+            .bind(id)
+            .bind(new)
+            .bind(old)
+            .execute(&mut *tx)
+            .await?;
+        }
+    }
+    if apply {
+        tx.commit().await?;
+    } else {
+        tx.rollback().await?;
+    }
+    Ok(rep)
+}
+
+/// Choose the naming SNP for a target node: existing clade-SNP shorthand (own
+/// name, then a graft alias) → ISOGG-designated → DB-linked. Returns the SNP and
+/// a source tag.
+fn pick_naming_snp(
+    name: &str,
+    prov: &serde_json::Value,
+    isogg_defining: &HashMap<String, String>,
+    db_links: Option<&Vec<String>>,
+) -> (Option<String>, &'static str) {
+    // 1a) the node's own name, if already clade-SNP shorthand (renormalize prefix).
+    if let Some(s) = snp_from_shorthand(name) {
+        return (Some(s), "shorthand");
+    }
+    // 1b) a clade-SNP shorthand alias attached by the graft (curated terminal SNP).
+    if let Some(aliases) = prov.get("aliases").and_then(|a| a.as_array()) {
+        if let Some(s) = aliases.iter().filter_map(|a| a.as_str()).find_map(snp_from_shorthand) {
+            return (Some(s), "shorthand");
+        }
+    }
+    // 2) ISOGG's designated first defining variant for this YCC name.
+    if let Some(s) = isogg_defining.get(name).map(|s| strip_snp_decoration(s)).filter(|s| !s.is_empty()) {
+        return (Some(s), "isogg");
+    }
+    // 3) deterministic DB-linked variant: smallest SNP-shaped canonical name
+    //    (skip coordinate-style names that would make a malformed node name).
+    if let Some(s) = db_links
+        .and_then(|vs| vs.iter().filter(|v| is_snp_shaped(v)).min())
+        .map(|s| strip_snp_decoration(s))
+        .filter(|s| !s.is_empty())
+    {
+        return (Some(s), "db");
+    }
+    (None, "")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        is_shorthand_rename_target, is_snp_shaped, major_clade_letter, normalize_haplogroup_call,
+        pick_naming_snp, snp_from_shorthand, strip_haplogroup_prefix,
+    };
+    use std::collections::HashMap;
+
+    #[test]
+    fn strips_ftdna_terminal_snp_shorthand() {
+        assert_eq!(normalize_haplogroup_call("R-M269"), vec!["M269"]);
+        assert_eq!(normalize_haplogroup_call("E1b1b-M35"), vec!["M35"]);
+        assert_eq!(normalize_haplogroup_call("P-P337"), vec!["P337"]);
+    }
+
+    #[test]
+    fn path_string_terminal_first() {
+        assert_eq!(
+            normalize_haplogroup_call("R-DF27 > Z195 > Z198"),
+            vec!["Z198", "Z195", "DF27"]
+        );
+        // The terminal-SNP shorthand mixed with a path.
+        assert_eq!(
+            normalize_haplogroup_call("R-L151 > P312 > DF27 > ZZ12 > Y30817"),
+            vec!["Y30817", "ZZ12", "DF27", "P312", "L151"]
+        );
+    }
+
+    #[test]
+    fn splits_snp_synonyms() {
+        assert_eq!(normalize_haplogroup_call("L151/PF6542"), vec!["L151", "PF6542"]);
+        assert_eq!(
+            normalize_haplogroup_call("P310/PF6546/S129"),
+            vec!["P310", "PF6546", "S129"]
+        );
+        // Synonyms behind a haplogroup prefix.
+        assert_eq!(normalize_haplogroup_call("R-Z195/S227"), vec!["Z195", "S227"]);
+    }
+
+    #[test]
+    fn non_calls_yield_nothing() {
+        assert!(normalize_haplogroup_call("n/a (female)").is_empty());
+        assert!(normalize_haplogroup_call("n/a  (sex unknown)").is_empty());
+        assert!(normalize_haplogroup_call("NA").is_empty());
+        assert!(normalize_haplogroup_call("").is_empty());
+        assert!(normalize_haplogroup_call("   ").is_empty());
+    }
+
+    #[test]
+    fn ycc_longhand_has_no_recoverable_token() {
+        // Old nested-letter nomenclature carries no SNP — nothing to retry beyond
+        // the raw query the caller already tried, so the candidate list is empty.
+        assert!(normalize_haplogroup_call("R1b1a2a1a2c1g").is_empty());
+        assert!(normalize_haplogroup_call("N1c1a1a").is_empty());
+    }
+
+    #[test]
+    fn does_not_reemit_raw_query() {
+        // A bare SNP is already tried verbatim by the caller; no redundant candidate.
+        assert!(normalize_haplogroup_call("M269").is_empty());
+        assert!(normalize_haplogroup_call("CTS10743").is_empty());
+    }
+
+    #[test]
+    fn prefix_strip_guards_non_labels() {
+        // A leading dash-bearing token that is not a haplogroup label is untouched.
+        assert_eq!(strip_haplogroup_prefix("M269"), "M269");
+        assert_eq!(strip_haplogroup_prefix("R-M269"), "M269");
+        // Lowercase head is not a label.
+        assert_eq!(strip_haplogroup_prefix("foo-bar"), "foo-bar");
+    }
+
+    #[test]
+    fn rename_targets_ycc_and_shorthand_not_backbone() {
+        // YCC longhand and clade-SNP shorthand under a single major clade.
+        assert!(is_shorthand_rename_target("R1b1a2"));
+        assert!(is_shorthand_rename_target("A1b1a1"));
+        assert!(is_shorthand_rename_target("K2"));
+        assert!(is_shorthand_rename_target("E1b-Z1721"));
+        assert!(is_shorthand_rename_target("I-BY136871"));
+        // Macro/backbone names with no single major-clade letter, and bare letters.
+        assert!(!is_shorthand_rename_target("BT"));
+        assert!(!is_shorthand_rename_target("CT"));
+        assert!(!is_shorthand_rename_target("GHIJK"));
+        assert!(!is_shorthand_rename_target("R"));
+        assert!(!is_shorthand_rename_target("F"));
+        // Outside A–T.
+        assert!(!is_shorthand_rename_target("Z1234"));
+    }
+
+    #[test]
+    fn major_letter_is_first_clade_char() {
+        assert_eq!(major_clade_letter("R1b1a2"), Some('R'));
+        assert_eq!(major_clade_letter("E1b-Z1721"), Some('E'));
+        assert_eq!(major_clade_letter("A00"), Some('A'));
+        assert_eq!(major_clade_letter("Z1234"), None);
+    }
+
+    #[test]
+    fn snp_extracted_from_shorthand_only() {
+        assert_eq!(snp_from_shorthand("R-M269").as_deref(), Some("M269"));
+        assert_eq!(snp_from_shorthand("E1b-Z1721").as_deref(), Some("Z1721"));
+        assert_eq!(snp_from_shorthand("I-BY136871").as_deref(), Some("BY136871"));
+        // YCC longhand (no dash) is not shorthand.
+        assert_eq!(snp_from_shorthand("R1b1a2"), None);
+        // Non-clade head.
+        assert_eq!(snp_from_shorthand("foo-bar"), None);
+    }
+
+    #[test]
+    fn snp_shape_rejects_coordinate_names() {
+        assert!(is_snp_shaped("M269"));
+        assert!(is_snp_shaped("BY136871"));
+        assert!(is_snp_shaped("P37.2"));
+        assert!(!is_snp_shaped("CP086569.2:27513233 A->G"));
+        assert!(!is_snp_shaped("")); // empty
+        assert!(!is_snp_shaped("123")); // must start with a letter
+    }
+
+    #[test]
+    fn db_fallback_skips_unshaped_variant() {
+        let isogg = HashMap::new();
+        let empty = serde_json::json!({});
+        // Only a coordinate-style "variant" is linked → no usable SNP.
+        let links = vec!["CP086569.2:27513233 A->G".to_string()];
+        let (snp, _) = pick_naming_snp("J2a1b", &empty, &isogg, Some(&links));
+        assert_eq!(snp, None);
+    }
+
+    #[test]
+    fn naming_snp_source_priority() {
+        let mut isogg = HashMap::new();
+        isogg.insert("I1".to_string(), "CTS5887".to_string());
+        let empty = serde_json::json!({});
+        // (1) own shorthand name wins.
+        let (snp, src) = pick_naming_snp("E1b-Z1721", &empty, &isogg, None);
+        assert_eq!((snp.as_deref(), src), (Some("Z1721"), "shorthand"));
+        // (1b) graft shorthand alias.
+        let prov = serde_json::json!({"aliases": ["R-M269", "older-name"]});
+        let (snp, src) = pick_naming_snp("R1b1a1b", &prov, &isogg, None);
+        assert_eq!((snp.as_deref(), src), (Some("M269"), "shorthand"));
+        // (2) ISOGG designated, when no shorthand available.
+        let (snp, src) = pick_naming_snp("I1", &empty, &isogg, None);
+        assert_eq!((snp.as_deref(), src), (Some("CTS5887"), "isogg"));
+        // (3) DB-linked fallback (smallest canonical name) when nothing else.
+        let links = vec!["Z9".to_string(), "M14".to_string(), "L968".to_string()];
+        let (snp, src) = pick_naming_snp("A1b1a1", &empty, &isogg, Some(&links));
+        assert_eq!((snp.as_deref(), src), (Some("L968"), "db"));
+        // none.
+        let (snp, _) = pick_naming_snp("A1b1a1", &empty, &isogg, None);
+        assert_eq!(snp, None);
+    }
 }

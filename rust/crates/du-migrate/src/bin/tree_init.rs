@@ -76,6 +76,12 @@ struct Args {
     /// allele columns so the scrub keeps them. Dry-run report unless --apply.
     #[arg(long)]
     label_recurrence: bool,
+    /// Drop YCC-longhand node names, renaming to `<MajorClade>-<definingSNP>` (the
+    /// old YCC name is retained in `provenance.aliases`). Naming SNP source:
+    /// existing clade-SNP shorthand → ISOGG-designated defining variant (pass
+    /// `--isogg` for this) → DB-linked variant. Dry-run report unless --apply.
+    #[arg(long)]
+    rename_snp_shorthand: bool,
     /// DNA type (Y or MT). ISOGG/this tool target Y.
     #[arg(long, default_value = "Y")]
     dna: String,
@@ -585,8 +591,59 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
+    // 8. Drop YCC-longhand node names → `<MajorClade>-<definingSNP>`; old YCC name
+    //    kept in provenance.aliases. ISOGG-designated SNP needs the ISOGG JSON.
+    if args.rename_snp_shorthand {
+        let mut isogg_defining: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+        if let Some(root) = isogg_root {
+            collect_isogg_defining(root, &mut isogg_defining);
+        } else {
+            tracing::warn!("--rename-snp-shorthand without --isogg: no ISOGG-designated SNPs (shorthand alias + DB fallback only)");
+        }
+        let r = du_db::haplogroup::rename_to_snp_shorthand(&pool, dna, &isogg_defining, args.apply).await?;
+        tracing::info!(
+            examined = r.examined, targets = r.targets, renamed = r.renamed,
+            from_shorthand = r.from_shorthand, from_isogg = r.from_isogg, from_db = r.from_db_fallback,
+            no_snp = r.skipped_no_snp.len(), collisions = r.skipped_collision.len(),
+            applied = args.apply, samples = ?r.samples,
+            "renamed YCC nodes to <clade>-<SNP> shorthand"
+        );
+        if !r.skipped_collision.is_empty() {
+            let s: Vec<&String> = r.skipped_collision.iter().take(10).collect();
+            tracing::warn!(count = r.skipped_collision.len(), sample = ?s, "name collision — kept YCC");
+        }
+        if !r.skipped_no_snp.is_empty() {
+            let s: Vec<&String> = r.skipped_no_snp.iter().take(10).collect();
+            tracing::warn!(count = r.skipped_no_snp.len(), sample = ?s, "no defining SNP — kept YCC");
+        }
+        if !args.apply {
+            tracing::warn!("dry-run: re-run with --apply to write the renames");
+        }
+    }
+
     tracing::info!("tree-init done");
     Ok(())
+}
+
+/// Map each ISOGG node's YCC name → its **first designated defining variant**
+/// (the canonical naming SNP), preferring an undecorated name (no `^`/`.`
+/// recurrence markers). Feeds `rename_to_snp_shorthand` for nodes with no
+/// clade-SNP shorthand alias.
+fn collect_isogg_defining(node: &Value, out: &mut std::collections::HashMap<String, String>) {
+    if let Some(name) = node.get("name").and_then(Value::as_str) {
+        if let Some(vs) = node.get("variants").and_then(Value::as_array) {
+            let names: Vec<&str> = vs.iter().filter_map(|v| v.get("name").and_then(Value::as_str)).collect();
+            let pick = names.iter().find(|n| !n.contains('^') && !n.contains('.')).or_else(|| names.first());
+            if let Some(p) = pick {
+                out.insert(name.to_string(), (*p).to_string());
+            }
+        }
+    }
+    if let Some(kids) = node.get("children").and_then(Value::as_array) {
+        for c in kids {
+            collect_isogg_defining(c, out);
+        }
+    }
 }
 
 /// Persist each ISOGG node's `aliases` (deprecated bracket-names) to

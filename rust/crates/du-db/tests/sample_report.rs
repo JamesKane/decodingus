@@ -170,3 +170,55 @@ async fn pathway_resolves_and_gaps() {
     assert!(p.resolved_name.is_none());
     assert!(p.steps.is_empty());
 }
+
+/// Heterogeneous publication Y calls (FTDNA terminal-SNP shorthand, path strings,
+/// SNP synonyms) resolve to the defining haplogroup via the normalization fallback;
+/// old YCC longhand and `n/a` stay unresolved.
+#[tokio::test]
+async fn resolve_normalizes_publication_calls() {
+    let Some(url) = database_url() else {
+        eprintln!("DATABASE_URL unset — skipping resolution-fallback test");
+        return;
+    };
+    let db = du_db::testing::ephemeral_db(&url).await.expect("ephemeral db");
+    let pool = db.pool().clone();
+
+    // A node defined by SNP M269 (the canonical tip of the R-M269 shorthand).
+    let hid: i64 =
+        sqlx::query_scalar("INSERT INTO tree.haplogroup (name, haplogroup_type) VALUES ('R-M269', 'Y_DNA'::core.dna_type) RETURNING id")
+            .fetch_one(&pool)
+            .await
+            .expect("insert haplogroup");
+    let vid: i64 =
+        sqlx::query_scalar("INSERT INTO core.variant (canonical_name, mutation_type) VALUES ('M269', 'SNP'::core.mutation_type) RETURNING id")
+            .fetch_one(&pool)
+            .await
+            .expect("insert variant");
+    sqlx::query("INSERT INTO tree.haplogroup_variant (haplogroup_id, variant_id) VALUES ($1,$2)")
+        .bind(hid)
+        .bind(vid)
+        .execute(&pool)
+        .await
+        .expect("link variant");
+
+    let resolve = |q: &'static str| {
+        let pool = pool.clone();
+        async move { du_db::haplogroup::resolve_name_or_variant(&pool, q, DnaType::YDna).await.expect("resolve") }
+    };
+
+    // Direct node name still resolves (unchanged behavior).
+    assert_eq!(resolve("R-M269").await.as_deref(), Some("R-M269"));
+    // Bare defining SNP resolves via the existing variant phase.
+    assert_eq!(resolve("M269").await.as_deref(), Some("R-M269"));
+    // FTDNA shorthand for a *different* letter prefix on the same SNP normalizes in.
+    assert_eq!(resolve("Z-M269").await.as_deref(), Some("R-M269"));
+    // Path string → terminal SNP token.
+    assert_eq!(resolve("R-DF27 > L2 > M269").await.as_deref(), Some("R-M269"));
+    // SNP synonym list → first matching token.
+    assert_eq!(resolve("M269/PF1234").await.as_deref(), Some("R-M269"));
+
+    // Old YCC nested-letter longhand has no SNP to recover → unresolved.
+    assert!(resolve("R1b1a2").await.is_none());
+    // Non-calls → unresolved.
+    assert!(resolve("n/a (female)").await.is_none());
+}
