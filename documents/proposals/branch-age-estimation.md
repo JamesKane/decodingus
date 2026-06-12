@@ -134,6 +134,24 @@ and excised from the subset of base pairs b̄." A.3 names the regions to mask
 recurrent/heterochromatic regions — *not* all of ampliconic/palindromic — and ensure
 the SNP count `m` is excised over the same regions (`m ⊆ b`, McDonald §2.2.3).
 
+**Empirical validation (Hallast et al. 2026, 142 population-scale Y assemblies).**
+This masking choice is confirmed independently by the paper's three-way callable-mask
+comparison (their Fig 5h-i):
+- Their phylogeny ran on a **~10.4 Mb mask (10,400,778 callable positions, 25,426
+  polymorphic sites) = X-degenerate + ampliconic + "other"**, *excluding* X-transposed,
+  satellite, heterochromatin, DYZ19, and centromere — the same split as our denominator
+  (`y_xdegen + y_ampliconic + y_palindromic`, with `HET_MASK` dropping heterochromatic
+  SNPs).
+- **X-degenerate is the agreed, high-QV core** across all three masks (GRCh37 / T2T /
+  pangenome): retained bp 8.111 / 8.341 / 7.437 Mb, mean QV 50.2 / 55.2 / 60.9.
+- **Ampliconic is kept but lower quality** (QV 45.7 / 46.2 / 61.5) — consistent with
+  keeping it in `b` (same mutation rate) while flagging it low-confidence-for-*placement*.
+- **Satellite / heterochromatin / DYZ19 are low-QV (35–44) or uncallable; no mask calls
+  centromeric sequence** — validating their exclusion from the age count.
+- The de novo data underline this: 49/53 (92.5%) pedigree DNMs fall in Yq12, only ~1 SNV
+  in euchromatin, and 6/40 Yq12 SNVs trace to gene conversion (recurrent), not de novo —
+  i.e. the masked compartments are exactly where mutations are unreliable/recurrent.
+
 #### STR Mutation Rate Database
 Per-marker mutation rates needed for ~700+ Y-STR markers:
 - Source: Ballantyne et al. 2010 (186 markers), Willems et al. 2016 (702 markers)

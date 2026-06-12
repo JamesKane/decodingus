@@ -37,28 +37,26 @@ of them and add features we don't yet load.
       `run` now has full-snapshot sync (fetch-all-first → upsert → `prune_source_orphans`).
       Live v2 reload pruned 9 orphaned v1 rows, 0 leftovers. P9/Rep1 NOT literally in v2
       (still a separate hunt, below).
-- [ ] **Add the AZFc color-blocks.** Paper uses GRCh38 AZFc colorblock coords from
-      Teitz et al. (ref 23) projected onto CHM13. These are the blue/teal/red/green/
-      yellow/grey repeat blocks that define AZFc structural haplotypes — high-recurrence,
-      so they belong in the *fine-grained flag* layer (low-confidence-for-placement),
-      not the sequence-class partition. Find the source coords (T2T-chrY repo or Suppl.).
-- [ ] **Add palindrome P9.** Newly identified ninth palindrome (a hg38 "Rep1" direct
-      repeat that is consistently *inverted* across all 142 samples; median length 15.8 kb).
-      Classify as `palindromic`. Confirm whether the v2 inverted-repeats BED already
-      carries it before adding a separate source.
-- [ ] **Record the callable-mask justification.** The paper validates our X-DEG-only
-      age denominator empirically (Fig 5h-i; Methods "Y-chromosomal phylogeny"):
-      - Phylogeny ran on **~10.4 Mb** short-read-accessible Y: **10,400,778 callable
-        positions, 25,426 polymorphic sites** (≥85% allele support, MQ/BQ ≥20, <5% missing).
-      - Callable-mask comparison totals: GRCh37 **10.419 Mb** / T2T **14.364 Mb** /
-        pangenome **9.739 Mb**; mean QV **48.99 / 49.17 / 61.90**. Per-class breakdown
-        (XDR ~8.1–8.3 Mb across masks) in Fig 5h.
-      - Takeaway the paper states: callability on chrY is a breadth-vs-accuracy trade-off;
-        none of the masks call centromeric sequence; complex/satellite/ampliconic regions
-        diverge most. → cite this where the age denominator `b` and Navigator's callable
-        intersection are documented (proposal + `yregions.rs` module doc).
-- [ ] After source changes, re-run `decodingus-jobs run-once yregions` and confirm
-      `refresh_region_overlaps` re-flags cleanly (idempotent; upsert on `(region_type, name)`).
+- [x] **AZFc color-blocks — already loaded** (no action needed). The v2 amplicons BED
+      (`chm13v2.0Y_amplicons_v2.bed`, wired in d39b314) already carries the full Teitz
+      colorblock set: blue1-4, gray1-2, green1-3, red1-4, teal1-2, yellow1-2, plus
+      P1/P3/P5-AZFb/c blocks — all classified `ampliconic` (a flag type), so AZFc variants
+      are already low-confidence-for-placement. Paper Fig 2a confirms these ARE the AZFc
+      amplicon repeat blocks (b/g/r/t/y, Teitz ref 6).
+- [ ] **Add palindrome P9 — BLOCKED on coords.** Confirmed: v2 inverted-repeats has P1-P8
+      only, not P9. Paper main text (lines 519-523) gives only median length 15.8 kb + the
+      hg38 "Rep1" (12 kb) lineage; **exact CHM13v2.0 arm coordinates are in Suppl. Tables
+      28-29** (not in the main PDF) — harvest from there or the T2T-chrY repo, then add as a
+      `palindromic` source (or wait for a v3 inverted-repeats BED that includes it). Low
+      urgency: one ~15.8 kb region.
+- [x] **Callable-mask justification — recorded** in `branch-age-estimation.md` (SNP rate
+      section) and `yregions.rs` module doc. Fig 5h-i numbers: phylogeny mask ~10.4 Mb =
+      XDR+AMPL+OTHER (excl. XTR/SAT/HET/DYZ19/CEN); XDR retained 8.111/8.341/7.437 Mb @ QV
+      50.2/55.2/60.9; AMPL kept but QV ~46; SAT/HET/DYZ19 QV 35-44 or uncallable; no mask
+      calls centromere. de novo: 49/53 DNMs in Yq12, ~1 in euchromatin, 6/40 Yq12 SNVs are
+      gene conversion. → empirically validates the X-DEG denominator + HET_MASK.
+- [ ] After P9 (if added), re-run `decodingus-jobs run-once yregions` and confirm
+      `refresh_region_overlaps` re-flags cleanly (idempotent; full-snapshot sync since d39b314).
 
 ### Validation note
 The paper empirically confirms variants in AMPL/SAT/CEN/DYZ17/DYZ19/HET are unreliable

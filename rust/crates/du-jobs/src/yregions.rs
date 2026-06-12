@@ -23,6 +23,12 @@
 //! loci), so the stored name carries the locus to keep each segment distinct.
 //! `region_type` is assigned per-file, because a label such as `P5-AZFb` is
 //! ampliconic in one file and palindromic in another.
+//!
+//! The flag-class choice is empirically validated by Hallast et al. 2026 (142
+//! population-scale Y assemblies, Fig 5h-i): short-read callability is a
+//! breadth-vs-accuracy trade-off in which X-degenerate is the agreed high-QV core
+//! while ampliconic/satellite/heterochromatic sequence diverges most — exactly the
+//! classes `classify_sequence_class` folds to the flagged `region_type`s.
 
 use du_db::PgPool;
 use serde_json::{json, Value};
