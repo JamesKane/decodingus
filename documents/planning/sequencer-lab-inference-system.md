@@ -8,12 +8,18 @@
 > `model_name`/`manufacturer`/`year_introduced`/`estimated_max_throughput`) —
 > instrument↔lab resolves via observation→proposal→accept, not a static FK; the
 > proposed instrument confidence columns live in the proposal table instead.
-> **No logic is built** (no lab-lookup API, no consensus/confidence engine, no
-> curator review UI) — forward work = `design-roadmap-rust-rewrite.md` D8. The
-> consensus source is `fed.sequencerun.instrument_id`; the `instrumentObservation`
-> lexicon + its `fed.*` mirror are not yet defined. The "Current State / existing API
-> endpoints / domain models" below are **Scala-era and were never ported**. Triage:
-> `design-doc-triage-report.md` §6.
+> **Lookup API is DONE (2026-06-12); the consensus/confidence engine + curator
+> review UI are NOT.** The proposal/curation path is not live anywhere (not in
+> Scala either), so the lookup serves the **preseeded direct** instrument→lab tie:
+> mig 0025 re-adds a nullable `genomics.sequencer_instrument.lab_id`, the ETL
+> backfills it from the legacy `lab_id`, and `du_db::sequencer::{lookup_lab,
+> lab_instruments}` resolves through it. Endpoints: `GET /api/v1/sequencer/lab?
+> instrument_id=…` (→ `SequencerLabDto`, 404 if unknown) and `GET /api/v1/sequencer/
+> lab-instruments` (bulk cache seed). The proposal tables stay dormant; when
+> consensus goes live, accepting a proposal will set `lab_id`. The consensus source
+> will be `fed.sequencerun.instrument_id`; the `instrumentObservation` lexicon + its
+> `fed.*` mirror are still undefined. The "Current State / existing API endpoints /
+> domain models" below are **Scala-era**. Triage: `design-doc-triage-report.md` §6.
 
 ## Executive Summary
 

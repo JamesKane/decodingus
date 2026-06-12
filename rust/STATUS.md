@@ -339,12 +339,16 @@ Launch-critical first, then the post-launch feature mass.
    Messaging_and_Feed_System,Reputation_System_Implementation}.md`). Schema `social`
    + `research` placeholders (mig 0009) exist; logic + endpoints to build. **No-PII
    caveat:** DMs must ride D1 (or AT-Proto), not a central plaintext `social.message`.
-7. **Sequencer-lab inference — AppView lookup + consensus (NOT dropped).** A public
-   **instrument-ID → lab** lookup API lets Edge nodes auto-resolve the sequencing
-   lab and skip a manual data-entry step. The AppView also runs consensus discovery
-   from citizen `instrumentObservation` records (via `fed.*`), with a curator
-   review queue and confidence scoring. Genomics lab tables exist; lookup +
-   consensus + endpoints to build.
+7. **Sequencer-lab inference — AppView lookup + consensus (NOT dropped).** The
+   **lookup API is DONE (2026-06-12)**: `GET /api/v1/sequencer/lab?instrument_id=…`
+   (→ `SequencerLabDto`, 404 if unknown) + `GET /api/v1/sequencer/lab-instruments`
+   (bulk cache seed), resolving via the **preseeded** `genomics.sequencer_instrument.
+   lab_id` (mig 0025 re-adds it; ETL backfills from the legacy tie;
+   `du_db::sequencer`). The proposal/consensus path is **not live anywhere**, so the
+   lookup uses the direct tie; the proposal tables stay dormant (memory
+   `sequencer-lab-lookup`). **Still to build:** consensus discovery from citizen
+   `instrumentObservation` records (via `fed.sequencerun.instrument_id`), proposal
+   aggregation/confidence scoring, and the curator review queue.
    (`documents/planning/sequencer-lab-inference-system.md`.)
 8. **Smaller in-scope finishers:**
    - **Graft carries coordinates forward** at creation (fold into

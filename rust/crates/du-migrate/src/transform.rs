@@ -1092,22 +1092,24 @@ pub async fn sequencing_lab(legacy: &PgPool, target: &PgPool) -> anyhow::Result<
 }
 
 pub async fn sequencer_instrument(legacy: &PgPool, target: &PgPool) -> anyhow::Result<()> {
-    // Redesign drops the per-lab tie and makes instrument_id UNIQUE; dedup to the
-    // first row per instrument_id (target<legacy here is benign de-duplication).
-    let rows = sqlx::query_as::<_, (i64, String, Option<String>, Option<String>)>(
-        "SELECT DISTINCT ON (instrument_id) id::bigint, instrument_id, model, manufacturer \
+    // instrument_id is now UNIQUE; dedup to the first row per instrument_id
+    // (target<legacy here is benign de-duplication). The legacy per-lab tie is
+    // carried over as the preseeded direct `lab_id` (mig 0025) — the lookup API
+    // resolves through it (the proposal/consensus path is not live yet).
+    let rows = sqlx::query_as::<_, (i64, String, Option<String>, Option<String>, Option<i64>)>(
+        "SELECT DISTINCT ON (instrument_id) id::bigint, instrument_id, model, manufacturer, lab_id::bigint \
          FROM public.sequencer_instrument ORDER BY instrument_id, id",
     )
     .fetch_all(legacy)
     .await?;
     let n = rows.len();
     let mut tx = target.begin().await?;
-    for (id, iid, model, manuf) in rows {
+    for (id, iid, model, manuf, lab_id) in rows {
         sqlx::query(
-            "INSERT INTO genomics.sequencer_instrument (id, instrument_id, model_name, manufacturer) \
-             OVERRIDING SYSTEM VALUE VALUES ($1,$2,$3,$4) ON CONFLICT (instrument_id) DO NOTHING",
+            "INSERT INTO genomics.sequencer_instrument (id, instrument_id, model_name, manufacturer, lab_id) \
+             OVERRIDING SYSTEM VALUE VALUES ($1,$2,$3,$4,$5) ON CONFLICT (instrument_id) DO NOTHING",
         )
-        .bind(id).bind(iid).bind(model).bind(manuf)
+        .bind(id).bind(iid).bind(model).bind(manuf).bind(lab_id)
         .execute(&mut *tx)
         .await?;
     }

@@ -166,6 +166,22 @@ Bucket B is inherently two-sided. Each net-new AppView doc must pin the
   only brokers + attests.
 - `ResearchSubject` ↔ Navigator `biosample.guid`: AppView stores the **opaque** id +
   hashes; the clear `external_id(source, id)` stays in Navigator's local store.
+- **Sequencer-lab lookup (D8) — lookup endpoint DONE 2026-06-12; consensus engine
+  remains.** Navigator's Rust rewrite **lost** the Scala lab association
+  (FGC/FTDNA/YSEQ/Dante/Nebula…) + read-name platform/instrument inference; it's being
+  restored Navigator-side (read-name scan → `instrument_id`/flowcell/model + a local
+  `labs` catalog). The **AppView lookup endpoint is now built**:
+  **`GET /api/v1/sequencer/lab?instrument_id=…`** (single lookup, 404 if unknown) and
+  **`GET /api/v1/sequencer/lab-instruments`** (bulk cache seed), resolving via the
+  **preseeded** `genomics.sequencer_instrument.lab_id` (mig 0025 re-adds it; the ETL
+  backfills the legacy tie that the 0004 redesign had dropped; `du_db::sequencer`). The
+  proposal/consensus path is **not live anywhere**, so the lookup uses the direct tie and
+  the proposal tables stay dormant (memory `sequencer-lab-lookup`). **Remaining D8:** the
+  consensus engine — Navigator publishes `instrument_id` on the `sequencerun` fed record →
+  `instrument_observation`→`proposal`→accept (`fed.sequencerun.instrument_id` is the
+  documented consensus source), with confidence scoring + curator review. Until that
+  ships, Navigator sets the lab manually from its local catalog and stores the
+  `instrument_id` so a later backfill can resolve it.
 
 ## 7. Open strategic questions
 

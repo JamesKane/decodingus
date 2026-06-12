@@ -24,6 +24,7 @@ pub mod pagination;
 pub mod pdf;
 pub mod proposal;
 pub mod publication;
+pub mod sequencer;
 pub mod snp_graft;
 pub mod study;
 pub mod support;

@@ -112,6 +112,39 @@ pub struct TreeVersionDto {
     pub updated_at: String,
 }
 
+/// A sequencing instrument resolved to its laboratory (Edge `@RG` lookup).
+#[derive(Serialize, ToSchema)]
+pub struct SequencerLabDto {
+    /// The `@RG` instrument id (e.g. `A00123`).
+    pub instrument_id: String,
+    pub lab_name: String,
+    /// Direct-to-consumer lab (vs. clinical/academic).
+    pub is_d2c: bool,
+    pub manufacturer: Option<String>,
+    pub model_name: Option<String>,
+    pub website_url: Option<String>,
+}
+
+impl From<du_db::sequencer::LabLookup> for SequencerLabDto {
+    fn from(l: du_db::sequencer::LabLookup) -> Self {
+        Self {
+            instrument_id: l.instrument_id,
+            lab_name: l.lab_name,
+            is_d2c: l.is_d2c,
+            manufacturer: l.manufacturer,
+            model_name: l.model_name,
+            website_url: l.website_url,
+        }
+    }
+}
+
+/// Query for the single-instrument lab lookup.
+#[derive(Deserialize, IntoParams)]
+struct InstrumentParams {
+    /// The `@RG` instrument id to resolve, e.g. `A00123`.
+    instrument_id: String,
+}
+
 #[derive(Serialize, ToSchema)]
 pub struct CoverageBenchmarkDto {
     pub lab: Option<String>,
@@ -674,6 +707,23 @@ async fn coverage_benchmarks(State(st): State<AppState>) -> Result<Json<Vec<Cove
     Ok(Json(rows.into_iter().map(CoverageBenchmarkDto::from).collect()))
 }
 
+#[utoipa::path(get, path = "/api/v1/sequencer/lab", params(InstrumentParams), tag = "sequencer",
+    responses((status = 200, description = "The instrument's sequencing lab", body = SequencerLabDto),
+              (status = 404, description = "Unknown instrument or no lab association")))]
+async fn sequencer_lab(State(st): State<AppState>, Query(q): Query<InstrumentParams>) -> Result<Json<SequencerLabDto>, AppError> {
+    let id = q.instrument_id.trim();
+    du_db::sequencer::lookup_lab(&st.pool, id)
+        .await?
+        .map(|l| Json(SequencerLabDto::from(l)))
+        .ok_or_else(|| AppError::NotFound(format!("instrument {id}")))
+}
+
+#[utoipa::path(get, path = "/api/v1/sequencer/lab-instruments", tag = "sequencer",
+    responses((status = 200, description = "All preseeded instrument→lab associations (bulk cache seed)", body = [SequencerLabDto])))]
+async fn sequencer_lab_instruments(State(st): State<AppState>) -> Result<Json<Vec<SequencerLabDto>>, AppError> {
+    Ok(Json(du_db::sequencer::lab_instruments(&st.pool).await?.into_iter().map(SequencerLabDto::from).collect()))
+}
+
 #[utoipa::path(get, path = "/api/v1/haplogroups/{haplogroupName}/str-signature", tag = "tree",
     responses((status = 200, description = "Aggregated modal Y-STR signature for a haplogroup", body = [StrSignatureMarkerDto])))]
 async fn haplogroup_str_signature(
@@ -1044,14 +1094,14 @@ fn csv_field(s: &str) -> String {
 #[openapi(
     info(title = "DecodingUs API", version = "1.0.0", description = "Public read API for the DecodingUs AppView."),
     paths(
-        y_tree, mt_tree, y_tree_full, mt_tree_full, y_tree_version, mt_tree_version, coverage_benchmarks, references_details, biosample_report, sample_report, biosample_studies,
+        y_tree, mt_tree, y_tree_full, mt_tree_full, y_tree_version, mt_tree_version, coverage_benchmarks, sequencer_lab, sequencer_lab_instruments, references_details, biosample_report, sample_report, biosample_studies,
         list_variants, get_variant, variants_by_haplogroup, export_metadata, export_variants,
         export_variants_gff, list_region_builds, regions_by_build,
         reports_coverage, reports_ancestry, reports_haplogroups,
         haplogroup_str_signature, haplogroup_age, str_predict,
     ),
     components(schemas(
-        VariantDto, HaplogroupNodeDto, TreeDto, TreeVersionDto, CoverageBenchmarkDto, PublicationDto, BiosampleDto,
+        VariantDto, HaplogroupNodeDto, TreeDto, TreeVersionDto, CoverageBenchmarkDto, SequencerLabDto, PublicationDto, BiosampleDto,
         SampleReportDto, HaplogroupPathwayDto, PathwayStepDto, SequencingRunDto, CoverageSummaryDto,
         AncestryDto, SamplePublicationDto,
         GenomeRegionDto, StudyDto, ExportMetadataDto, Page<VariantDto>, Page<PublicationDto>, Page<BiosampleDto>,
@@ -1062,6 +1112,7 @@ fn csv_field(s: &str) -> String {
         (name = "tree", description = "Y/MT haplogroup trees"),
         (name = "variants", description = "Variant catalog"),
         (name = "coverage", description = "Sequencing coverage benchmarks"),
+        (name = "sequencer", description = "Sequencer instrument → lab lookup"),
         (name = "references", description = "Publications, biosamples, studies"),
         (name = "genome-regions", description = "Multi-build genome regions"),
         (name = "reports", description = "Population reports aggregated from the federated mirror"),
@@ -1078,6 +1129,8 @@ pub fn router() -> Router<AppState> {
         .route("/api/v1/y-tree/version", get(y_tree_version))
         .route("/api/v1/mt-tree/version", get(mt_tree_version))
         .route("/api/v1/coverage/benchmarks", get(coverage_benchmarks))
+        .route("/api/v1/sequencer/lab", get(sequencer_lab))
+        .route("/api/v1/sequencer/lab-instruments", get(sequencer_lab_instruments))
         .route("/api/v1/reports/coverage", get(reports_coverage))
         .route("/api/v1/reports/ancestry", get(reports_ancestry))
         .route("/api/v1/reports/haplogroups", get(reports_haplogroups))
@@ -1230,5 +1283,50 @@ mod tests {
         let v: serde_json::Value = serde_json::from_slice(&vbody).unwrap();
         assert_eq!(v["etag"].as_str().unwrap(), etag3);
         assert!(v["revision"].as_i64().unwrap() >= 2);
+    }
+
+    #[test]
+    fn sequencer_lab_dto_serializes_snake_case() {
+        use super::SequencerLabDto;
+        let dto = SequencerLabDto {
+            instrument_id: "A00123".into(),
+            lab_name: "Nebula Genomics".into(),
+            is_d2c: true,
+            manufacturer: Some("Illumina".into()),
+            model_name: Some("NovaSeq 6000".into()),
+            website_url: Some("https://nebula.org".into()),
+        };
+        let v = serde_json::to_value(dto).unwrap();
+        assert_eq!(v["instrument_id"], "A00123");
+        assert_eq!(v["lab_name"], "Nebula Genomics");
+        assert_eq!(v["is_d2c"], true);
+        assert_eq!(v["model_name"], "NovaSeq 6000");
+        assert_eq!(v["website_url"], "https://nebula.org");
+    }
+
+    /// Sequencer endpoints over HTTP (routing + error mapping). Against an empty
+    /// catalog: an unknown instrument → 404, the bulk list → 200 with `[]`.
+    /// (The 200-with-data resolution is covered by `du-db/tests/sequencer.rs`.)
+    #[tokio::test]
+    async fn sequencer_endpoints_route_and_404() {
+        let Some(url) = std::env::var("DATABASE_URL").ok().filter(|s| !s.is_empty()) else {
+            eprintln!("DATABASE_URL unset — skipping sequencer endpoint test");
+            return;
+        };
+        use axum::body::{to_bytes, Body};
+        use axum::http::{Request, StatusCode};
+        use tower::ServiceExt;
+
+        let db = du_db::testing::ephemeral_db(&url).await.expect("ephemeral db");
+        let state = super::AppState { pool: db.pool().clone(), key: tower_cookies::Key::generate(), oauth: None };
+        let app = super::router().with_state(state);
+
+        let r404 = app.clone().oneshot(Request::builder().uri("/api/v1/sequencer/lab?instrument_id=NOPE").body(Body::empty()).unwrap()).await.unwrap();
+        assert_eq!(r404.status(), StatusCode::NOT_FOUND);
+
+        let rl = app.clone().oneshot(Request::builder().uri("/api/v1/sequencer/lab-instruments").body(Body::empty()).unwrap()).await.unwrap();
+        assert_eq!(rl.status(), StatusCode::OK);
+        let list: serde_json::Value = serde_json::from_slice(&to_bytes(rl.into_body(), usize::MAX).await.unwrap()).unwrap();
+        assert_eq!(list.as_array().unwrap().len(), 0);
     }
 }

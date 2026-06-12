@@ -80,6 +80,9 @@ const CHECKS: &[Check] = &[
     Check { label: "genbank_contig", legacy_sql: "SELECT count(*) FROM public.genbank_contig", target_sql: "SELECT count(*) FROM genomics.genbank_contig" },
     Check { label: "sequencing_lab", legacy_sql: "SELECT count(*) FROM public.sequencing_lab", target_sql: "SELECT count(*) FROM genomics.sequencing_lab" },
     Check { label: "sequencer_instrument", legacy_sql: "SELECT count(DISTINCT instrument_id) FROM public.sequencer_instrument", target_sql: "SELECT count(*) FROM genomics.sequencer_instrument" },
+    // The preseeded instrument→lab tie carried onto sequencer_instrument.lab_id
+    // (mig 0025) — every deduped instrument keeps its lab association.
+    Check { label: "sequencer_instrument_lab", legacy_sql: "SELECT count(DISTINCT instrument_id) FROM public.sequencer_instrument WHERE lab_id IS NOT NULL", target_sql: "SELECT count(*) FROM genomics.sequencer_instrument WHERE lab_id IS NOT NULL" },
     Check { label: "test_type_definition", legacy_sql: "SELECT count(*) FROM public.test_type_definition", target_sql: "SELECT count(*) FROM genomics.test_type_definition" },
     Check { label: "pangenome_graph", legacy_sql: "SELECT count(*) FROM public.pangenome_graph", target_sql: "SELECT count(*) FROM genomics.pangenome_graph" },
     Check { label: "pangenome_path", legacy_sql: "SELECT count(*) FROM public.pangenome_path", target_sql: "SELECT count(*) FROM genomics.pangenome_path" },
