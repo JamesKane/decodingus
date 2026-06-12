@@ -206,6 +206,44 @@ pub(crate) async fn ensure_base_variant_id(
     .await?)
 }
 
+/// Get-or-create a coordinate-only (novel, unnamed) variant. With no real name to
+/// key on, the partial unique index can't dedupe it, so we mint a **deterministic
+/// synthetic `canonical_name`** from the GRCh38 coordinates (`chrY:21648000A>G`) —
+/// stable across runs (idempotent), `UNNAMED`, and easy for a curator to later fold
+/// onto a real name via [`merge_into`]. Sets coordinates on first mint; writes
+/// nothing on conflict (same no-op-write discipline as [`ensure_base_variant_id`]).
+pub(crate) async fn ensure_variant_by_coords(
+    conn: &mut sqlx::PgConnection,
+    contig: &str,
+    position: i64,
+    ancestral: Option<&str>,
+    derived: Option<&str>,
+) -> Result<i64, DbError> {
+    let synth = format!("{contig}:{position}{}>{}", ancestral.unwrap_or(""), derived.unwrap_or(""));
+    let coords = serde_json::json!({ "GRCh38": {
+        "contig": contig, "position": position, "ancestral": ancestral, "derived": derived
+    }});
+    if let Some(id) = sqlx::query_scalar::<_, i64>(
+        "INSERT INTO core.variant (canonical_name, mutation_type, naming_status, coordinates) \
+         VALUES ($1, 'SNP'::core.mutation_type, 'UNNAMED'::core.naming_status, $2) \
+         ON CONFLICT (canonical_name, COALESCE(defining_haplogroup_id, -1)) WHERE canonical_name IS NOT NULL \
+         DO NOTHING RETURNING id",
+    )
+    .bind(&synth)
+    .bind(&coords)
+    .fetch_optional(&mut *conn)
+    .await?
+    {
+        return Ok(id);
+    }
+    Ok(sqlx::query_scalar::<_, i64>(
+        "SELECT id FROM core.variant WHERE canonical_name = $1 AND defining_haplogroup_id IS NULL",
+    )
+    .bind(&synth)
+    .fetch_one(&mut *conn)
+    .await?)
+}
+
 /// Whether the variant is referenced by a current haplogroup association
 /// (a guard before deletion).
 pub async fn is_referenced(pool: &PgPool, id: VariantId) -> Result<bool, DbError> {

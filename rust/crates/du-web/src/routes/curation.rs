@@ -95,10 +95,17 @@ struct Row {
     id: i64,
     name: String,
     parent: String,
+    dna: String,
     status: String,
     evidence_count: i32,
     submitter_count: i32,
     confidence: String,
+}
+
+/// A defining variant of a proposal (name + cross-submitter support).
+struct VarRow {
+    name: String,
+    support: i32,
 }
 
 struct ListView {
@@ -118,8 +125,9 @@ struct ListQuery {
 fn to_row(s: du_db::proposal::ProposalSummary) -> Row {
     Row {
         id: s.id,
-        name: s.proposed_name.unwrap_or_default(),
+        name: s.proposed_name.filter(|n| !n.is_empty()).unwrap_or_else(|| "(unnamed)".into()),
         parent: s.parent_name.unwrap_or_else(|| "—".into()),
+        dna: s.dna_type.unwrap_or_default(),
         status: s.status,
         evidence_count: s.evidence_count,
         submitter_count: s.submitter_count,
@@ -129,7 +137,8 @@ fn to_row(s: du_db::proposal::ProposalSummary) -> Row {
 
 async fn load_list(st: &AppState, q: &ListQuery) -> Result<ListView, AppError> {
     let status = q.status.as_deref().filter(|s| !s.is_empty());
-    let result = du_db::proposal::list(&st.pool, status, q.page.unwrap_or(1), 20).await?;
+    let filter = du_db::proposal::ProposalFilter { status, ..Default::default() };
+    let result = du_db::proposal::list(&st.pool, &filter, q.page.unwrap_or(1), 20).await?;
     let (page, total, total_pages) = (result.page, result.total, result.total_pages());
     Ok(ListView {
         status: q.status.clone().unwrap_or_default(),
@@ -185,26 +194,39 @@ async fn list(
 struct DetailTemplate {
     t: T,
     row: Row,
+    variants: Vec<VarRow>,
     evidence: Vec<String>,
-    /// True while still open to a decision (PROPOSED / UNDER_REVIEW).
+    /// True while still open to a decision (PROPOSED / UNDER_REVIEW /
+    /// READY_FOR_REVIEW / SPLIT_CANDIDATE — the engine's actionable states).
     open: bool,
     /// True when ACCEPTED and not yet promoted (show the Promote button).
     accepted: bool,
+    /// The engine flagged a diverging submitter — show the split banner.
+    split: bool,
 }
 
 async fn detail_view(st: &AppState, t: T, id: i64) -> Result<Response, AppError> {
     let d = du_db::proposal::get(&st.pool, id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("proposal {id}")))?;
-    let open = matches!(d.summary.status.as_str(), "PROPOSED" | "UNDER_REVIEW");
+    let open = matches!(
+        d.summary.status.as_str(),
+        "PROPOSED" | "UNDER_REVIEW" | "READY_FOR_REVIEW" | "SPLIT_CANDIDATE"
+    );
     let accepted = d.summary.status == "ACCEPTED";
+    let split = d.summary.status == "SPLIT_CANDIDATE";
     let row = to_row(d.summary);
+    let variants = d
+        .variants
+        .into_iter()
+        .map(|v| VarRow { name: v.name.unwrap_or_else(|| "(unnamed)".into()), support: v.supporting_sample_count })
+        .collect();
     let evidence = d
         .evidence
         .iter()
         .map(|v| serde_json::to_string_pretty(v).unwrap_or_default())
         .collect();
-    Ok(html(&DetailTemplate { t, row, evidence, open, accepted }))
+    Ok(html(&DetailTemplate { t, row, variants, evidence, open, accepted, split }))
 }
 
 async fn panel(

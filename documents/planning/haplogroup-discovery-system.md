@@ -7,15 +7,27 @@
 > **curator review/promote + proposal-pooling half is built** (`du-db::proposal`,
 > `/curator/proposals`, `/manage/curation/proposals` intake).
 >
-> **Architecture evolved:** the Rust model is **Edge-submits-proposals** —
-> Navigator extracts the private variants and submits a proposal; the AppView pools
-> by `(name, parent)` across submitters. There is **no AppView-side extraction from
+> **Architecture evolved:** the Rust model is **Edge-submits** —
+> Navigator extracts the private variants and the citizen publishes them; the AppView
+> pools across submitters. There is **no AppView-side extraction from
 > `HaplogroupResult.mismatchingSnps`** as the pipeline below describes (this aligns
-> with the no-PII / edge-compute direction). The automated consensus/Jaccard engine
-> + auto-reassignment remain **forward = `design-roadmap-rust-rewrite.md` D6**.
-> Restate Scala/Slick/Tapir, "Firehose", and `/api/v1/discovery/*` /
-> `/api/v1/curator/proposals/*` specifics in Rust terms. Triage:
-> `design-doc-triage-report.md` §8.
+> with the no-PII / edge-compute direction).
+>
+> **D6 DONE (2026-06-12).** Delivery is a **`com.decodingus.atmosphere.privateVariant`
+> lexicon** record (one per biosample/DNA-arm: terminal + variant calls) mirrored via
+> Jetstream into `fed.private_variant` (mig 0028). The **discovery consensus engine**
+> (`du_db::discovery`, mig 0029) materializes them into `tree.biosample_private_variant`
+> and pools the per-sample variant sets into `tree.proposed_branch` by **variant-set
+> Jaccard** — a declarative, idempotent recompute (stable proposal ids via a
+> `cluster_key` partial-unique index, config thresholds from `tree.discovery_config`,
+> confidence = count + distinct submitters + variant-set consistency,
+> `READY_FOR_REVIEW`/`SPLIT_CANDIDATE` transitions, opt-in auto-promote off by
+> default). Promotion reassigns + freezes the contributing samples
+> (`discovery::reassign_after_promote`). Read API `GET /api/v1/discovery/proposals[/:id]`;
+> the `/curator/proposals` UI surfaces defining variants + confidence + a split banner.
+> The Scala/Slick/Tapir/"Firehose"/`mismatchingSnps`-extraction specifics below are
+> **superseded** — kept for historical context only. Memory `discovery-consensus-engine`;
+> triage `design-doc-triage-report.md` §8.
 
 ## Executive Summary
 

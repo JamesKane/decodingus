@@ -29,15 +29,33 @@ pub struct ProposalSummary {
     pub id: i64,
     pub proposed_name: Option<String>,
     pub parent_name: Option<String>,
+    pub dna_type: Option<String>,
     pub evidence_count: i32,
     pub submitter_count: i32,
     pub confidence: Option<f64>,
     pub status: String,
 }
 
+/// A proposed branch's defining variant (with cross-submitter support count).
+#[derive(sqlx::FromRow)]
+pub struct DefiningVariantView {
+    pub name: Option<String>,
+    pub supporting_sample_count: i32,
+}
+
 pub struct ProposalDetail {
     pub summary: ProposalSummary,
+    pub variants: Vec<DefiningVariantView>,
     pub evidence: Vec<Value>,
+}
+
+/// Filter for [`list`]. All fields optional (None = unfiltered).
+#[derive(Default)]
+pub struct ProposalFilter<'a> {
+    pub status: Option<&'a str>,
+    pub dna_type: Option<&'a str>,
+    pub parent: Option<&'a str>,
+    pub min_consensus: Option<i64>,
 }
 
 /// Submit a proposal, pooling into an existing open proposal with the same
@@ -117,33 +135,48 @@ pub async fn submit(pool: &PgPool, p: &SubmitProposal) -> Result<(i64, bool), Db
 }
 
 const SUMMARY_SELECT: &str = "SELECT pb.id, pb.proposed_name, h.name AS parent_name, \
+    pb.haplogroup_type::text AS dna_type, \
     pb.evidence_count, cardinality(pb.discovery_sample_guids) AS submitter_count, \
     pb.confidence::float8 AS confidence, pb.status \
     FROM tree.proposed_branch pb LEFT JOIN tree.haplogroup h ON h.id = pb.parent_haplogroup_id";
 
-/// List proposals, optionally filtered by status, newest first.
+/// Predicates shared by the list count + page queries (binds $1..$4).
+const LIST_FILTER: &str = "WHERE ($1::text IS NULL OR pb.status = $1) \
+    AND ($2::text IS NULL OR pb.haplogroup_type::text = $2) \
+    AND ($3::text IS NULL OR h.name = $3) \
+    AND ($4::bigint IS NULL OR cardinality(pb.discovery_sample_guids) >= $4)";
+
+/// List proposals matching `filter`, newest first.
 pub async fn list(
     pool: &PgPool,
-    status: Option<&str>,
+    filter: &ProposalFilter<'_>,
     page: i64,
     page_size: i64,
 ) -> Result<Page<ProposalSummary>, DbError> {
     let offset = Page::<()>::offset(page, page_size);
     let limit = page_size.clamp(1, 200);
-    let filter = "WHERE ($1::text IS NULL OR pb.status = $1)";
 
-    let total: i64 =
-        sqlx::query_scalar(&format!("SELECT count(*) FROM tree.proposed_branch pb {filter}"))
-            .bind(status)
-            .fetch_one(pool)
-            .await?;
-    let items: Vec<ProposalSummary> =
-        sqlx::query_as(&format!("{SUMMARY_SELECT} {filter} ORDER BY pb.id DESC LIMIT $2 OFFSET $3"))
-            .bind(status)
-            .bind(limit)
-            .bind(offset)
-            .fetch_all(pool)
-            .await?;
+    let total: i64 = sqlx::query_scalar(&format!(
+        "SELECT count(*) FROM tree.proposed_branch pb \
+         LEFT JOIN tree.haplogroup h ON h.id = pb.parent_haplogroup_id {LIST_FILTER}"
+    ))
+    .bind(filter.status)
+    .bind(filter.dna_type)
+    .bind(filter.parent)
+    .bind(filter.min_consensus)
+    .fetch_one(pool)
+    .await?;
+    let items: Vec<ProposalSummary> = sqlx::query_as(&format!(
+        "{SUMMARY_SELECT} {LIST_FILTER} ORDER BY pb.id DESC LIMIT $5 OFFSET $6"
+    ))
+    .bind(filter.status)
+    .bind(filter.dna_type)
+    .bind(filter.parent)
+    .bind(filter.min_consensus)
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(pool)
+    .await?;
     Ok(Page { items, total, page: page.max(1), page_size: limit })
 }
 
@@ -154,13 +187,21 @@ pub async fn get(pool: &PgPool, id: i64) -> Result<Option<ProposalDetail>, DbErr
             .fetch_optional(pool)
             .await?;
     let Some(summary) = summary else { return Ok(None) };
+    let variants: Vec<DefiningVariantView> = sqlx::query_as(
+        "SELECT v.canonical_name AS name, pbv.supporting_sample_count \
+         FROM tree.proposed_branch_variant pbv JOIN core.variant v ON v.id = pbv.variant_id \
+         WHERE pbv.proposed_branch_id = $1 ORDER BY pbv.supporting_sample_count DESC, v.canonical_name",
+    )
+    .bind(id)
+    .fetch_all(pool)
+    .await?;
     let evidence: Vec<Value> = sqlx::query_scalar(
         "SELECT evidence_detail FROM tree.proposed_branch_evidence WHERE proposed_branch_id = $1 ORDER BY id",
     )
     .bind(id)
     .fetch_all(pool)
     .await?;
-    Ok(Some(ProposalDetail { summary, evidence }))
+    Ok(Some(ProposalDetail { summary, variants, evidence }))
 }
 
 /// A defining variant extracted from proposal evidence.
@@ -278,12 +319,17 @@ pub async fn promote(pool: &PgPool, id: i64, action_by: &str) -> Result<i64, DbE
         .bind(id)
         .execute(&mut *tx)
         .await?;
+
+    // Reassign the contributing samples to the new terminal (and freeze their
+    // private variants) atomically with the branch creation.
+    let reassigned = crate::discovery::reassign_after_promote(&mut tx, id, new_id).await?;
+
     sqlx::query(
         "INSERT INTO tree.curator_action (proposed_branch_id, action, notes, action_by) \
          VALUES ($1, 'PROMOTE', $2, $3)",
     )
     .bind(id)
-    .bind(format!("promoted to haplogroup #{new_id}"))
+    .bind(format!("promoted to haplogroup #{new_id} ({reassigned} samples reassigned)"))
     .bind(action_by)
     .execute(&mut *tx)
     .await?;

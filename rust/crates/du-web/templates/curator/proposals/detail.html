@@ -5,12 +5,28 @@
     <span class="badge text-bg-secondary">{{ row.status }}</span>
   </div>
   <div class="card-body">
+    {% if split %}
+    <div class="alert alert-warning py-2 px-3 small mb-3">{{ t.get("prop.split.note") }}</div>
+    {% endif %}
     <dl class="row mb-2">
       <dt class="col-6">{{ t.get("prop.col.parent") }}</dt><dd class="col-6">{{ row.parent }}</dd>
+      <dt class="col-6">{{ t.get("prop.col.dna") }}</dt><dd class="col-6">{{ row.dna }}</dd>
       <dt class="col-6">{{ t.get("prop.col.evidence") }}</dt><dd class="col-6">{{ row.evidence_count }}</dd>
       <dt class="col-6">{{ t.get("prop.col.submitters") }}</dt><dd class="col-6">{{ row.submitter_count }}</dd>
       <dt class="col-6">{{ t.get("prop.col.confidence") }}</dt><dd class="col-6">{{ row.confidence }}</dd>
     </dl>
+
+    {% if !variants.is_empty() %}
+    <h6>{{ t.get("prop.variants") }}</h6>
+    <table class="table table-sm align-middle mb-3">
+      <thead><tr><th>{{ t.get("prop.var.name") }}</th><th class="text-end">{{ t.get("prop.var.support") }}</th></tr></thead>
+      <tbody>
+        {% for v in variants %}
+        <tr><td><code>{{ v.name }}</code></td><td class="text-end">{{ v.support }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
 
     <h6>{{ t.get("prop.evidence") }}</h6>
     {% for e in evidence %}

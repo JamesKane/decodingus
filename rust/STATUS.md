@@ -307,14 +307,24 @@ Launch-critical first, then the post-launch feature mass.
    host) → it's the Edge joint test. Token path wired; remainder is the browser
    consent + cross-host verify. Runbook: `docs/atproto-oauth-findings.md`,
    `docs/atproto-edge-reply.md`.
-3. **Haplogroup-discovery AUTOMATION** — the largest remaining forward subsystem.
-   The *curator* half (proposals → review → promote) is built; the *automated* half
-   is not: `tree.biosample_private_variant` is **never written** (only read by
-   `age.rs`); no private-variant extraction from the federation ingest, no
-   Jaccard/consensus proposal engine, no thresholds (`discovery_config` unused),
-   no auto-reassignment. Depends on the federation ingest capturing private
-   variants. (`documents/planning/haplogroup-discovery-system.md`; memory
-   `design-doc-forward-pieces`.)
+3. **Haplogroup-discovery AUTOMATION — DONE (2026-06-12).** Both halves now built.
+   Citizens publish a **`privateVariant` lexicon** record (their variants beyond the
+   terminal); the Jetstream consumer mirrors it into `fed.private_variant` (mig 0028).
+   The **discovery consensus engine** (`du_db::discovery`, mig 0029) materializes them
+   into `tree.biosample_private_variant`, then pools per-sample variant sets into
+   `tree.proposed_branch` by **variant-set Jaccard** — deterministic, declarative
+   recompute (idempotent, stable-id UPSERT via a `cluster_key` partial index), config
+   thresholds from `tree.discovery_config`, real confidence (count + distinct
+   submitters + variant-set consistency), `READY_FOR_REVIEW`/`SPLIT_CANDIDATE`
+   transitions, opt-in auto-promote (off by default). On **promotion** the
+   contributing samples' private variants are marked `PROMOTED` + reassigned to the
+   new terminal (`discovery::reassign_after_promote`, in `proposal::promote`'s tx) —
+   which also freezes them out of the recompute loop. Read API
+   `GET /api/v1/discovery/proposals[/:id]`; the `/curator/proposals` UI now shows
+   defining variants + confidence + a split banner. Job `du-jobs run-once
+   discovery-consensus` (+ hourly). Mirrors the sequencer engine's structure. Memory
+   `discovery-consensus-engine`. **Remaining (future):** split *execution* (flagging
+   only), a deepest-defined-branch read-path, geographic/temporal confidence signals.
 4. **Multi-test-type completion** — taxonomy (`genomics.test_type_definition`) +
    chip/targeted metadata ingest (via `fed.*`) are built; marker-coverage /
    target-region / test-type-aware confidence-scoring tables are **not**, and

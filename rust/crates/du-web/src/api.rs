@@ -138,6 +138,58 @@ impl From<du_db::sequencer::LabLookup> for SequencerLabDto {
     }
 }
 
+/// A defining variant of a discovery proposal (with cross-submitter support).
+#[derive(Serialize, ToSchema)]
+pub struct DiscoveryVariantDto {
+    pub name: Option<String>,
+    pub supporting_sample_count: i32,
+}
+
+/// A proposed haplogroup branch from the discovery consensus engine.
+#[derive(Serialize, ToSchema)]
+pub struct DiscoveryProposalDto {
+    pub id: i64,
+    pub proposed_name: Option<String>,
+    pub parent_haplogroup: Option<String>,
+    pub dna_type: Option<String>,
+    pub status: String,
+    /// Supporting private-variant observations.
+    pub evidence_count: i32,
+    /// Distinct contributing samples.
+    pub submitter_count: i32,
+    pub confidence: Option<f64>,
+    /// Defining variants (detail only; empty in list responses).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub variants: Vec<DiscoveryVariantDto>,
+}
+
+impl From<du_db::proposal::ProposalSummary> for DiscoveryProposalDto {
+    fn from(s: du_db::proposal::ProposalSummary) -> Self {
+        Self {
+            id: s.id,
+            proposed_name: s.proposed_name,
+            parent_haplogroup: s.parent_name,
+            dna_type: s.dna_type,
+            status: s.status,
+            evidence_count: s.evidence_count,
+            submitter_count: s.submitter_count,
+            confidence: s.confidence,
+            variants: Vec::new(),
+        }
+    }
+}
+
+impl DiscoveryProposalDto {
+    fn from_detail(d: du_db::proposal::ProposalDetail) -> Self {
+        let variants = d
+            .variants
+            .into_iter()
+            .map(|v| DiscoveryVariantDto { name: v.name, supporting_sample_count: v.supporting_sample_count })
+            .collect();
+        Self { variants, ..Self::from(d.summary) }
+    }
+}
+
 /// Query for the single-instrument lab lookup.
 #[derive(Deserialize, IntoParams)]
 struct InstrumentParams {
@@ -724,6 +776,45 @@ async fn sequencer_lab_instruments(State(st): State<AppState>) -> Result<Json<Ve
     Ok(Json(du_db::sequencer::lab_instruments(&st.pool).await?.into_iter().map(SequencerLabDto::from).collect()))
 }
 
+#[derive(Deserialize, IntoParams)]
+struct DiscoveryQuery {
+    /// DNA arm: `Y_DNA` or `MT_DNA`.
+    #[serde(rename = "type")]
+    dna_type: Option<String>,
+    /// Proposal status (e.g. `READY_FOR_REVIEW`, `SPLIT_CANDIDATE`).
+    status: Option<String>,
+    /// Parent (terminal) haplogroup name.
+    parent: Option<String>,
+    /// Minimum distinct contributing samples.
+    min_consensus: Option<i64>,
+    page: Option<i64>,
+    page_size: Option<i64>,
+}
+
+#[utoipa::path(get, path = "/api/v1/discovery/proposals", params(DiscoveryQuery), tag = "discovery",
+    responses((status = 200, description = "Proposed haplogroup branches (paginated)", body = Page<DiscoveryProposalDto>)))]
+async fn discovery_proposals(State(st): State<AppState>, Query(q): Query<DiscoveryQuery>) -> Result<Json<Page<DiscoveryProposalDto>>, AppError> {
+    let filter = du_db::proposal::ProposalFilter {
+        status: q.status.as_deref().filter(|s| !s.is_empty()),
+        dna_type: q.dna_type.as_deref().filter(|s| !s.is_empty()),
+        parent: q.parent.as_deref().filter(|s| !s.is_empty()),
+        min_consensus: q.min_consensus,
+    };
+    let page = du_db::proposal::list(&st.pool, &filter, q.page.unwrap_or(1), q.page_size.unwrap_or(50)).await?;
+    Ok(Json(page.into()))
+}
+
+#[utoipa::path(get, path = "/api/v1/discovery/proposals/{id}",
+    params(("id" = i64, Path, description = "Proposal id")), tag = "discovery",
+    responses((status = 200, description = "A proposal with its defining variants", body = DiscoveryProposalDto),
+              (status = 404, description = "Not found")))]
+async fn discovery_proposal(State(st): State<AppState>, Path(id): Path<i64>) -> Result<Json<DiscoveryProposalDto>, AppError> {
+    du_db::proposal::get(&st.pool, id)
+        .await?
+        .map(|d| Json(DiscoveryProposalDto::from_detail(d)))
+        .ok_or_else(|| AppError::NotFound(format!("proposal {id}")))
+}
+
 #[utoipa::path(get, path = "/api/v1/haplogroups/{haplogroupName}/str-signature", tag = "tree",
     responses((status = 200, description = "Aggregated modal Y-STR signature for a haplogroup", body = [StrSignatureMarkerDto])))]
 async fn haplogroup_str_signature(
@@ -1094,14 +1185,14 @@ fn csv_field(s: &str) -> String {
 #[openapi(
     info(title = "DecodingUs API", version = "1.0.0", description = "Public read API for the DecodingUs AppView."),
     paths(
-        y_tree, mt_tree, y_tree_full, mt_tree_full, y_tree_version, mt_tree_version, coverage_benchmarks, sequencer_lab, sequencer_lab_instruments, references_details, biosample_report, sample_report, biosample_studies,
+        y_tree, mt_tree, y_tree_full, mt_tree_full, y_tree_version, mt_tree_version, coverage_benchmarks, sequencer_lab, sequencer_lab_instruments, discovery_proposals, discovery_proposal, references_details, biosample_report, sample_report, biosample_studies,
         list_variants, get_variant, variants_by_haplogroup, export_metadata, export_variants,
         export_variants_gff, list_region_builds, regions_by_build,
         reports_coverage, reports_ancestry, reports_haplogroups,
         haplogroup_str_signature, haplogroup_age, str_predict,
     ),
     components(schemas(
-        VariantDto, HaplogroupNodeDto, TreeDto, TreeVersionDto, CoverageBenchmarkDto, SequencerLabDto, PublicationDto, BiosampleDto,
+        VariantDto, HaplogroupNodeDto, TreeDto, TreeVersionDto, CoverageBenchmarkDto, SequencerLabDto, DiscoveryProposalDto, DiscoveryVariantDto, Page<DiscoveryProposalDto>, PublicationDto, BiosampleDto,
         SampleReportDto, HaplogroupPathwayDto, PathwayStepDto, SequencingRunDto, CoverageSummaryDto,
         AncestryDto, SamplePublicationDto,
         GenomeRegionDto, StudyDto, ExportMetadataDto, Page<VariantDto>, Page<PublicationDto>, Page<BiosampleDto>,
@@ -1113,6 +1204,7 @@ fn csv_field(s: &str) -> String {
         (name = "variants", description = "Variant catalog"),
         (name = "coverage", description = "Sequencing coverage benchmarks"),
         (name = "sequencer", description = "Sequencer instrument → lab lookup"),
+        (name = "discovery", description = "Proposed haplogroup branches (discovery consensus)"),
         (name = "references", description = "Publications, biosamples, studies"),
         (name = "genome-regions", description = "Multi-build genome regions"),
         (name = "reports", description = "Population reports aggregated from the federated mirror"),
@@ -1131,6 +1223,8 @@ pub fn router() -> Router<AppState> {
         .route("/api/v1/coverage/benchmarks", get(coverage_benchmarks))
         .route("/api/v1/sequencer/lab", get(sequencer_lab))
         .route("/api/v1/sequencer/lab-instruments", get(sequencer_lab_instruments))
+        .route("/api/v1/discovery/proposals", get(discovery_proposals))
+        .route("/api/v1/discovery/proposals/:id", get(discovery_proposal))
         .route("/api/v1/reports/coverage", get(reports_coverage))
         .route("/api/v1/reports/ancestry", get(reports_ancestry))
         .route("/api/v1/reports/haplogroups", get(reports_haplogroups))
@@ -1328,5 +1422,31 @@ mod tests {
         assert_eq!(rl.status(), StatusCode::OK);
         let list: serde_json::Value = serde_json::from_slice(&to_bytes(rl.into_body(), usize::MAX).await.unwrap()).unwrap();
         assert_eq!(list.as_array().unwrap().len(), 0);
+    }
+
+    /// Discovery proposal endpoints over HTTP: an unknown id → 404, the list → 200
+    /// with an empty paginated body against an empty catalog.
+    #[tokio::test]
+    async fn discovery_endpoints_route_and_404() {
+        let Some(url) = std::env::var("DATABASE_URL").ok().filter(|s| !s.is_empty()) else {
+            eprintln!("DATABASE_URL unset — skipping discovery endpoint test");
+            return;
+        };
+        use axum::body::{to_bytes, Body};
+        use axum::http::{Request, StatusCode};
+        use tower::ServiceExt;
+
+        let db = du_db::testing::ephemeral_db(&url).await.expect("ephemeral db");
+        let state = super::AppState { pool: db.pool().clone(), key: tower_cookies::Key::generate(), oauth: None };
+        let app = super::router().with_state(state);
+
+        let r404 = app.clone().oneshot(Request::builder().uri("/api/v1/discovery/proposals/999999").body(Body::empty()).unwrap()).await.unwrap();
+        assert_eq!(r404.status(), StatusCode::NOT_FOUND);
+
+        let rl = app.clone().oneshot(Request::builder().uri("/api/v1/discovery/proposals?type=Y_DNA").body(Body::empty()).unwrap()).await.unwrap();
+        assert_eq!(rl.status(), StatusCode::OK);
+        let page: serde_json::Value = serde_json::from_slice(&to_bytes(rl.into_body(), usize::MAX).await.unwrap()).unwrap();
+        assert_eq!(page["total"], 0);
+        assert!(page["items"].as_array().unwrap().is_empty());
     }
 }

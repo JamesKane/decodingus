@@ -16,6 +16,7 @@ pub mod biosample;
 pub mod change_set;
 pub mod consent;
 pub mod coverage;
+pub mod discovery;
 pub mod fed;
 pub mod genome_region;
 pub mod haplogroup;

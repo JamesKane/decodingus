@@ -80,8 +80,18 @@ async fn main() -> anyhow::Result<()> {
                     auto_accepted = rep.auto_accepted, "sequencer-consensus complete"
                 );
             }
+            "discovery-consensus" => {
+                let cfg = du_db::discovery::load_config(&pool).await?;
+                let rep = du_db::discovery::recompute_consensus(&pool, &cfg).await?;
+                tracing::info!(
+                    bpv_upserted = rep.bpv_upserted, bpv_pruned = rep.bpv_pruned,
+                    unresolved = rep.samples_unresolved, proposals = rep.proposals_active,
+                    ready = rep.proposals_ready, split = rep.split_flagged,
+                    auto_promoted = rep.auto_promoted, "discovery-consensus complete"
+                );
+            }
             other => anyhow::bail!(
-                "unknown run-once job '{other}' (known: ybrowse, reconcile, yregions, branch-age, sequencer-consensus)"
+                "unknown run-once job '{other}' (known: ybrowse, reconcile, yregions, branch-age, sequencer-consensus, discovery-consensus)"
             ),
         }
         return Ok(());
@@ -203,6 +213,26 @@ async fn main() -> anyhow::Result<()> {
             }
         }));
         tracing::info!("sequencer-consensus registered");
+    }
+
+    // Haplogroup-discovery consensus: materialize federated private variants and pool
+    // them into proposed branches by variant-set Jaccard for curator review. DB-only.
+    {
+        let pool = pool.clone();
+        sched.register(Job::new("discovery-consensus", Duration::from_secs(3_600), move || {
+            let pool = pool.clone();
+            async move {
+                let cfg = du_db::discovery::load_config(&pool).await?;
+                let rep = du_db::discovery::recompute_consensus(&pool, &cfg).await?;
+                tracing::info!(
+                    bpv = rep.bpv_upserted, proposals = rep.proposals_active,
+                    ready = rep.proposals_ready, split = rep.split_flagged,
+                    auto_promoted = rep.auto_promoted, "discovery-consensus done"
+                );
+                Ok(())
+            }
+        }));
+        tracing::info!("discovery-consensus registered");
     }
 
     // TODO(jobs): variant-export to a file artifact (the /api/v1/variants/export
