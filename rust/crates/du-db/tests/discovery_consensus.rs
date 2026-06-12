@@ -50,6 +50,93 @@ fn vcall(name: &str, pos: i64) -> serde_json::Value {
     json!({ "name": name, "contig": "chrY", "position": pos, "ancestral": "A", "derived": "G" })
 }
 
+/// A Y cross-technology consensus reconciliation for a citizen's repo DID.
+async fn reconciliation(pool: &PgPool, did: &str, confidence: f64, t: i64) {
+    sqlx::query(
+        "INSERT INTO fed.haplogroup_reconciliation \
+            (did, rkey, at_uri, dna_type, compatibility_level, consensus_haplogroup, confidence, run_count, time_us) \
+         VALUES ($1, $2, $3, 'Y_DNA', 'COMPATIBLE', 'R-M269', $4, 2, $5)",
+    )
+    .bind(did)
+    .bind(format!("rec-{t}"))
+    .bind(format!("at://{did}/rec/{t}"))
+    .bind(confidence)
+    .bind(t)
+    .execute(pool)
+    .await
+    .expect("insert reconciliation");
+}
+
+/// A low-confidence contributor is excluded from pooling; a cluster of modest-but-
+/// kept reliability is down-weighted below the READY threshold.
+#[tokio::test]
+async fn reliability_gates_and_downweights() {
+    let Some(url) = database_url() else {
+        eprintln!("DATABASE_URL unset — skipping reliability test");
+        return;
+    };
+    let db = du_db::testing::ephemeral_db(&url).await.expect("ephemeral db");
+    let pool = db.pool().clone();
+
+    for name in ["R-M269", "R-L21"] {
+        sqlx::query("INSERT INTO tree.haplogroup (name, haplogroup_type) VALUES ($1,'Y_DNA'::core.dna_type)")
+            .bind(name)
+            .execute(&pool)
+            .await
+            .expect("terminal");
+    }
+    let cfg = DiscoveryConfig::default();
+    let shared = json!([vcall("FT9001", 21660001), vcall("FT9002", 21660002)]);
+
+    // ── Gate: under R-M269, four contributors share the set; one has a LOW-confidence
+    // consensus (0.2 < floor 0.5) and is excluded → the proposal counts 3, not 4.
+    let mut t = 300i64;
+    for (did, conf) in [("did:ex:ann", None), ("did:ex:ben", None), ("did:ex:cat", Some(0.95)), ("did:ex:dan", Some(0.2))] {
+        let (_g, uri) = biosample(&pool, did).await;
+        private_variant(&pool, did, &uri, "R-M269", shared.clone(), t).await;
+        if let Some(c) = conf {
+            reconciliation(&pool, did, c, t).await;
+        }
+        t += 1;
+    }
+
+    // ── Down-weight: under R-L21, three KEPT contributors all have modest reliability
+    // (0.6 ≥ floor) → not excluded, but confidence is pulled below READY.
+    for did in ["did:ex:eve", "did:ex:foy", "did:ex:gil"] {
+        let (_g, uri) = biosample(&pool, did).await;
+        private_variant(&pool, did, &uri, "R-L21", shared.clone(), t).await;
+        reconciliation(&pool, did, 0.6, t).await;
+        t += 1;
+    }
+
+    discovery::recompute_consensus(&pool, &cfg).await.expect("recompute");
+
+    // R-M269: the 0.2 contributor excluded → count 3.
+    let (m269_count, m269_status): (i32, String) = sqlx::query_as(
+        "SELECT pb.evidence_count, pb.status FROM tree.proposed_branch pb \
+         JOIN tree.haplogroup h ON h.id = pb.parent_haplogroup_id \
+         WHERE h.name = 'R-M269' AND pb.cluster_key IS NOT NULL",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("R-M269 proposal");
+    assert_eq!(m269_count, 3, "the low-confidence contributor is excluded");
+    assert_eq!(m269_status, "READY_FOR_REVIEW");
+
+    // R-L21: kept but down-weighted → 3 contributors yet not READY (confidence < 0.95).
+    let (l21_count, l21_status, l21_conf): (i32, String, f64) = sqlx::query_as(
+        "SELECT pb.evidence_count, pb.status, pb.confidence::float8 FROM tree.proposed_branch pb \
+         JOIN tree.haplogroup h ON h.id = pb.parent_haplogroup_id \
+         WHERE h.name = 'R-L21' AND pb.cluster_key IS NOT NULL",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("R-L21 proposal");
+    assert_eq!(l21_count, 3, "modest-reliability contributors are kept");
+    assert!(l21_conf < 0.95, "reliability down-weight pulls confidence below READY: {l21_conf}");
+    assert_eq!(l21_status, "PROPOSED");
+}
+
 #[tokio::test]
 async fn discovery_pools_proposes_and_is_idempotent() {
     let Some(url) = database_url() else {

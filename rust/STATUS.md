@@ -325,9 +325,25 @@ Launch-critical first, then the post-launch feature mass.
    discovery-consensus` (+ hourly). Mirrors the sequencer engine's structure. Memory
    `discovery-consensus-engine`. **Remaining (future):** split *execution* (flagging
    only), a deepest-defined-branch read-path, geographic/temporal confidence signals.
-4. **Multi-test-type — coverage norms & conformance DONE (2026-06-12).** Reframed
-   (per the user) from the Scala doc's haplogroup-marker/accuracy-tier/IBD machinery
-   to grounded coverage QA: **callable loci + depths per test type vs the norm**.
+4. **Multi-test-type — DONE (2026-06-12).** The AppView's whole multi-test-type
+   concern is **call reliability** for the shared genealogy components, with two
+   inputs (per-test tracking/parsing is Navigator's, not the AppView's). **(a) Coverage
+   conformance** (below). **(b) Cross-technology consensus** — `fed.haplogroup_reconciliation`
+   (the donor's call reconciled across all its technologies: consensus_haplogroup +
+   confidence + snp_concordance + run_count) is now the **authoritative call**. Bridge
+   = `reconciliation.did = core.biosample.atproto->>'repo_did'` + dna (citizen
+   self-publish; no schema change). The per-sample **report** resolves
+   Reconciled→FedConsensus→Original and shows the consensus + N runs + confidence +
+   concordance (`biosample.rs`, `_pathway.html`, `HaplogroupCallOrigin::Reconciled`).
+   **Tree evolution gates+weights on it** (mig 0031): the discovery engine **excludes**
+   contributors below `min_consensus_confidence` (0.5) or `INCOMPATIBLE` (un-reconciled
+   kept), and **down-weights** proposal confidence by the cluster's mean consensus
+   reliability (`w_reliability` term) — so the consensus drives the tree, never
+   individual runs. Memory `discovery-consensus-engine`.
+
+   **(a) Coverage norms & conformance.** Reframed (per the user) from the Scala doc's
+   haplogroup-marker/accuracy-tier/IBD machinery to grounded coverage QA: **callable
+   loci + depths per test type vs the norm**.
    `genomics.test_type_coverage_norm` (mig 0030) holds the **empirically-derived**
    cohort norm per test type (median/p25/p75 depth, median pct tiers, typical Y/mt
    marker counts), recomputed from `fed.coverage_summary ⋈ fed.sequencerun` (+

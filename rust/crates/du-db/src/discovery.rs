@@ -56,9 +56,15 @@ pub struct DiscoveryConfig {
     pub mt: DnaThresholds,
     /// Auto-promote unanimous, named, well-supported clusters (default off).
     pub auto_promote: bool,
+    /// A contributor whose cross-technology consensus confidence is below this floor
+    /// (or whose reconciliation is `INCOMPATIBLE`) is excluded from pooling — its
+    /// shaky calls can't drive a branch. Un-reconciled samples are kept (un-gated).
+    pub min_consensus_confidence: f64,
     pub w_count: f64,
     pub w_submitters: f64,
     pub w_consistency: f64,
+    /// Weight on the cluster's mean consensus reliability (un-reconciled = full).
+    pub w_reliability: f64,
 }
 
 impl Default for DiscoveryConfig {
@@ -67,9 +73,11 @@ impl Default for DiscoveryConfig {
             y: DnaThresholds::default(),
             mt: DnaThresholds::default(),
             auto_promote: false,
-            w_count: 0.4,
-            w_submitters: 0.3,
-            w_consistency: 0.3,
+            min_consensus_confidence: 0.5,
+            w_count: 0.35,
+            w_submitters: 0.2,
+            w_consistency: 0.25,
+            w_reliability: 0.2,
         }
     }
 }
@@ -108,9 +116,12 @@ pub async fn load_config(pool: &PgPool) -> Result<DiscoveryConfig, DbError> {
         cfg.w_count = w.get("w_count").and_then(Value::as_f64).unwrap_or(cfg.w_count);
         cfg.w_submitters = w.get("w_submitters").and_then(Value::as_f64).unwrap_or(cfg.w_submitters);
         cfg.w_consistency = w.get("w_consistency").and_then(Value::as_f64).unwrap_or(cfg.w_consistency);
+        cfg.w_reliability = w.get("w_reliability").and_then(Value::as_f64).unwrap_or(cfg.w_reliability);
     }
     if let Some(e) = map.get("engine") {
         cfg.auto_promote = e.get("auto_promote").and_then(Value::as_bool).unwrap_or(cfg.auto_promote);
+        cfg.min_consensus_confidence =
+            e.get("min_consensus_confidence").and_then(Value::as_f64).unwrap_or(cfg.min_consensus_confidence);
     }
     Ok(cfg)
 }
@@ -394,6 +405,23 @@ async fn pool_and_propose(pool: &PgPool, cfg: &DiscoveryConfig, rep: &mut Discov
     .into_iter()
     .collect();
 
+    // (sample_guid, dna) → cross-technology consensus reliability (confidence,
+    // compatibility), via the citizen's repo DID = the reconciliation publisher's DID.
+    // Drives both the exclusion gate and the confidence down-weight below.
+    let reliability: HashMap<(Uuid, String), (Option<f64>, Option<String>)> =
+        sqlx::query_as::<_, (Uuid, String, Option<f64>, Option<String>)>(
+            "SELECT DISTINCT ON (b.sample_guid, r.dna_type) b.sample_guid, r.dna_type, r.confidence, r.compatibility_level \
+             FROM core.biosample b \
+             JOIN fed.haplogroup_reconciliation r ON r.did = b.atproto->>'repo_did' \
+             WHERE b.atproto IS NOT NULL AND r.dna_type IS NOT NULL \
+             ORDER BY b.sample_guid, r.dna_type, r.run_count DESC NULLS LAST, r.time_us DESC",
+        )
+        .fetch_all(pool)
+        .await?
+        .into_iter()
+        .map(|(g, dna, conf, compat)| ((g, dna), (conf, compat)))
+        .collect();
+
     // Bucket by (parent terminal, dna).
     let mut buckets: HashMap<(i64, String), Vec<SampleSet>> = HashMap::new();
     for (sample_guid, terminal, dna, vset) in raw {
@@ -412,6 +440,21 @@ async fn pool_and_propose(pool: &PgPool, cfg: &DiscoveryConfig, rep: &mut Discov
         let (parent_id, dna) = key.clone();
         let th = cfg.thresholds(&dna);
         let sets = buckets.remove(&key).unwrap();
+        // Reliability gate: drop members whose consensus is INCOMPATIBLE or below the
+        // confidence floor. Un-reconciled samples (no entry) are kept (un-gated).
+        let sets: Vec<SampleSet> = sets
+            .into_iter()
+            .filter(|s| match reliability.get(&(s.sample_guid, dna.clone())) {
+                Some((conf, compat)) => {
+                    compat.as_deref() != Some("INCOMPATIBLE")
+                        && conf.map(|c| c >= cfg.min_consensus_confidence).unwrap_or(true)
+                }
+                None => true,
+            })
+            .collect();
+        if sets.is_empty() {
+            continue;
+        }
         for c in cluster_bucket(sets, th) {
             let count = c.members.len() as i64;
             let submitters = c
@@ -423,7 +466,19 @@ async fn pool_and_propose(pool: &PgPool, cfg: &DiscoveryConfig, rep: &mut Discov
                 .max(c.members.len()) as i64; // fall back to sample count if dids missing
             let f_count = (count as f64 / th.consensus_threshold.max(1) as f64).min(1.0);
             let f_sub = (submitters as f64 / th.consensus_threshold.max(1) as f64).min(1.0);
-            let confidence = (cfg.w_count * f_count + cfg.w_submitters * f_sub + cfg.w_consistency * c.consistency).min(1.0);
+            // Mean cross-technology consensus reliability of the cluster's members
+            // (un-reconciled = full credit, so the unknown isn't penalized).
+            let mean_rel = c
+                .members
+                .iter()
+                .map(|g| reliability.get(&(*g, dna.clone())).and_then(|(c, _)| *c).unwrap_or(1.0))
+                .sum::<f64>()
+                / count as f64;
+            let confidence = (cfg.w_count * f_count
+                + cfg.w_submitters * f_sub
+                + cfg.w_consistency * c.consistency
+                + cfg.w_reliability * mean_rel)
+                .min(1.0);
             let ready = count >= th.consensus_threshold && confidence >= th.confidence_threshold;
             let auto = cfg.auto_promote
                 && count >= th.auto_promote_threshold
