@@ -10,6 +10,7 @@ use std::time::Duration;
 use thiserror::Error;
 
 pub mod age;
+pub mod audit;
 pub mod auth;
 pub mod biosample;
 pub mod change_set;

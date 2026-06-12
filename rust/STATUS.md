@@ -345,10 +345,16 @@ Launch-critical first, then the post-launch feature mass.
    (bulk cache seed), resolving via the **preseeded** `genomics.sequencer_instrument.
    lab_id` (mig 0025 re-adds it; ETL backfills from the legacy tie;
    `du_db::sequencer`). The proposal/consensus path is **not live anywhere**, so the
-   lookup uses the direct tie; the proposal tables stay dormant (memory
-   `sequencer-lab-lookup`). **Still to build:** consensus discovery from citizen
-   `instrumentObservation` records (via `fed.sequencerun.instrument_id`), proposal
-   aggregation/confidence scoring, and the curator review queue.
+   lookup uses the direct tie (memory `sequencer-lab-lookup`). The **consensus
+   engine is DONE (2026-06-12)**: `du_db::sequencer::recompute_consensus` derives
+   observations from `fed.sequencerun ⋈ fed.biosample.center_name`, aggregates per
+   instrument into `instrument_association_proposal` (dominant lab, distinct-citizen
+   counts, confidence, threshold status, conflict→PENDING), run by `du-jobs run-once
+   sequencer-consensus` (+ hourly). Curator API `/manage/instrument-proposals[/:id[/
+   accept|/reject]]` — **accept sets `sequencer_instrument.lab_id`** (closing the loop
+   to the lookup), audited via the new `du_db::audit::log`. **Still to build:** the
+   curator HTMX review UI (API done), the `instrumentObservation` lexicon, and
+   recency/confidence-level scoring refinements (constants for now).
    (`documents/planning/sequencer-lab-inference-system.md`.)
 8. **Smaller in-scope finishers:**
    - **Graft carries coordinates forward** at creation (fold into

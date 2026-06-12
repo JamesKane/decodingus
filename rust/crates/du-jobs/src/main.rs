@@ -68,8 +68,20 @@ async fn main() -> anyhow::Result<()> {
                     "branch-age recompute complete"
                 );
             }
+            // Recompute sequencer instrument→lab consensus from the federation
+            // (refresh observations → regenerate proposals). Curator-gated; sets
+            // sequencer_instrument.lab_id only via accept (or opt-in auto-accept).
+            "sequencer-consensus" => {
+                let rep = du_db::sequencer::recompute_consensus(&pool, &du_db::sequencer::ConsensusConfig::default()).await?;
+                tracing::info!(
+                    instruments = rep.instruments, observations = rep.observations_upserted,
+                    pruned = rep.observations_pruned, proposals = rep.proposals_active,
+                    ready = rep.proposals_ready, conflicts = rep.conflicts,
+                    auto_accepted = rep.auto_accepted, "sequencer-consensus complete"
+                );
+            }
             other => anyhow::bail!(
-                "unknown run-once job '{other}' (known: ybrowse, reconcile, yregions, branch-age)"
+                "unknown run-once job '{other}' (known: ybrowse, reconcile, yregions, branch-age, sequencer-consensus)"
             ),
         }
         return Ok(());
@@ -172,6 +184,25 @@ async fn main() -> anyhow::Result<()> {
             }
         }));
         tracing::info!("branch-age-recompute registered");
+    }
+
+    // Sequencer instrument→lab consensus: refresh observations from the federation
+    // and regenerate proposals for curator review. DB-only; always on.
+    {
+        let pool = pool.clone();
+        sched.register(Job::new("sequencer-consensus", Duration::from_secs(3_600), move || {
+            let pool = pool.clone();
+            async move {
+                let rep = du_db::sequencer::recompute_consensus(&pool, &du_db::sequencer::ConsensusConfig::default()).await?;
+                tracing::info!(
+                    instruments = rep.instruments, observations = rep.observations_upserted,
+                    proposals = rep.proposals_active, ready = rep.proposals_ready,
+                    conflicts = rep.conflicts, "sequencer-consensus done"
+                );
+                Ok(())
+            }
+        }));
+        tracing::info!("sequencer-consensus registered");
     }
 
     // TODO(jobs): variant-export to a file artifact (the /api/v1/variants/export

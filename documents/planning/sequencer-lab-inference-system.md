@@ -8,9 +8,17 @@
 > `model_name`/`manufacturer`/`year_introduced`/`estimated_max_throughput`) —
 > instrument↔lab resolves via observation→proposal→accept, not a static FK; the
 > proposed instrument confidence columns live in the proposal table instead.
-> **Lookup API is DONE (2026-06-12); the consensus/confidence engine + curator
-> review UI are NOT.** The proposal/curation path is not live anywhere (not in
-> Scala either), so the lookup serves the **preseeded direct** instrument→lab tie:
+> **Lookup API + consensus engine are DONE (2026-06-12); only the curator review
+> UI + scoring refinements remain.** The consensus engine
+> (`du_db::sequencer::recompute_consensus`) derives observations from
+> `fed.sequencerun ⋈ fed.biosample.center_name` into `genomics.instrument_observation`,
+> aggregates per instrument into `instrument_association_proposal` (dominant lab,
+> distinct-citizen counts, confidence, threshold status, conflict held at PENDING),
+> and a curator **accept** (`/manage/instrument-proposals/:id/accept`) sets
+> `sequencer_instrument.lab_id` — the same column the lookup resolves. Run by
+> `du-jobs run-once sequencer-consensus` (+ hourly). Accept/reject are audited to
+> `ident.audit_log`. Auto-accept is opt-in (off by default — curator-gated). The
+> lookup serves the **preseeded direct** instrument→lab tie:
 > mig 0025 re-adds a nullable `genomics.sequencer_instrument.lab_id`, the ETL
 > backfills it from the legacy `lab_id`, and `du_db::sequencer::{lookup_lab,
 > lab_instruments}` resolves through it. Endpoints: `GET /api/v1/sequencer/lab?
