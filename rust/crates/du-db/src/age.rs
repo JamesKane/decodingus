@@ -17,8 +17,21 @@ use crate::DbError;
 use sqlx::PgPool;
 use std::collections::{BTreeMap, HashMap};
 
-/// MSY combined SNP mutation rate (SNPs/bp/year, Helgason 2015).
+/// MSY combined SNP mutation rate (SNPs/bp/year, Helgason 2015). This is the rate
+/// the model applies — see `documents/proposals/branch-age-estimation.md`.
 pub const SNP_RATE: f64 = 8.33e-10;
+
+/// Independent cross-check clock from Hallast et al. 2026 (142 population-scale Y
+/// assemblies, BEAST v1.10.4 strict molecular clock on the X-degenerate mask):
+/// **0.76 × 10⁻⁹ sub/site/yr (95% CI 0.67–0.86 × 10⁻⁹)** — ~9% slower than
+/// Helgason. Recorded for provenance/comparison **only**; `recompute_combined_ages`
+/// does *not* swap to it (a slower clock makes every TMRCA ~9% older). Use it to
+/// sanity-check our SNP ages or to bound the rate-uncertainty band, not as the
+/// default. CI bounds: [`HALLAST_RATE_LO`], [`HALLAST_RATE_HI`].
+pub const HALLAST_RATE: f64 = 0.76e-9;
+pub const HALLAST_RATE_LO: f64 = 0.67e-9;
+pub const HALLAST_RATE_HI: f64 = 0.86e-9;
+
 /// "Before present" reference year (radiocarbon convention) for calendar anchors.
 pub const PRESENT_YEAR: i32 = 1950;
 

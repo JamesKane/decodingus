@@ -152,6 +152,43 @@ comparison (their Fig 5h-i):
   in euchromatin, and 6/40 Yq12 SNVs trace to gene conversion (recurrent), not de novo —
   i.e. the masked compartments are exactly where mutations are unreliable/recurrent.
 
+**Cross-check clock (Hallast et al. 2026).** The same paper provides an *independent*
+recent calibration we record but **do not** substitute for Helgason:
+
+| Clock | Rate (sub/site/yr) | 95% CI | Role |
+|-------|--------------------|--------|------|
+| Helgason 2015 (used) | 0.833 × 10⁻⁹ | 0.757–0.917 × 10⁻⁹ | the rate the model applies |
+| Hallast 2026 BEAST (cross-check) | 0.76 × 10⁻⁹ | 0.67–0.86 × 10⁻⁹ | sanity bound only |
+
+Method: BEAST v1.10.4 strict molecular clock, RAxML GTR+Γ start tree, constant-size
+coalescent, 150 M MCMC (10% burn-in), TreeAnnotator MCC tree — run on the ~10.4 Mb
+X-degenerate-style mask above. It is **~9% slower** than Helgason, so adopting it would
+push every TMRCA ~9% older; the two CIs overlap, so it functions as a consistency check,
+not a correction. Constants `HALLAST_RATE{,_LO,_HI}` live alongside `SNP_RATE` in
+`du_db::age`; the default stays Helgason (do not silently swap — surface both with
+provenance). The CEPH-pedigree de-novo rate (R1b lineages, Porubsky et al. 2025) is the
+matching *per-generation* empirical anchor for the same clock.
+
+**Calibration anchors (dated nodes).** Hallast's time-calibrated phylogeny (their Suppl.
+Fig. 1, ISOGG v15.73 labels; 95% HPD from BEAST) yields ready-made `tree.genealogical_anchor`
+rows — model-dated TMRCAs, *not* radiocarbon, so they carry `anchor_type = MODEL_DATED`
+and full provenance in `details` (source, clock, HPD) so a curator can down-weight or
+exclude them. Seeded by `scripts/seed-hallast-anchors.sql` (name-keyed, idempotent, run
+after the tree load). Currently mappable to our clade names:
+
+| Node | TMRCA (ybp) | 95% HPD | Source |
+|------|-------------|---------|--------|
+| D1 | 19,450 | 16,360–22,880 | Hallast 2026 Fig 1b / Suppl. Fig 1 |
+| HG00512 ⋂ HG02056 | ~10,300 | 8,400–12,300 | Hallast 2026 Suppl. Fig 61 |
+
+> **Circularity caveat:** these are themselves molecular-clock estimates, so feeding them
+> into the inverse-variance `COMBINED` term partly calibrates our SNP clock against another
+> SNP clock. That is intended (a tight external constraint on deep nodes), but it is *not*
+> independent evidence the way an aDNA C14 date is — hence `MODEL_DATED` and the recorded
+> provenance, so the term can be filtered. Most of the dated phylogeny lives in figures
+> (Suppl. Fig. 1 / Fig 1b) and Suppl. Tables, not extractable text; harvest more nodes from
+> the tables workbook when mapping them to our haplogroup names.
+
 #### STR Mutation Rate Database
 Per-marker mutation rates needed for ~700+ Y-STR markers:
 - Source: Ballantyne et al. 2010 (186 markers), Willems et al. 2016 (702 markers)
