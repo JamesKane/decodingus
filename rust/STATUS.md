@@ -352,10 +352,16 @@ Launch-critical first, then the post-launch feature mass.
    counts, confidence, threshold status, conflict→PENDING), run by `du-jobs run-once
    sequencer-consensus` (+ hourly). Curator API `/manage/instrument-proposals[/:id[/
    accept|/reject]]` — **accept sets `sequencer_instrument.lab_id`** (closing the loop
-   to the lookup), audited via the new `du_db::audit::log`. **Still to build:** the
-   curator HTMX review UI (API done), the `instrumentObservation` lexicon, and
-   recency/confidence-level scoring refinements (constants for now).
-   (`documents/planning/sequencer-lab-inference-system.md`.)
+   to the lookup), audited in-transaction via `du_db::audit::log`. Hardened for
+   production (mig 0026): is_d2c no longer clobbered, audit joins the mutation tx,
+   stable proposal ids (UPSERT not DELETE+re-INSERT), `pg_try_advisory_lock` guard,
+   aggregation/queue indexes. The **curator HTMX review UI is DONE (2026-06-12)** —
+   two-panel queue at `/curator/instrument-proposals` (status-filter chips, proposal
+   detail with supporting observations, accept form [lab/manufacturer/model/d2c] +
+   reject-with-reason), Curator-gated, i18n en/es/fr, on the dashboard. **Still to
+   build:** the `instrumentObservation` lexicon (deriving from
+   `fed.sequencerun.center_name` for now) and recency/confidence-level scoring
+   refinements (constants for now). (`documents/planning/sequencer-lab-inference-system.md`.)
 8. **Smaller in-scope finishers:**
    - **Graft carries coordinates forward** at creation (fold into
      `get_or_create_variant`) so the decoding-us backfill isn't needed after each

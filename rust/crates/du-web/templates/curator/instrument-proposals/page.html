@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}{{ t.get("ip.title") }} — {{ t.get("app.name") }}{% endblock %}
+{% block content %}
+<h1 class="h3 mb-1">{{ t.get("ip.title") }}</h1>
+<p class="text-muted small mb-3">{{ t.get("ip.intro") }}</p>
+<div class="row">
+  <div class="col-lg-5">
+    <div id="proposal-table"
+         hx-get="/curator/instrument-proposals/fragment"
+         hx-trigger="load, proposal-changed from:body">
+      {% include "curator/instrument-proposals/list.html" %}
+    </div>
+  </div>
+  <div class="col-lg-7">
+    <div id="proposal-detail"><p class="detail-empty">{{ t.get("ip.select") }}</p></div>
+  </div>
+</div>
+{% endblock %}

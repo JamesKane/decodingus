@@ -412,6 +412,43 @@ rf.notice.merged=Variantes fusionadas:
 rf.resolved=Resuelta
 rf.resolved.note=Esta marca se ha resuelto.
 
+# Curator sequencer-lab proposal review (curator/instrument-proposals)
+curator.tool.instrument_proposals=Propuestas de laboratorio-secuenciador
+ip.title=Propuestas de laboratorio-secuenciador
+ip.intro=Asociaciones instrumento→laboratorio inferidas a partir de las secuenciaciones federadas. Acepte para fijar el laboratorio que resuelve la búsqueda pública, o rechace para descartarla.
+ip.select=Seleccione una propuesta para revisar.
+ip.none=No hay propuestas.
+ip.col.instrument=Instrumento
+ip.col.lab=Laboratorio propuesto
+ip.col.support=Obs. / ciudadanos
+ip.col.confidence=Confianza
+ip.col.status=Estado
+ip.col.platform=Plataforma
+ip.col.model=Modelo
+ip.col.citizen=Ciudadano
+ip.filter.all=Todas
+ip.filter.ready=Listas
+ip.filter.pending=Pendientes
+ip.filter.accepted=Aceptadas
+ip.filter.rejected=Rechazadas
+ip.obs=Observaciones
+ip.citizens=Ciudadanos distintos
+ip.observations=Observaciones de respaldo
+ip.lab_name=Nombre del laboratorio
+ip.manufacturer=Fabricante
+ip.model=Modelo
+ip.is_d2c=Laboratorio directo al consumidor (D2C)
+ip.reason=Motivo (opcional)
+ip.accept=Aceptar
+ip.reject=Rechazar
+ip.accept.confirm=¿Fijar este laboratorio para el instrumento? Esto resuelve la búsqueda pública.
+ip.reject.confirm=¿Rechazar esta asociación? El laboratorio dominante no se volverá a proponer para este instrumento.
+ip.accept.hint=Aceptar fija el laboratorio del instrumento.
+ip.notice.accepted=Aceptada — laboratorio fijado:
+ip.notice.rejected=Propuesta rechazada.
+ip.resolved=Resuelta
+ip.resolved.note=Esta propuesta se ha resuelto.
+
 # Informe público por muestra (samples/report.html)
 sample.identity.title=Muestra
 sample.field.accession=Número de acceso

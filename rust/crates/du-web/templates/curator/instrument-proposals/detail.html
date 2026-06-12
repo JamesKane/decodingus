@@ -1,0 +1,79 @@
+{# Fragment: proposal review panel. Target of #proposal-detail. #}
+<div class="card">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <strong>{% if p.resolved %}{{ t.get("ip.resolved") }}{% else %}{{ p.instrument_id }}{% endif %}</strong>
+    {% if !p.resolved %}<span class="badge {{ p.status_class }}">{{ p.status }}</span>{% endif %}
+  </div>
+  <div class="card-body">
+    {% if let Some(n) = p.notice %}<div class="alert alert-success py-2 px-3 small mb-3">{{ n }}</div>{% endif %}
+
+    {% if p.resolved %}
+    <p class="detail-empty mb-0">{{ t.get("ip.resolved.note") }}</p>
+    {% else %}
+    <dl class="row small mb-3">
+      <dt class="col-sm-4">{{ t.get("ip.col.lab") }}</dt><dd class="col-sm-8"><strong>{{ p.proposed_lab }}</strong></dd>
+      <dt class="col-sm-4">{{ t.get("ip.obs") }}</dt><dd class="col-sm-8">{{ p.obs_count }}</dd>
+      <dt class="col-sm-4">{{ t.get("ip.citizens") }}</dt><dd class="col-sm-8">{{ p.citizen_count }}</dd>
+      <dt class="col-sm-4">{{ t.get("ip.col.confidence") }}</dt><dd class="col-sm-8">{{ p.confidence }}</dd>
+    </dl>
+
+    <p class="small text-muted mb-1">{{ t.get("ip.observations") }}</p>
+    <table class="table table-sm align-middle">
+      <thead><tr>
+        <th>{{ t.get("ip.col.lab") }}</th>
+        <th>{{ t.get("ip.col.platform") }}</th>
+        <th>{{ t.get("ip.col.model") }}</th>
+        <th>{{ t.get("ip.col.citizen") }}</th>
+      </tr></thead>
+      <tbody>
+        {% for o in p.observations %}
+        <tr>
+          <td><small>{{ o.lab }}</small></td>
+          <td><small class="text-muted">{{ o.platform }}</small></td>
+          <td><small class="text-muted">{{ o.model }}</small></td>
+          <td><small class="text-muted">{{ o.citizen }}</small></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    {% if p.actionable %}
+    <div class="row g-3 mt-1">
+      <div class="col-md-7">
+        <form hx-post="/curator/instrument-proposals/{{ p.id }}/accept" hx-target="#proposal-detail" hx-swap="innerHTML"
+              hx-confirm="{{ t.get("ip.accept.confirm") }}">
+          <div class="mb-2">
+            <label class="form-label small mb-0">{{ t.get("ip.lab_name") }}</label>
+            <input type="text" name="lab_name" class="form-control form-control-sm" value="{{ p.proposed_lab }}" required>
+          </div>
+          <div class="row g-2 mb-2">
+            <div class="col">
+              <label class="form-label small mb-0">{{ t.get("ip.manufacturer") }}</label>
+              <input type="text" name="manufacturer" class="form-control form-control-sm">
+            </div>
+            <div class="col">
+              <label class="form-label small mb-0">{{ t.get("ip.model") }}</label>
+              <input type="text" name="model" class="form-control form-control-sm">
+            </div>
+          </div>
+          <div class="form-check mb-2">
+            <input type="checkbox" name="is_d2c" value="true" class="form-check-input" id="ip-d2c">
+            <label class="form-check-label small" for="ip-d2c">{{ t.get("ip.is_d2c") }}</label>
+          </div>
+          <button class="btn btn-sm btn-success">{{ t.get("ip.accept") }}</button>
+          <span class="small text-muted ms-2">{{ t.get("ip.accept.hint") }}</span>
+        </form>
+      </div>
+      <div class="col-md-5 border-start">
+        <form hx-post="/curator/instrument-proposals/{{ p.id }}/reject" hx-target="#proposal-detail" hx-swap="innerHTML"
+              hx-confirm="{{ t.get("ip.reject.confirm") }}">
+          <label class="form-label small mb-0">{{ t.get("ip.reason") }}</label>
+          <input type="text" name="reason" class="form-control form-control-sm mb-2">
+          <button class="btn btn-sm btn-outline-danger">{{ t.get("ip.reject") }}</button>
+        </form>
+      </div>
+    </div>
+    {% endif %}
+    {% endif %}
+  </div>
+</div>

@@ -424,6 +424,43 @@ rf.notice.merged=Merged variants:
 rf.resolved=Resolved
 rf.resolved.note=This flag has been resolved.
 
+# Curator sequencer-lab proposal review (curator/instrument-proposals)
+curator.tool.instrument_proposals=Sequencer-lab proposals
+ip.title=Sequencer-Lab Proposals
+ip.intro=Inferred instrument→lab associations from federated sequencing runs. Accept to set the lab the public lookup resolves, or reject to suppress it.
+ip.select=Select a proposal to review.
+ip.none=No proposals.
+ip.col.instrument=Instrument
+ip.col.lab=Proposed lab
+ip.col.support=Obs / citizens
+ip.col.confidence=Confidence
+ip.col.status=Status
+ip.col.platform=Platform
+ip.col.model=Model
+ip.col.citizen=Citizen
+ip.filter.all=All
+ip.filter.ready=Ready
+ip.filter.pending=Pending
+ip.filter.accepted=Accepted
+ip.filter.rejected=Rejected
+ip.obs=Observations
+ip.citizens=Distinct citizens
+ip.observations=Supporting observations
+ip.lab_name=Lab name
+ip.manufacturer=Manufacturer
+ip.model=Model
+ip.is_d2c=Direct-to-consumer (D2C) lab
+ip.reason=Reason (optional)
+ip.accept=Accept
+ip.reject=Reject
+ip.accept.confirm=Set this lab for the instrument? This resolves the public lookup.
+ip.reject.confirm=Reject this association? The dominant lab will not be re-proposed for this instrument.
+ip.accept.hint=Accepting sets the instrument's lab.
+ip.notice.accepted=Accepted — lab set:
+ip.notice.rejected=Proposal rejected.
+ip.resolved=Resolved
+ip.resolved.note=This proposal has been resolved.
+
 # Per-sample public report (samples/report.html)
 sample.identity.title=Sample
 sample.field.accession=Accession
