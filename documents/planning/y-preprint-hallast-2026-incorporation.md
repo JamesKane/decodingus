@@ -73,21 +73,25 @@ Our model uses µ = 8.33×10⁻¹⁰ (Helgason). The paper provides an independe
 calibration + ready-made anchor nodes.
 
 ### Tasks
-- [ ] **Record the paper's clock rate as an alternative/cross-check.** BEAST v1.10.4
-      strict molecular clock, **0.76×10⁻⁹ sub/site/yr (95% CI 0.67–0.86×10⁻⁹)** — ~9%
-      slower than our 0.833×10⁻⁹. (RAxML GTR+gamma start tree; constant-size coalescent;
-      150M MCMC, 10% burn-in; TreeAnnotator MCC tree.) Do **not** silently swap rates;
-      surface both with provenance.
-- [ ] **Seed `tree.genealogical_anchor` from dated nodes.** Paper reports node TMRCAs
-      with 95% HPD on ISOGG v15.73-labeled clades — usable as calibration anchors:
-      - D1 clade TMRCA **19,450 ybp** (HPD 16,360–22,880)
-      - HG00609 (used as phylo-close reference) TMRCA **10,350 ybp** (HPD 8,540–12,330)
-      - more in Fig 1b / Fig 4c and Suppl. — harvest the major-branch nodes that map to
-        our haplogroup names. `anchor_type = ANCIENT_DNA`-style calibration (these are
-        model-dated, not C14 — set a `method`/`source` that records that).
-- [ ] **Note the de novo per-generation rate.** CEPH pedigree DNMs (R1b lineages,
-      Methods "de novo mutation analysis") are a direct empirical anchor for the
-      per-generation mutation input — worth referencing alongside the per-year clock.
+- [x] **Record the paper's clock rate as an alternative/cross-check** (commit `6544c6a`).
+      BEAST v1.10.4 strict molecular clock, **0.76×10⁻⁹ sub/site/yr (95% CI 0.67–0.86×10⁻⁹)**
+      — ~9% slower than our 0.833×10⁻⁹. Added as `du_db::age::HALLAST_RATE{,_LO,_HI}` next
+      to `SNP_RATE`; `recompute_combined_ages` keeps the Helgason default (no silent swap).
+      Both surfaced with provenance in `branch-age-estimation.md` (cross-check-clock table).
+- [x] **Seed `tree.genealogical_anchor` from dated nodes** (commit `6544c6a`, partial).
+      `scripts/seed-hallast-anchors.sql` — name-keyed, idempotent, `anchor_type='MODEL_DATED'`
+      with BEAST clock + HPD provenance in `details` (round-tripped via `date_ce` + the
+      consumer's `uncertainty_years`). Seeded + verified live (dev du-pg): **D1** TMRCA
+      19,450 ybp (HPD 16,360–22,880) → GENEALOGICAL=COMBINED=19,450, `tmrca_ybp` gap-filled.
+      PENDING nodes (no clean clade-name map yet, recorded in the script): HG00512⋂HG02056
+      ~10,300 ybp (HPD 8,400–12,300, Suppl. Fig 61); HG00609-ref node 10,350 ybp (HPD
+      8,540–12,330). Per-node TMRCAs aren't in extractable supplement text (Fig 1b / Suppl.
+      Fig 1 are figures) — harvest the rest from the Suppl. Tables workbook.
+      ⚠ Circularity caveat documented: these calibrate our SNP clock against another SNP
+      clock (intended, but flagged via `MODEL_DATED` so the term can be filtered).
+- [x] **Note the de novo per-generation rate** (commit `6544c6a`). Recorded in
+      `branch-age-estimation.md` (cross-check-clock subsection): CEPH-pedigree DNMs (R1b,
+      Porubsky et al. 2025) are the matching per-generation empirical anchor for the clock.
 
 ---
 
