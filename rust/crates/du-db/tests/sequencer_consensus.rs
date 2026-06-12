@@ -5,9 +5,21 @@
 
 use du_db::sequencer::{self, ConsensusConfig};
 use sqlx::PgPool;
+use uuid::Uuid;
 
 fn database_url() -> Option<String> {
     std::env::var("DATABASE_URL").ok().filter(|s| !s.is_empty())
+}
+
+/// A curator user — accept/reject now write an audit row (FK to ident.users).
+async fn test_user(pool: &PgPool) -> Uuid {
+    sqlx::query_scalar(
+        "INSERT INTO ident.users (handle, display_name) VALUES ('testseq-curator', 'Test Curator') \
+         ON CONFLICT (handle) DO UPDATE SET display_name = EXCLUDED.display_name RETURNING id",
+    )
+    .fetch_one(pool)
+    .await
+    .expect("test user")
 }
 
 /// One federated biosample (the lab claim is `center_name`).
@@ -50,6 +62,7 @@ async fn consensus_aggregates_proposes_accepts_rejects() {
     };
     let db = du_db::testing::ephemeral_db(&url).await.expect("ephemeral db");
     let pool = db.pool().clone();
+    let curator = test_user(&pool).await;
     let mut t = 0i64;
     let mut tick = || {
         t += 1;
@@ -94,8 +107,15 @@ async fn consensus_aggregates_proposes_accepts_rejects() {
     assert_eq!(obs.len(), 5);
     assert!(obs.iter().all(|o| o.lab_name.as_deref() == Some("Nebula Genomics")));
 
+    // A recompute UPSERTs in place: an open proposal keeps its id (curator review
+    // survives a background run).
+    sequencer::recompute_consensus(&pool, &cfg).await.expect("recompute-stable");
+    let page_again = sequencer::list_proposals(&pool, None, 1, 50).await.expect("list-again");
+    let p_again = page_again.items.iter().find(|x| x.instrument_id == "A00500").expect("A00500 still proposed");
+    assert_eq!(p_again.id, p.id, "active proposal id is stable across recomputes");
+
     // Accept → instrument resolves via lookup_lab.
-    let hit = sequencer::accept_proposal(&pool, p.id, "Nebula Genomics", None, None, true).await.expect("accept");
+    let hit = sequencer::accept_proposal(&pool, p.id, curator, "Nebula Genomics", None, None, Some(true)).await.expect("accept");
     assert_eq!(hit.lab_name, "Nebula Genomics");
     let resolved = sequencer::lookup_lab(&pool, "A00500").await.expect("lookup").expect("resolved");
     assert_eq!(resolved.lab_name, "Nebula Genomics");
@@ -121,7 +141,7 @@ async fn consensus_aggregates_proposes_accepts_rejects() {
     sequencer::recompute_consensus(&pool, &cfg).await.expect("recompute3");
     let pg = sequencer::list_proposals(&pool, None, 1, 50).await.expect("list3");
     let yseq = pg.items.iter().find(|p| p.instrument_id == "A00700").expect("A00700 proposal");
-    let rej = sequencer::reject_proposal(&pool, yseq.id).await.expect("reject");
+    let rej = sequencer::reject_proposal(&pool, yseq.id, curator, Some("test reject")).await.expect("reject");
     assert_eq!(rej, Some(("A00700".to_string(), Some("YSEQ".to_string()))));
 
     sequencer::recompute_consensus(&pool, &cfg).await.expect("recompute4");

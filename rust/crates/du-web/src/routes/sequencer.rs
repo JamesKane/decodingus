@@ -96,14 +96,13 @@ async fn accept(cur: Curator, State(st): State<AppState>, Path(id): Path<i64>, J
     let hit = du_db::sequencer::accept_proposal(
         &st.pool,
         id,
+        cur.0.user_id,
         lab_name,
         b.manufacturer.as_deref(),
         b.model.as_deref(),
-        b.is_d2c.unwrap_or(false),
+        b.is_d2c,
     )
     .await?;
-    let new = json!({ "instrument_id": hit.instrument_id, "lab_name": hit.lab_name, "is_d2c": hit.is_d2c });
-    du_db::audit::log(&st.pool, cur.0.user_id, "instrument_proposal", id, "ACCEPT", None, Some(&new), None).await?;
     Ok(Json(json!({
         "instrument_id": hit.instrument_id,
         "lab_name": hit.lab_name,
@@ -121,11 +120,9 @@ struct RejectBody {
 
 async fn reject(cur: Curator, State(st): State<AppState>, Path(id): Path<i64>, body: Option<Json<RejectBody>>) -> Result<Json<Value>, AppError> {
     let reason = body.and_then(|b| b.0.reason);
-    let (instrument, lab) = du_db::sequencer::reject_proposal(&st.pool, id)
+    let (instrument, _lab) = du_db::sequencer::reject_proposal(&st.pool, id, cur.0.user_id, reason.as_deref())
         .await?
         .ok_or_else(|| AppError::NotFound(format!("reviewable proposal {id}")))?;
-    let new = json!({ "instrument_id": instrument, "rejected_lab": lab });
-    du_db::audit::log(&st.pool, cur.0.user_id, "instrument_proposal", id, "REJECT", None, Some(&new), reason.as_deref()).await?;
     Ok(Json(json!({ "id": id, "status": "REJECTED", "instrument_id": instrument })))
 }
 

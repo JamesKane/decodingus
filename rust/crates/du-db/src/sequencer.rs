@@ -9,8 +9,10 @@
 
 use crate::pagination::Page;
 use crate::DbError;
+use serde_json::json;
 use sqlx::PgPool;
 use std::collections::{HashMap, HashSet};
+use uuid::Uuid;
 
 /// A resolved instrument → lab association.
 #[derive(Debug, Clone, sqlx::FromRow)]
@@ -148,7 +150,32 @@ async fn get_or_create_lab(conn: &mut sqlx::PgConnection, name: &str, is_d2c: bo
 /// then regenerate the active proposal set (dominant lab, counts, confidence,
 /// status). Curator-decided proposals (`ACCEPTED`/`REJECTED`) and already-resolved
 /// instruments (`lab_id` set) are preserved/skipped.
+/// Advisory-lock key guarding concurrent recomputes (the hourly job vs. a manual
+/// `run-once`). A second caller no-ops instead of interleaving the observation
+/// refresh and proposal regeneration.
+const CONSENSUS_ADVISORY_KEY: i64 = 0x434F_4E53_4E53; // "CONSNS"
+
 pub async fn recompute_consensus(pool: &PgPool, cfg: &ConsensusConfig) -> Result<ConsensusReport, DbError> {
+    // Hold a dedicated connection for the duration so only one recompute runs at a
+    // time. Unlock on every path — a leaked session lock would ride a pooled
+    // connection back into reuse and wedge all future recomputes.
+    let mut lock_conn = pool.acquire().await?;
+    let locked: bool = sqlx::query_scalar("SELECT pg_try_advisory_lock($1)")
+        .bind(CONSENSUS_ADVISORY_KEY)
+        .fetch_one(&mut *lock_conn)
+        .await?;
+    if !locked {
+        return Ok(ConsensusReport::default());
+    }
+    let result = recompute_locked(pool, cfg).await;
+    let _ = sqlx::query("SELECT pg_advisory_unlock($1)")
+        .bind(CONSENSUS_ADVISORY_KEY)
+        .execute(&mut *lock_conn)
+        .await;
+    result
+}
+
+async fn recompute_locked(pool: &PgPool, cfg: &ConsensusConfig) -> Result<ConsensusReport, DbError> {
     let mut rep = ConsensusReport::default();
     let generic: Vec<String> = GENERIC_CENTERS.iter().map(|s| s.to_string()).collect();
 
@@ -253,11 +280,14 @@ pub async fn recompute_consensus(pool: &PgPool, cfg: &ConsensusConfig) -> Result
         }
     }
 
-    // Regenerate the active proposal set in one transaction.
+    // Regenerate the active proposal set in one transaction. Each unresolved
+    // instrument keeps at most one active (PENDING/READY) proposal, UPSERTed in
+    // place so its id stays stable across recomputes — a curator's open proposal
+    // survives a background run. Active proposals whose instrument fell out of the
+    // set (resolved, dropped below threshold, dominant lab rejected) are pruned at
+    // the end.
     let mut tx = pool.begin().await?;
-    sqlx::query("DELETE FROM genomics.instrument_association_proposal WHERE status IN ('PENDING','READY_FOR_REVIEW')")
-        .execute(&mut *tx)
-        .await?;
+    let mut active_ids: Vec<i64> = Vec::new();
 
     for (si_id, mut labs) in by_instr {
         rep.instruments += 1;
@@ -314,8 +344,16 @@ pub async fn recompute_consensus(pool: &PgPool, cfg: &ConsensusConfig) -> Result
         let status = if ready { "READY_FOR_REVIEW" } else { "PENDING" };
         sqlx::query(
             "INSERT INTO genomics.instrument_association_proposal \
-                (instrument_id, proposed_lab_name, observation_count, distinct_citizen_count, confidence_score, status) \
-             VALUES ($1, $2, $3, $4, $5::float8::numeric, $6)",
+                (instrument_id, proposed_lab_name, proposed_model, observation_count, \
+                 distinct_citizen_count, confidence_score, status) \
+             VALUES ($1, $2, (SELECT model_name FROM genomics.sequencer_instrument WHERE id = $1), \
+                     $3, $4, $5::float8::numeric, $6) \
+             ON CONFLICT (instrument_id) WHERE status IN ('PENDING','READY_FOR_REVIEW') \
+             DO UPDATE SET proposed_lab_name = EXCLUDED.proposed_lab_name, \
+                proposed_model = EXCLUDED.proposed_model, \
+                observation_count = EXCLUDED.observation_count, \
+                distinct_citizen_count = EXCLUDED.distinct_citizen_count, \
+                confidence_score = EXCLUDED.confidence_score, status = EXCLUDED.status",
         )
         .bind(si_id)
         .bind(&lab_name)
@@ -325,11 +363,21 @@ pub async fn recompute_consensus(pool: &PgPool, cfg: &ConsensusConfig) -> Result
         .bind(status)
         .execute(&mut *tx)
         .await?;
+        active_ids.push(si_id);
         rep.proposals_active += 1;
         if ready {
             rep.proposals_ready += 1;
         }
     }
+    // Drop active proposals for instruments no longer proposing. `<> ALL('{}')`
+    // is true for every row, so an empty active set clears them all.
+    sqlx::query(
+        "DELETE FROM genomics.instrument_association_proposal \
+         WHERE status IN ('PENDING','READY_FOR_REVIEW') AND instrument_id <> ALL($1)",
+    )
+    .bind(&active_ids)
+    .execute(&mut *tx)
+    .await?;
     tx.commit().await?;
     Ok(rep)
 }
@@ -424,10 +472,11 @@ pub async fn proposal_detail(pool: &PgPool, id: i64) -> Result<Option<(ProposalV
 pub async fn accept_proposal(
     pool: &PgPool,
     proposal_id: i64,
+    user_id: Uuid,
     lab_name: &str,
     manufacturer: Option<&str>,
     model: Option<&str>,
-    is_d2c: bool,
+    is_d2c: Option<bool>,
 ) -> Result<LabLookup, DbError> {
     let mut tx = pool.begin().await?;
     let si_id: i64 = sqlx::query_scalar(
@@ -438,13 +487,17 @@ pub async fn accept_proposal(
     .await?
     .ok_or_else(|| DbError::Conflict(format!("proposal {proposal_id} not found")))?;
 
-    let lab_id = get_or_create_lab(&mut tx, lab_name, is_d2c).await?;
-    // Honor a curator-supplied d2c flag on an existing lab too.
-    sqlx::query("UPDATE genomics.sequencing_lab SET is_d2c = $2 WHERE id = $1")
-        .bind(lab_id)
-        .bind(is_d2c)
-        .execute(&mut *tx)
-        .await?;
+    let lab_id = get_or_create_lab(&mut tx, lab_name, is_d2c.unwrap_or(false)).await?;
+    // Only touch an existing lab's d2c flag when the curator explicitly set it — an
+    // omitted flag must not silently clear a preseeded lab's is_d2c (which would
+    // mislabel every other instrument tied to that lab).
+    if let Some(d2c) = is_d2c {
+        sqlx::query("UPDATE genomics.sequencing_lab SET is_d2c = $2 WHERE id = $1")
+            .bind(lab_id)
+            .bind(d2c)
+            .execute(&mut *tx)
+            .await?;
+    }
     sqlx::query(
         "UPDATE genomics.sequencer_instrument \
          SET lab_id = $2, manufacturer = COALESCE($3, manufacturer), model_name = COALESCE($4, model_name) \
@@ -475,6 +528,9 @@ pub async fn accept_proposal(
     .bind(si_id)
     .fetch_one(&mut *tx)
     .await?;
+    // Audit in the same transaction — the decision and its trail commit together.
+    let new = json!({ "instrument_id": hit.instrument_id, "lab_name": hit.lab_name, "is_d2c": hit.is_d2c });
+    crate::audit::log(&mut *tx, user_id, "instrument_proposal", proposal_id, "ACCEPT", None, Some(&new), None).await?;
     tx.commit().await?;
     Ok(hit)
 }
@@ -482,7 +538,13 @@ pub async fn accept_proposal(
 /// Reject a proposal (the dominant lab won't be re-proposed for this instrument).
 /// Returns the (instrument_id, proposed_lab_name) for the audit comment, or `None`
 /// if the proposal isn't in a reviewable state.
-pub async fn reject_proposal(pool: &PgPool, proposal_id: i64) -> Result<Option<(String, Option<String>)>, DbError> {
+pub async fn reject_proposal(
+    pool: &PgPool,
+    proposal_id: i64,
+    user_id: Uuid,
+    reason: Option<&str>,
+) -> Result<Option<(String, Option<String>)>, DbError> {
+    let mut tx = pool.begin().await?;
     let row: Option<(String, Option<String>)> = sqlx::query_as(
         "UPDATE genomics.instrument_association_proposal p \
          SET status = 'REJECTED' \
@@ -491,7 +553,13 @@ pub async fn reject_proposal(pool: &PgPool, proposal_id: i64) -> Result<Option<(
          RETURNING si.instrument_id, p.proposed_lab_name",
     )
     .bind(proposal_id)
-    .fetch_optional(pool)
+    .fetch_optional(&mut *tx)
     .await?;
+    if let Some((ref instrument, ref lab)) = row {
+        // Audit in the same transaction as the status change.
+        let new = json!({ "instrument_id": instrument, "rejected_lab": lab });
+        crate::audit::log(&mut *tx, user_id, "instrument_proposal", proposal_id, "REJECT", None, Some(&new), reason).await?;
+    }
+    tx.commit().await?;
     Ok(row)
 }

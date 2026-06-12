@@ -3,15 +3,17 @@
 //! decisions (accept/reject) on consensus proposals.
 
 use crate::DbError;
-use sqlx::PgPool;
+use sqlx::PgExecutor;
 use uuid::Uuid;
 
 /// Append a curator action to the audit log. `entity_id` is the catalog row id;
 /// `action` is a short verb (`ACCEPT`/`REJECT`/`CREATE`/`UPDATE`/`DELETE`). `id`
-/// and `created_at` use DB defaults.
+/// and `created_at` use DB defaults. `executor` is any pool or connection — pass
+/// the surrounding `&mut *tx` to keep the audit row atomic with the mutation it
+/// records.
 #[allow(clippy::too_many_arguments)]
-pub async fn log(
-    pool: &PgPool,
+pub async fn log<'e, E: PgExecutor<'e>>(
+    executor: E,
     user_id: Uuid,
     entity_type: &str,
     entity_id: i64,
@@ -31,7 +33,7 @@ pub async fn log(
     .bind(old_value)
     .bind(new_value)
     .bind(comment)
-    .execute(pool)
+    .execute(executor)
     .await?;
     Ok(())
 }
