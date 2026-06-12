@@ -103,10 +103,14 @@ the ω above beyond it (deep-time, low-weight terms only — the convolution is 
 a few cells; the embedded table is authoritative in-range). A marker's age term is
 `P(t|g) = Σ_m P(t|m)·P(g|m)` — a mixture over the hidden mutation count `m` of Poisson
 age PDFs (`du_db::pdf::Pdf::mixture`), rate per generation → years via
-`GENERATION_YEARS = 33`. Per-clade STR age multiplies the independent
-per-(tester, marker) PDFs (Eq 1) — the **star-phylogeny** approximation; propagating
-STR ages through the tree's internal structure (as the SNP term already does) is the
-remaining refinement. Per-marker `omega_plus`/`omega_minus`/`multi_step_rate`
+`GENERATION_YEARS = 33`. STR ages **propagate up the tree** (`ystr::propagate_str`,
+the §2.2 SNP strategy): ancestral motifs are reconstructed for internal nodes
+(§2.5.2 up-pass modal-of-sub-clades + down-pass parent fill), then a node's TMRCA is
+the product over children of (child TMRCA ⊛ the parent→child STR branch time) and
+over direct tester tips — so internal nodes get ages from their descendants and a
+parent stays older than its children. (`compute_str_age`'s per-clade star pooling is
+retained as a utility but no longer drives the written ages.) Per-marker
+`omega_plus`/`omega_minus`/`multi_step_rate`
 (`genomics.str_mutation_rate`) build a marker-specific `P(g|m)` table when they depart
 from the global symmetric single-step-dominated model.
 
@@ -603,9 +607,10 @@ Group projects compute modal STR haplotypes (`projectModal`). These can feed int
 5. [x] Implement P(g|m) mapping with multi-step mutations — `ystr` (Table 1 + convolution)
 6. [x] Create `StrAgeService` for STR-based age calculation — `ystr::compute_str_age`
        (multi-step PDF model; supersedes the legacy linear ΣΔ/Σµ estimator)
-7. [~] Integrate STR PDFs into combined calculation — the STR_VARIANCE term feeds the
-       inverse-variance `COMBINED` step in `du_db::age`; direct PDF×PDF combination and
-       STR tree-propagation remain (star-phylogeny approximation today)
+7. [x] Integrate STR PDFs into combined calculation — tree-propagated STR ages
+       (`ystr::propagate_str`) feed the STR_VARIANCE term into the inverse-variance
+       `COMBINED` step in `du_db::age`. (Remaining: direct PDF×PDF combination of the
+       SNP/STR/genealogical terms in place of the Gaussian-of-medians combine.)
 
 **Data needed:**
 - Y-STR profiles from PDS (ensure Atmosphere capture)
