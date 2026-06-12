@@ -1,28 +1,38 @@
 # DecodingUs Rust rewrite — status & handoff
 
 Living snapshot of the Play/Scala 3 → Rust port. Pairs with `README.md` (roadmap).
-Last updated **2026-06-07** (this session was **docs + one feature**, no change to
-the launch-critical path):
-- **Public per-sample report** — `/sample/:slug` (ExploreYourDNA-style): a new
-  `is_public` gate (mig **0022**), a unified `du_db::biosample::report` read model
-  joining `core.biosample` + the `fed.*` analytics via `atproto.uri`, Y/mt
-  haplogroup **pathways** (`du_db::haplogroup::pathway`), origin Leaflet map,
-  sequencing/coverage, ancestry bar, a curator `is_public` toggle, and
-  `GET /api/v1/samples/:slug`. Tested (`du-db` `sample_report` test) + smoke-verified.
-- **Static/footer pages reconciled with the legacy Scala content** — ported
-  terms / privacy / FAQ / **cookies** / **reputation** prose; footer set now
-  matches legacy (About · Contact · Reputation · Terms · Privacy · Cookies · FAQ ·
-  API); **App Passwords removed** (never used). Root **README rewritten** for the
-  Rust AppView (dropped the deprecated Nexus project).
-- **Collaboration-platform design docs added** — `documents/planning/d1`–`d5` +
-  `design-roadmap-rust-rewrite.md` (encrypted Edge exchange + ResearchSubject +
-  IBD impl + assertion store + group-project ACL; **no-PII broker** invariant).
-- **Design-doc triage** — walked the original `planning/` + `proposals/` docs vs the
-  Rust build; reports at `documents/{planning,proposals}/*triage*.md`. Superseded
-  docs **removed** (jsonb-consolidation, ibd-matching, appview-pds-backfeed,
-  variant-schema-simplification, tree-merge-api, pds-workbench-biosample-flow); the
-  rest got **Rust-status reconciliation headers**.
+Last updated **2026-06-11** (this session: **the McDonald-2021 branch-age model built
+out end-to-end** + the **T2T/Hallast Y reference-region pipeline** — all post-launch
+catalog refinement, no change to the launch-critical path):
+- **Y reference-region ingest** (`du-jobs/yregions`, `run-once yregions`) — loads
+  T2T-CHM13v2.0 Y structural BEDs (AZF/DYZ, **amplicons v2**, **inverted-repeats v2**,
+  chrXY sequence-class) into `core.genome_region` via `genome_region::upsert_by_key`
+  + `prune_source_orphans` (full-snapshot sync). `du_db::variant::refresh_region_overlaps`
+  flags low-confidence-for-placement variants (`annotations.region_overlaps`), consumed
+  by `snp_graft` (`UnreliableAnchor` → curator review). (memory `yregions-ingest`.)
+- **PDF branch-age engine** (`du_db::pdf`) — discretized age PDFs (poisson / gaussian /
+  **mixture**, `multiply`=Eq 1, `convolve`=Eq 7, `gaussian_on`/`poisson_on` grid-param),
+  replacing the inverse-variance shortcut.
+- **SNP age = bottom-up tree propagation** (`age::propagate`, Eq 5–8, `HET_MASK`).
+  **STR age = multi-step `P(g|m)`** (McDonald **Table 1** embedded + ω convolution
+  fallback, `ystr`) → per-marker Poisson mixture → **tree-propagated**
+  (`ystr::propagate_str` + §2.5.2 ancestral-motif reconstruction), retiring the
+  star-phylogeny pooling.
+- **COMBINED = direct PDF product** of the SNP / STR / genealogical terms (Eq 1) on a
+  shared TREE grid — non-Gaussian shape preserved; disjoint terms fall back to the
+  inverse-variance combine.
+- **Hallast 2026 incorporation** — v2 BEDs + callable-mask validation; BEAST **0.76e-9
+  cross-check clock** (`age::HALLAST_RATE`, not swapped for Helgason); genealogical
+  calibration anchors (`scripts/seed-hallast-anchors.sql`, D1 TMRCA 19,450 ybp, model-
+  dated). P9 palindrome **BLOCKED** on supplementary coords. (`documents/planning/
+  y-preprint-hallast-2026-incorporation.md`.)
+- **Real STR mutation rates** — `scripts/seed-str-mutation-rates.sql` (137 markers:
+  Willems 2016 1000G MUTEA + 95% CI primary, YHRD gap-fill for core markers) replaces
+  the `DEFAULT_STR_RATE` fallback; ω columns stay at the Ballantyne-derived global model.
 
+Prior (2026-06-07): public per-sample report (`/sample/:slug`, mig 0022); static/footer
+pages reconciled with legacy Scala; collaboration-platform design docs (d1–d5);
+design-doc triage (superseded docs removed, rest reconciled).
 Prior (2026-06-05): FTDNA Y-tree SNP-graft + `--reattach`; recurrent-link scrub;
 mtDNA tree wired as an FTDNA RSRS foundation; ETL `--skip-tree` cutover option.
 
@@ -74,10 +84,11 @@ APP_SECRET="<any 32+ char string>"   # signs session cookies
 
 - Run web: `DATABASE_URL=... APP_SECRET=... PORT=9000 cargo run -p du-web` (binary `decodingus`).
 - Run jobs scheduler: `DATABASE_URL=... cargo run -p du-jobs` (binary `decodingus-jobs`).
-  - **One-shot ops:** `decodingus-jobs run-once ybrowse` (full GFF3 stream + reconcile;
-    needs `YBROWSE_GFF` [+ optional `YBROWSE_CHAIN_GRCH37/HS1`]) and
-    `decodingus-jobs run-once reconcile` (re-derive `core.variant` from the loaded
-    mirror without re-streaming — e.g. after curator edits).
+  - **One-shot ops:** `decodingus-jobs run-once <job>` — `ybrowse` (full GFF3 stream +
+    reconcile; needs `YBROWSE_GFF` [+ optional `YBROWSE_CHAIN_GRCH37/HS1`]),
+    `reconcile` (re-derive `core.variant` from the loaded mirror without re-streaming),
+    `yregions` (load the T2T-CHM13 Y reference-region BEDs + refresh region flags), and
+    `branch-age` (recompute STR signatures + the combined branch ages).
 - Tests: `DATABASE_URL=... cargo test -p du-db` (live-DB tests skip/pass if unset).
   - **Safe against any DB:** every du-db integration test now provisions a private,
     throwaway database via `du_db::testing::ephemeral_db` (migrated, dropped on Drop),
@@ -94,7 +105,7 @@ APP_SECRET="<any 32+ char string>"   # signs session cookies
 
 ## What's done (✅)
 
-- **Schema** — `migrations/0001–0022`. JSONB "document columns" (variant
+- **Schema** — `migrations/0001–0023`. JSONB "document columns" (variant
   coordinates/aliases/**evidence**, biosample source_attrs/atproto, haplogroup
   provenance, coverage, …). Highlights since the merge work: `ident.audit_log`
   (0010), fed reporting (0011–0012), Y-STR (0013–0014), backbone (0015), **variant
@@ -102,7 +113,8 @@ APP_SECRET="<any 32+ char string>"   # signs session cookies
   `core.next_du_name()`), **variant evidence** (0017), **YBrowse mirror +
   reconcile machinery** (0018), **strand-canonical fold** (0019), **INDEL/MNP
   canon** (0020), **ancestral-state / per-branch ASR** (0021), **`is_public`
-  biosample gate** (0022, the public per-sample report).
+  biosample gate** (0022, the public per-sample report), **variant
+  `defining_haplogroup_id` recurrence model** (0023).
 - **`du-db`** — query modules for every aggregate (variant, haplogroup, biosample,
   publication, genome_region, coverage, proposal, study, change_set, merge, auth,
   naming, ybrowse, wip, ystr, age, fed, consent, support) + `testing` (ephemeral DB).
@@ -144,6 +156,15 @@ APP_SECRET="<any 32+ char string>"   # signs session cookies
   (`--stage-review`) triaged at **`/curator/reviews`** (SNP-scatter + tree-preview
   + accept-anchor/reparent/merge/defer; `tree.wip_*` enacted by the apply engine's
   WIP pass). (See memory `prod-tree-snp-graft`.)
+- **Y reference-region pipeline** (`du-jobs/yregions`, `du-db/genome_region`,
+  `du-db/variant`) — `run-once yregions` loads the T2T-CHM13v2.0 Y structural BEDs
+  (AZF/DYZ heterochromatin, amplicons v2, inverted-repeats/palindromes v2, chrXY
+  sequence-class) into `core.genome_region` (`upsert_by_key` + `prune_source_orphans`
+  = full-snapshot sync). `refresh_region_overlaps` stamps `core.variant.annotations.
+  region_overlaps` for variants in unreliable-for-placement regions; `snp_graft`
+  routes anchors whose every supporting SNP is unreliable to curator review
+  (`UnreliableAnchor`). Empirically validated by Hallast 2026 (Fig 5h-i callable
+  mask). hs1 coords only (1-based inclusive). (Memory `yregions-ingest`.)
 - **ETL** (`du-migrate`) — **full production surface**: catalog (donors, biosamples,
   variants, tree, studies, publications), ident/auth, genomics. Validated vs the
   schema-only `db.schema` and the current-schema mock with data; all aggregates
@@ -170,12 +191,20 @@ APP_SECRET="<any 32+ char string>"   # signs session cookies
 - **Y-STR per-branch signatures + prediction + age** — `fed.str_profile` mirror
   (Jetstream) + `du-db::ystr` modal-haplotype aggregation → `tree.haplogroup_
   ancestral_str` (mig 0013) via `str-signature-recompute`; STR→branch `predict`
-  at `POST /api/v1/str/predict`; STR-variance age (McDonald 2021) folded into the
-  combine.
-- **Combined branch age (McDonald 2021)** (`du-db/age.rs`, mig 0014) — labeled
-  per-evidence rows multiplied as Gaussians; SNP-Poisson + genealogical/aDNA-anchor
-  terms; gap-fills `tree.haplogroup.tmrca_ybp` (curated values never overwritten);
-  runs in `branch-age-recompute`. SNP/anchor terms data-gated (sparse pre-cutover).
+  at `POST /api/v1/str/predict`. STR age is the **McDonald multi-step PDF model**:
+  `P(g|m)` from Table 1 (embedded) + ω convolution fallback → per-marker Poisson
+  mixture (`du_db::pdf::Pdf::mixture`) → **tree-propagated** TMRCA PDFs
+  (`ystr::propagate_str`, ancestral-motif reconstruction). Per-marker rates from
+  `genomics.str_mutation_rate` (seeded, 137 markers; Willems 2016 + YHRD).
+- **Combined branch age (McDonald 2021)** (`du-db/age.rs`, migs 0013/0014) — each
+  evidence term is a **PDF**: SNP TMRCA (bottom-up tree propagation, Eq 5–8, on the
+  `du_db::pdf` grid), STR TMRCA (`ystr::str_tmrca_pdfs`), and genealogical/aDNA-anchor
+  Gaussians; `COMBINED` is their **direct product** (Eq 1, shape-preserving; disjoint
+  → inverse-variance fallback), gap-filling `tree.haplogroup.{formed,tmrca}_ybp`
+  (curated values never overwritten). `HET_MASK` excises heterochromatic SNPs;
+  Helgason rate default with Hallast `HALLAST_RATE` as a recorded cross-check. Runs in
+  `branch-age-recompute` (= `run-once branch-age`). SNP/STR/anchor terms data-gated
+  (sparse pre-cutover; the dev tree is tree-only, so a live run is a near no-op).
 - **`du-jobs`** — tokio scheduler + **`run-once`** one-shot mode; jobs:
   `db-heartbeat`, `ybrowse-variant-ingest`, `publication-update`,
   `publication-discovery`, `publication-pubmed-update`, `ena-study-enrichment`,
@@ -292,9 +321,12 @@ Launch-critical first, then the post-launch feature mass.
      genuinely different coordinates; per-name evidence consolidation.
    - **WIP/merge review:** `EDIT_VARIANTS` resolution + cascading a graft-blocked
      *subtree* from a single decision.
-   - **Branch age:** per-sample/`formed_ybp` refinement + aDNA-calibration weighting;
-     import a real `str_mutation_rate` table (Ballantyne/Willems) to replace the
-     default rate.
+   - **Branch age:** the McDonald model is built end-to-end (PDF engine, SNP + STR
+     tree propagation, multi-step `P(g|m)`, genealogical anchors, PDF-product combine,
+     seeded STR rates). Remaining refinements are **data-shaped, not architectural**:
+     the true b̄ coverage *intersection* (Eq 4 — needs per-sample callable intervals),
+     the Eq 9/10 causality back-correction, the PDF-at-scale perf check once a
+     densely-sampled subtree exists, and the lone missing single-copy STR rate (DYS447).
    - **API:** surface unnamed variants (cross-repo change — `du-domain::Variant.
      canonical_name` `String` → `Option`, shared with Navigator).
    - More `fed.*` report shapes (genotype-provider mix, platform/test-type
