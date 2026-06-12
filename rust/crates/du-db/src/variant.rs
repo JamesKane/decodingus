@@ -457,6 +457,11 @@ pub async fn set_coordinates_bulk(
         .await?
         .rows_affected();
     }
+    // Coordinate enrichment (the hs1 backfill behind the cache-staleness incident)
+    // changes the served tree payload for any tree-linked variant — bump the marker.
+    if updated > 0 {
+        crate::tree_revision::bump(pool).await?;
+    }
     Ok(updated)
 }
 
@@ -479,6 +484,10 @@ pub async fn set_aliases_bulk(pool: &PgPool, items: &[(String, Vec<String>)]) ->
         .execute(pool)
         .await?
         .rows_affected();
+    }
+    // Alias enrichment surfaces in the payload's `common_names` — bump the marker.
+    if updated > 0 {
+        crate::tree_revision::bump(pool).await?;
     }
     Ok(updated)
 }

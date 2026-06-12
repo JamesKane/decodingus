@@ -252,6 +252,10 @@ pub async fn reconcile(pool: &PgPool) -> Result<ReconcileReport, DbError> {
     // sequence). Idempotent and outside the tx — needs the committed rows.
     let region_flagged = crate::variant::refresh_region_overlaps(pool).await?;
 
+    // The reconcile re-derived core.variant from the snapshot (coords, naming,
+    // enrichment) — bump the tree revision so Edge caches revalidate.
+    crate::tree_revision::bump(pool).await?;
+
     Ok(ReconcileReport { clusters, created, enriched, flagged, region_flagged })
 }
 

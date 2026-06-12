@@ -1,6 +1,6 @@
 # Work Item: Tree-endpoint cache revalidation (ETag / version)
 
-**Status:** Backlog (small API enhancement)
+**Status:** DONE (2026-06-12) — see "Implementation" below
 **Surface:** `du-web` — `GET /api/v1/y-tree/full` (and `mt-tree/full`)
 **Filed:** 2026-06-11 · **Origin:** Navigator (Edge) tree-cache staleness incident
 
@@ -45,6 +45,28 @@ caused the incident) bumps the ETag even if the topology is unchanged.
 - Any change that alters the served payload (topology, variant set, **coordinate
   enrichment**, naming) changes the `ETag`.
 - mt-tree parity.
+
+## Implementation (2026-06-12)
+
+A **persisted revision marker** (`tree.tree_revision`, migration 0024 — one global
+row) is the ETag source, **not** a request-time payload hash. It is bumped (+1)
+once by each tree-mutating operation: `change_set::apply` (in-txn), the coordinate
+/alias bulk enrichers (`variant::set_coordinates_bulk` / `set_aliases_bulk` — the
+hs1 backfill that caused the incident), `ybrowse::reconcile`, and the `tree-init`
+build. (`du_db::tree_revision::{current,bump}`.)
+
+The tree handlers now do a **cheap conditional GET**: read the revision marker,
+build the ETag, and short-circuit to **304** on a matching `If-None-Match`
+*before* the ~28 MB query/serialization. ETag = `"<shape>-<dna>-<root>-r<rev>"`
+(strong), so full-vs-plain, Y-vs-mt, and per-root payloads get distinct tokens; a
+global bump revalidates both trees (safe over-invalidation, never a false 304).
+Responses carry `ETag` + `Last-Modified` + `Cache-Control: no-cache`. Added
+`GET /api/v1/y-tree/version` + `/mt-tree/version` → `{revision, etag, updated_at}`.
+
+Verified over HTTP against the dev tree: full payload 28.67 MB → a matching
+`If-None-Match` returns **304 / 0 bytes**; a revision bump flips the old validator
+back to **200**. Tests: `du_db::tree_revision` integration, ETag-helper unit tests,
+and a `du-web` oneshot 200→304→bump→200 + version cycle.
 
 ## Edge-side counterpart (already done, for reference)
 

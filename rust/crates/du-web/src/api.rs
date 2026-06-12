@@ -12,7 +12,7 @@
 use crate::error::AppError;
 use crate::state::AppState;
 use axum::extract::{Path, Query, State};
-use axum::http::{header, StatusCode};
+use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -98,6 +98,18 @@ pub struct HaplogroupNodeDto {
 pub struct TreeDto {
     /// Top-level node(s): one when a `rootHaplogroup` is given, else every root.
     pub roots: Vec<HaplogroupNodeDto>,
+}
+
+/// Cheap cache-revalidation probe: the current tree revision + the full-tree ETag,
+/// so a client can detect a newer tree without downloading it.
+#[derive(Serialize, ToSchema)]
+pub struct TreeVersionDto {
+    /// Monotonic revision, bumped by every tree-mutating operation.
+    pub revision: i64,
+    /// The `ETag` of `GET /…-tree/full` at this revision (use as `If-None-Match`).
+    pub etag: String,
+    /// When the tree last changed (RFC 3339).
+    pub updated_at: String,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -484,6 +496,13 @@ pub struct RootParams {
     pub root_haplogroup: Option<String>,
 }
 
+impl RootParams {
+    /// The non-empty subtree root, if any.
+    fn root(&self) -> Option<&str> {
+        self.root_haplogroup.as_deref().filter(|s| !s.is_empty())
+    }
+}
+
 // ── tree assembly ────────────────────────────────────────────────────────────
 
 fn assemble_forest(
@@ -525,47 +544,127 @@ fn build_level(
         .collect()
 }
 
-async fn tree_response(st: &AppState, dna: DnaType, root: Option<&str>) -> Result<Json<TreeDto>, AppError> {
+async fn build_tree(st: &AppState, dna: DnaType, root: Option<&str>) -> Result<TreeDto, AppError> {
     let nodes = du_db::haplogroup::subtree(&st.pool, dna, root).await?;
-    Ok(Json(TreeDto { roots: assemble_forest(nodes, &HashMap::new()) }))
+    Ok(TreeDto { roots: assemble_forest(nodes, &HashMap::new()) })
 }
 
-/// Like [`tree_response`] but embeds each node's defining variants (with multi-build
+/// Like [`build_tree`] but embeds each node's defining variants (with multi-build
 /// coordinates) — one payload a client can build a placement tree from without per-node
 /// fetches. Variants are loaded for the whole lineage in one query and grouped by node.
-async fn tree_response_full(st: &AppState, dna: DnaType, root: Option<&str>) -> Result<Json<TreeDto>, AppError> {
+async fn build_tree_full(st: &AppState, dna: DnaType, root: Option<&str>) -> Result<TreeDto, AppError> {
     let nodes = du_db::haplogroup::subtree(&st.pool, dna, root).await?;
     let mut variants: HashMap<i64, Vec<VariantDto>> = HashMap::new();
     for (hid, v) in du_db::variant::for_dna_type_grouped(&st.pool, dna).await? {
         variants.entry(hid).or_default().push(VariantDto::from(v));
     }
-    Ok(Json(TreeDto { roots: assemble_forest(nodes, &variants) }))
+    Ok(TreeDto { roots: assemble_forest(nodes, &variants) })
+}
+
+// ── tree cache revalidation (ETag / conditional GET) ─────────────────────────
+
+/// The cache token for a tree representation. Strong ETag keyed on the persisted
+/// tree revision (`du_db::tree_revision`) plus the things that vary the payload:
+/// full-vs-plain, dna type, and subtree root. The revision is bumped by every
+/// tree-mutating op (topology, variant set, coordinate enrichment, naming), so a
+/// matching `If-None-Match` is a safe 304.
+fn tree_etag(full: bool, dna: DnaType, root: Option<&str>, revision: i64) -> String {
+    let shape = if full { "full" } else { "plain" };
+    let dna = if matches!(dna, DnaType::YDna) { "y" } else { "mt" };
+    format!("\"{shape}-{dna}-{}-r{revision}\"", root.unwrap_or("*"))
+}
+
+/// Whether the request's `If-None-Match` matches our current `etag` (a `*`
+/// wildcard or a comma-separated list of strong validators).
+fn if_none_match(headers: &HeaderMap, etag: &str) -> bool {
+    let Some(val) = headers.get(header::IF_NONE_MATCH).and_then(|v| v.to_str().ok()) else {
+        return false;
+    };
+    val.split(',').map(str::trim).any(|t| t == "*" || t == etag)
+}
+
+/// HTTP-date (`Last-Modified`) for a revision timestamp.
+fn http_date(ts: chrono::DateTime<chrono::Utc>) -> String {
+    ts.format("%a, %d %b %Y %H:%M:%S GMT").to_string()
+}
+
+/// Conditional GET for a tree endpoint: read the cheap revision marker, build the
+/// ETag, and short-circuit to **304** when `If-None-Match` matches — *before* the
+/// expensive tree query/serialization. Otherwise build the payload and attach the
+/// `ETag` / `Last-Modified` / `Cache-Control: no-cache` headers.
+async fn tree_conditional(
+    st: &AppState,
+    headers: &HeaderMap,
+    dna: DnaType,
+    root: Option<&str>,
+    full: bool,
+) -> Result<Response, AppError> {
+    let (revision, updated_at) = du_db::tree_revision::current(&st.pool).await?;
+    let etag = tree_etag(full, dna, root, revision);
+    let last_modified = http_date(updated_at);
+    let cache_headers = [
+        (header::ETAG, etag.clone()),
+        (header::LAST_MODIFIED, last_modified),
+        (header::CACHE_CONTROL, "no-cache".to_string()),
+    ];
+    if if_none_match(headers, &etag) {
+        return Ok((StatusCode::NOT_MODIFIED, cache_headers).into_response());
+    }
+    let dto = if full { build_tree_full(st, dna, root).await? } else { build_tree(st, dna, root).await? };
+    Ok((StatusCode::OK, cache_headers, Json(dto)).into_response())
+}
+
+/// The `/…-tree/version` body: revision + the full-tree ETag, so the Edge can
+/// check the version (and prime an `If-None-Match`) without fetching the tree.
+async fn tree_version(st: &AppState, dna: DnaType) -> Result<Json<TreeVersionDto>, AppError> {
+    let (revision, updated_at) = du_db::tree_revision::current(&st.pool).await?;
+    Ok(Json(TreeVersionDto {
+        revision,
+        etag: tree_etag(true, dna, None, revision),
+        updated_at: updated_at.to_rfc3339(),
+    }))
 }
 
 // ── handlers ─────────────────────────────────────────────────────────────────
 
 #[utoipa::path(get, path = "/api/v1/y-tree", params(RootParams), tag = "tree",
-    responses((status = 200, description = "Y-chromosome haplogroup tree", body = TreeDto)))]
-async fn y_tree(State(st): State<AppState>, Query(q): Query<RootParams>) -> Result<Json<TreeDto>, AppError> {
-    tree_response(&st, DnaType::YDna, q.root_haplogroup.as_deref().filter(|s| !s.is_empty())).await
+    responses((status = 200, description = "Y-chromosome haplogroup tree", body = TreeDto),
+              (status = 304, description = "Not modified (ETag matched If-None-Match)")))]
+async fn y_tree(State(st): State<AppState>, headers: HeaderMap, Query(q): Query<RootParams>) -> Result<Response, AppError> {
+    tree_conditional(&st, &headers, DnaType::YDna, q.root(), false).await
 }
 
 #[utoipa::path(get, path = "/api/v1/mt-tree", params(RootParams), tag = "tree",
-    responses((status = 200, description = "Mitochondrial haplogroup tree", body = TreeDto)))]
-async fn mt_tree(State(st): State<AppState>, Query(q): Query<RootParams>) -> Result<Json<TreeDto>, AppError> {
-    tree_response(&st, DnaType::MtDna, q.root_haplogroup.as_deref().filter(|s| !s.is_empty())).await
+    responses((status = 200, description = "Mitochondrial haplogroup tree", body = TreeDto),
+              (status = 304, description = "Not modified (ETag matched If-None-Match)")))]
+async fn mt_tree(State(st): State<AppState>, headers: HeaderMap, Query(q): Query<RootParams>) -> Result<Response, AppError> {
+    tree_conditional(&st, &headers, DnaType::MtDna, q.root(), false).await
 }
 
 #[utoipa::path(get, path = "/api/v1/y-tree/full", params(RootParams), tag = "tree",
-    responses((status = 200, description = "Y-chromosome haplogroup tree with per-node defining variants", body = TreeDto)))]
-async fn y_tree_full(State(st): State<AppState>, Query(q): Query<RootParams>) -> Result<Json<TreeDto>, AppError> {
-    tree_response_full(&st, DnaType::YDna, q.root_haplogroup.as_deref().filter(|s| !s.is_empty())).await
+    responses((status = 200, description = "Y-chromosome haplogroup tree with per-node defining variants", body = TreeDto),
+              (status = 304, description = "Not modified (ETag matched If-None-Match)")))]
+async fn y_tree_full(State(st): State<AppState>, headers: HeaderMap, Query(q): Query<RootParams>) -> Result<Response, AppError> {
+    tree_conditional(&st, &headers, DnaType::YDna, q.root(), true).await
 }
 
 #[utoipa::path(get, path = "/api/v1/mt-tree/full", params(RootParams), tag = "tree",
-    responses((status = 200, description = "Mitochondrial haplogroup tree with per-node defining variants", body = TreeDto)))]
-async fn mt_tree_full(State(st): State<AppState>, Query(q): Query<RootParams>) -> Result<Json<TreeDto>, AppError> {
-    tree_response_full(&st, DnaType::MtDna, q.root_haplogroup.as_deref().filter(|s| !s.is_empty())).await
+    responses((status = 200, description = "Mitochondrial haplogroup tree with per-node defining variants", body = TreeDto),
+              (status = 304, description = "Not modified (ETag matched If-None-Match)")))]
+async fn mt_tree_full(State(st): State<AppState>, headers: HeaderMap, Query(q): Query<RootParams>) -> Result<Response, AppError> {
+    tree_conditional(&st, &headers, DnaType::MtDna, q.root(), true).await
+}
+
+#[utoipa::path(get, path = "/api/v1/y-tree/version", tag = "tree",
+    responses((status = 200, description = "Current Y-tree revision + ETag (cheap cache-revalidation probe)", body = TreeVersionDto)))]
+async fn y_tree_version(State(st): State<AppState>) -> Result<Json<TreeVersionDto>, AppError> {
+    tree_version(&st, DnaType::YDna).await
+}
+
+#[utoipa::path(get, path = "/api/v1/mt-tree/version", tag = "tree",
+    responses((status = 200, description = "Current mt-tree revision + ETag (cheap cache-revalidation probe)", body = TreeVersionDto)))]
+async fn mt_tree_version(State(st): State<AppState>) -> Result<Json<TreeVersionDto>, AppError> {
+    tree_version(&st, DnaType::MtDna).await
 }
 
 #[utoipa::path(get, path = "/api/v1/coverage/benchmarks", tag = "coverage",
@@ -945,14 +1044,14 @@ fn csv_field(s: &str) -> String {
 #[openapi(
     info(title = "DecodingUs API", version = "1.0.0", description = "Public read API for the DecodingUs AppView."),
     paths(
-        y_tree, mt_tree, y_tree_full, mt_tree_full, coverage_benchmarks, references_details, biosample_report, sample_report, biosample_studies,
+        y_tree, mt_tree, y_tree_full, mt_tree_full, y_tree_version, mt_tree_version, coverage_benchmarks, references_details, biosample_report, sample_report, biosample_studies,
         list_variants, get_variant, variants_by_haplogroup, export_metadata, export_variants,
         export_variants_gff, list_region_builds, regions_by_build,
         reports_coverage, reports_ancestry, reports_haplogroups,
         haplogroup_str_signature, haplogroup_age, str_predict,
     ),
     components(schemas(
-        VariantDto, HaplogroupNodeDto, TreeDto, CoverageBenchmarkDto, PublicationDto, BiosampleDto,
+        VariantDto, HaplogroupNodeDto, TreeDto, TreeVersionDto, CoverageBenchmarkDto, PublicationDto, BiosampleDto,
         SampleReportDto, HaplogroupPathwayDto, PathwayStepDto, SequencingRunDto, CoverageSummaryDto,
         AncestryDto, SamplePublicationDto,
         GenomeRegionDto, StudyDto, ExportMetadataDto, Page<VariantDto>, Page<PublicationDto>, Page<BiosampleDto>,
@@ -976,6 +1075,8 @@ pub fn router() -> Router<AppState> {
         .route("/api/v1/mt-tree", get(mt_tree))
         .route("/api/v1/y-tree/full", get(y_tree_full))
         .route("/api/v1/mt-tree/full", get(mt_tree_full))
+        .route("/api/v1/y-tree/version", get(y_tree_version))
+        .route("/api/v1/mt-tree/version", get(mt_tree_version))
         .route("/api/v1/coverage/benchmarks", get(coverage_benchmarks))
         .route("/api/v1/reports/coverage", get(reports_coverage))
         .route("/api/v1/reports/ancestry", get(reports_ancestry))
@@ -1050,5 +1151,84 @@ mod tests {
         };
         let v = serde_json::to_value(TreeDto { roots: vec![node] }).unwrap();
         assert!(v["roots"][0].get("variants").is_none(), "empty variants must be omitted");
+    }
+
+    #[test]
+    fn etag_varies_by_shape_dna_root_revision() {
+        use super::tree_etag;
+        use du_domain::enums::DnaType;
+        let base = tree_etag(true, DnaType::YDna, None, 5);
+        assert_eq!(base, "\"full-y-*-r5\"");
+        assert_ne!(base, tree_etag(false, DnaType::YDna, None, 5)); // shape
+        assert_ne!(base, tree_etag(true, DnaType::MtDna, None, 5)); // dna
+        assert_ne!(base, tree_etag(true, DnaType::YDna, Some("R-M269"), 5)); // root
+        assert_ne!(base, tree_etag(true, DnaType::YDna, None, 6)); // revision
+    }
+
+    #[test]
+    fn if_none_match_handles_list_and_wildcard() {
+        use super::if_none_match;
+        use axum::http::{header, HeaderMap, HeaderValue};
+        let etag = "\"full-y-*-r5\"";
+        let mut h = HeaderMap::new();
+        assert!(!if_none_match(&h, etag)); // absent
+        h.insert(header::IF_NONE_MATCH, HeaderValue::from_static("\"full-y-*-r5\""));
+        assert!(if_none_match(&h, etag));
+        h.insert(header::IF_NONE_MATCH, HeaderValue::from_static("\"other\", \"full-y-*-r5\""));
+        assert!(if_none_match(&h, etag), "matches one of a list");
+        h.insert(header::IF_NONE_MATCH, HeaderValue::from_static("*"));
+        assert!(if_none_match(&h, etag), "wildcard matches");
+        h.insert(header::IF_NONE_MATCH, HeaderValue::from_static("\"stale-r1\""));
+        assert!(!if_none_match(&h, etag), "non-matching validator");
+    }
+
+    /// Full conditional-GET cycle against an ephemeral DB: 200 + ETag → 304 on
+    /// `If-None-Match` → 200 again once the revision marker bumps.
+    #[tokio::test]
+    async fn conditional_get_304_until_revision_bumps() {
+        let Some(url) = std::env::var("DATABASE_URL").ok().filter(|s| !s.is_empty()) else {
+            eprintln!("DATABASE_URL unset — skipping tree-cache test");
+            return;
+        };
+        use axum::body::{to_bytes, Body};
+        use axum::http::{header, Request, StatusCode};
+        use tower::ServiceExt;
+
+        let db = du_db::testing::ephemeral_db(&url).await.expect("ephemeral db");
+        let pool = db.pool().clone();
+        let state = super::AppState { pool: pool.clone(), key: tower_cookies::Key::generate(), oauth: None };
+        let app = super::router().with_state(state);
+
+        let plain = || Request::builder().uri("/api/v1/y-tree/full").body(Body::empty()).unwrap();
+        let with_inm = |etag: &str| {
+            Request::builder().uri("/api/v1/y-tree/full").header(header::IF_NONE_MATCH, etag).body(Body::empty()).unwrap()
+        };
+
+        // 1) First fetch: 200 + ETag + Last-Modified.
+        let r1 = app.clone().oneshot(plain()).await.unwrap();
+        assert_eq!(r1.status(), StatusCode::OK);
+        let etag = r1.headers().get(header::ETAG).unwrap().to_str().unwrap().to_string();
+        assert!(r1.headers().contains_key(header::LAST_MODIFIED));
+
+        // 2) Revalidate with the ETag: 304, empty body.
+        let r2 = app.clone().oneshot(with_inm(&etag)).await.unwrap();
+        assert_eq!(r2.status(), StatusCode::NOT_MODIFIED);
+        assert_eq!(r2.headers().get(header::ETAG).unwrap().to_str().unwrap(), etag);
+        assert!(to_bytes(r2.into_body(), usize::MAX).await.unwrap().is_empty(), "304 carries no body");
+
+        // 3) Bump the revision → ETag changes → the old validator no longer matches.
+        du_db::tree_revision::bump(&pool).await.expect("bump");
+        let r3 = app.clone().oneshot(with_inm(&etag)).await.unwrap();
+        assert_eq!(r3.status(), StatusCode::OK, "stale validator → full payload");
+        let etag3 = r3.headers().get(header::ETAG).unwrap().to_str().unwrap().to_string();
+        assert_ne!(etag3, etag, "ETag advanced with the revision");
+
+        // 4) /version reports the current revision/ETag without a body fetch.
+        let rv = app.clone().oneshot(Request::builder().uri("/api/v1/y-tree/version").body(Body::empty()).unwrap()).await.unwrap();
+        assert_eq!(rv.status(), StatusCode::OK);
+        let vbody = to_bytes(rv.into_body(), usize::MAX).await.unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&vbody).unwrap();
+        assert_eq!(v["etag"].as_str().unwrap(), etag3);
+        assert!(v["revision"].as_i64().unwrap() >= 2);
     }
 }

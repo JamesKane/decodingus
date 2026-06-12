@@ -173,7 +173,12 @@ APP_SECRET="<any 32+ char string>"   # signs session cookies
   OpenAPI 3 + Swagger UI at `/api` (utoipa). Includes the federated population
   reports `/api/v1/reports/{coverage,ancestry,haplogroups}` aggregated from the
   `fed.*` mirror with query-time SQL, plus `haplogroups/:name/{str-signature,age}`
-  and `POST /api/v1/str/predict`.
+  and `POST /api/v1/str/predict`. **Tree cache revalidation (2026-06-12):** the
+  `{y,mt}-tree[/full]` endpoints emit a strong `ETag` + `Last-Modified` from a
+  persisted `tree.tree_revision` marker (mig 0024) and honor `If-None-Match` → 304
+  *before* the ~28 MB query; the marker is bumped by every tree-mutating op
+  (change-set apply, coordinate/alias enrichment, reconcile, tree-init). Added
+  `/api/v1/{y,mt}-tree/version`. Memory `tree-cache-revalidation`.
 - **Tree versioning** (`du-db/change_set.rs`, `du-web/routes/versioning.rs` +
   `change_sets.rs`) — change-set lifecycle + per-change review + diff + temporal
   apply engine; curator-gated machine API at `/manage/change-sets/*` **plus a

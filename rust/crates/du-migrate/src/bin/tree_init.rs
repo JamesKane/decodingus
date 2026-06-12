@@ -621,6 +621,13 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
+    // Any applied build/post-process changed the served tree — bump the revision
+    // marker once so the Edge cache-revalidation ETag reflects this build.
+    if args.apply || args.reprocess {
+        let rev = du_db::tree_revision::bump(&pool).await?;
+        tracing::info!(revision = rev, "bumped tree revision marker");
+    }
+
     tracing::info!("tree-init done");
     Ok(())
 }

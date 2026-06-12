@@ -374,6 +374,10 @@ pub async fn apply(pool: &PgPool, id: i64, by: &str) -> Result<ApplyResult, DbEr
         .execute(&mut *tx)
         .await?;
 
+    // The applied change-set altered the served tree — bump the revision marker
+    // in-transaction so caches (the Edge ETag) revalidate. Atomic with the apply.
+    crate::tree_revision::bump(&mut *tx).await?;
+
     tx.commit().await?;
     Ok(result)
 }
