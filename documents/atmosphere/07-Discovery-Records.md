@@ -104,8 +104,81 @@ This record allows citizens to contribute instrument-lab observations from their
 
 ---
 
+## Private Variant Record
+
+This record lets a citizen publish the **private variants** their analysis found beyond
+their assigned terminal haplogroup — the mutations that may define a new branch. The
+DecodingUs AppView mirrors them into `fed.private_variant` and the **discovery consensus
+engine** (`du_db::discovery`) pools them across submitters by variant-set similarity
+(Jaccard) into proposed branches for curator review. One record per (biosample, DNA arm).
+
+**Privacy:** like the `biosample`/`strProfile` summary records, this is citizen-opt-in,
+keyed by biosample ref (no donor PII); variants are anonymized to coordinates/known names.
+
+**NSID:** `com.decodingus.atmosphere.privateVariant`
+
+```json
+{
+  "lexicon": 1,
+  "id": "com.decodingus.atmosphere.privateVariant",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "The private variants a sample carries beyond its assigned terminal haplogroup — candidate defining mutations for a new branch.",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "required": ["meta", "biosampleRef", "dnaType", "terminalHaplogroup", "variants"],
+        "properties": {
+          "meta": { "type": "ref", "ref": "com.decodingus.atmosphere.defs#recordMeta" },
+          "biosampleRef": {
+            "type": "string",
+            "description": "AT URI of the biosample these private variants were extracted from."
+          },
+          "sequenceRunRef": {
+            "type": "string",
+            "description": "AT URI of the specific sequence run (optional, for precision)."
+          },
+          "dnaType": {
+            "type": "string",
+            "description": "Which tree the variants extend.",
+            "knownValues": ["Y_DNA", "MT_DNA"]
+          },
+          "terminalHaplogroup": {
+            "type": "string",
+            "description": "The terminal haplogroup the sample was assigned (e.g., 'R-M269'); the private variants sit below it."
+          },
+          "variants": {
+            "type": "array",
+            "description": "The private (mismatching) variant calls beyond the terminal.",
+            "items": {
+              "type": "object",
+              "required": ["contig", "position", "ancestral", "derived"],
+              "properties": {
+                "name": { "type": "string", "description": "Known name if any (e.g., 'FT123456'); omit for novel variants." },
+                "contig": { "type": "string", "description": "Reference contig (e.g., 'chrY')." },
+                "position": { "type": "integer", "description": "GRCh38 position." },
+                "ancestral": { "type": "string", "description": "Ancestral allele." },
+                "derived": { "type": "string", "description": "Derived allele." },
+                "rsId": { "type": "string", "description": "dbSNP rsID if known." }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+---
+
 ## Backend Mapping
 
 * **`InstrumentObservation`:** Maps to `instrument_observation` table for lab inference consensus.
+* **`PrivateVariant`:** Mirrored to `fed.private_variant`; the discovery consensus engine
+  (`du_db::discovery`) materializes it into `tree.biosample_private_variant` and pools it
+  into `tree.proposed_branch`. See
+  [haplogroup-discovery-system.md](../haplogroup-discovery-system.md) (D6).
 
 See [sequencer-lab-inference-system.md](../sequencer-lab-inference-system.md) for implementation planning.

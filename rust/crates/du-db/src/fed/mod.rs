@@ -21,6 +21,7 @@ pub mod analytics;
 pub mod core;
 pub mod coverage;
 pub mod instrument_observation;
+pub mod private_variant;
 pub mod str_profile;
 
 // Collection NSIDs the AppView ingests for reporting. The records Navigator computes +
@@ -38,6 +39,7 @@ pub const NS_POPULATION_BREAKDOWN: &str = du_domain::fed::NS_POPULATION_BREAKDOW
 pub const NS_HAPLOGROUP_RECONCILIATION: &str = du_domain::fed::NS_HAPLOGROUP_RECONCILIATION;
 pub const NS_STR_PROFILE: &str = "com.decodingus.atmosphere.strProfile";
 pub const NS_INSTRUMENT_OBSERVATION: &str = "com.decodingus.atmosphere.instrumentObservation";
+pub const NS_PRIVATE_VARIANT: &str = "com.decodingus.atmosphere.privateVariant";
 
 /// Every collection mirrored for reporting (the consumer's `wantedCollections`).
 pub const INGEST_COLLECTIONS: &[&str] = &[
@@ -51,6 +53,7 @@ pub const INGEST_COLLECTIONS: &[&str] = &[
     NS_HAPLOGROUP_RECONCILIATION,
     NS_STR_PROFILE,
     NS_INSTRUMENT_OBSERVATION,
+    NS_PRIVATE_VARIANT,
 ];
 
 /// The `fed.*` reporting table backing a collection, or `None` if unsupported.
@@ -66,6 +69,7 @@ fn table_for(collection: &str) -> Option<&'static str> {
         NS_HAPLOGROUP_RECONCILIATION => "fed.haplogroup_reconciliation",
         NS_STR_PROFILE => "fed.str_profile",
         NS_INSTRUMENT_OBSERVATION => "fed.instrument_observation",
+        NS_PRIVATE_VARIANT => "fed.private_variant",
         _ => return None,
     })
 }

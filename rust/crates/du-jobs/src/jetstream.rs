@@ -13,7 +13,7 @@
 //! from the persisted `time_us` cursor and reconnects with capped backoff; every
 //! upsert is idempotent + ordered, so replay overlap on reconnect is harmless.
 
-use du_db::fed::{self, analytics, core, coverage, instrument_observation, str_profile};
+use du_db::fed::{self, analytics, core, coverage, instrument_observation, private_variant, str_profile};
 use du_db::PgPool;
 use futures_util::StreamExt;
 use serde::Deserialize;
@@ -164,6 +164,7 @@ async fn handle(pool: &PgPool, ev: &Event) -> anyhow::Result<()> {
         fed::NS_INSTRUMENT_OBSERVATION => {
             instrument_observation::upsert(pool, &build_instrument_observation(c, record)).await?
         }
+        fed::NS_PRIVATE_VARIANT => private_variant::upsert(pool, &build_private_variant(c, record)).await?,
         other => tracing::debug!(collection = other, "ignoring unwanted collection"),
     }
     Ok(())
@@ -393,6 +394,17 @@ fn build_instrument_observation(c: fed::Common, record: &Value) -> instrument_ob
     }
 }
 
+fn build_private_variant(c: fed::Common, record: &Value) -> private_variant::PrivateVariant {
+    private_variant::PrivateVariant {
+        biosample_ref: str_at(record, "biosampleRef"),
+        sequence_run_ref: str_at(record, "sequenceRunRef"),
+        dna_type: str_at(record, "dnaType"),
+        terminal_haplogroup: str_at(record, "terminalHaplogroup"),
+        variants: record.get("variants").cloned().unwrap_or_else(|| json!([])),
+        common: c,
+    }
+}
+
 fn build_reconciliation(c: fed::Common, record: &Value) -> analytics::Reconciliation {
     let status = record.get("status").cloned().unwrap_or_else(|| json!({}));
     analytics::Reconciliation {
@@ -572,6 +584,24 @@ mod tests {
         assert_eq!(o.confidence.as_deref(), Some("KNOWN"));
         assert_eq!(o.run_date.map(|d| d.to_string()).as_deref(), Some("2025-11-02"));
         assert!(o.observed_at.is_some());
+    }
+
+    #[test]
+    fn private_variant_extracts_terminal_and_variants() {
+        let record = json!({
+            "biosampleRef": "at://x/bs/1",
+            "dnaType": "Y_DNA",
+            "terminalHaplogroup": "R-M269",
+            "variants": [
+                { "name": "FT123456", "contig": "chrY", "position": 21648000, "ancestral": "A", "derived": "G" },
+                { "contig": "chrY", "position": 21649000, "ancestral": "C", "derived": "T" }
+            ]
+        });
+        let p = build_private_variant(mk_common(), &record);
+        assert_eq!(p.biosample_ref.as_deref(), Some("at://x/bs/1"));
+        assert_eq!(p.dna_type.as_deref(), Some("Y_DNA"));
+        assert_eq!(p.terminal_haplogroup.as_deref(), Some("R-M269"));
+        assert_eq!(p.variants.as_array().map(|a| a.len()), Some(2));
     }
 
     #[test]
