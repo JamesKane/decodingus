@@ -258,12 +258,41 @@ Launch-critical first, then the post-launch feature mass.
    reconcile checks (the tree is built by `tree-init` into the empty namespace);
    biosamples carry haplogroup names as JSON and resolve at read time; `core.variant`
    still migrates (tree-init reuses by `canonical_name`). Cutover order: migrate
-   `--skip-tree` → tree-init. Verified prod→`decodingus_cutover`: tree empty, all
-   non-tree aggregates reconcile, mt-tree built into it, 1,444/1,687 biosample mt
-   names resolve by name. **Remaining:** alias-aware resolution for the ~14% mt /
-   the Y aliases (mt has no ISOGG-style alias source — PhyloTree-version mapping is
-   a follow-up), and a perf pass on the per-variant `ON CONFLICT (canonical_name)`
-   against the 2.9M-row catalog (1s slow-statement during the tree build).
+   `--skip-tree` → tree-init.
+   **FTDNA descoped (2026-06-12):** beta tree = **ISOGG foundation + decoding-us
+   graft, no `--reattach`**; **no mt tree at beta**. The FTDNA-heavy subsections
+   below (mt foundation, 81k hybrid, reattach) are superseded — keep for later.
+   So name resolution is **Y-only**.
+   **Name resolution — DONE (2026-06-12).** Diagnosed against the real prod dump:
+   `public.biosample_haplogroup` (the reconciled FK) is **empty in prod**, so
+   `original_haplogroups` carries the raw heterogeneous **publication** call text
+   (FTDNA shorthand `R-M269`, path strings `R-DF27 > Z195 > Z198`, bare SNPs, old
+   YCC longhand `R1b1a2a1a2c1g`, `n/a`). Only ~20% match a node name directly.
+   `du_db::haplogroup::resolve_name_or_variant` now has a **normalization fallback**
+   (`normalize_haplogroup_call`: strip FTDNA prefix, terminal path token, split SNP
+   synonyms) that resolves the SNP-bearing calls via the existing defining-variant
+   phase → ~70% of rows (improves the per-sample report AND tree search). Residual:
+   ~59 YCC-longhand names need an authoritative old-YCC→modern crosswalk (ISOGG file
+   has only 13 name-aliases — don't hand-guess). Memory `biosample-y-name-resolution`.
+   **Per-variant upsert perf — DONE (2026-06-12).** The "1s slow-statement" was the
+   no-op `DO UPDATE SET canonical_name = EXCLUDED.…` rewriting every *pre-existing*
+   variant row (the catalog is pre-loaded by YBrowse, so the graft/merge/apply calls
+   nearly all conflict) → MVCC bloat + index churn (~1.9s in bulk, +893 heap pages /
+   30k rows). The index is a correct arbiter — not the issue. Fixed:
+   `du_db::variant::ensure_base_variant_id` (`DO NOTHING` + read-back, zero writes on
+   conflict); all 3 `get_or_create_variant` route to it. Memory
+   `variant-upsert-noop-write`.
+   **YCC→SNP node rename — DONE (2026-06-12).** `tree-init --rename-snp-shorthand`
+   (`du_db::haplogroup::rename_to_snp_shorthand`) drops YCC-longhand node names
+   (`R1b1a2`) to `<MajorClade>-<definingSNP>` (`R-M269`), single major letter
+   (renormalizes decoding-us `E1b-`→`E-`), keeping the **old YCC name in
+   `provenance.aliases`** — which also **closes the YCC resolution residual** (the
+   resolver's alias phase now resolves old biosample YCC calls). Naming SNP: existing
+   shorthand → ISOGG-designated first variant (`--isogg`) → DB-linked variant
+   (SNP-shaped only). Macro/backbone nodes, coordinate-name variants, and name
+   collisions are skipped + flagged (no guessing). Dev-tree dry-run: 10,254/10,516
+   renamed; ~185 keep YCC (twin collisions + no-SNP). Run it as a post-graft step in
+   the cutover tree build. Memory `ycc-to-snp-rename`.
 2. **Live AT Protocol OAuth handshake — the cross-host "Edge joint test."** Library
    + a dev public-client path are verified locally up to the **consent click**
    (gated `decodingus-shared/.../tests/live_pds.rs`: discovery + PAR + DPoP +
