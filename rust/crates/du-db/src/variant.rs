@@ -169,6 +169,43 @@ pub async fn upsert_by_name(pool: &PgPool, v: &NewVariant) -> Result<VariantId, 
     Ok(VariantId(id))
 }
 
+/// Resolve the id of the *base* variant (`defining_haplogroup_id IS NULL`) with
+/// this canonical name, minting it `UNNAMED`/`SNP` if absent. Hot in the tree
+/// build (graft + merge + change-set apply), where the catalog is already
+/// populated by the YBrowse ingest so nearly every call conflicts.
+///
+/// Unlike a no-op `ON CONFLICT … DO UPDATE SET canonical_name = EXCLUDED.…`
+/// (which rewrites the existing row on every conflict purely to return its id —
+/// tens of thousands of dead tuples + index churn across a build, the ~2s bulk
+/// statement seen at cutover scale), the conflict path here writes **nothing**:
+/// it inserts only when new, otherwise reads the id back. The read-back filters
+/// `defining_haplogroup_id IS NULL` to match the arbiter
+/// `(canonical_name, COALESCE(defining_haplogroup_id, -1))` for the base row.
+pub(crate) async fn ensure_base_variant_id(
+    conn: &mut sqlx::PgConnection,
+    name: &str,
+) -> Result<i64, DbError> {
+    if let Some(id) = sqlx::query_scalar::<_, i64>(
+        "INSERT INTO core.variant (canonical_name, mutation_type, naming_status) \
+         VALUES ($1, 'SNP'::core.mutation_type, 'UNNAMED'::core.naming_status) \
+         ON CONFLICT (canonical_name, COALESCE(defining_haplogroup_id, -1)) WHERE canonical_name IS NOT NULL \
+         DO NOTHING RETURNING id",
+    )
+    .bind(name)
+    .fetch_optional(&mut *conn)
+    .await?
+    {
+        return Ok(id);
+    }
+    // Conflict: the base row already exists — read its id without rewriting it.
+    Ok(sqlx::query_scalar::<_, i64>(
+        "SELECT id FROM core.variant WHERE canonical_name = $1 AND defining_haplogroup_id IS NULL",
+    )
+    .bind(name)
+    .fetch_one(&mut *conn)
+    .await?)
+}
+
 /// Whether the variant is referenced by a current haplogroup association
 /// (a guard before deletion).
 pub async fn is_referenced(pool: &PgPool, id: VariantId) -> Result<bool, DbError> {

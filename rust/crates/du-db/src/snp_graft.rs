@@ -547,15 +547,7 @@ async fn get_or_create_variant(
     if let Some(&id) = cache.get(name) {
         return Ok(id);
     }
-    let id: i64 = sqlx::query_scalar(
-        "INSERT INTO core.variant (canonical_name, mutation_type, naming_status) \
-         VALUES ($1, 'SNP'::core.mutation_type, 'UNNAMED'::core.naming_status) \
-         ON CONFLICT (canonical_name, COALESCE(defining_haplogroup_id, -1)) WHERE canonical_name IS NOT NULL \
-         DO UPDATE SET canonical_name = EXCLUDED.canonical_name RETURNING id",
-    )
-    .bind(name)
-    .fetch_one(&mut **tx)
-    .await?;
+    let id = crate::variant::ensure_base_variant_id(&mut **tx, name).await?;
     cache.insert(name.to_string(), id);
     Ok(id)
 }
