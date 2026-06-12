@@ -351,8 +351,16 @@ pub struct HaplogroupPathwayDto {
     /// Matched tree node, or null when the call isn't placed in the tree.
     pub resolved_name: Option<String>,
     pub dna_type: String,
-    /// `FED_CONSENSUS` or `ORIGINAL`.
+    /// `RECONCILED` (cross-technology consensus) / `FED_CONSENSUS` / `ORIGINAL`.
     pub origin: String,
+    /// Consensus confidence ∈ [0,1] (reconciled calls only).
+    pub confidence: Option<f64>,
+    /// Sequencing runs reconciled into the consensus.
+    pub run_count: Option<i32>,
+    /// SNP concordance across the reconciled runs ∈ [0,1].
+    pub snp_concordance: Option<f64>,
+    /// `COMPATIBLE` / `MINOR_DIVERGENCE` / `INCOMPATIBLE` …
+    pub compatibility_level: Option<String>,
     /// Root → tip clades (empty when unplaced).
     pub steps: Vec<PathwayStepDto>,
 }
@@ -1017,10 +1025,15 @@ fn pathway_dto(call: &du_db::biosample::HaplogroupCall, p: du_db::haplogroup::Pa
         resolved_name: p.resolved_name,
         dna_type: call.dna_type.label().to_string(),
         origin: match call.origin {
+            HaplogroupCallOrigin::Reconciled => "RECONCILED",
             HaplogroupCallOrigin::FedConsensus => "FED_CONSENSUS",
             HaplogroupCallOrigin::Original => "ORIGINAL",
         }
         .to_string(),
+        confidence: call.confidence,
+        run_count: call.run_count,
+        snp_concordance: call.snp_concordance,
+        compatibility_level: call.compatibility_level.clone(),
         steps: p
             .steps
             .into_iter()

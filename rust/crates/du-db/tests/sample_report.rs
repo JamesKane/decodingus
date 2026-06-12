@@ -66,6 +66,19 @@ async fn federated_and_academic_reports() {
     .await
     .expect("insert fed.biosample");
 
+    // Cross-technology consensus for Y (a DIFFERENT call than the single fed.biosample
+    // one) — keyed by the citizen's repo DID. It must outrank the fed.biosample call.
+    sqlx::query(
+        "INSERT INTO fed.haplogroup_reconciliation \
+            (did, rkey, at_uri, specimen_donor_ref, dna_type, compatibility_level, \
+             consensus_haplogroup, confidence, snp_concordance, run_count, time_us) \
+         VALUES ('did:test:fed', 'rec1', 'at://did:test:fed/rec/1', 'at://did:test:fed/donor/1', \
+                 'Y_DNA', 'COMPATIBLE', 'R-Z2103', 0.92, 0.97, 3, 1)",
+    )
+    .execute(&pool)
+    .await
+    .expect("insert fed.haplogroup_reconciliation");
+
     sqlx::query(
         "INSERT INTO fed.sequencerun (did, rkey, at_uri, biosample_ref, platform_name, test_type, \
             total_reads, read_length, time_us) \
@@ -116,8 +129,17 @@ async fn federated_and_academic_reports() {
     assert_eq!(rep.identity.sex.as_deref(), Some("MALE"));
     let origin = rep.identity.origin.expect("origin");
     assert!((origin.lat - 54.4).abs() < 1e-6 && (origin.lon - -6.2).abs() < 1e-6);
-    assert_eq!(rep.y.as_ref().expect("y").name, "R-M269");
-    assert_eq!(rep.mt.as_ref().expect("mt").name, "U5a1");
+    // Y resolves to the cross-technology consensus (R-Z2103), not the single
+    // fed.biosample call (R-M269), carrying its reliability.
+    let y = rep.y.as_ref().expect("y");
+    assert_eq!(y.name, "R-Z2103", "reconciliation consensus outranks the single fed.biosample call");
+    assert_eq!(y.origin, du_db::biosample::HaplogroupCallOrigin::Reconciled);
+    assert_eq!(y.run_count, Some(3));
+    assert!(y.confidence.unwrap() > 0.9);
+    // mt has no reconciliation → falls back to the single fed.biosample call.
+    let mt = rep.mt.as_ref().expect("mt");
+    assert_eq!(mt.name, "U5a1");
+    assert_eq!(mt.origin, du_db::biosample::HaplogroupCallOrigin::FedConsensus);
     assert_eq!(rep.sequencing.len(), 1);
     assert_eq!(rep.coverage.len(), 1);
     assert!(rep.ancestry.is_some());

@@ -126,7 +126,10 @@ pub async fn for_publication(
 /// Origin of a sample's haplogroup call — provenance shown to the reader.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HaplogroupCallOrigin {
-    /// `fed.biosample.y/mt_haplogroup` (Navigator consensus).
+    /// `fed.haplogroup_reconciliation` — the donor's call reconciled across all its
+    /// sequencing technologies (the authoritative cross-technology consensus).
+    Reconciled,
+    /// `fed.biosample.y/mt_haplogroup` (a single Navigator call, not reconciled).
     FedConsensus,
     /// `core.biosample.original_haplogroups` (per-publication original call).
     Original,
@@ -134,12 +137,43 @@ pub enum HaplogroupCallOrigin {
 
 /// A called haplogroup name plus its lineage. The phylogenetic pathway is
 /// resolved separately by [`crate::haplogroup::pathway`] so the SQL layer stays
-/// free of tree-walking.
+/// free of tree-walking. The reliability fields are populated only for a
+/// `Reconciled` call (the cross-technology consensus).
 #[derive(Debug, Clone)]
 pub struct HaplogroupCall {
     pub name: String,
     pub dna_type: DnaType,
     pub origin: HaplogroupCallOrigin,
+    /// Consensus confidence ∈ [0,1] (reconciled calls only).
+    pub confidence: Option<f64>,
+    /// Number of sequencing runs reconciled into the consensus.
+    pub run_count: Option<i32>,
+    /// SNP concordance across the reconciled runs ∈ [0,1].
+    pub snp_concordance: Option<f64>,
+    /// `COMPATIBLE` / `MINOR_DIVERGENCE` / `INCOMPATIBLE` …
+    pub compatibility_level: Option<String>,
+}
+
+/// A reconciliation consensus call, before it's lifted to a [`HaplogroupCall`].
+struct ReconCall {
+    name: String,
+    confidence: Option<f64>,
+    run_count: Option<i32>,
+    snp_concordance: Option<f64>,
+    compatibility_level: Option<String>,
+}
+
+/// Lift a reconciliation consensus to a `Reconciled`-origin [`HaplogroupCall`].
+fn reconciled_call(r: Option<ReconCall>, dna_type: DnaType) -> Option<HaplogroupCall> {
+    r.map(|r| HaplogroupCall {
+        name: r.name,
+        dna_type,
+        origin: HaplogroupCallOrigin::Reconciled,
+        confidence: r.confidence,
+        run_count: r.run_count,
+        snp_concordance: r.snp_concordance,
+        compatibility_level: r.compatibility_level,
+    })
 }
 
 /// WGS84 origin point (from the donor's `geocoord`).
@@ -313,6 +347,7 @@ pub async fn report_by_guid(pool: &PgPool, guid: SampleGuid) -> Result<Option<Sa
         center_name: Option<String>,
         is_public: bool,
         at_uri: Option<String>,
+        repo_did: Option<String>,
         original_haplogroups: serde_json::Value,
         sex: Option<String>,
         lat: Option<f64>,
@@ -320,7 +355,8 @@ pub async fn report_by_guid(pool: &PgPool, guid: SampleGuid) -> Result<Option<Sa
     }
     let id_row: Option<IdRow> = sqlx::query_as(
         "SELECT b.sample_guid, b.source::text AS source, b.accession, b.alias, b.description, \
-                b.center_name, b.is_public, b.atproto->>'uri' AS at_uri, b.original_haplogroups, \
+                b.center_name, b.is_public, b.atproto->>'uri' AS at_uri, b.atproto->>'repo_did' AS repo_did, \
+                b.original_haplogroups, \
                 d.sex::text AS sex, ST_Y(d.geocoord) AS lat, ST_X(d.geocoord) AS lon \
          FROM core.biosample b \
          LEFT JOIN core.specimen_donor d ON d.id = b.donor_id \
@@ -348,23 +384,95 @@ pub async fn report_by_guid(pool: &PgPool, guid: SampleGuid) -> Result<Option<Sa
         }
     }
 
-    // Call precedence: federated consensus, else newest original call.
-    let y = fed_y
-        .map(|name| HaplogroupCall { name, dna_type: DnaType::YDna, origin: HaplogroupCallOrigin::FedConsensus })
+    // ── Q2b: the cross-technology consensus (the authoritative call). Keyed by the
+    // citizen's repo DID = the reconciliation publisher's DID; pick the best per arm.
+    let mut recon_y: Option<ReconCall> = None;
+    let mut recon_mt: Option<ReconCall> = None;
+    if let Some(repo_did) = idr.repo_did.as_deref() {
+        #[derive(sqlx::FromRow)]
+        struct ReconRow {
+            dna_type: Option<String>,
+            consensus_haplogroup: Option<String>,
+            confidence: Option<f64>,
+            run_count: Option<i32>,
+            snp_concordance: Option<f64>,
+            compatibility_level: Option<String>,
+        }
+        let rows: Vec<ReconRow> = sqlx::query_as(
+            "SELECT DISTINCT ON (dna_type) dna_type, consensus_haplogroup, confidence, run_count, \
+                    snp_concordance, compatibility_level \
+             FROM fed.haplogroup_reconciliation \
+             WHERE did = $1 AND consensus_haplogroup IS NOT NULL \
+             ORDER BY dna_type, run_count DESC NULLS LAST, time_us DESC",
+        )
+        .bind(repo_did)
+        .fetch_all(pool)
+        .await?;
+        for r in rows {
+            let call = r.consensus_haplogroup.map(|name| ReconCall {
+                name,
+                confidence: r.confidence,
+                run_count: r.run_count,
+                snp_concordance: r.snp_concordance,
+                compatibility_level: r.compatibility_level,
+            });
+            match r.dna_type.as_deref() {
+                Some("Y_DNA") => recon_y = call,
+                Some("MT_DNA") => recon_mt = call,
+                _ => {}
+            }
+        }
+        if recon_y.is_some() || recon_mt.is_some() {
+            is_federated = true;
+        }
+    }
+
+    // Call precedence: cross-technology consensus, else the single federated call,
+    // else the newest original publication call.
+    let y = reconciled_call(recon_y, DnaType::YDna)
+        .or_else(|| {
+            fed_y.map(|name| HaplogroupCall {
+                name,
+                dna_type: DnaType::YDna,
+                origin: HaplogroupCallOrigin::FedConsensus,
+                confidence: None,
+                run_count: None,
+                snp_concordance: None,
+                compatibility_level: None,
+            })
+        })
         .or_else(|| {
             pick_original_call(&idr.original_haplogroups, "y", "y_result").map(|name| HaplogroupCall {
                 name,
                 dna_type: DnaType::YDna,
                 origin: HaplogroupCallOrigin::Original,
+                confidence: None,
+                run_count: None,
+                snp_concordance: None,
+                compatibility_level: None,
             })
         });
-    let mt = fed_mt
-        .map(|name| HaplogroupCall { name, dna_type: DnaType::MtDna, origin: HaplogroupCallOrigin::FedConsensus })
+    let mt = reconciled_call(recon_mt, DnaType::MtDna)
+        .or_else(|| {
+            fed_mt.map(|name| HaplogroupCall {
+                name,
+                dna_type: DnaType::MtDna,
+                origin: HaplogroupCallOrigin::FedConsensus,
+                confidence: None,
+                run_count: None,
+                snp_concordance: None,
+                compatibility_level: None,
+            })
+        })
         .or_else(|| {
             pick_original_call(&idr.original_haplogroups, "mt", "mt_result").map(|name| HaplogroupCall {
                 name,
                 dna_type: DnaType::MtDna,
                 origin: HaplogroupCallOrigin::Original,
+                confidence: None,
+                run_count: None,
+                snp_concordance: None,
+                compatibility_level: None,
             })
         });
 

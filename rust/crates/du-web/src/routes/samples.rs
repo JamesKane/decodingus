@@ -55,6 +55,12 @@ struct PathwayView {
     call: Option<String>,
     /// True when the call resolved to tree nodes (we have steps to show).
     placed: bool,
+    /// True when the call is the cross-technology reconciliation consensus.
+    reconciled: bool,
+    /// Consensus reliability for a reconciled call (formatted; "" when absent).
+    confidence: String,
+    run_count: String,
+    concordance: String,
     steps: Vec<StepView>,
 }
 
@@ -222,7 +228,15 @@ fn snp_label(v: &du_db::haplogroup::VariantInfo) -> Option<String> {
 
 fn build_pathway(call: Option<&HaplogroupCall>, pathway: Option<Pathway>) -> PathwayView {
     let Some(call) = call else {
-        return PathwayView { call: None, placed: false, steps: Vec::new() };
+        return PathwayView {
+            call: None,
+            placed: false,
+            reconciled: false,
+            confidence: String::new(),
+            run_count: String::new(),
+            concordance: String::new(),
+            steps: Vec::new(),
+        };
     };
     let base = tree_base(call);
     let steps = pathway
@@ -242,7 +256,16 @@ fn build_pathway(call: Option<&HaplogroupCall>, pathway: Option<Pathway>) -> Pat
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
-    PathwayView { call: Some(call.name.clone()), placed: !steps.is_empty(), steps }
+    let pct = |v: Option<f64>| v.map(|x| format!("{:.0}%", x * 100.0)).unwrap_or_default();
+    PathwayView {
+        call: Some(call.name.clone()),
+        placed: !steps.is_empty(),
+        reconciled: call.origin == du_db::biosample::HaplogroupCallOrigin::Reconciled,
+        confidence: pct(call.confidence),
+        run_count: call.run_count.map(|n| n.to_string()).unwrap_or_default(),
+        concordance: pct(call.snp_concordance),
+        steps,
+    }
 }
 
 /// Minimal percent-encoding for a clade name used in a `?root=` query value.

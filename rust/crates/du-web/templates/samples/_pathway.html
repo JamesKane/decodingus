@@ -6,6 +6,14 @@
     <strong>{{ title }}</strong>
     {% if let Some(call) = pv.call %}<code class="small">{{ call }}</code>{% endif %}
   </div>
+  {% if pv.reconciled %}
+  <div class="card-header py-1 bg-light small text-muted d-flex flex-wrap gap-3">
+    <span class="badge text-bg-success">{{ t.get("sample.recon.consensus") }}</span>
+    {% if pv.run_count != "" %}<span>{{ pv.run_count }} {{ t.get("sample.recon.runs") }}</span>{% endif %}
+    {% if pv.confidence != "" %}<span>{{ t.get("sample.recon.confidence") }} {{ pv.confidence }}</span>{% endif %}
+    {% if pv.concordance != "" %}<span>{{ t.get("sample.recon.concordance") }} {{ pv.concordance }}</span>{% endif %}
+  </div>
+  {% endif %}
   {% if pv.call.is_none() %}
   <div class="card-body small text-muted">{{ t.get("sample.pathway.noCall") }}</div>
   {% else if !pv.placed %}
