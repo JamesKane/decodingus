@@ -236,8 +236,18 @@ memberships and links. No names, no kits, no MDKA — ever.
 
 ## 11. Next step
 
-Confirm §10 Q1–Q2 (they're the load-bearing privacy calls). Then D2's buildable slice
-is small: the `research.*` schema + the Navigator `subject_shared_id` table + the
-join-project flow that mints/links pseudonymous subjects via a D1 id-exchange — with
-PII bundles and assertions layered on by D1/D4. Proceed to **D3 (IBD impl spec)**,
-which supplies §4.2's genetic resolver and shares D1's channel.
+§10 Q1–Q2 decided (id-exchange-over-D1, member-claim-only). **AppView registry BUILT
+(2026-06-12):** `research.*` schema (mig 0033 — research_subject [+`retired_into`
+tombstone], subject_membership → `social.group_project`, subject_link audit,
+subject_biosample) + `du_db::research` (register_in_project, **tombstone** merge_subjects
+[repoint + audit, no delete], set_custody, link_biosample, authz readers) + `du-web`
+`/api/v1/research/*` endpoints, **signature-authenticated** (`crate::sig::verify_signed`,
+shared with D1) **and authorized** from existing data (register → project owner; merge →
+steward of both; custody → subject's steward; read → project participant). PII-free
+invariant holds. Memory `research-subject-registry`.
+
+**Remaining (Navigator / D4 / D5):** the Navigator `subject_shared_id` local map + the
+D1 id-exchange join-flow that *populates* the registry (DUNavigator); proof-of-kit-control
+for member-claim (§10 Q3); `current_view` + `same_person` assertions (D4); full
+project-admin ACL beyond owner-gating (D5). §4.2's genetic resolver is the D3 candidate
+engine (already built), sharing D1's channel.

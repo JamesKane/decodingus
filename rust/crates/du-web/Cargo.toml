@@ -38,5 +38,7 @@ tracing-subscriber = { workspace = true }
 anyhow = { workspace = true }
 
 [dev-dependencies]
-# Edge-side signing in exchange broker tests (the broker only verifies).
+# Edge-side signing in exchange/research broker tests (the broker only verifies).
 ed25519-dalek = { workspace = true }
+# Direct row seeding in broker endpoint tests (group_project, etc.).
+sqlx = { workspace = true }

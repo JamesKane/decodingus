@@ -393,11 +393,19 @@ Launch-critical first, then the post-launch feature mass.
    relay client/session driver (DUNavigator) for the end-to-end round-trip.
 6. **Collaboration + social layer.** The genealogy-collaboration platform (group
    projects, ResearchSubject registry, assertions) is specced in **D2/D4/D5** on the
-   D1 channel; the broader social surfaces (messaging/feed/reputation/blocks) are the
+   D1 channel. **D2 ResearchSubject registry DONE (2026-06-12)** — `research.*` schema
+   (mig 0033: PII-free pseudonymous person nodes + `social.group_project` memberships +
+   tombstone merge audit + sparse biosample link) + `du_db::research` + `du-web`
+   `/api/v1/research/*` endpoints, **signature-authenticated** (`crate::sig`, shared
+   with D1) **and authorized** from existing data (register → project owner; merge →
+   steward of both; custody → subject steward; read → project participant). PII-free
+   invariant holds. Memory `research-subject-registry`. **D4** (assertion store /
+   `current_view` / `same_person`) + **D5** (group-project ACL, member/admin table)
+   remain; the broader social surfaces (messaging/feed/reputation/blocks) are the
    reconciled forward proposals (`documents/proposals/{group-project-system,
    Messaging_and_Feed_System,Reputation_System_Implementation}.md`). Schema `social`
-   + `research` placeholders (mig 0009) exist; logic + endpoints to build. **No-PII
-   caveat:** DMs must ride D1 (or AT-Proto), not a central plaintext `social.message`.
+   (mig 0009) exists; logic + endpoints to build. **No-PII caveat:** DMs must ride D1
+   (or AT-Proto), not a central plaintext `social.message`.
 7. **Sequencer-lab inference — AppView lookup + consensus (NOT dropped).** The
    **lookup API is DONE (2026-06-12)**: `GET /api/v1/sequencer/lab?instrument_id=…`
    (→ `SequencerLabDto`, 404 if unknown) + `GET /api/v1/sequencer/lab-instruments`

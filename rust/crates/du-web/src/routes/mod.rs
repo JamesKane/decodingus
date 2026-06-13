@@ -28,6 +28,7 @@ pub mod pages;
 pub mod publications;
 pub mod reconcile_flags;
 pub mod references;
+pub mod research;
 pub mod reviews;
 pub mod samples;
 pub mod sequencer;
@@ -69,6 +70,7 @@ pub fn app(state: AppState) -> Router {
         .merge(versioning::router())
         .merge(sequencer::router())
         .merge(exchange::router())
+        .merge(research::router())
         .merge(crate::oauth::router())
         .merge(crate::api::router())
         .nest_service("/assets", ServeDir::new(assets_dir()))

@@ -7,6 +7,7 @@
 //! Not part of the public OpenAPI document (Edge protocol, not the read API).
 
 use crate::error::AppError;
+use crate::sig::verify_signed;
 use crate::state::AppState;
 use axum::extract::{Query, State};
 use axum::routing::{get, post};
@@ -31,24 +32,6 @@ pub fn router() -> Router<AppState> {
         .route("/api/v1/exchange/relay", post(relay_post))
         .route("/api/v1/exchange/relay/pull", get(relay_pull))
         .route("/api/v1/exchange/relay/ack", post(relay_ack))
-}
-
-/// Verify that `signature` (standard base64 Ed25519) over `message` was produced by
-/// `did`'s identity key. `did:key` verifies directly; `did:plc`/`did:web` resolve to
-/// their signing key first. A bad signature → 403.
-async fn verify_signed(did: &str, message: &str, signature: &str) -> Result<(), AppError> {
-    let did_key = if did.starts_with("did:key:") {
-        did.to_string()
-    } else {
-        let parsed = du_atproto::did::Did::parse(did).map_err(|_| AppError::BadRequest("invalid did".into()))?;
-        du_atproto::Resolver::new()
-            .resolve_did(&parsed)
-            .await
-            .map_err(|e| AppError::Upstream(format!("did resolution: {e}")))?
-            .signing_did_key()
-            .ok_or_else(|| AppError::BadRequest("no signing key in did document".into()))?
-    };
-    du_atproto::verify_did_key(&did_key, message.as_bytes(), signature).map_err(|_| AppError::Forbidden)
 }
 
 // ── published X25519 key ──────────────────────────────────────────────────────
