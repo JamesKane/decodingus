@@ -18,6 +18,7 @@ pub mod auth_routes;
 pub mod change_sets;
 pub mod coverage;
 pub mod exchange;
+pub mod ibd;
 pub mod curation;
 pub mod curator;
 pub mod curator_regions;
@@ -70,6 +71,7 @@ pub fn app(state: AppState) -> Router {
         .merge(versioning::router())
         .merge(sequencer::router())
         .merge(exchange::router())
+        .merge(ibd::router())
         .merge(research::router())
         .merge(crate::oauth::router())
         .merge(crate::api::router())

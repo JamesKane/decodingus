@@ -95,6 +95,68 @@ pub async fn suggestions_for(pool: &PgPool, sample_guid: Uuid, limit: i64) -> Re
     .await?)
 }
 
+// ── federated read API (D3 entry point — pseudonymous, owner-DID scoped) ────────
+
+/// The exact bytes each request's Ed25519 signature is computed over (cross-repo
+/// contract with the Navigator Edge — keep byte-stable, mirrors `exchange::messages`).
+pub mod messages {
+    /// Replay-guarded read poll: caller proves it is `did` at `ts` (unix seconds).
+    pub fn poll(did: &str, ts: i64) -> String {
+        format!("ibd-poll\n{did}\n{ts}")
+    }
+    /// Ask the broker to relay a consent request to a pseudonymous candidate. The caller
+    /// signs over the sample handle it *can* see; the counterpart DID is resolved server-side.
+    pub fn introduce(did: &str, suggested_sample_guid: &str) -> String {
+        format!("ibd-introduce\n{did}\n{suggested_sample_guid}")
+    }
+}
+
+/// A caller's ranked active candidates, scoped to the samples they own (via the
+/// `core.biosample.atproto->>'repo_did'` self-publish bridge the engine itself uses).
+/// Pseudonymous: rows carry only `suggested_sample_guid` + non-PII signal scores — never
+/// a counterpart DID (identity reveal stays Edge-to-Edge over D1 consent).
+pub async fn suggestions_for_did(pool: &PgPool, did: &str, limit: i64) -> Result<Vec<SuggestionView>, DbError> {
+    Ok(sqlx::query_as(
+        "SELECT ms.suggested_sample_guid, ms.suggestion_type, ms.score, ms.metadata \
+         FROM ibd.match_suggestion ms \
+         JOIN core.biosample b ON b.sample_guid = ms.target_sample_guid \
+         WHERE b.atproto->>'repo_did' = $1 AND ms.status = 'ACTIVE' \
+         ORDER BY ms.score DESC NULLS LAST LIMIT $2",
+    )
+    .bind(did)
+    .bind(limit)
+    .fetch_all(pool)
+    .await?)
+}
+
+/// Authorization for `introduce`: true only when an ACTIVE suggestion exists whose
+/// *target* is one of `did`'s own samples and whose suggested sample matches — so a caller
+/// can only ask to meet its own genuine candidates, never probe/forge contact to an
+/// arbitrary sample.
+pub async fn is_suggested_to_did(pool: &PgPool, did: &str, suggested_sample_guid: Uuid) -> Result<bool, DbError> {
+    Ok(sqlx::query_scalar::<_, i64>(
+        "SELECT count(*) FROM ibd.match_suggestion ms \
+         JOIN core.biosample b ON b.sample_guid = ms.target_sample_guid \
+         WHERE b.atproto->>'repo_did' = $1 AND ms.suggested_sample_guid = $2 AND ms.status = 'ACTIVE'",
+    )
+    .bind(did)
+    .bind(suggested_sample_guid)
+    .fetch_one(pool)
+    .await?
+        > 0)
+}
+
+/// Resolve the publisher DID that owns a sample (server-side counterpart resolution for
+/// `introduce`). `None` ⇒ the sample isn't federated/claimable, so no introduction is
+/// possible — and no DID is ever returned to the caller.
+pub async fn owner_did_of_sample(pool: &PgPool, sample_guid: Uuid) -> Result<Option<String>, DbError> {
+    Ok(sqlx::query_scalar("SELECT atproto->>'repo_did' FROM core.biosample WHERE sample_guid = $1")
+        .bind(sample_guid)
+        .fetch_optional(pool)
+        .await?
+        .flatten())
+}
+
 // ── internal model ───────────────────────────────────────────────────────────
 
 struct Profile {

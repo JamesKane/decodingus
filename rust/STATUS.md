@@ -376,9 +376,23 @@ Launch-critical first, then the post-launch feature mass.
    sample** (the no-N:N guarantee), declaratively writing `ibd.match_suggestion`
    (preserves DISMISSED/CONVERTED). `du-jobs run-once ibd-discovery-recompute` + daily;
    `suggestions_for` reader. Engine-only — **no public API** (candidate pairs gate on
-   the D1 consent flow). Memory `ibd-candidate-generation`. **Remaining (needs D1):**
-   the request/consent/exchange + attestation-ingest path; `depth_score` from the tree;
-   PCA-LSH tuning. Authoritative design: `documents/planning/d3-ibd-matching-impl.md`
+   the D1 consent flow). **Federated read API DONE (2026-06-12)** — the entry point of
+   the whole flow, and it needed **no new auth foundation**: the existing Ed25519
+   signed-poll pattern (`verify_signed` + `messages::poll` + 300s window) + the
+   `core.biosample.atproto->>'repo_did'` bridge the engine already uses dissolved the
+   apparent DPoP blocker. `du_db::ibd`: `suggestions_for_did` (owner-DID-scoped via the
+   bridge), `is_suggested_to_did` (introduce authz), `owner_did_of_sample` (server-side
+   counterpart resolution), `messages::{poll,introduce}`. Endpoints (`routes/ibd.rs`,
+   signed, **personal scope** — not project-scoped): `GET /api/v1/ibd/suggestions` (own
+   **pseudonymous** candidates — only `suggested_sample_guid` + non-PII `{signals}`
+   scores), `POST /api/v1/ibd/introduce` (broker-mediated: resolves the counterpart DID
+   server-side, calls `exchange::create_request` purpose=IBD_AUTOSOMAL, **never returns
+   the DID** — caller learns it only post-mutual-consent via `exchange::pending_for`).
+   Memory `ibd-candidate-generation`. **Remaining (needs D1/Navigator):** the engine
+   **scheduler trigger**; per-DNA-type purpose (IBD_Y/MT); attestation-ingest +
+   `depth_score` from the tree; PCA-LSH tuning; Navigator consume-UI +
+   introduce→consent→relay round-trip. Authoritative design:
+   `documents/planning/d3-ibd-matching-impl.md`
    §3 (on `d1-encrypted-edge-exchange.md`).
    **D1 exchange BROKER DONE (2026-06-12)** — the shared substrate gating the Match +
    Platform tracks. `exchange.*` schema (mig 0032; the unused `ibd.match_*` folded +

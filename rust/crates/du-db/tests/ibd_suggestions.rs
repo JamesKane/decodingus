@@ -129,3 +129,41 @@ async fn candidate_generation_blocks_signals_and_respects_dismiss() {
     assert!(!anns2.iter().any(|s| s.suggested_sample_guid == ben), "dismissed pair is not re-suggested");
     assert!(anns2.iter().any(|s| s.suggested_sample_guid == dan), "other suggestions remain");
 }
+
+#[tokio::test]
+async fn suggestions_scoped_by_owner_did() {
+    let Some(url) = database_url() else {
+        eprintln!("DATABASE_URL unset — skipping ibd scope test");
+        return;
+    };
+    let db = du_db::testing::ephemeral_db(&url).await.expect("ephemeral db");
+    let pool = db.pool().clone();
+
+    // owner's sample has an ACTIVE candidate pointing at the counterpart's sample.
+    let (target, _) = fed_sample(&pool, "did:ex:owner").await;
+    let (suggested, _) = fed_sample(&pool, "did:ex:counterpart").await;
+    sqlx::query(
+        "INSERT INTO ibd.match_suggestion (target_sample_guid, suggested_sample_guid, suggestion_type, score, status) \
+         VALUES ($1, $2, 'POPULATION_OVERLAP', 0.9, 'ACTIVE')",
+    )
+    .bind(target)
+    .bind(suggested)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    // The owner DID resolves to its candidate; an unrelated DID sees none (per-DID scope).
+    let mine = ibd::suggestions_for_did(&pool, "did:ex:owner", 50).await.unwrap();
+    assert_eq!(mine.len(), 1);
+    assert_eq!(mine[0].suggested_sample_guid, suggested);
+    assert!(ibd::suggestions_for_did(&pool, "did:ex:counterpart", 50).await.unwrap().is_empty());
+
+    // Introduce authorization: true only for the owner's genuine candidate.
+    assert!(ibd::is_suggested_to_did(&pool, "did:ex:owner", suggested).await.unwrap());
+    assert!(!ibd::is_suggested_to_did(&pool, "did:ex:counterpart", suggested).await.unwrap());
+    assert!(!ibd::is_suggested_to_did(&pool, "did:ex:owner", target).await.unwrap());
+
+    // Server-side counterpart resolution (never returned to the caller).
+    assert_eq!(ibd::owner_did_of_sample(&pool, suggested).await.unwrap().as_deref(), Some("did:ex:counterpart"));
+    assert!(ibd::owner_did_of_sample(&pool, Uuid::new_v4()).await.unwrap().is_none());
+}
