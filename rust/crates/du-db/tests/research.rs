@@ -85,3 +85,43 @@ async fn registry_register_merge_custody() {
         .unwrap();
     assert_eq!(n, 1);
 }
+
+#[tokio::test]
+async fn acl_roles_membership_and_revocation() {
+    let Some(url) = database_url() else {
+        eprintln!("DATABASE_URL unset — skipping ACL test");
+        return;
+    };
+    use du_db::research::{Capability, Role};
+    let db = du_db::testing::ephemeral_db(&url).await.expect("ephemeral db");
+    let pool = db.pool().clone();
+    let owner = "did:key:zOwner";
+    let p = project(&pool, "Team", owner).await;
+
+    // The owner is the implicit founding ADMIN.
+    assert_eq!(research::role_of(&pool, p, owner).await.unwrap(), Some(Role::Admin));
+    assert!(research::role_of(&pool, p, "did:key:zStranger").await.unwrap().is_none());
+    assert!(research::can(&pool, p, owner, Capability::ManageRoles).await.unwrap());
+
+    // Add a CO_ADMIN and a MODERATOR.
+    research::add_member(&pool, p, "did:key:zCo", Role::CoAdmin, &[], owner).await.unwrap();
+    research::add_member(&pool, p, "did:key:zMod", Role::Moderator, &[], owner).await.unwrap();
+    // CO_ADMIN can manage subjects but not roles; MODERATOR can only read.
+    assert!(research::can(&pool, p, "did:key:zCo", Capability::ManageSubjects).await.unwrap());
+    assert!(!research::can(&pool, p, "did:key:zCo", Capability::ManageRoles).await.unwrap());
+    assert!(!research::can(&pool, p, "did:key:zMod", Capability::ManageSubjects).await.unwrap());
+    assert!(research::can(&pool, p, "did:key:zMod", Capability::ReadProject).await.unwrap());
+    // Team list = owner + the two added.
+    assert_eq!(research::members_of(&pool, p).await.unwrap().len(), 3);
+
+    // Revocation drops the co-admin from the ACL immediately.
+    assert!(research::revoke_member(&pool, p, "did:key:zCo").await.unwrap());
+    assert!(research::role_of(&pool, p, "did:key:zCo").await.unwrap().is_none());
+    assert_eq!(research::members_of(&pool, p).await.unwrap().len(), 2);
+
+    // Capability map spot-checks (D5 §4).
+    assert!(Role::Curator.allows(Capability::PromoteToCatalog));
+    assert!(!Role::Curator.allows(Capability::ManageRoles));
+    assert!(Role::Admin.allows(Capability::ResolveDispute));
+    assert!(!Role::Moderator.allows(Capability::WriteAssertions));
+}

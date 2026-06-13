@@ -26,6 +26,152 @@ pub mod messages {
     pub fn poll(did: &str, ts: i64) -> String {
         format!("research-poll\n{did}\n{ts}")
     }
+    pub fn add_member(actor_did: &str, project_id: i64, member_did: &str, role: &str) -> String {
+        format!("research-add-member\n{actor_did}\n{project_id}\n{member_did}\n{role}")
+    }
+    pub fn revoke_member(actor_did: &str, project_id: i64, member_did: &str) -> String {
+        format!("research-revoke-member\n{actor_did}\n{project_id}\n{member_did}")
+    }
+}
+
+// ── collaborator-team ACL (D5) ────────────────────────────────────────────────
+
+/// A project collaborator role. `social.group_project.owner_did` is the founding ADMIN.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Role {
+    Admin,
+    CoAdmin,
+    Moderator,
+    Curator,
+}
+
+impl Role {
+    pub fn parse(s: &str) -> Option<Role> {
+        Some(match s {
+            "ADMIN" => Role::Admin,
+            "CO_ADMIN" => Role::CoAdmin,
+            "MODERATOR" => Role::Moderator,
+            "CURATOR" => Role::Curator,
+            _ => return None,
+        })
+    }
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Role::Admin => "ADMIN",
+            Role::CoAdmin => "CO_ADMIN",
+            Role::Moderator => "MODERATOR",
+            Role::Curator => "CURATOR",
+        }
+    }
+    /// Whether this role is granted `cap` (the D5 §4 capability→role map). Capabilities
+    /// beyond what's enforced today (assertions/disputes/catalog) are defined for the
+    /// cross-repo contract; they gate D4 once it lands.
+    pub fn allows(self, cap: Capability) -> bool {
+        use Capability::*;
+        use Role::*;
+        match cap {
+            ReadProject => true, // any live team member
+            ManageRoles => self == Admin,
+            ManageSubjects | WriteAssertions => matches!(self, Admin | CoAdmin),
+            ResolveDispute => matches!(self, Admin | Curator),
+            PromoteToCatalog => self == Curator,
+        }
+    }
+}
+
+/// A capability the ACL gates (D5 §4).
+#[derive(Debug, Clone, Copy)]
+pub enum Capability {
+    ManageRoles,
+    ManageSubjects,
+    ReadProject,
+    WriteAssertions,   // D4 (forward)
+    ResolveDispute,    // D4 (forward)
+    PromoteToCatalog,  // catalog bridge (forward)
+}
+
+/// The caller's role in a project: `owner_did` ⇒ ADMIN, else the live `project_member`.
+pub async fn role_of(pool: &PgPool, project_id: i64, did: &str) -> Result<Option<Role>, DbError> {
+    if project_owner(pool, project_id).await?.as_deref() == Some(did) {
+        return Ok(Some(Role::Admin));
+    }
+    let r: Option<String> = sqlx::query_scalar(
+        "SELECT role FROM research.project_member WHERE project_id = $1 AND member_did = $2 AND left_at IS NULL",
+    )
+    .bind(project_id)
+    .bind(did)
+    .fetch_optional(pool)
+    .await?;
+    Ok(r.as_deref().and_then(Role::parse))
+}
+
+/// Whether `did` is a live team member of the project.
+pub async fn is_team_member(pool: &PgPool, project_id: i64, did: &str) -> Result<bool, DbError> {
+    Ok(role_of(pool, project_id, did).await?.is_some())
+}
+
+/// Whether `did` is granted `cap` in the project.
+pub async fn can(pool: &PgPool, project_id: i64, did: &str, cap: Capability) -> Result<bool, DbError> {
+    Ok(role_of(pool, project_id, did).await?.map(|r| r.allows(cap)).unwrap_or(false))
+}
+
+/// Add or update a team member (re-activates a revoked one).
+pub async fn add_member(
+    pool: &PgPool,
+    project_id: i64,
+    member_did: &str,
+    role: Role,
+    permissions: &[String],
+    appointed_by: &str,
+) -> Result<(), DbError> {
+    sqlx::query(
+        "INSERT INTO research.project_member (project_id, member_did, role, permissions, appointed_by, left_at) \
+         VALUES ($1, $2, $3, $4, $5, NULL) \
+         ON CONFLICT (project_id, member_did) DO UPDATE SET \
+            role = EXCLUDED.role, permissions = EXCLUDED.permissions, appointed_by = EXCLUDED.appointed_by, left_at = NULL",
+    )
+    .bind(project_id)
+    .bind(member_did)
+    .bind(role.as_str())
+    .bind(permissions)
+    .bind(appointed_by)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// Revoke a member (set `left_at`). Returns whether a live row was revoked.
+pub async fn revoke_member(pool: &PgPool, project_id: i64, member_did: &str) -> Result<bool, DbError> {
+    let affected =
+        sqlx::query("UPDATE research.project_member SET left_at = now() WHERE project_id = $1 AND member_did = $2 AND left_at IS NULL")
+            .bind(project_id)
+            .bind(member_did)
+            .execute(pool)
+            .await?
+            .rows_affected();
+    Ok(affected > 0)
+}
+
+/// A live team member (the owner appears as an implicit ADMIN).
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct MemberRow {
+    pub member_did: String,
+    pub role: String,
+}
+
+pub async fn members_of(pool: &PgPool, project_id: i64) -> Result<Vec<MemberRow>, DbError> {
+    Ok(sqlx::query_as(
+        "SELECT member_did, role FROM ( \
+            SELECT owner_did AS member_did, 'ADMIN' AS role, created_at AS joined_at \
+            FROM social.group_project WHERE id = $1 AND owner_did IS NOT NULL \
+            UNION ALL \
+            SELECT member_did, role, joined_at FROM research.project_member \
+            WHERE project_id = $1 AND left_at IS NULL \
+         ) t ORDER BY joined_at",
+    )
+    .bind(project_id)
+    .fetch_all(pool)
+    .await?)
 }
 
 // ── registry ops ──────────────────────────────────────────────────────────────

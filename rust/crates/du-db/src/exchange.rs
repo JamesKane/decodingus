@@ -82,6 +82,23 @@ pub struct NewRequest<'a> {
     pub details: Value,
 }
 
+/// A request's routing metadata — used by the D5 ACL gate (the `scope` carries
+/// `project:<id>` when the exchange is project-scoped).
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct RequestMeta {
+    pub initiator_did: String,
+    pub partner_did: String,
+    pub scope: Option<String>,
+}
+
+/// Fetch a request's routing metadata (for the project-scope ACL check).
+pub async fn request_meta(pool: &PgPool, request_uri: &str) -> Result<Option<RequestMeta>, DbError> {
+    Ok(sqlx::query_as("SELECT initiator_did, partner_did, scope FROM exchange.exchange_request WHERE request_uri = $1")
+        .bind(request_uri)
+        .fetch_optional(pool)
+        .await?)
+}
+
 /// Record a signed exchange request (idempotent on `request_uri`).
 pub async fn create_request(pool: &PgPool, r: &NewRequest<'_>) -> Result<(), DbError> {
     sqlx::query(

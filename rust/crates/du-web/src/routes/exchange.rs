@@ -23,6 +23,11 @@ use uuid::Uuid;
 /// Max relay envelope size (ciphertext) — back-pressure on the blind buffer.
 const MAX_ENVELOPE_BYTES: usize = 1 << 20; // 1 MiB
 
+/// Parse a `project:<id>` scope into a project id (the D5 ACL boundary).
+fn project_scope_id(scope: Option<&str>) -> Option<i64> {
+    scope?.strip_prefix("project:")?.parse().ok()
+}
+
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/api/v1/exchange/key", post(publish_key).get(fetch_key))
@@ -85,6 +90,12 @@ struct RequestBody {
 async fn create_request(State(st): State<AppState>, Json(b): Json<RequestBody>) -> Result<Json<Value>, AppError> {
     let msg = messages::request(&b.request_uri, &b.initiator_did, &b.partner_did, &b.purpose, b.scope.as_deref());
     verify_signed(&b.initiator_did, &msg, &b.signature).await?;
+    // D5 ACL: a project-scoped request requires the initiator be a live team member.
+    if let Some(pid) = project_scope_id(b.scope.as_deref()) {
+        if !du_db::research::is_team_member(&st.pool, pid, &b.initiator_did).await? {
+            return Err(AppError::Forbidden);
+        }
+    }
     exchange::create_request(
         &st.pool,
         &exchange::NewRequest {
@@ -111,6 +122,14 @@ struct ConsentBody {
 
 async fn consent(State(st): State<AppState>, Json(b): Json<ConsentBody>) -> Result<Json<Value>, AppError> {
     verify_signed(&b.consenting_did, &messages::consent(&b.request_uri, &b.consenting_did, b.consent_given), &b.signature).await?;
+    // D5 ACL: consenting into a project-scoped exchange requires team membership.
+    if let Some(meta) = exchange::request_meta(&st.pool, &b.request_uri).await? {
+        if let Some(pid) = project_scope_id(meta.scope.as_deref()) {
+            if !du_db::research::is_team_member(&st.pool, pid, &b.consenting_did).await? {
+                return Err(AppError::Forbidden);
+            }
+        }
+    }
     let outcome = exchange::record_consent(
         &st.pool,
         &b.request_uri,
@@ -271,5 +290,52 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(r2.status(), StatusCode::FORBIDDEN);
+    }
+
+    /// D5 ACL: a project-scoped request is rejected (403) when the initiator is not a
+    /// live team member, and accepted once they are (the project owner is the ADMIN).
+    #[tokio::test]
+    async fn project_scoped_request_requires_team_membership() {
+        let Some(url) = std::env::var("DATABASE_URL").ok().filter(|s| !s.is_empty()) else {
+            eprintln!("DATABASE_URL unset — skipping project-scope test");
+            return;
+        };
+        let db = du_db::testing::ephemeral_db(&url).await.expect("ephemeral db");
+        let pool = db.pool().clone();
+        let owner = SigningKey::from_bytes(&[31u8; 32]);
+        let owner_did = du_atproto::did::did_key_from_ed25519(&owner.verifying_key());
+        let project_id: i64 = sqlx::query_scalar(
+            "INSERT INTO social.group_project (project_name, project_type, owner_did) VALUES ('P','RESEARCH',$1) RETURNING id",
+        )
+        .bind(&owner_did)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let scope = format!("project:{project_id}");
+        let state = crate::state::AppState { pool, key: tower_cookies::Key::generate(), oauth: None };
+
+        let req = |state: crate::state::AppState, sk: &SigningKey, uri_n: u8| {
+            let did = du_atproto::did::did_key_from_ed25519(&sk.verifying_key());
+            let req_uri = format!("at://{did}/exchange/{uri_n}");
+            let msg = du_db::exchange::messages::request(&req_uri, &did, "did:key:zPartner", "GENEALOGY_PII", Some(&scope));
+            let sig = STANDARD.encode(sk.sign(msg.as_bytes()).to_bytes());
+            let body = serde_json::json!({
+                "request_uri": req_uri, "initiator_did": did, "partner_did": "did:key:zPartner",
+                "purpose": "GENEALOGY_PII", "scope": scope, "signature": sig,
+            });
+            async move {
+                crate::routes::app(state)
+                    .oneshot(Request::builder().method("POST").uri("/api/v1/exchange/request")
+                        .header("content-type", "application/json").body(Body::from(body.to_string())).unwrap())
+                    .await
+                    .unwrap()
+            }
+        };
+
+        // A non-team DID (valid signature) → 403.
+        let outsider = SigningKey::from_bytes(&[32u8; 32]);
+        assert_eq!(req(state.clone(), &outsider, 1).await.status(), StatusCode::FORBIDDEN);
+        // The project owner (founding ADMIN) → 200.
+        assert_eq!(req(state, &owner, 2).await.status(), StatusCode::OK);
     }
 }

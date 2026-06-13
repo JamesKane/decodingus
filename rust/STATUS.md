@@ -399,9 +399,15 @@ Launch-critical first, then the post-launch feature mass.
    `/api/v1/research/*` endpoints, **signature-authenticated** (`crate::sig`, shared
    with D1) **and authorized** from existing data (register → project owner; merge →
    steward of both; custody → subject steward; read → project participant). PII-free
-   invariant holds. Memory `research-subject-registry`. **D4** (assertion store /
-   `current_view` / `same_person`) + **D5** (group-project ACL, member/admin table)
-   remain; the broader social surfaces (messaging/feed/reputation/blocks) are the
+   invariant holds. Memory `research-subject-registry`. **D5 group-project ACL DONE
+   (2026-06-12)** — `research.project_member` (mig 0034, reusing `social.group_project`
+   as the project, `owner_did`=founding ADMIN) + `du_db::research` Role/Capability ACL
+   (`role_of`/`is_team_member`/`can`/`add_member`/`revoke_member`/`members_of`), **wired
+   in**: D2 register is `ManageSubjects`-gated + subjects read team-gated; D1
+   project-scoped request/consent require live team membership; team endpoints
+   `/api/v1/research/project/{member,member/revoke,members}` (signed, ADMIN-gated).
+   Memory `group-project-acl`. **D4** (assertion store / `current_view` / `same_person`)
+   remains; the broader social surfaces (messaging/feed/reputation/blocks) are the
    reconciled forward proposals (`documents/proposals/{group-project-system,
    Messaging_and_Feed_System,Reputation_System_Implementation}.md`). Schema `social`
    (mig 0009) exists; logic + endpoints to build. **No-PII caveat:** DMs must ride D1

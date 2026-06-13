@@ -196,6 +196,24 @@ Project matures                      → more subjects sovereign; admins govern,
 5. **Cross-project subject** — a subject in two projects: confirm per-project assertion
    isolation (D4 §11.5) and that PII replication is per-project (no leakage across).
 
+## ✅ AppView ACL BUILT (2026-06-12)
+
+The collaborator-team ACL is built. **Reconciliation:** reused the existing
+`social.group_project` (mig 0009) as the project (not a new `research.project`);
+`owner_did` is the founding ADMIN. Added `research.project_member` (mig 0034:
+project_id → social.group_project, member_did, role, permissions[], appointed_by,
+joined_at, left_at). `du_db::research`: `Role` (ADMIN/CO_ADMIN/MODERATOR/CURATOR) +
+`Capability` + `Role::allows` (the §4 map), `role_of` (owner⇒ADMIN, else live
+project_member), `is_team_member`, `can`, `add_member`/`revoke_member`(left_at)/
+`members_of`. **Wired in:** D2's register is now `ManageSubjects`-gated (ADMIN/CO_ADMIN),
+the subjects read is team-member-gated; D1's project-scoped request + consent require
+the actor be a live team member (`exchange::request_meta` + `project_scope_id`). Team
+endpoints `/api/v1/research/project/{member,member/revoke,members}` (signed, ADMIN-gated).
+Memory `group-project-acl`. **Remaining (Navigator/D4):** the groupProject PDS-record
+ingest (§12 Q4); invite/join + PII replication/succession over D1 (§8/§9); the D4
+capabilities (WriteAssertions/ResolveDispute/PromoteToCatalog defined, enforced when D4
+lands); shared `du-domain` role enum; granular `permissions[]` overrides.
+
 ## 13. Next step — Platform track complete
 
 D1–D5 are the full collaboration platform: **channel (D1) · pseudonymous registry (D2)
