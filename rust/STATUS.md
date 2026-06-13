@@ -406,8 +406,22 @@ Launch-critical first, then the post-launch feature mass.
    in**: D2 register is `ManageSubjects`-gated + subjects read team-gated; D1
    project-scoped request/consent require live team membership; team endpoints
    `/api/v1/research/project/{member,member/revoke,members}` (signed, ADMIN-gated).
-   Memory `group-project-acl`. **D4** (assertion store / `current_view` / `same_person`)
-   remains; the broader social surfaces (messaging/feed/reputation/blocks) are the
+   Memory `group-project-acl`. **D4 assertion store (R2) DONE (2026-06-12)** —
+   `research.assertion` + `research.subject_current_view` (mig 0035), the attributed,
+   append-only, scoped claim primitive. `du_db::research`: `Predicate` enum + PII
+   classifier (`MDKA_IS`/`IDENTITY` have **no** AppView table — R3 P2P only; `NOTE` is
+   PII-by-default, storable only when `pii_cleared`; a `scan_pii` value scrubber rejects
+   emails/overlong text regardless) + `record_assertion`/`retract_assertion`/`refold`
+   (per-(subject,predicate,scope) fold → SETTLED|DISPUTED, **per-project isolated** so a
+   subject in two projects never bleeds claims) + `accept_same_person` (drives the D2
+   `merge_subjects(method=ASSERTION)`, **never** auto-collapsed). Endpoints
+   `/api/v1/research/{assertion,assertion/retract,assertion/resolve,current-view}` —
+   signed + role-gated (`WriteAssertions`=ADMIN/CO_ADMIN; `ResolveDispute`=ADMIN/CURATOR).
+   Memory `assertion-store`. **Deferred (Navigator/R1/later):** R3 PII over D1 +
+   `assertion_local`; R1 `com.decodingus.research.assertion` lexicon + du-jobs Jetstream
+   ingest (no publisher yet — `record_uri`/PUBLIC scope already in place); catalog
+   promotion via `tree.change_set`; shared `du-domain` assertion types. The broader
+   social surfaces (messaging/feed/reputation/blocks) are the
    reconciled forward proposals (`documents/proposals/{group-project-system,
    Messaging_and_Feed_System,Reputation_System_Implementation}.md`). Schema `social`
    (mig 0009) exists; logic + endpoints to build. **No-PII caveat:** DMs must ride D1

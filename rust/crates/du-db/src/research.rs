@@ -8,6 +8,7 @@
 //! Navigator Edge — keep them byte-stable.
 
 use crate::DbError;
+use serde_json::{json, Value};
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -31,6 +32,18 @@ pub mod messages {
     }
     pub fn revoke_member(actor_did: &str, project_id: i64, member_did: &str) -> String {
         format!("research-revoke-member\n{actor_did}\n{project_id}\n{member_did}")
+    }
+    /// Record an assertion (D4). The value/evidence aren't signed (like `merge` doesn't
+    /// sign confidence) — the author binds subject + predicate + final scope.
+    pub fn assert(author_did: &str, subject_id: &str, predicate: &str, scope: &str) -> String {
+        format!("research-assert\n{author_did}\n{subject_id}\n{predicate}\n{scope}")
+    }
+    pub fn retract(actor_did: &str, assertion_id: i64) -> String {
+        format!("research-retract\n{actor_did}\n{assertion_id}")
+    }
+    /// Accept a `SAME_PERSON_AS` claim → drives the D2 merge (dispute-resolution authority).
+    pub fn resolve(actor_did: &str, assertion_id: i64) -> String {
+        format!("research-resolve\n{actor_did}\n{assertion_id}")
     }
 }
 
@@ -377,5 +390,316 @@ pub async fn subject(pool: &PgPool, id: Uuid) -> Result<Option<SubjectView>, DbE
     )
     .bind(id)
     .fetch_optional(pool)
+    .await?)
+}
+
+// ── D4: attributed-claim assertion store (R2 — non-PII, project-scoped) ─────────
+
+/// A claim predicate. Its PII-class picks the rail: `MdkaIs`/`Identity` are R3 (D1 P2P
+/// only) and have **no** AppView table; `Note` is free text → PII by default unless the
+/// author explicitly clears it. The rest are non-PII (a classification or pseudonymous id).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Predicate {
+    SamePersonAs,
+    BelongsToBranch,
+    HaplogroupIs,
+    Note,
+    MdkaIs,
+    Identity,
+}
+
+impl Predicate {
+    pub fn parse(s: &str) -> Option<Predicate> {
+        Some(match s {
+            "SAME_PERSON_AS" => Predicate::SamePersonAs,
+            "BELONGS_TO_BRANCH" => Predicate::BelongsToBranch,
+            "HAPLOGROUP_IS" => Predicate::HaplogroupIs,
+            "NOTE" => Predicate::Note,
+            "MDKA_IS" => Predicate::MdkaIs,
+            "IDENTITY" => Predicate::Identity,
+            _ => return None,
+        })
+    }
+    /// Whether this predicate may be stored on the AppView (R1/R2). PII predicates are
+    /// R3-only; `Note` is storable only when the author cleared it of PII.
+    pub fn is_appview_storable(self, pii_cleared: bool) -> bool {
+        match self {
+            Predicate::MdkaIs | Predicate::Identity => false,
+            Predicate::Note => pii_cleared,
+            _ => true,
+        }
+    }
+    /// Single-valued predicates fold to SETTLED/DISPUTED; set-valued show all live members.
+    pub fn is_single_valued(self) -> bool {
+        matches!(self, Predicate::BelongsToBranch | Predicate::HaplogroupIs)
+    }
+}
+
+/// Defense-in-depth: flag obvious PII in a value (emails / overlong free text) so it
+/// never reaches a server row regardless of predicate (the FTDNA Note-column lesson —
+/// free text can't be auto-cleaned, so it's PII until proven otherwise).
+fn scan_pii(value: &Value) -> bool {
+    fn walk(v: &Value) -> bool {
+        match v {
+            Value::String(s) => s.contains('@') || s.chars().count() > 200,
+            Value::Array(a) => a.iter().any(walk),
+            Value::Object(o) => o.values().any(walk),
+            _ => false,
+        }
+    }
+    walk(value)
+}
+
+/// Record an append-only assertion (R1/R2), then refold the affected views. Rejects
+/// PII predicates (`MdkaIs`/`Identity`), an un-cleared `Note`, and any value the
+/// scrubber flags — those belong on the R3 P2P rail, never an AppView row.
+#[allow(clippy::too_many_arguments)]
+pub async fn record_assertion(
+    pool: &PgPool,
+    subject_id: Uuid,
+    predicate: &str,
+    value: &Value,
+    author_did: &str,
+    scope: &str,
+    evidence: Option<&Value>,
+    supersedes_id: Option<i64>,
+    pii_cleared: bool,
+) -> Result<i64, DbError> {
+    let pred = Predicate::parse(predicate).ok_or_else(|| DbError::Conflict(format!("unknown predicate {predicate}")))?;
+    if !pred.is_appview_storable(pii_cleared) {
+        return Err(DbError::Conflict(format!("predicate {predicate} carries PII; not storable in the AppView (R3 P2P only)")));
+    }
+    if scan_pii(value) {
+        return Err(DbError::Conflict("value flagged as PII; not storable in the AppView".into()));
+    }
+    let id: i64 = sqlx::query_scalar(
+        "INSERT INTO research.assertion (subject_id, predicate, value, author_did, scope, evidence, supersedes_id) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id",
+    )
+    .bind(subject_id)
+    .bind(predicate)
+    .bind(value)
+    .bind(author_did)
+    .bind(scope)
+    .bind(evidence)
+    .bind(supersedes_id)
+    .fetch_one(pool)
+    .await?;
+    refold_affected(pool, subject_id, scope).await?;
+    Ok(id)
+}
+
+/// Retract an assertion (drops out of `current_view`, kept for audit). Returns whether a
+/// live row was retracted.
+pub async fn retract_assertion(pool: &PgPool, assertion_id: i64) -> Result<bool, DbError> {
+    let row: Option<(Uuid, String)> = sqlx::query_as(
+        "UPDATE research.assertion SET retracted_at = now() \
+         WHERE id = $1 AND retracted_at IS NULL RETURNING subject_id, scope",
+    )
+    .bind(assertion_id)
+    .fetch_optional(pool)
+    .await?;
+    match row {
+        Some((subject_id, scope)) => {
+            refold_affected(pool, subject_id, &scope).await?;
+            Ok(true)
+        }
+        None => Ok(false),
+    }
+}
+
+/// Metadata an authorization gate needs about an assertion (author + its scope).
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct AssertionMeta {
+    pub subject_id: Uuid,
+    pub predicate: String,
+    pub author_did: String,
+    pub scope: String,
+}
+
+pub async fn assertion_meta(pool: &PgPool, assertion_id: i64) -> Result<Option<AssertionMeta>, DbError> {
+    Ok(sqlx::query_as(
+        "SELECT subject_id, predicate, author_did, scope FROM research.assertion WHERE id = $1 AND retracted_at IS NULL",
+    )
+    .bind(assertion_id)
+    .fetch_optional(pool)
+    .await?)
+}
+
+/// Accept a live `SAME_PERSON_AS` claim → drives the D2 merge (never auto-collapsed; this
+/// is the explicit, role-gated resolution). Keeps the claim's subject, retires the
+/// `other_subject_id` from its value, audited via `subject_link` method `ASSERTION`.
+/// Returns `(kept, retired)`.
+pub async fn accept_same_person(pool: &PgPool, assertion_id: i64) -> Result<(Uuid, Uuid), DbError> {
+    let row: Option<(Uuid, Value, String)> = sqlx::query_as(
+        "SELECT subject_id, value, author_did FROM research.assertion \
+         WHERE id = $1 AND predicate = 'SAME_PERSON_AS' AND retracted_at IS NULL",
+    )
+    .bind(assertion_id)
+    .fetch_optional(pool)
+    .await?;
+    let (keep, value, author_did) = row.ok_or_else(|| DbError::Conflict(format!("no live SAME_PERSON_AS assertion {assertion_id}")))?;
+    let retire: Uuid = value
+        .get("other_subject_id")
+        .and_then(|v| v.as_str())
+        .and_then(|s| s.parse().ok())
+        .ok_or_else(|| DbError::Conflict("SAME_PERSON_AS value missing other_subject_id".into()))?;
+    let confidence = value.get("confidence").and_then(|v| v.as_f64());
+    merge_subjects(pool, keep, retire, "ASSERTION", &author_did, confidence).await?;
+    // The retired subject's claims fold into the kept id's views.
+    refold_subject(pool, keep).await?;
+    Ok((keep, retire))
+}
+
+// ── current_view fold (mirrors the fed.* reporting fold; assign-and-prune) ──────
+
+/// A live claim in a folded view.
+#[derive(sqlx::FromRow)]
+struct LiveClaim {
+    id: i64,
+    predicate: String,
+    value: Value,
+    author_did: String,
+    evidence: Option<Value>,
+    created_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// The viewing scopes a write under `assertion_scope` affects: its own scope, plus — if
+/// it's a PUBLIC claim — every PROJECT scope this subject already has claims in (PUBLIC
+/// claims surface in every project fold). Per-project isolation otherwise.
+async fn affected_scopes(pool: &PgPool, subject_id: Uuid, assertion_scope: &str) -> Result<Vec<String>, DbError> {
+    let mut scopes = vec![assertion_scope.to_string()];
+    if assertion_scope == "PUBLIC" {
+        let projects: Vec<String> = sqlx::query_scalar(
+            "SELECT DISTINCT scope FROM research.assertion WHERE subject_id = $1 AND scope LIKE 'PROJECT:%'",
+        )
+        .bind(subject_id)
+        .fetch_all(pool)
+        .await?;
+        for p in projects {
+            if !scopes.contains(&p) {
+                scopes.push(p);
+            }
+        }
+    }
+    Ok(scopes)
+}
+
+async fn refold_affected(pool: &PgPool, subject_id: Uuid, assertion_scope: &str) -> Result<(), DbError> {
+    for scope in affected_scopes(pool, subject_id, assertion_scope).await? {
+        refold(pool, subject_id, &scope).await?;
+    }
+    Ok(())
+}
+
+/// Refold every scope a subject currently has a materialized view in (used after a merge,
+/// which can move claims across subjects).
+async fn refold_subject(pool: &PgPool, subject_id: Uuid) -> Result<(), DbError> {
+    let scopes: Vec<String> = sqlx::query_scalar(
+        "SELECT DISTINCT scope FROM research.assertion WHERE subject_id = $1 \
+         UNION SELECT DISTINCT scope FROM research.subject_current_view WHERE subject_id = $1",
+    )
+    .bind(subject_id)
+    .fetch_all(pool)
+    .await?;
+    for scope in scopes {
+        refold(pool, subject_id, &scope).await?;
+    }
+    Ok(())
+}
+
+/// Recompute the materialized `current_view` for one (subject, viewing-scope): a PROJECT
+/// view folds its own claims together with PUBLIC ones; single-valued predicates settle or
+/// dispute, set-valued list all live members. Declarative assign-and-prune (mirrors
+/// `coverage::recompute_norms_locked`) — never auto-collapses a disagreement.
+async fn refold(pool: &PgPool, subject_id: Uuid, view_scope: &str) -> Result<(), DbError> {
+    // Live heads = non-retracted and not superseded by another row, scoped to PUBLIC + the view.
+    let live: Vec<LiveClaim> = sqlx::query_as(
+        "SELECT a.id, a.predicate, a.value, a.author_did, a.evidence, a.created_at \
+         FROM research.assertion a \
+         WHERE a.subject_id = $1 AND a.retracted_at IS NULL \
+           AND (a.scope = 'PUBLIC' OR a.scope = $2) \
+           AND NOT EXISTS (SELECT 1 FROM research.assertion s \
+                           WHERE s.supersedes_id = a.id AND s.retracted_at IS NULL) \
+         ORDER BY a.predicate, a.created_at",
+    )
+    .bind(subject_id)
+    .bind(view_scope)
+    .fetch_all(pool)
+    .await?;
+
+    // Group by predicate, preserving created_at order.
+    let mut by_pred: std::collections::BTreeMap<String, Vec<LiveClaim>> = std::collections::BTreeMap::new();
+    for c in live {
+        by_pred.entry(c.predicate.clone()).or_default().push(c);
+    }
+
+    let mut tx = pool.begin().await?;
+    let mut kept: Vec<String> = Vec::new();
+    for (predicate, claims) in by_pred {
+        let single = Predicate::parse(&predicate).map(|p| p.is_single_valued()).unwrap_or(false);
+        let state = if single && claims.len() > 1 {
+            let first = &claims[0].value;
+            if claims.iter().all(|c| &c.value == first) {
+                "SETTLED"
+            } else {
+                "DISPUTED"
+            }
+        } else {
+            "SETTLED"
+        };
+        let view: Vec<Value> = claims
+            .iter()
+            .map(|c| json!({
+                "assertion_id": c.id,
+                "value": c.value,
+                "author_did": c.author_did,
+                "evidence": c.evidence,
+                "created_at": c.created_at,
+            }))
+            .collect();
+        sqlx::query(
+            "INSERT INTO research.subject_current_view (subject_id, predicate, scope, state, view, refolded_at) \
+             VALUES ($1, $2, $3, $4, $5, now()) \
+             ON CONFLICT (subject_id, predicate, scope) DO UPDATE SET \
+                state = EXCLUDED.state, view = EXCLUDED.view, refolded_at = now()",
+        )
+        .bind(subject_id)
+        .bind(&predicate)
+        .bind(view_scope)
+        .bind(state)
+        .bind(Value::Array(view))
+        .execute(&mut *tx)
+        .await?;
+        kept.push(predicate);
+    }
+    // Prune predicates that no longer have any live claim in this view.
+    sqlx::query("DELETE FROM research.subject_current_view WHERE subject_id = $1 AND scope = $2 AND predicate <> ALL($3)")
+        .bind(subject_id)
+        .bind(view_scope)
+        .bind(&kept)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+/// A materialized fold row served to the project team (R2) — pseudonymous.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct CurrentViewRow {
+    pub predicate: String,
+    pub state: String,
+    pub view: Value,
+}
+
+/// The project-scoped fold for a subject (PROJECT:<id> claims + PUBLIC), as materialized.
+pub async fn current_view(pool: &PgPool, subject_id: Uuid, scope: &str) -> Result<Vec<CurrentViewRow>, DbError> {
+    Ok(sqlx::query_as(
+        "SELECT predicate, state, view FROM research.subject_current_view \
+         WHERE subject_id = $1 AND scope = $2 ORDER BY predicate",
+    )
+    .bind(subject_id)
+    .bind(scope)
+    .fetch_all(pool)
     .await?)
 }

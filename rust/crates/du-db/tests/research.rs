@@ -125,3 +125,69 @@ async fn acl_roles_membership_and_revocation() {
     assert!(Role::Admin.allows(Capability::ResolveDispute));
     assert!(!Role::Moderator.allows(Capability::WriteAssertions));
 }
+
+#[tokio::test]
+async fn assertion_store_fold_and_rails() {
+    let Some(url) = database_url() else {
+        eprintln!("DATABASE_URL unset — skipping assertion test");
+        return;
+    };
+    use serde_json::json;
+    let db = du_db::testing::ephemeral_db(&url).await.expect("ephemeral db");
+    let pool = db.pool().clone();
+    let (a, b) = ("did:key:zAa", "did:key:zBb");
+    let p1 = project(&pool, "AP1", a).await;
+    let p2 = project(&pool, "AP2", b).await;
+    // One subject shared across two projects (the id-exchange case).
+    let s = research::register_in_project(&pool, None, p1, a).await.unwrap();
+    research::register_in_project(&pool, Some(s), p2, b).await.unwrap();
+    let sc1 = format!("PROJECT:{p1}");
+    let sc2 = format!("PROJECT:{p2}");
+
+    // Two disagreeing HAPLOGROUP_IS (single-valued) in p1 → DISPUTED, surfacing both.
+    research::record_assertion(&pool, s, "HAPLOGROUP_IS", &json!({"haplogroup":"R-M269"}), a, &sc1, None, None, false)
+        .await
+        .unwrap();
+    let dissent = research::record_assertion(&pool, s, "HAPLOGROUP_IS", &json!({"haplogroup":"R-L21"}), a, &sc1, None, None, false)
+        .await
+        .unwrap();
+    let hap = |v: &[research::CurrentViewRow]| v.iter().find(|r| r.predicate == "HAPLOGROUP_IS").map(|r| r.state.clone());
+    assert_eq!(hap(&research::current_view(&pool, s, &sc1).await.unwrap()).as_deref(), Some("DISPUTED"));
+
+    // Per-project isolation: p2's view never sees p1's PROJECT-scoped claim.
+    assert!(research::current_view(&pool, s, &sc2).await.unwrap().is_empty());
+
+    // Retract the dissenting claim → SETTLED.
+    assert!(research::retract_assertion(&pool, dissent).await.unwrap());
+    assert_eq!(hap(&research::current_view(&pool, s, &sc1).await.unwrap()).as_deref(), Some("SETTLED"));
+
+    // PII rails: MDKA_IS / un-cleared NOTE are rejected (R3-only — no AppView table).
+    assert!(research::record_assertion(&pool, s, "MDKA_IS", &json!({"ancestor_name":"X"}), a, &sc1, None, None, false).await.is_err());
+    assert!(research::record_assertion(&pool, s, "NOTE", &json!({"text":"a note"}), a, &sc1, None, None, false).await.is_err());
+    // A cleared NOTE is storable…
+    research::record_assertion(&pool, s, "NOTE", &json!({"text":"clean branch observation"}), a, &sc1, None, None, true).await.unwrap();
+    // …but the value scrubber still rejects obvious PII even when "cleared".
+    assert!(research::record_assertion(&pool, s, "NOTE", &json!({"text":"reach me at a@b.com"}), a, &sc1, None, None, true).await.is_err());
+
+    // SAME_PERSON_AS accept drives the D2 merge (audited, method=ASSERTION).
+    let other = research::register_in_project(&pool, None, p1, a).await.unwrap();
+    let claim = research::record_assertion(
+        &pool, s, "SAME_PERSON_AS",
+        &json!({"other_subject_id": other.to_string(), "confidence": 0.8, "method": "GENETIC"}),
+        a, &sc1, None, None, false,
+    )
+    .await
+    .unwrap();
+    let (kept, retired) = research::accept_same_person(&pool, claim).await.unwrap();
+    assert_eq!((kept, retired), (s, other));
+    assert_eq!(research::subject(&pool, other).await.unwrap().unwrap().retired_into, Some(s));
+    let links: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM research.subject_link WHERE subject_a=$1 AND subject_b=$2 AND method='ASSERTION'",
+    )
+    .bind(s)
+    .bind(other)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(links, 1, "same-person accept is audited as an ASSERTION merge");
+}

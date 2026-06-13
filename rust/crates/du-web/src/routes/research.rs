@@ -26,6 +26,10 @@ pub fn router() -> Router<AppState> {
         .route("/api/v1/research/project/member", post(add_member))
         .route("/api/v1/research/project/member/revoke", post(revoke_member))
         .route("/api/v1/research/project/members", get(members))
+        .route("/api/v1/research/assertion", post(assert))
+        .route("/api/v1/research/assertion/retract", post(retract))
+        .route("/api/v1/research/assertion/resolve", post(resolve))
+        .route("/api/v1/research/current-view", get(current_view))
 }
 
 #[derive(Deserialize)]
@@ -185,6 +189,124 @@ async fn members(State(st): State<AppState>, Query(q): Query<SubjectsQuery>) -> 
     Ok(Json(json!({ "items": items })))
 }
 
+// ── D4: attributed-claim assertions (R2 — non-PII, project-scoped) ─────────────
+
+#[derive(Deserialize)]
+struct AssertBody {
+    author_did: String,
+    subject_id: Uuid,
+    /// The ACL context: the author must hold `WriteAssertions` in this project even when
+    /// the assertion is PUBLIC-scoped (consent raises an assertion *about a project
+    /// subject* to public — §5).
+    project_id: i64,
+    predicate: String,
+    value: Value,
+    /// PUBLIC (R1) vs the default PROJECT(<project_id>) (R2) scope.
+    public: Option<bool>,
+    evidence: Option<Value>,
+    supersedes_id: Option<i64>,
+    /// Author asserts the free-text value carries no PII (required for `NOTE`).
+    pii_cleared: Option<bool>,
+    signature: String,
+}
+
+async fn assert(State(st): State<AppState>, Json(b): Json<AssertBody>) -> Result<Json<Value>, AppError> {
+    let scope = if b.public.unwrap_or(false) { "PUBLIC".to_string() } else { format!("PROJECT:{}", b.project_id) };
+    verify_signed(
+        &b.author_did,
+        &messages::assert(&b.author_did, &b.subject_id.to_string(), &b.predicate, &scope),
+        &b.signature,
+    )
+    .await?;
+    // Authorize: ADMIN/CO_ADMIN of the project (WriteAssertions).
+    if !research::can(&st.pool, b.project_id, &b.author_did, research::Capability::WriteAssertions).await? {
+        return Err(AppError::Forbidden);
+    }
+    let id = research::record_assertion(
+        &st.pool,
+        b.subject_id,
+        &b.predicate,
+        &b.value,
+        &b.author_did,
+        &scope,
+        b.evidence.as_ref(),
+        b.supersedes_id,
+        b.pii_cleared.unwrap_or(false),
+    )
+    .await?;
+    Ok(Json(json!({ "assertion_id": id, "scope": scope })))
+}
+
+#[derive(Deserialize)]
+struct RetractBody {
+    actor_did: String,
+    assertion_id: i64,
+    /// The ACL context for the dispute-resolution path (non-authors need ResolveDispute).
+    project_id: i64,
+    signature: String,
+}
+
+async fn retract(State(st): State<AppState>, Json(b): Json<RetractBody>) -> Result<Json<Value>, AppError> {
+    verify_signed(&b.actor_did, &messages::retract(&b.actor_did, b.assertion_id), &b.signature).await?;
+    let meta = research::assertion_meta(&st.pool, b.assertion_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("live assertion {}", b.assertion_id)))?;
+    // The author may retract their own claim; anyone else needs ResolveDispute.
+    if meta.author_did != b.actor_did
+        && !research::can(&st.pool, b.project_id, &b.actor_did, research::Capability::ResolveDispute).await?
+    {
+        return Err(AppError::Forbidden);
+    }
+    if !research::retract_assertion(&st.pool, b.assertion_id).await? {
+        return Err(AppError::NotFound(format!("live assertion {}", b.assertion_id)));
+    }
+    Ok(Json(json!({ "assertion_id": b.assertion_id, "status": "RETRACTED" })))
+}
+
+#[derive(Deserialize)]
+struct ResolveBody {
+    actor_did: String,
+    /// A live `SAME_PERSON_AS` assertion to accept → drives the D2 merge.
+    assertion_id: i64,
+    project_id: i64,
+    signature: String,
+}
+
+async fn resolve(State(st): State<AppState>, Json(b): Json<ResolveBody>) -> Result<Json<Value>, AppError> {
+    verify_signed(&b.actor_did, &messages::resolve(&b.actor_did, b.assertion_id), &b.signature).await?;
+    if !research::can(&st.pool, b.project_id, &b.actor_did, research::Capability::ResolveDispute).await? {
+        return Err(AppError::Forbidden);
+    }
+    let (kept, retired) = research::accept_same_person(&st.pool, b.assertion_id).await?;
+    Ok(Json(json!({ "kept": kept, "retired": retired })))
+}
+
+#[derive(Deserialize)]
+struct ViewQuery {
+    subject_id: Uuid,
+    project_id: i64,
+    did: String,
+    ts: i64,
+    sig: String,
+}
+
+async fn current_view(State(st): State<AppState>, Query(q): Query<ViewQuery>) -> Result<Json<Value>, AppError> {
+    if (chrono::Utc::now().timestamp() - q.ts).abs() > 300 {
+        return Err(AppError::BadRequest("stale timestamp".into()));
+    }
+    verify_signed(&q.did, &messages::poll(&q.did, q.ts), &q.sig).await?;
+    if !research::is_team_member(&st.pool, q.project_id, &q.did).await? {
+        return Err(AppError::Forbidden);
+    }
+    let scope = format!("PROJECT:{}", q.project_id);
+    let items: Vec<Value> = research::current_view(&st.pool, q.subject_id, &scope)
+        .await?
+        .into_iter()
+        .map(|r| json!({ "predicate": r.predicate, "state": r.state, "view": r.view }))
+        .collect();
+    Ok(Json(json!({ "items": items })))
+}
+
 #[cfg(test)]
 mod tests {
     use axum::body::{to_bytes, Body};
@@ -291,5 +413,78 @@ mod tests {
             "actor_did": out_did, "project_id": project_id, "member_did": "did:key:zEvil", "role": "ADMIN", "signature": sig2,
         })).await;
         assert_eq!(r403.status(), StatusCode::FORBIDDEN);
+    }
+
+    /// Recording an assertion is WriteAssertions-gated; a PII predicate is rejected (422);
+    /// resolving a dispute is ResolveDispute-gated.
+    #[tokio::test]
+    async fn assertion_endpoints_gated() {
+        let Some(url) = std::env::var("DATABASE_URL").ok().filter(|s| !s.is_empty()) else {
+            eprintln!("DATABASE_URL unset — skipping assertion endpoint test");
+            return;
+        };
+        let db = du_db::testing::ephemeral_db(&url).await.expect("ephemeral db");
+        let pool = db.pool().clone();
+        let owner = SigningKey::from_bytes(&[31u8; 32]);
+        let owner_did = du_atproto::did::did_key_from_ed25519(&owner.verifying_key());
+        let project_id: i64 = sqlx::query_scalar(
+            "INSERT INTO social.group_project (project_name, project_type, owner_did) VALUES ('A','RESEARCH',$1) RETURNING id",
+        )
+        .bind(&owner_did)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        // A pseudonymous subject to assert over, and a MODERATOR (no WriteAssertions).
+        let subject = du_db::research::register_in_project(&pool, None, project_id, &owner_did).await.unwrap();
+        let mods = SigningKey::from_bytes(&[32u8; 32]);
+        let mod_did = du_atproto::did::did_key_from_ed25519(&mods.verifying_key());
+        du_db::research::add_member(&pool, project_id, &mod_did, du_db::research::Role::Moderator, &[], &owner_did)
+            .await
+            .unwrap();
+        let state = crate::state::AppState { pool, key: tower_cookies::Key::generate(), oauth: None };
+
+        let post = |state: crate::state::AppState, uri: &'static str, body: serde_json::Value| async move {
+            crate::routes::app(state)
+                .oneshot(Request::builder().method("POST").uri(uri)
+                    .header("content-type", "application/json").body(Body::from(body.to_string())).unwrap())
+                .await
+                .unwrap()
+        };
+        let scope = format!("PROJECT:{project_id}");
+
+        // Owner (ADMIN ⇒ WriteAssertions) records a HAPLOGROUP_IS → 200.
+        let m = du_db::research::messages::assert(&owner_did, &subject.to_string(), "HAPLOGROUP_IS", &scope);
+        let sig = STANDARD.encode(owner.sign(m.as_bytes()).to_bytes());
+        let ok = post(state.clone(), "/api/v1/research/assertion", serde_json::json!({
+            "author_did": owner_did, "subject_id": subject, "project_id": project_id,
+            "predicate": "HAPLOGROUP_IS", "value": {"haplogroup": "R-M269"}, "signature": sig,
+        })).await;
+        assert_eq!(ok.status(), StatusCode::OK);
+
+        // A PII predicate (MDKA_IS) is rejected at the store boundary → 422.
+        let mp = du_db::research::messages::assert(&owner_did, &subject.to_string(), "MDKA_IS", &scope);
+        let psig = STANDARD.encode(owner.sign(mp.as_bytes()).to_bytes());
+        let pii = post(state.clone(), "/api/v1/research/assertion", serde_json::json!({
+            "author_did": owner_did, "subject_id": subject, "project_id": project_id,
+            "predicate": "MDKA_IS", "value": {"ancestor_name": "Jane"}, "signature": psig,
+        })).await;
+        assert_eq!(pii.status(), StatusCode::UNPROCESSABLE_ENTITY);
+
+        // A MODERATOR (valid signature, no WriteAssertions) → 403.
+        let mm = du_db::research::messages::assert(&mod_did, &subject.to_string(), "HAPLOGROUP_IS", &scope);
+        let msig = STANDARD.encode(mods.sign(mm.as_bytes()).to_bytes());
+        let r403 = post(state.clone(), "/api/v1/research/assertion", serde_json::json!({
+            "author_did": mod_did, "subject_id": subject, "project_id": project_id,
+            "predicate": "HAPLOGROUP_IS", "value": {"haplogroup": "R-L21"}, "signature": msig,
+        })).await;
+        assert_eq!(r403.status(), StatusCode::FORBIDDEN);
+
+        // Resolve is ResolveDispute-gated: the MODERATOR is refused before any merge → 403.
+        let mr = du_db::research::messages::resolve(&mod_did, 1);
+        let rsig = STANDARD.encode(mods.sign(mr.as_bytes()).to_bytes());
+        let rr = post(state, "/api/v1/research/assertion/resolve", serde_json::json!({
+            "actor_did": mod_did, "assertion_id": 1, "project_id": project_id, "signature": rsig,
+        })).await;
+        assert_eq!(rr.status(), StatusCode::FORBIDDEN);
     }
 }
