@@ -19,6 +19,7 @@ use du_db::ibd::{self, messages};
 use du_db::exchange;
 use serde::Deserialize;
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 pub fn router() -> Router<AppState> {
@@ -73,7 +74,12 @@ async fn introduce(State(st): State<AppState>, Json(b): Json<IntroduceBody>) -> 
     let counterpart = ibd::owner_did_of_sample(&st.pool, b.suggested_sample_guid)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("candidate {} is not claimable", b.suggested_sample_guid)))?;
-    let request_uri = format!("urn:ibd:{}:{}", b.did, b.suggested_sample_guid);
+    // Opaque, deterministic handle (idempotent per caller+candidate) that does NOT embed
+    // the initiator DID — the recipient consents blind, learning the initiator only after
+    // mutual consent (symmetric with the caller never seeing the counterpart pre-consent).
+    let digest = Sha256::digest(format!("{}:{}", b.did, b.suggested_sample_guid).as_bytes());
+    let hex: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
+    let request_uri = format!("urn:ibd:{hex}");
     exchange::create_request(
         &st.pool,
         &exchange::NewRequest {
@@ -129,8 +135,10 @@ mod tests {
         let owner = SigningKey::from_bytes(&[41u8; 32]);
         let owner_did = du_atproto::did::did_key_from_ed25519(&owner.verifying_key());
         let target = fed_sample(&pool, &owner_did).await;
-        let counterpart_did = "did:plc:counterpart";
-        let suggested = fed_sample(&pool, counterpart_did).await;
+        // The counterpart is a did:key so it can sign its own /exchange/incoming poll.
+        let counter = SigningKey::from_bytes(&[43u8; 32]);
+        let counterpart_did = du_atproto::did::did_key_from_ed25519(&counter.verifying_key());
+        let suggested = fed_sample(&pool, &counterpart_did).await;
         // A single ACTIVE candidate: owner's sample → the counterpart's sample.
         sqlx::query(
             "INSERT INTO ibd.match_suggestion (target_sample_guid, suggested_sample_guid, suggestion_type, score, status) \
@@ -168,7 +176,7 @@ mod tests {
         assert_eq!(v["items"].as_array().unwrap().len(), 1);
         assert_eq!(v["items"][0]["suggested_sample_guid"].as_str().unwrap(), suggested.to_string());
         // The pseudonymous row carries no counterpart DID.
-        assert!(!v["items"][0].to_string().contains(counterpart_did));
+        assert!(!v["items"][0].to_string().contains(counterpart_did.as_str()));
 
         // An unrelated DID (valid signature) sees none of the owner's candidates.
         let other = SigningKey::from_bytes(&[42u8; 32]);
@@ -191,7 +199,9 @@ mod tests {
         assert_eq!(intro.status(), StatusCode::OK);
         let iv: Value = serde_json::from_slice(&to_bytes(intro.into_body(), usize::MAX).await.unwrap()).unwrap();
         assert_eq!(iv["status"].as_str(), Some("PENDING"));
-        assert!(!iv.to_string().contains(counterpart_did), "introduce response must not leak the counterpart DID");
+        assert!(!iv.to_string().contains(counterpart_did.as_str()), "introduce response must not leak the counterpart DID");
+        let request_uri = iv["request_uri"].as_str().unwrap().to_string();
+        assert!(!request_uri.contains(&owner_did), "the opaque handle must not embed the initiator DID");
         // The broker row carries the resolved counterpart as partner_did (server-side only).
         let partner: String = sqlx::query_scalar("SELECT partner_did FROM exchange.exchange_request WHERE initiator_did = $1")
             .bind(&owner_did)
@@ -199,6 +209,18 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(partner, counterpart_did);
+
+        // The loop closes: the counterpart DISCOVERS the request via /exchange/incoming —
+        // symmetric-blind (gets the handle + purpose, NOT the initiator DID).
+        let cts = chrono::Utc::now().timestamp();
+        let csig = STANDARD.encode(counter.sign(du_db::exchange::messages::poll(&counterpart_did, cts).as_bytes()).to_bytes());
+        let inc = get(state.clone(), format!("/api/v1/exchange/incoming?did={counterpart_did}&ts={cts}&sig={}", enc(&csig))).await;
+        assert_eq!(inc.status(), StatusCode::OK);
+        let incv: Value = serde_json::from_slice(&to_bytes(inc.into_body(), usize::MAX).await.unwrap()).unwrap();
+        assert_eq!(incv["items"].as_array().unwrap().len(), 1);
+        assert_eq!(incv["items"][0]["request_uri"].as_str(), Some(request_uri.as_str()));
+        assert_eq!(incv["items"][0]["purpose"].as_str(), Some("IBD_AUTOSOMAL"));
+        assert!(!incv.to_string().contains(&owner_did), "incoming must not reveal the initiator pre-consent");
 
         // Introduce to a sample that is NOT the caller's candidate → 403.
         let stranger = fed_sample(&pool, "did:plc:stranger").await;

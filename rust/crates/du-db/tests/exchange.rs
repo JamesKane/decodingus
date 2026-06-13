@@ -86,6 +86,31 @@ async fn dual_consent_gates_a_session() {
 }
 
 #[tokio::test]
+async fn incoming_surfaces_pending_to_recipient_only() {
+    let Some(url) = database_url() else {
+        eprintln!("DATABASE_URL unset — skipping incoming test");
+        return;
+    };
+    let db = du_db::testing::ephemeral_db(&url).await.expect("ephemeral db");
+    let pool = db.pool().clone();
+    let (ann, ben) = ("did:key:zAnn", "did:key:zBen");
+
+    let uri = "at://did:key:zAnn/exchange/in";
+    request(&pool, uri, ann, ben).await;
+
+    // The recipient (partner) discovers it; the initiator does not (it's not awaiting ann).
+    let bens = exchange::incoming_for(&pool, ben).await.unwrap();
+    assert_eq!(bens.len(), 1);
+    assert_eq!(bens[0].request_uri, uri);
+    assert_eq!(bens[0].purpose, "GENEALOGY_PII");
+    assert!(exchange::incoming_for(&pool, ann).await.unwrap().is_empty(), "initiator's own request is not 'incoming' to it");
+
+    // Once the recipient acts (consents), it drops out of their incoming list.
+    exchange::record_consent(&pool, uri, ben, true, None, "sigB").await.unwrap();
+    assert!(exchange::incoming_for(&pool, ben).await.unwrap().is_empty(), "acted-on request clears");
+}
+
+#[tokio::test]
 async fn relay_round_trip_and_participant_gate() {
     let Some(url) = database_url() else {
         eprintln!("DATABASE_URL unset — skipping relay test");

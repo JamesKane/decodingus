@@ -397,8 +397,10 @@ Launch-critical first, then the post-launch feature mass.
    **D1 exchange BROKER DONE (2026-06-12)** — the shared substrate gating the Match +
    Platform tracks. `exchange.*` schema (mig 0032; the unused `ibd.match_*` folded +
    dropped) + `du_db::exchange` (publish/fetch X25519 key, request, **dual-consent
-   gate** → session, pending, blind relay post/pull/ack, TTL `expire`) + `du-web`
-   `/api/v1/exchange/*` endpoints, all **Ed25519-signature-authenticated**
+   gate** → session, **`incoming`** [PENDING requests awaiting a recipient — closes the
+   introduce→consent loop, **symmetric-blind**: no initiator DID], pending, blind relay
+   post/pull/ack, TTL `expire`) + `du-web` `/api/v1/exchange/*` endpoints, all
+   **Ed25519-signature-authenticated**
    (`du_atproto::verify_did_key`; `did:key` direct, `did:plc/web` resolved — **no
    OAuth/cookie**, so D1 doesn't wait on the OAuth joint test) + `du-jobs
    exchange-expire`. PII-free broker — never sees plaintext/keys, relays opaque

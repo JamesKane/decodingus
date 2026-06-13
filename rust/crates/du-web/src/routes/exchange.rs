@@ -33,6 +33,7 @@ pub fn router() -> Router<AppState> {
         .route("/api/v1/exchange/key", post(publish_key).get(fetch_key))
         .route("/api/v1/exchange/request", post(create_request))
         .route("/api/v1/exchange/consent", post(consent))
+        .route("/api/v1/exchange/incoming", get(incoming))
         .route("/api/v1/exchange/pending", get(pending))
         .route("/api/v1/exchange/relay", post(relay_post))
         .route("/api/v1/exchange/relay/pull", get(relay_pull))
@@ -173,6 +174,24 @@ async fn pending(State(st): State<AppState>, Query(q): Query<PendingQuery>) -> R
             "partner_did": r.partner_did,
             "partner_key_uri": r.partner_key_uri,
         }))
+        .collect();
+    Ok(Json(json!({ "items": items })))
+}
+
+/// Incoming requests awaiting the caller's consent — **symmetric-blind** (no initiator
+/// DID). This is the counterpart-discovery path that closes the introduce→consent loop:
+/// the recipient learns a request exists and gets the opaque `request_uri` to consent
+/// with, but learns *who* asked only after they consent (then via `/pending`).
+async fn incoming(State(st): State<AppState>, Query(q): Query<PendingQuery>) -> Result<Json<Value>, AppError> {
+    let now = chrono::Utc::now().timestamp();
+    if (now - q.ts).abs() > 300 {
+        return Err(AppError::BadRequest("stale timestamp".into()));
+    }
+    verify_signed(&q.did, &messages::poll(&q.did, q.ts), &q.sig).await?;
+    let items: Vec<Value> = exchange::incoming_for(&st.pool, &q.did)
+        .await?
+        .into_iter()
+        .map(|r| json!({ "request_uri": r.request_uri, "purpose": r.purpose, "created_at": r.created_at }))
         .collect();
     Ok(Json(json!({ "items": items })))
 }

@@ -315,6 +315,33 @@ pub async fn expire(pool: &PgPool) -> Result<(u64, u64), DbError> {
     Ok((envelopes, sessions))
 }
 
+/// An incoming request awaiting `did`'s consent — **symmetric-blind**: the initiator is
+/// NOT revealed (no `initiator_did`), only an opaque handle + purpose + time. Identities
+/// reveal to both sides only after mutual consent (see [`pending_for`]).
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct IncomingRequest {
+    pub request_uri: String,
+    pub purpose: String,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// PENDING requests addressed to `did` that `did` has not yet acted on — the
+/// counterpart-discovery path that closes the introduce→consent loop. Deliberately omits
+/// the initiator DID (the recipient consents blind).
+pub async fn incoming_for(pool: &PgPool, did: &str) -> Result<Vec<IncomingRequest>, DbError> {
+    Ok(sqlx::query_as(
+        "SELECT r.request_uri, r.purpose, r.created_at \
+         FROM exchange.exchange_request r \
+         WHERE r.partner_did = $1 AND r.status = 'PENDING' \
+           AND NOT EXISTS (SELECT 1 FROM exchange.exchange_consent c \
+                           WHERE c.request_uri = r.request_uri AND c.consenting_did = $1) \
+         ORDER BY r.created_at",
+    )
+    .bind(did)
+    .fetch_all(pool)
+    .await?)
+}
+
 /// Sessions ready for `did` to start (CONSENTED + an open session), with the partner.
 pub async fn pending_for(pool: &PgPool, did: &str) -> Result<Vec<ExchangeReady>, DbError> {
     Ok(sqlx::query_as(
