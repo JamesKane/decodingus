@@ -174,9 +174,11 @@ APP_SECRET="<any 32+ char string>"   # signs session cookies
   triage. Serving: `/api/v1/y-tree` nodes carry a **cumulative `sample_count`**;
   `/api/v1/{y,mt}-tree/node/{name}/samples` lists the leaves (accession/alias/source +
   paper citation). `du-jobs run-once tree-samples-recompute` + daily. Y now, mt-ready
-  (dna_type-parameterized; no mt recompute until the mt tree lands). **Follow-up:** the
-  HTML cladogram's per-node `·N` + click-through sidebar (presentation layer). (Memory
-  `tree-sample-leaves`.)
+  (dna_type-parameterized; no mt recompute until the mt tree lands). **HTML cladogram
+  done:** each SVG node shows its cumulative `· N samples` (rolled up over the whole tree
+  via `cumulative_counts`, so window-boundary nodes count hidden descendants); the SNP
+  sidebar lists the placed leaves (label + source + citation, capped 50 + "+N more").
+  (Memory `tree-sample-leaves`.)
 - **ETL** (`du-migrate`) — **full production surface**: catalog (donors, biosamples,
   variants, tree, studies, publications), ident/auth, genomics. Validated vs the
   schema-only `db.schema` and the current-schema mock with data; all aggregates
@@ -470,7 +472,14 @@ Launch-critical first, then the post-launch feature mass.
    (→ `SequencerLabDto`, 404 if unknown) + `GET /api/v1/sequencer/lab-instruments`
    (bulk cache seed), resolving via the **preseeded** `genomics.sequencer_instrument.
    lab_id` (mig 0025 re-adds it; ETL backfills from the legacy tie;
-   `du_db::sequencer`). The proposal/consensus path is **not live anywhere**, so the
+   `du_db::sequencer`). **Seeded (2026-06-13, mig 0038):** the old YDNA-Warehouse d2c
+   instrument→lab map — **5 labs + 36 instruments** (rows with `n_crams > 2`, max-frequency
+   lab; canonical full names FTDNA→Family Tree DNA / Dante Labs / Nebula Genomics / Full
+   Genomes Corporation / YSEQ, all `is_d2c`; `model_name`=export platform, `manufacturer`
+   derived). Idempotent (`ON CONFLICT (name) DO NOTHING` / `(instrument_id) DO UPDATE`);
+   the dev DB had 0 labs (legacy `public.sequencing_lab` is empty — hence the need). Source
+   `instrument_centers.tsv` (repo root, reference only). `lab_instruments.tsv` is a later
+   follow-up. The proposal/consensus path is **not live anywhere**, so the
    lookup uses the direct tie (memory `sequencer-lab-lookup`). The **consensus
    engine is DONE (2026-06-12)**: `du_db::sequencer::recompute_consensus` derives
    observations from `fed.sequencerun ⋈ fed.biosample.center_name`, aggregates per
