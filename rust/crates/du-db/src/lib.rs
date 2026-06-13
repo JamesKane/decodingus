@@ -36,6 +36,7 @@ pub mod study;
 pub mod support;
 pub mod testing;
 pub mod tree_revision;
+pub mod tree_sample;
 pub mod variant;
 pub mod wip;
 pub mod ybrowse;

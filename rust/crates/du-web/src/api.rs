@@ -83,6 +83,9 @@ pub struct HaplogroupNodeDto {
     pub haplogroup_type: String,
     pub formed_ybp: Option<i32>,
     pub tmrca_ybp: Option<i32>,
+    /// Placed non-D2C sample leaves **at or below** this node (the YFull-style cumulative
+    /// count). Open the node's `/y-tree/node/{name}/samples` to list them.
+    pub sample_count: i64,
     /// Defining variants for this node (with multi-build coordinates). Populated only by the
     /// `/full` tree endpoints; omitted (empty) on the plain tree so existing clients are
     /// unaffected.
@@ -98,6 +101,43 @@ pub struct HaplogroupNodeDto {
 pub struct TreeDto {
     /// Top-level node(s): one when a `rootHaplogroup` is given, else every root.
     pub roots: Vec<HaplogroupNodeDto>,
+}
+
+/// A non-D2C biosample placed as a leaf at or below a haplogroup node (YFull-style).
+#[derive(Serialize, ToSchema)]
+pub struct LeafSampleDto {
+    pub sample_guid: String,
+    pub accession: Option<String>,
+    pub alias: Option<String>,
+    /// Origin (`EXTERNAL`, `ANCIENT`, `STANDARD`, `PGP`) — never `CITIZEN` (D2C is excluded).
+    pub source: String,
+    /// The most recent linked publication, when the sample is paper-referenced.
+    pub publication: Option<PublicationRefDto>,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct PublicationRefDto {
+    pub title: String,
+    pub doi: Option<String>,
+    pub url: Option<String>,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct LeafSamplesDto {
+    pub items: Vec<LeafSampleDto>,
+}
+
+impl From<du_db::tree_sample::LeafSample> for LeafSampleDto {
+    fn from(s: du_db::tree_sample::LeafSample) -> Self {
+        let publication = s.pub_title.map(|title| PublicationRefDto { title, doi: s.pub_doi, url: s.pub_url });
+        LeafSampleDto {
+            sample_guid: s.sample_guid.to_string(),
+            accession: s.accession,
+            alias: s.alias,
+            source: s.source,
+            publication,
+        }
+    }
 }
 
 /// Cheap cache-revalidation probe: the current tree revision + the full-tree ETag,
@@ -660,18 +700,20 @@ impl RootParams {
 fn assemble_forest(
     nodes: Vec<du_db::haplogroup::SubtreeNode>,
     variants: &HashMap<i64, Vec<VariantDto>>,
+    counts: &HashMap<i64, i64>,
 ) -> Vec<HaplogroupNodeDto> {
     let mut by_parent: HashMap<Option<i64>, Vec<du_db::haplogroup::SubtreeNode>> = HashMap::new();
     for n in nodes {
         by_parent.entry(n.parent_id).or_default().push(n);
     }
-    build_level(None, &by_parent, variants, 0)
+    build_level(None, &by_parent, variants, counts, 0)
 }
 
 fn build_level(
     parent: Option<i64>,
     by_parent: &HashMap<Option<i64>, Vec<du_db::haplogroup::SubtreeNode>>,
     variants: &HashMap<i64, Vec<VariantDto>>,
+    counts: &HashMap<i64, i64>,
     depth: u16,
 ) -> Vec<HaplogroupNodeDto> {
     // Depth guard: tree-merge data can contain cycles; cap recursion defensively.
@@ -684,21 +726,29 @@ fn build_level(
     };
     kids.sort_by(|a, b| a.name.cmp(&b.name));
     kids.into_iter()
-        .map(|n| HaplogroupNodeDto {
-            id: n.id,
-            name: n.name.clone(),
-            haplogroup_type: n.haplogroup_type.clone(),
-            formed_ybp: n.formed_ybp,
-            tmrca_ybp: n.tmrca_ybp,
-            variants: variants.get(&n.id).cloned().unwrap_or_default(),
-            children: build_level(Some(n.id), by_parent, variants, depth + 1),
+        .map(|n| {
+            let children = build_level(Some(n.id), by_parent, variants, counts, depth + 1);
+            // Cumulative: this node's own placed leaves + everything under its children.
+            let sample_count =
+                counts.get(&n.id).copied().unwrap_or(0) + children.iter().map(|c| c.sample_count).sum::<i64>();
+            HaplogroupNodeDto {
+                id: n.id,
+                name: n.name.clone(),
+                haplogroup_type: n.haplogroup_type.clone(),
+                formed_ybp: n.formed_ybp,
+                tmrca_ybp: n.tmrca_ybp,
+                sample_count,
+                variants: variants.get(&n.id).cloned().unwrap_or_default(),
+                children,
+            }
         })
         .collect()
 }
 
 async fn build_tree(st: &AppState, dna: DnaType, root: Option<&str>) -> Result<TreeDto, AppError> {
     let nodes = du_db::haplogroup::subtree(&st.pool, dna, root).await?;
-    Ok(TreeDto { roots: assemble_forest(nodes, &HashMap::new()) })
+    let counts = du_db::tree_sample::counts_by_node(&st.pool, dna).await?;
+    Ok(TreeDto { roots: assemble_forest(nodes, &HashMap::new(), &counts) })
 }
 
 /// Like [`build_tree`] but embeds each node's defining variants (with multi-build
@@ -710,7 +760,8 @@ async fn build_tree_full(st: &AppState, dna: DnaType, root: Option<&str>) -> Res
     for (hid, v) in du_db::variant::for_dna_type_grouped(&st.pool, dna).await? {
         variants.entry(hid).or_default().push(VariantDto::from(v));
     }
-    Ok(TreeDto { roots: assemble_forest(nodes, &variants) })
+    let counts = du_db::tree_sample::counts_by_node(&st.pool, dna).await?;
+    Ok(TreeDto { roots: assemble_forest(nodes, &variants, &counts) })
 }
 
 // ── tree cache revalidation (ETag / conditional GET) ─────────────────────────
@@ -817,6 +868,35 @@ async fn y_tree_version(State(st): State<AppState>) -> Result<Json<TreeVersionDt
     responses((status = 200, description = "Current mt-tree revision + ETag (cheap cache-revalidation probe)", body = TreeVersionDto)))]
 async fn mt_tree_version(State(st): State<AppState>) -> Result<Json<TreeVersionDto>, AppError> {
     tree_version(&st, DnaType::MtDna).await
+}
+
+async fn node_samples(st: &AppState, dna: DnaType, name: &str) -> Result<Json<LeafSamplesDto>, AppError> {
+    // Resolve the requested name/SNP to a canonical node, then list its at-or-below leaves.
+    let Some(node) = du_db::haplogroup::resolve_name_or_variant(&st.pool, name, dna).await? else {
+        return Err(AppError::NotFound(format!("haplogroup {name}")));
+    };
+    let items = du_db::tree_sample::samples_under(&st.pool, &node, dna)
+        .await?
+        .into_iter()
+        .map(LeafSampleDto::from)
+        .collect();
+    Ok(Json(LeafSamplesDto { items }))
+}
+
+#[utoipa::path(get, path = "/api/v1/y-tree/node/{name}/samples",
+    params(("name" = String, Path, description = "Haplogroup name or defining SNP")), tag = "tree",
+    responses((status = 200, description = "Non-D2C sample leaves at or below the Y node", body = LeafSamplesDto),
+              (status = 404, description = "Unknown haplogroup")))]
+async fn y_node_samples(State(st): State<AppState>, Path(name): Path<String>) -> Result<Json<LeafSamplesDto>, AppError> {
+    node_samples(&st, DnaType::YDna, &name).await
+}
+
+#[utoipa::path(get, path = "/api/v1/mt-tree/node/{name}/samples",
+    params(("name" = String, Path, description = "Haplogroup name or defining variant")), tag = "tree",
+    responses((status = 200, description = "Non-D2C sample leaves at or below the mt node", body = LeafSamplesDto),
+              (status = 404, description = "Unknown haplogroup")))]
+async fn mt_node_samples(State(st): State<AppState>, Path(name): Path<String>) -> Result<Json<LeafSamplesDto>, AppError> {
+    node_samples(&st, DnaType::MtDna, &name).await
 }
 
 #[utoipa::path(get, path = "/api/v1/coverage/benchmarks", tag = "coverage",
@@ -1278,14 +1358,14 @@ fn csv_field(s: &str) -> String {
 #[openapi(
     info(title = "DecodingUs API", version = "1.0.0", description = "Public read API for the DecodingUs AppView."),
     paths(
-        y_tree, mt_tree, y_tree_full, mt_tree_full, y_tree_version, mt_tree_version, coverage_benchmarks, sequencer_lab, sequencer_lab_instruments, discovery_proposals, discovery_proposal, test_types, test_type_by_code, references_details, biosample_report, sample_report, biosample_studies,
+        y_tree, mt_tree, y_tree_full, mt_tree_full, y_tree_version, mt_tree_version, y_node_samples, mt_node_samples, coverage_benchmarks, sequencer_lab, sequencer_lab_instruments, discovery_proposals, discovery_proposal, test_types, test_type_by_code, references_details, biosample_report, sample_report, biosample_studies,
         list_variants, get_variant, variants_by_haplogroup, export_metadata, export_variants,
         export_variants_gff, list_region_builds, regions_by_build,
         reports_coverage, reports_ancestry, reports_haplogroups,
         haplogroup_str_signature, haplogroup_age, str_predict,
     ),
     components(schemas(
-        VariantDto, HaplogroupNodeDto, TreeDto, TreeVersionDto, CoverageBenchmarkDto, SequencerLabDto, DiscoveryProposalDto, DiscoveryVariantDto, Page<DiscoveryProposalDto>, TestTypeDto, PublicationDto, BiosampleDto,
+        VariantDto, HaplogroupNodeDto, TreeDto, TreeVersionDto, LeafSampleDto, PublicationRefDto, LeafSamplesDto, CoverageBenchmarkDto, SequencerLabDto, DiscoveryProposalDto, DiscoveryVariantDto, Page<DiscoveryProposalDto>, TestTypeDto, PublicationDto, BiosampleDto,
         SampleReportDto, HaplogroupPathwayDto, PathwayStepDto, SequencingRunDto, CoverageSummaryDto,
         AncestryDto, SamplePublicationDto,
         GenomeRegionDto, StudyDto, ExportMetadataDto, Page<VariantDto>, Page<PublicationDto>, Page<BiosampleDto>,
@@ -1314,6 +1394,8 @@ pub fn router() -> Router<AppState> {
         .route("/api/v1/mt-tree/full", get(mt_tree_full))
         .route("/api/v1/y-tree/version", get(y_tree_version))
         .route("/api/v1/mt-tree/version", get(mt_tree_version))
+        .route("/api/v1/y-tree/node/:name/samples", get(y_node_samples))
+        .route("/api/v1/mt-tree/node/:name/samples", get(mt_node_samples))
         .route("/api/v1/coverage/benchmarks", get(coverage_benchmarks))
         .route("/api/v1/sequencer/lab", get(sequencer_lab))
         .route("/api/v1/sequencer/lab-instruments", get(sequencer_lab_instruments))
@@ -1368,6 +1450,7 @@ mod tests {
             haplogroup_type: "Y_DNA".into(),
             formed_ybp: None,
             tmrca_ybp: None,
+            sample_count: 0,
             variants: vec![variant],
             children: vec![],
         };
@@ -1389,11 +1472,69 @@ mod tests {
             haplogroup_type: "Y_DNA".into(),
             formed_ybp: None,
             tmrca_ybp: None,
+            sample_count: 0,
             variants: vec![],
             children: vec![],
         };
         let v = serde_json::to_value(TreeDto { roots: vec![node] }).unwrap();
         assert!(v["roots"][0].get("variants").is_none(), "empty variants must be omitted");
+    }
+
+    /// End-to-end: a placed non-D2C sample shows as a cumulative `sample_count` on the tree
+    /// node and in the node's leaf list; a D2C (CITIZEN) sample never appears.
+    #[tokio::test]
+    async fn tree_carries_sample_count_and_leaf_list() {
+        use axum::body::{to_bytes, Body};
+        use axum::http::{Request, StatusCode};
+        use tower::ServiceExt;
+
+        let Some(url) = std::env::var("DATABASE_URL").ok().filter(|s| !s.is_empty()) else {
+            eprintln!("DATABASE_URL unset — skipping tree-samples endpoint test");
+            return;
+        };
+        let db = du_db::testing::ephemeral_db(&url).await.expect("ephemeral db");
+        let pool = db.pool().clone();
+        sqlx::query("INSERT INTO tree.haplogroup (name, haplogroup_type) VALUES ('R-M269', 'Y_DNA'::core.dna_type)")
+            .execute(&pool)
+            .await
+            .unwrap();
+        // One EXTERNAL (paper) sample + one CITIZEN (D2C) sample, both calling R-M269.
+        for (src, acc) in [("EXTERNAL", "EX-1"), ("CITIZEN", "CIT-1")] {
+            sqlx::query(
+                "INSERT INTO core.biosample (source, accession, original_haplogroups) \
+                 VALUES ($1::core.biosample_source, $2, '[{\"y\":\"R-M269\"}]'::jsonb)",
+            )
+            .bind(src)
+            .bind(acc)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+        du_db::tree_sample::recompute_placements(&pool, du_domain::enums::DnaType::YDna).await.unwrap();
+        let state = crate::state::AppState { pool, key: tower_cookies::Key::generate(), oauth: None };
+
+        let get = |state: crate::state::AppState, uri: &'static str| async move {
+            crate::routes::app(state)
+                .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
+                .await
+                .unwrap()
+        };
+
+        // The node carries sample_count = 1 (only the non-D2C sample).
+        let t = get(state.clone(), "/api/v1/y-tree?rootHaplogroup=R-M269").await;
+        assert_eq!(t.status(), StatusCode::OK);
+        let tv: serde_json::Value = serde_json::from_slice(&to_bytes(t.into_body(), usize::MAX).await.unwrap()).unwrap();
+        assert_eq!(tv["roots"][0]["name"], "R-M269");
+        assert_eq!(tv["roots"][0]["sample_count"], 1);
+
+        // The leaf list has the paper sample and not the D2C one.
+        let s = get(state, "/api/v1/y-tree/node/R-M269/samples").await;
+        assert_eq!(s.status(), StatusCode::OK);
+        let sv: serde_json::Value = serde_json::from_slice(&to_bytes(s.into_body(), usize::MAX).await.unwrap()).unwrap();
+        let items = sv["items"].as_array().unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0]["accession"], "EX-1");
+        assert_eq!(items[0]["source"], "EXTERNAL");
     }
 
     #[test]

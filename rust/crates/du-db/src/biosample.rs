@@ -296,7 +296,7 @@ pub struct SampleReport {
 /// Pick the first non-null call from an `original_haplogroups` JSONB array,
 /// tolerating both shapes (standard `{y, mt, y_result, mt_result}` and citizen
 /// `{y_result, mt_result}`, all keys null-stripped): prefer `primary`, else `fallback`.
-fn pick_original_call(arr: &serde_json::Value, primary: &str, fallback: &str) -> Option<String> {
+pub(crate) fn pick_original_call(arr: &serde_json::Value, primary: &str, fallback: &str) -> Option<String> {
     let entries = arr.as_array()?;
     entries.iter().find_map(|e| {
         let take = |k: &str| {

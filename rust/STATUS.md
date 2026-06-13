@@ -165,6 +165,18 @@ APP_SECRET="<any 32+ char string>"   # signs session cookies
   routes anchors whose every supporting SNP is unreliable to curator review
   (`UnreliableAnchor`). Empirically validated by Hallast 2026 (Fig 5h-i callable
   mask). hs1 coords only (1-based inclusive). (Memory `yregions-ingest`.)
+- **Tree sample leaves (YFull-style)** (`du-db/tree_sample`, mig 0037
+  `tree.haplogroup_sample`) — places **non-D2C** biosamples (`source <> 'CITIZEN'`) as
+  leaves under the tree node their **published call** (`core.biosample.original_haplogroups`)
+  resolves to, reusing `haplogroup::resolve_name_or_variant` (name→alias→defining-SNP→
+  normalize). `recompute_placements(dna)` is an advisory-locked declarative engine
+  (assign+prune, bumps `tree_revision`); unresolvable calls kept `UNPLACED` for curator
+  triage. Serving: `/api/v1/y-tree` nodes carry a **cumulative `sample_count`**;
+  `/api/v1/{y,mt}-tree/node/{name}/samples` lists the leaves (accession/alias/source +
+  paper citation). `du-jobs run-once tree-samples-recompute` + daily. Y now, mt-ready
+  (dna_type-parameterized; no mt recompute until the mt tree lands). **Follow-up:** the
+  HTML cladogram's per-node `·N` + click-through sidebar (presentation layer). (Memory
+  `tree-sample-leaves`.)
 - **ETL** (`du-migrate`) — **full production surface**: catalog (donors, biosamples,
   variants, tree, studies, publications), ident/auth, genomics. Validated vs the
   schema-only `db.schema` and the current-schema mock with data; all aggregates

@@ -106,8 +106,12 @@ async fn main() -> anyhow::Result<()> {
                 let (envelopes, sessions) = du_db::exchange::expire(&pool).await?;
                 tracing::info!(envelopes, sessions, "exchange-expire complete");
             }
+            "tree-samples-recompute" => {
+                let rep = du_db::tree_sample::recompute_placements(&pool, du_domain::enums::DnaType::YDna).await?;
+                tracing::info!(placed = rep.placed, unplaced = rep.unplaced, "tree-samples-recompute complete (Y)");
+            }
             other => anyhow::bail!(
-                "unknown run-once job '{other}' (known: ybrowse, reconcile, yregions, branch-age, sequencer-consensus, discovery-consensus, coverage-norms, ibd-discovery-recompute, exchange-expire)"
+                "unknown run-once job '{other}' (known: ybrowse, reconcile, yregions, branch-age, sequencer-consensus, discovery-consensus, coverage-norms, ibd-discovery-recompute, exchange-expire, tree-samples-recompute)"
             ),
         }
         return Ok(());
@@ -282,6 +286,22 @@ async fn main() -> anyhow::Result<()> {
             }
         }));
         tracing::info!("ibd-discovery-recompute registered");
+    }
+
+    // YFull-style leaf placement: resolve each non-D2C biosample's published Y call to a tree
+    // node into tree.haplogroup_sample (counts + leaf lists). Daily safety net; also run-once
+    // after an ETL tree/biosample load. (mt added when the mt tree lands.)
+    {
+        let pool = pool.clone();
+        sched.register(Job::new("tree-samples-recompute", Duration::from_secs(86_400), move || {
+            let pool = pool.clone();
+            async move {
+                let rep = du_db::tree_sample::recompute_placements(&pool, du_domain::enums::DnaType::YDna).await?;
+                tracing::info!(placed = rep.placed, unplaced = rep.unplaced, "tree-samples-recompute done (Y)");
+                Ok(())
+            }
+        }));
+        tracing::info!("tree-samples-recompute registered");
     }
 
     // Exchange relay TTL cleanup: drop expired ciphertext envelopes + sessions.
