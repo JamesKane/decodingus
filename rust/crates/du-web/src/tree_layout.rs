@@ -58,6 +58,8 @@ impl Orientation {
 pub struct InNode {
     pub name: String,
     pub variant_count: i64,
+    /// Placed non-D2C sample leaves at or below this node (cumulative).
+    pub sample_count: i64,
     pub is_backbone: bool,
     pub is_recent: bool,
     pub formed_ybp: Option<i32>,
@@ -72,6 +74,8 @@ pub struct InNode {
 pub struct LaidNode {
     pub name: String,
     pub variant_count: i64,
+    /// Placed sample leaves at or below this node (cumulative); 0 ⇒ hidden in the view.
+    pub sample_count: i64,
     /// CSS class selecting the fill: backbone / recent / default.
     pub fill_class: &'static str,
     pub is_backbone: bool,
@@ -180,6 +184,7 @@ impl Builder {
         self.nodes.push(LaidNode {
             name: node.name.clone(),
             variant_count: node.variant_count,
+            sample_count: node.sample_count,
             fill_class: fill_class(node.is_backbone, node.is_recent),
             is_backbone: node.is_backbone,
             is_recent: node.is_recent,
@@ -256,6 +261,7 @@ mod tests {
         InNode {
             name: name.into(),
             variant_count: 0,
+            sample_count: 0,
             is_backbone: false,
             is_recent: false,
             formed_ybp: None,

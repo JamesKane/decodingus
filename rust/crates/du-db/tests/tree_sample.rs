@@ -114,6 +114,11 @@ async fn places_non_d2c_samples_and_records_unplaced() {
     assert_eq!(counts.get(&child).copied(), Some(2));
     assert_eq!(counts.get(&parent).copied(), Some(1));
 
+    // Cumulative counts (used by the depth-bounded web cladogram): parent = self + subtree.
+    let cum = tree_sample::cumulative_counts(&pool, DnaType::YDna).await.unwrap();
+    assert_eq!(cum.get(&parent).copied(), Some(3), "parent rolls up its child's leaves");
+    assert_eq!(cum.get(&child).copied(), Some(2));
+
     // samples_under(parent) is cumulative: parent's own + everything under the child = 3.
     let under_parent = tree_sample::samples_under(&pool, "R-M269", DnaType::YDna).await.unwrap();
     assert_eq!(under_parent.len(), 3);

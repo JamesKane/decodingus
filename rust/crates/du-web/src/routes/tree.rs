@@ -94,7 +94,21 @@ struct SnpSidebar {
     name: String,
     provenance: Option<Provenance>,
     variants: Vec<VariantRow>,
+    /// Placed non-D2C sample leaves at or below this node (capped for the sidebar).
+    samples: Vec<LeafRow>,
+    /// How many more placed samples exist beyond the shown `samples` (0 ⇒ all shown).
+    samples_more: i64,
 }
+
+/// One placed sample row in the sidebar (label + optional paper citation).
+struct LeafRow {
+    label: String,
+    source: String,
+    citation: Option<String>,
+}
+
+/// Max leaf rows rendered in the sidebar before collapsing to an "+N more" note.
+const SIDEBAR_SAMPLE_CAP: usize = 50;
 
 struct VariantRow {
     name: String,
@@ -191,9 +205,11 @@ async fn render_tree(
     // Depth: client-supplied ?depth= (persisted in localStorage), clamped.
     let depth = q.depth.unwrap_or(DEFAULT_DEPTH).clamp(MIN_DEPTH, MAX_DEPTH);
 
-    // Window + nesting + layout.
+    // Window + nesting + layout. Cumulative leaf counts roll up over the whole tree, so a
+    // window-boundary node still reflects samples placed below the visible depth.
     let window = du_db::haplogroup::subtree_window(&st.pool, dna_type, &root_name, depth).await?;
-    let laid = build_root(&window).and_then(|root| tree_layout::layout(Some(&root), orientation));
+    let counts = du_db::tree_sample::cumulative_counts(&st.pool, dna_type).await?;
+    let laid = build_root(&window, &counts).and_then(|root| tree_layout::layout(Some(&root), orientation));
 
     // Breadcrumbs: ancestors (root→parent) + the current node (no link).
     let crumbs = build_crumbs(&st.pool, dna_type, base_path, &root_name).await?;
@@ -282,7 +298,23 @@ async fn snp_sidebar(
         }
     });
 
-    Ok(html(&SnpSidebar { t: locale.t, name, provenance, variants }))
+    // Placed non-D2C sample leaves at or below this node (capped for the sidebar).
+    let mut leaves = du_db::tree_sample::samples_under(&st.pool, &name, dna_type).await?;
+    let samples_more = (leaves.len() as i64 - SIDEBAR_SAMPLE_CAP as i64).max(0);
+    leaves.truncate(SIDEBAR_SAMPLE_CAP);
+    let samples: Vec<LeafRow> = leaves
+        .into_iter()
+        .map(|s| {
+            let label = s.accession.or(s.alias).unwrap_or_else(|| s.sample_guid.to_string());
+            let citation = s.pub_title.map(|t| match s.pub_doi {
+                Some(doi) => format!("{t} ({doi})"),
+                None => t,
+            });
+            LeafRow { label, source: s.source, citation }
+        })
+        .collect();
+
+    Ok(html(&SnpSidebar { t: locale.t, name, provenance, variants, samples, samples_more }))
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -317,8 +349,9 @@ async fn default_root_name(pool: &du_db::PgPool, dna_type: DnaType, default_root
         .ok_or_else(|| AppError::NotFound(format!("no {default_root} tree loaded")))
 }
 
-/// Nest the flat window into an `InNode` tree rooted at the depth-0 node.
-fn build_root(window: &[WindowNode]) -> Option<InNode> {
+/// Nest the flat window into an `InNode` tree rooted at the depth-0 node. `counts` is the
+/// cumulative placed-sample count per node id.
+fn build_root(window: &[WindowNode], counts: &HashMap<i64, i64>) -> Option<InNode> {
     let mut children_of: HashMap<i64, Vec<&WindowNode>> = HashMap::new();
     let mut root: Option<&WindowNode> = None;
     for n in window {
@@ -329,17 +362,18 @@ fn build_root(window: &[WindowNode]) -> Option<InNode> {
     }
     // Window root is the depth-0 node; fall back to min-depth if shapes differ.
     let root = root.or_else(|| window.iter().min_by_key(|n| n.depth))?;
-    Some(to_innode(root, &children_of))
+    Some(to_innode(root, &children_of, counts))
 }
 
-fn to_innode(n: &WindowNode, children_of: &HashMap<i64, Vec<&WindowNode>>) -> InNode {
+fn to_innode(n: &WindowNode, children_of: &HashMap<i64, Vec<&WindowNode>>, counts: &HashMap<i64, i64>) -> InNode {
     let children = children_of
         .get(&n.id)
-        .map(|kids| kids.iter().map(|c| to_innode(c, children_of)).collect())
+        .map(|kids| kids.iter().map(|c| to_innode(c, children_of, counts)).collect())
         .unwrap_or_default();
     InNode {
         name: n.name.clone(),
         variant_count: n.variant_count,
+        sample_count: counts.get(&n.id).copied().unwrap_or(0),
         is_backbone: n.is_backbone,
         is_recent: n.is_recent,
         formed_ybp: n.formed_ybp,
@@ -416,5 +450,60 @@ fn short_genome(g: &str) -> &str {
         "hs1"
     } else {
         g
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use axum::body::{to_bytes, Body};
+    use axum::http::{Request, StatusCode};
+    use tower::ServiceExt;
+
+    /// The cladogram shows a node's cumulative placed-sample count, and the SNP sidebar lists
+    /// the placed (non-D2C) samples with their citation.
+    #[tokio::test]
+    async fn cladogram_shows_sample_count_and_sidebar_leaves() {
+        let Some(url) = std::env::var("DATABASE_URL").ok().filter(|s| !s.is_empty()) else {
+            eprintln!("DATABASE_URL unset — skipping cladogram test");
+            return;
+        };
+        let db = du_db::testing::ephemeral_db(&url).await.expect("ephemeral db");
+        let pool = db.pool().clone();
+        sqlx::query("INSERT INTO tree.haplogroup (name, haplogroup_type) VALUES ('R-M269', 'Y_DNA'::core.dna_type)")
+            .execute(&pool)
+            .await
+            .unwrap();
+        // One paper sample (placed) + one D2C sample (excluded), both calling R-M269.
+        for (src, acc) in [("EXTERNAL", "EX-1"), ("CITIZEN", "CIT-1")] {
+            sqlx::query(
+                "INSERT INTO core.biosample (source, accession, original_haplogroups) \
+                 VALUES ($1::core.biosample_source, $2, '[{\"y\":\"R-M269\"}]'::jsonb)",
+            )
+            .bind(src)
+            .bind(acc)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+        du_db::tree_sample::recompute_placements(&pool, du_domain::enums::DnaType::YDna).await.unwrap();
+        let state = crate::state::AppState { pool, key: tower_cookies::Key::generate(), oauth: None };
+
+        let body = |state: crate::state::AppState, uri: &'static str| async move {
+            let resp = crate::routes::app(state)
+                .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+            assert_eq!(resp.status(), StatusCode::OK);
+            String::from_utf8(to_bytes(resp.into_body(), usize::MAX).await.unwrap().to_vec()).unwrap()
+        };
+
+        // The cladogram node carries the cumulative count "1 samples".
+        let svg = body(state.clone(), "/ytree?root=R-M269").await;
+        assert!(svg.contains("1 samples"), "node shows the placed-sample count");
+
+        // The sidebar lists the paper sample (with source) and not the D2C one.
+        let side = body(state, "/ytree/snp/R-M269").await;
+        assert!(side.contains("EX-1") && side.contains("EXTERNAL"), "sidebar lists the placed sample");
+        assert!(!side.contains("CIT-1"), "D2C sample never surfaces");
     }
 }

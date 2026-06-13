@@ -31,7 +31,7 @@
       </rect>
       <text class="tree-node-name" x="{{ n.cx }}" y="{{ n.name_y }}">{% if n.is_backbone %}✓ {% else if n.is_recent %}★ {% endif %}{{ n.name }}{% if n.has_hidden %} +{% endif %}</text>
       <text class="tree-variant-link" x="{{ n.cx }}" y="{{ n.count_y }}"
-            hx-get="{{ base_path }}/snp/{{ n.name }}" hx-target="#snpSidebar">{{ n.variant_count }} {{ t.get("tree.variants") }} ▸</text>
+            hx-get="{{ base_path }}/snp/{{ n.name }}" hx-target="#snpSidebar">{{ n.variant_count }} {{ t.get("tree.variants") }}{% if n.sample_count > 0 %} · {{ n.sample_count }} {{ t.get("tree.samples") }}{% endif %} ▸</text>
       {% if let Some(f) = n.formed %}
       <text class="tree-node-age" x="{{ n.cx }}" y="{{ n.age_y }}">{{ t.get("tree.formed") }} {{ f }}</text>
       {% else if let Some(tm) = n.tmrca %}

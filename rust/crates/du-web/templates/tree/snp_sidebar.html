@@ -64,4 +64,25 @@
     </ul>
   </div>
   {% endif %}
+
+  {# Placed non-D2C sample leaves at or below this node (YFull-style). #}
+  {% if !samples.is_empty() %}
+  <div class="card-body py-2 border-top">
+    <div class="text-uppercase text-muted fw-semibold mb-1" style="font-size:.7rem;letter-spacing:.04em;">{{ t.get("tree.samples.title") }}</div>
+    <ul class="list-group list-group-flush">
+      {% for s in samples %}
+      <li class="list-group-item px-0 py-1">
+        <span class="fw-semibold">{{ s.label }}</span>
+        <span class="badge bg-light text-secondary border ms-1">{{ s.source }}</span>
+        {% if let Some(c) = s.citation %}
+        <div class="small text-muted">{{ c }}</div>
+        {% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+    {% if samples_more > 0 %}
+    <div class="small text-muted mt-1">+{{ samples_more }} {{ t.get("tree.samples.more") }}</div>
+    {% endif %}
+  </div>
+  {% endif %}
 </div>

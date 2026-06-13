@@ -136,6 +136,26 @@ pub async fn counts_by_node(pool: &PgPool, dna_type: DnaType) -> Result<HashMap<
     Ok(rows.into_iter().collect())
 }
 
+/// Cumulative PLACED counts: node id → number of samples at or below it, rolled up over the
+/// **whole** tree (each placed sample climbs to every ancestor). Used by the depth-bounded web
+/// cladogram, where a visible node may have placed descendants below the window.
+pub async fn cumulative_counts(pool: &PgPool, dna_type: DnaType) -> Result<HashMap<i64, i64>, DbError> {
+    let rows: Vec<(i64, i64)> = sqlx::query_as(
+        "WITH RECURSIVE anc(start, id) AS ( \
+            SELECT haplogroup_id, haplogroup_id FROM tree.haplogroup_sample \
+            WHERE dna_type::text = $1 AND status = 'PLACED' AND haplogroup_id IS NOT NULL \
+            UNION ALL \
+            SELECT a.start, r.parent_haplogroup_id FROM anc a \
+            JOIN tree.haplogroup_relationship r ON r.child_haplogroup_id = a.id AND r.valid_until IS NULL \
+         ) \
+         SELECT id, count(*)::bigint FROM anc GROUP BY id",
+    )
+    .bind(pg_enum_label(&dna_type)?)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows.into_iter().collect())
+}
+
 /// A placed leaf sample under a node (pseudonymous-safe: accession/alias + optional citation).
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct LeafSample {
