@@ -102,8 +102,12 @@ async fn main() -> anyhow::Result<()> {
                     suggestions = rep.suggestions_written, "ibd-discovery-recompute complete"
                 );
             }
+            "exchange-expire" => {
+                let (envelopes, sessions) = du_db::exchange::expire(&pool).await?;
+                tracing::info!(envelopes, sessions, "exchange-expire complete");
+            }
             other => anyhow::bail!(
-                "unknown run-once job '{other}' (known: ybrowse, reconcile, yregions, branch-age, sequencer-consensus, discovery-consensus, coverage-norms, ibd-discovery-recompute)"
+                "unknown run-once job '{other}' (known: ybrowse, reconcile, yregions, branch-age, sequencer-consensus, discovery-consensus, coverage-norms, ibd-discovery-recompute, exchange-expire)"
             ),
         }
         return Ok(());
@@ -278,6 +282,20 @@ async fn main() -> anyhow::Result<()> {
             }
         }));
         tracing::info!("ibd-discovery-recompute registered");
+    }
+
+    // Exchange relay TTL cleanup: drop expired ciphertext envelopes + sessions.
+    {
+        let pool = pool.clone();
+        sched.register(Job::new("exchange-expire", Duration::from_secs(3_600), move || {
+            let pool = pool.clone();
+            async move {
+                let (envelopes, sessions) = du_db::exchange::expire(&pool).await?;
+                tracing::info!(envelopes, sessions, "exchange-expire done");
+                Ok(())
+            }
+        }));
+        tracing::info!("exchange-expire registered");
     }
 
     // TODO(jobs): variant-export to a file artifact (the /api/v1/variants/export

@@ -378,9 +378,19 @@ Launch-critical first, then the post-launch feature mass.
    `suggestions_for` reader. Engine-only — **no public API** (candidate pairs gate on
    the D1 consent flow). Memory `ibd-candidate-generation`. **Remaining (needs D1):**
    the request/consent/exchange + attestation-ingest path; `depth_score` from the tree;
-   PCA-LSH tuning. `ibd.match_request`/`match_consent` fold into `exchange.*`.
-   Authoritative design: `documents/planning/d3-ibd-matching-impl.md` §3 (on
-   `d1-encrypted-edge-exchange.md`).
+   PCA-LSH tuning. Authoritative design: `documents/planning/d3-ibd-matching-impl.md`
+   §3 (on `d1-encrypted-edge-exchange.md`).
+   **D1 exchange BROKER DONE (2026-06-12)** — the shared substrate gating the Match +
+   Platform tracks. `exchange.*` schema (mig 0032; the unused `ibd.match_*` folded +
+   dropped) + `du_db::exchange` (publish/fetch X25519 key, request, **dual-consent
+   gate** → session, pending, blind relay post/pull/ack, TTL `expire`) + `du-web`
+   `/api/v1/exchange/*` endpoints, all **Ed25519-signature-authenticated**
+   (`du_atproto::verify_did_key`; `did:key` direct, `did:plc/web` resolved — **no
+   OAuth/cookie**, so D1 doesn't wait on the OAuth joint test) + `du-jobs
+   exchange-expire`. PII-free broker — never sees plaintext/keys, relays opaque
+   ciphertext. Memory `exchange-broker`. **Remaining (not AppView):** the `du-exchange`
+   crypto crate (X25519/AEAD/X3DH-lite, `decodingus-shared`) + the Navigator Edge
+   relay client/session driver (DUNavigator) for the end-to-end round-trip.
 6. **Collaboration + social layer.** The genealogy-collaboration platform (group
    projects, ResearchSubject registry, assertions) is specced in **D2/D4/D5** on the
    D1 channel; the broader social surfaces (messaging/feed/reputation/blocks) are the

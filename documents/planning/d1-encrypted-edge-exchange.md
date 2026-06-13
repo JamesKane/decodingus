@@ -265,9 +265,18 @@ Same channel; different intent trigger and post-decrypt handler.
 
 ## 13. Next step
 
-Confirm §12 Q1–Q3 (transport, relay host, generalize-now). Then the buildable v1
-slice is: **`du-exchange` crate** (X25519 + AEAD + envelope + X3DH-lite) +
-**published-key record** + **AppView `exchange.*` schema and broker endpoints** +
-**Navigator relay client** — proven end-to-end by a `GENEALOGY_PII` `SUBJECT_BUNDLE`
-round-trip between two test admins, then reused for IBD.
+§12 Q1–Q3 decided (relay-primary, AppView-hosted, generalize-now). **AppView broker
+BUILT (2026-06-12):** `exchange.*` schema (mig 0032; `ibd.match_*` folded/dropped) +
+`du_db::exchange` (publish/fetch key, request, **dual-consent gate** → session,
+pending, blind relay post/pull/ack, TTL expire) + `du-web` `/api/v1/exchange/*`
+endpoints, all **signature-authenticated** (`du_atproto::verify_did_key`; `did:key`
+direct, `did:plc/web` resolved — no OAuth/cookie) + `du-jobs exchange-expire`. The
+broker is PII-free (Invariants 1/2/4/6 hold: verifies signatures, never sees plaintext
+or keys, relays opaque ciphertext). Memory `exchange-broker`.
+
+**Remaining for end-to-end:** the **`du-exchange` crate** (X25519 + AEAD + envelope +
+X3DH-lite) in `decodingus-shared` and the **Navigator relay client + session driver**
+(DUNavigator repo) — neither is an AppView concern. Proven end-to-end by a
+`GENEALOGY_PII` `SUBJECT_BUNDLE` round-trip between two test admins once Navigator's
+Edge endpoint lands, then reused for IBD.
 ```
