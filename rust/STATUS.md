@@ -400,12 +400,23 @@ Launch-critical first, then the post-launch feature mass.
    gate** → session, **`incoming`** [PENDING requests awaiting a recipient — closes the
    introduce→consent loop, **symmetric-blind**: no initiator DID], pending, blind relay
    post/pull/ack, TTL `expire`) + `du-web` `/api/v1/exchange/*` endpoints, all
-   **Ed25519-signature-authenticated**
-   (`du_atproto::verify_did_key`; `did:key` direct, `did:plc/web` resolved — **no
-   OAuth/cookie**, so D1 doesn't wait on the OAuth joint test) + `du-jobs
-   exchange-expire`. PII-free broker — never sees plaintext/keys, relays opaque
-   ciphertext. Memory `exchange-broker`. **Remaining (not AppView):** the `du-exchange`
-   crypto crate (X25519/AEAD/X3DH-lite, `decodingus-shared`) + the Navigator Edge
+   **Ed25519-signature-authenticated** (`crate::sig::verify_signed` — **no OAuth/cookie**
+   per call, so D1 doesn't wait on the OAuth joint test) + `du-jobs exchange-expire`.
+   PII-free broker — never sees plaintext/keys, relays opaque ciphertext. Memory
+   `exchange-broker`.
+   **DEVICE-KEY AUTH FOUNDATION DONE (2026-06-13)** — fixes the gap that the DID-doc
+   `#atproto` signing key is PDS-custodied (a desktop client can't sign with it, can't add
+   its own verificationMethod), so only `did:key` could authenticate. Now a client
+   publishes its Ed25519 device PUBLIC key as a `com.decodingus.atmosphere.deviceKey` record
+   in its own repo (repo-write = proof of control over repo_did); the AppView ingests it
+   (`fed.device_key`, mig 0036) like any `fed.*` record. **`verify_signed(pool, did, msg,
+   sig)`** now: `did:key` self-certifies; **`did:plc/web` ⇒ match any registered device key**
+   (`du_db::fed::device_key::keys_for`; none ⇒ 403, the bootstrap), DID-doc resolution
+   dropped (no per-call network). N keys per DID; **revoke = delete the record** (routes
+   through `fed::delete`). All 18 signed call sites thread `&st.pool`. PII-free (DID + public
+   key only). Memory `device-key-auth`. Navigator: generate+keychain a device key → one-time
+   OAuth `createRecord` → sign all Edge calls with it. **Remaining (not AppView):** the
+   `du-exchange` crypto crate (X25519/AEAD/X3DH-lite, `decodingus-shared`) + the Navigator Edge
    relay client/session driver (DUNavigator) for the end-to-end round-trip.
 6. **Collaboration + social layer.** The genealogy-collaboration platform (group
    projects, ResearchSubject registry, assertions) is specced in **D2/D4/D5** on the

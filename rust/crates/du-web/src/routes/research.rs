@@ -43,6 +43,7 @@ struct RegisterBody {
 
 async fn register(State(st): State<AppState>, Json(b): Json<RegisterBody>) -> Result<Json<Value>, AppError> {
     verify_signed(
+        &st.pool,
         &b.steward_did,
         &messages::register(&b.steward_did, b.project_id, b.subject_id.map(|u| u.to_string()).as_deref()),
         &b.signature,
@@ -68,6 +69,7 @@ struct MergeBody {
 
 async fn merge(State(st): State<AppState>, Json(b): Json<MergeBody>) -> Result<Json<Value>, AppError> {
     verify_signed(
+        &st.pool,
         &b.asserted_by_did,
         &messages::merge(&b.asserted_by_did, &b.keep.to_string(), &b.retire.to_string(), &b.method),
         &b.signature,
@@ -93,6 +95,7 @@ struct CustodyBody {
 
 async fn custody(State(st): State<AppState>, Json(b): Json<CustodyBody>) -> Result<Json<Value>, AppError> {
     verify_signed(
+        &st.pool,
         &b.steward_did,
         &messages::custody(&b.steward_did, &b.subject_id.to_string(), &b.custody_did),
         &b.signature,
@@ -120,7 +123,7 @@ async fn subjects(State(st): State<AppState>, Query(q): Query<SubjectsQuery>) ->
     if (chrono::Utc::now().timestamp() - q.ts).abs() > 300 {
         return Err(AppError::BadRequest("stale timestamp".into()));
     }
-    verify_signed(&q.did, &messages::poll(&q.did, q.ts), &q.sig).await?;
+    verify_signed(&st.pool, &q.did, &messages::poll(&q.did, q.ts), &q.sig).await?;
     if !research::is_team_member(&st.pool, q.project_id, &q.did).await? {
         return Err(AppError::Forbidden);
     }
@@ -145,7 +148,7 @@ struct AddMemberBody {
 }
 
 async fn add_member(State(st): State<AppState>, Json(b): Json<AddMemberBody>) -> Result<Json<Value>, AppError> {
-    verify_signed(&b.actor_did, &messages::add_member(&b.actor_did, b.project_id, &b.member_did, &b.role), &b.signature).await?;
+    verify_signed(&st.pool, &b.actor_did, &messages::add_member(&b.actor_did, b.project_id, &b.member_did, &b.role), &b.signature).await?;
     if !research::can(&st.pool, b.project_id, &b.actor_did, research::Capability::ManageRoles).await? {
         return Err(AppError::Forbidden);
     }
@@ -163,7 +166,7 @@ struct RevokeMemberBody {
 }
 
 async fn revoke_member(State(st): State<AppState>, Json(b): Json<RevokeMemberBody>) -> Result<Json<Value>, AppError> {
-    verify_signed(&b.actor_did, &messages::revoke_member(&b.actor_did, b.project_id, &b.member_did), &b.signature).await?;
+    verify_signed(&st.pool, &b.actor_did, &messages::revoke_member(&b.actor_did, b.project_id, &b.member_did), &b.signature).await?;
     if !research::can(&st.pool, b.project_id, &b.actor_did, research::Capability::ManageRoles).await? {
         return Err(AppError::Forbidden);
     }
@@ -177,7 +180,7 @@ async fn members(State(st): State<AppState>, Query(q): Query<SubjectsQuery>) -> 
     if (chrono::Utc::now().timestamp() - q.ts).abs() > 300 {
         return Err(AppError::BadRequest("stale timestamp".into()));
     }
-    verify_signed(&q.did, &messages::poll(&q.did, q.ts), &q.sig).await?;
+    verify_signed(&st.pool, &q.did, &messages::poll(&q.did, q.ts), &q.sig).await?;
     if !research::is_team_member(&st.pool, q.project_id, &q.did).await? {
         return Err(AppError::Forbidden);
     }
@@ -213,6 +216,7 @@ struct AssertBody {
 async fn assert(State(st): State<AppState>, Json(b): Json<AssertBody>) -> Result<Json<Value>, AppError> {
     let scope = if b.public.unwrap_or(false) { "PUBLIC".to_string() } else { format!("PROJECT:{}", b.project_id) };
     verify_signed(
+        &st.pool,
         &b.author_did,
         &messages::assert(&b.author_did, &b.subject_id.to_string(), &b.predicate, &scope),
         &b.signature,
@@ -247,7 +251,7 @@ struct RetractBody {
 }
 
 async fn retract(State(st): State<AppState>, Json(b): Json<RetractBody>) -> Result<Json<Value>, AppError> {
-    verify_signed(&b.actor_did, &messages::retract(&b.actor_did, b.assertion_id), &b.signature).await?;
+    verify_signed(&st.pool, &b.actor_did, &messages::retract(&b.actor_did, b.assertion_id), &b.signature).await?;
     let meta = research::assertion_meta(&st.pool, b.assertion_id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("live assertion {}", b.assertion_id)))?;
@@ -273,7 +277,7 @@ struct ResolveBody {
 }
 
 async fn resolve(State(st): State<AppState>, Json(b): Json<ResolveBody>) -> Result<Json<Value>, AppError> {
-    verify_signed(&b.actor_did, &messages::resolve(&b.actor_did, b.assertion_id), &b.signature).await?;
+    verify_signed(&st.pool, &b.actor_did, &messages::resolve(&b.actor_did, b.assertion_id), &b.signature).await?;
     if !research::can(&st.pool, b.project_id, &b.actor_did, research::Capability::ResolveDispute).await? {
         return Err(AppError::Forbidden);
     }
@@ -294,7 +298,7 @@ async fn current_view(State(st): State<AppState>, Query(q): Query<ViewQuery>) ->
     if (chrono::Utc::now().timestamp() - q.ts).abs() > 300 {
         return Err(AppError::BadRequest("stale timestamp".into()));
     }
-    verify_signed(&q.did, &messages::poll(&q.did, q.ts), &q.sig).await?;
+    verify_signed(&st.pool, &q.did, &messages::poll(&q.did, q.ts), &q.sig).await?;
     if !research::is_team_member(&st.pool, q.project_id, &q.did).await? {
         return Err(AppError::Forbidden);
     }

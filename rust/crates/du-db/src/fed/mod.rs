@@ -20,6 +20,7 @@ use sqlx::PgPool;
 pub mod analytics;
 pub mod core;
 pub mod coverage;
+pub mod device_key;
 pub mod instrument_observation;
 pub mod private_variant;
 pub mod str_profile;
@@ -40,6 +41,7 @@ pub const NS_HAPLOGROUP_RECONCILIATION: &str = du_domain::fed::NS_HAPLOGROUP_REC
 pub const NS_STR_PROFILE: &str = "com.decodingus.atmosphere.strProfile";
 pub const NS_INSTRUMENT_OBSERVATION: &str = "com.decodingus.atmosphere.instrumentObservation";
 pub const NS_PRIVATE_VARIANT: &str = "com.decodingus.atmosphere.privateVariant";
+pub const NS_DEVICE_KEY: &str = "com.decodingus.atmosphere.deviceKey";
 
 /// Every collection mirrored for reporting (the consumer's `wantedCollections`).
 pub const INGEST_COLLECTIONS: &[&str] = &[
@@ -54,6 +56,7 @@ pub const INGEST_COLLECTIONS: &[&str] = &[
     NS_STR_PROFILE,
     NS_INSTRUMENT_OBSERVATION,
     NS_PRIVATE_VARIANT,
+    NS_DEVICE_KEY,
 ];
 
 /// The `fed.*` reporting table backing a collection, or `None` if unsupported.
@@ -70,6 +73,7 @@ fn table_for(collection: &str) -> Option<&'static str> {
         NS_STR_PROFILE => "fed.str_profile",
         NS_INSTRUMENT_OBSERVATION => "fed.instrument_observation",
         NS_PRIVATE_VARIANT => "fed.private_variant",
+        NS_DEVICE_KEY => "fed.device_key",
         _ => return None,
     })
 }

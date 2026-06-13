@@ -40,7 +40,7 @@ async fn suggestions(State(st): State<AppState>, Query(q): Query<SuggestionsQuer
     if (chrono::Utc::now().timestamp() - q.ts).abs() > 300 {
         return Err(AppError::BadRequest("stale timestamp".into()));
     }
-    verify_signed(&q.did, &messages::poll(&q.did, q.ts), &q.sig).await?;
+    verify_signed(&st.pool, &q.did, &messages::poll(&q.did, q.ts), &q.sig).await?;
     let items: Vec<Value> = ibd::suggestions_for_did(&st.pool, &q.did, 100)
         .await?
         .into_iter()
@@ -65,7 +65,7 @@ struct IntroduceBody {
 /// DID is resolved server-side and **never returned**; the caller learns it only after
 /// mutual consent opens a session (`exchange::pending_for`).
 async fn introduce(State(st): State<AppState>, Json(b): Json<IntroduceBody>) -> Result<Json<Value>, AppError> {
-    verify_signed(&b.did, &messages::introduce(&b.did, &b.suggested_sample_guid.to_string()), &b.signature).await?;
+    verify_signed(&st.pool, &b.did, &messages::introduce(&b.did, &b.suggested_sample_guid.to_string()), &b.signature).await?;
     // Authorize: the caller may only introduce to its own genuine, active candidate.
     if !ibd::is_suggested_to_did(&st.pool, &b.did, b.suggested_sample_guid).await? {
         return Err(AppError::Forbidden);

@@ -52,7 +52,7 @@ struct KeyBody {
 }
 
 async fn publish_key(State(st): State<AppState>, Json(b): Json<KeyBody>) -> Result<Json<Value>, AppError> {
-    verify_signed(&b.did, &messages::publickey(&b.did, &b.x25519_pub, b.key_uri.as_deref()), &b.signature).await?;
+    verify_signed(&st.pool, &b.did, &messages::publickey(&b.did, &b.x25519_pub, b.key_uri.as_deref()), &b.signature).await?;
     let bytes = STANDARD.decode(b.x25519_pub.trim()).map_err(|_| AppError::BadRequest("x25519_pub base64".into()))?;
     if bytes.len() != 32 {
         return Err(AppError::BadRequest("x25519_pub must be 32 bytes".into()));
@@ -90,7 +90,7 @@ struct RequestBody {
 
 async fn create_request(State(st): State<AppState>, Json(b): Json<RequestBody>) -> Result<Json<Value>, AppError> {
     let msg = messages::request(&b.request_uri, &b.initiator_did, &b.partner_did, &b.purpose, b.scope.as_deref());
-    verify_signed(&b.initiator_did, &msg, &b.signature).await?;
+    verify_signed(&st.pool, &b.initiator_did, &msg, &b.signature).await?;
     // D5 ACL: a project-scoped request requires the initiator be a live team member.
     if let Some(pid) = project_scope_id(b.scope.as_deref()) {
         if !du_db::research::is_team_member(&st.pool, pid, &b.initiator_did).await? {
@@ -122,7 +122,7 @@ struct ConsentBody {
 }
 
 async fn consent(State(st): State<AppState>, Json(b): Json<ConsentBody>) -> Result<Json<Value>, AppError> {
-    verify_signed(&b.consenting_did, &messages::consent(&b.request_uri, &b.consenting_did, b.consent_given), &b.signature).await?;
+    verify_signed(&st.pool, &b.consenting_did, &messages::consent(&b.request_uri, &b.consenting_did, b.consent_given), &b.signature).await?;
     // D5 ACL: consenting into a project-scoped exchange requires team membership.
     if let Some(meta) = exchange::request_meta(&st.pool, &b.request_uri).await? {
         if let Some(pid) = project_scope_id(meta.scope.as_deref()) {
@@ -163,7 +163,7 @@ async fn pending(State(st): State<AppState>, Query(q): Query<PendingQuery>) -> R
     if (now - q.ts).abs() > 300 {
         return Err(AppError::BadRequest("stale timestamp".into()));
     }
-    verify_signed(&q.did, &messages::poll(&q.did, q.ts), &q.sig).await?;
+    verify_signed(&st.pool, &q.did, &messages::poll(&q.did, q.ts), &q.sig).await?;
     let ready = exchange::pending_for(&st.pool, &q.did).await?;
     let items: Vec<Value> = ready
         .into_iter()
@@ -187,7 +187,7 @@ async fn incoming(State(st): State<AppState>, Query(q): Query<PendingQuery>) -> 
     if (now - q.ts).abs() > 300 {
         return Err(AppError::BadRequest("stale timestamp".into()));
     }
-    verify_signed(&q.did, &messages::poll(&q.did, q.ts), &q.sig).await?;
+    verify_signed(&st.pool, &q.did, &messages::poll(&q.did, q.ts), &q.sig).await?;
     let items: Vec<Value> = exchange::incoming_for(&st.pool, &q.did)
         .await?
         .into_iter()
@@ -216,7 +216,7 @@ async fn relay_post(State(st): State<AppState>, Json(b): Json<RelayBody>) -> Res
     }
     let hash = STANDARD.encode(Sha256::digest(&bytes));
     let msg = messages::relay(&b.session_id.to_string(), &b.from_did, &b.to_did, b.seq, &hash);
-    verify_signed(&b.from_did, &msg, &b.signature).await?;
+    verify_signed(&st.pool, &b.from_did, &msg, &b.signature).await?;
     let id = exchange::post_envelope(&st.pool, b.session_id, &b.from_did, &b.to_did, b.seq, &bytes).await?;
     Ok(Json(json!({ "id": id })))
 }
@@ -233,7 +233,7 @@ async fn relay_pull(State(st): State<AppState>, Query(q): Query<PullQuery>) -> R
     if (chrono::Utc::now().timestamp() - q.ts).abs() > 300 {
         return Err(AppError::BadRequest("stale timestamp".into()));
     }
-    verify_signed(&q.did, &messages::poll(&q.did, q.ts), &q.sig).await?;
+    verify_signed(&st.pool, &q.did, &messages::poll(&q.did, q.ts), &q.sig).await?;
     let envs = exchange::pull_envelopes(&st.pool, q.session_id, &q.did).await?;
     let items: Vec<Value> = envs
         .into_iter()
@@ -250,7 +250,7 @@ struct AckBody {
 }
 
 async fn relay_ack(State(st): State<AppState>, Json(b): Json<AckBody>) -> Result<Json<Value>, AppError> {
-    verify_signed(&b.did, &messages::ack(&b.did, b.envelope_id), &b.signature).await?;
+    verify_signed(&st.pool, &b.did, &messages::ack(&b.did, b.envelope_id), &b.signature).await?;
     if exchange::ack_envelope(&st.pool, b.envelope_id, &b.did).await? {
         Ok(Json(json!({ "status": "acked" })))
     } else {

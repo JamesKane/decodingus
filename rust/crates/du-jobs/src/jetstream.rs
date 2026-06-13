@@ -13,7 +13,7 @@
 //! from the persisted `time_us` cursor and reconnects with capped backoff; every
 //! upsert is idempotent + ordered, so replay overlap on reconnect is harmless.
 
-use du_db::fed::{self, analytics, core, coverage, instrument_observation, private_variant, str_profile};
+use du_db::fed::{self, analytics, core, coverage, device_key, instrument_observation, private_variant, str_profile};
 use du_db::PgPool;
 use futures_util::StreamExt;
 use serde::Deserialize;
@@ -165,6 +165,12 @@ async fn handle(pool: &PgPool, ev: &Event) -> anyhow::Result<()> {
             instrument_observation::upsert(pool, &build_instrument_observation(c, record)).await?
         }
         fed::NS_PRIVATE_VARIANT => private_variant::upsert(pool, &build_private_variant(c, record)).await?,
+        fed::NS_DEVICE_KEY => {
+            // A device key with no public key is unusable — skip it rather than store a null.
+            if let Some(public_key) = str_at(record, "publicKey") {
+                device_key::upsert(pool, &device_key::DeviceKey { common: c, public_key }).await?
+            }
+        }
         other => tracing::debug!(collection = other, "ignoring unwanted collection"),
     }
     Ok(())
