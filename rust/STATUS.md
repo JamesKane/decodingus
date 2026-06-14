@@ -178,7 +178,10 @@ APP_SECRET="<any 32+ char string>"   # signs session cookies
   done:** each SVG node shows its cumulative `· N samples` (rolled up over the whole tree
   via `cumulative_counts`, so window-boundary nodes count hidden descendants); the SNP
   sidebar lists the placed leaves (label + source + citation, capped 50 + "+N more").
-  (Memory `tree-sample-leaves`.)
+  **Curator triage (2026-06-13):** `status='CURATED'` (manual placement the recompute
+  preserves) + Curator-gated `GET /manage/tree-sample/unplaced` (the unresolved-call queue) +
+  `POST /manage/tree-sample/place` (pin a sample under a chosen node). (Memory
+  `tree-sample-leaves`.)
 - **ETL** (`du-migrate`) — **full production surface**: catalog (donors, biosamples,
   variants, tree, studies, publications), ident/auth, genomics. Validated vs the
   schema-only `db.schema` and the current-schema mock with data; all aggregates
@@ -400,10 +403,13 @@ Launch-critical first, then the post-launch feature mass.
    signed, **personal scope** — not project-scoped): `GET /api/v1/ibd/suggestions` (own
    **pseudonymous** candidates — only `suggested_sample_guid` + non-PII `{signals}`
    scores), `POST /api/v1/ibd/introduce` (broker-mediated: resolves the counterpart DID
-   server-side, calls `exchange::create_request` purpose=IBD_AUTOSOMAL, **never returns
-   the DID** — caller learns it only post-mutual-consent via `exchange::pending_for`).
-   Memory `ibd-candidate-generation`. **Remaining (needs D1/Navigator):** the engine
-   **scheduler trigger**; per-DNA-type purpose (IBD_Y/MT); attestation-ingest +
+   server-side, calls `exchange::create_request`, **never returns the DID** — caller learns
+   it only post-mutual-consent via `exchange::pending_for`). **Lifecycle round-off
+   (2026-06-13):** purpose is now **routed per signal** (HAPLOGROUP→IBD_Y/IBD_MT via the
+   engine's recorded `hgDnaType`, else IBD_AUTOSOMAL — `introduction_purpose`); introduce
+   marks the suggestion **CONVERTED**; new `POST /api/v1/ibd/dismiss` → DISMISSED (engine
+   preserves it). Memory `ibd-candidate-generation`. **Remaining (needs D1/Navigator):** the
+   daily recompute scheduler exists (confirm cadence); attestation-ingest +
    `depth_score` from the tree; PCA-LSH tuning; Navigator consume-UI +
    introduce→consent→relay round-trip. Authoritative design:
    `documents/planning/d3-ibd-matching-impl.md`
@@ -478,8 +484,9 @@ Launch-critical first, then the post-launch feature mass.
    Genomes Corporation / YSEQ, all `is_d2c`; `model_name`=export platform, `manufacturer`
    derived). Idempotent (`ON CONFLICT (name) DO NOTHING` / `(instrument_id) DO UPDATE`);
    the dev DB had 0 labs (legacy `public.sequencing_lab` is empty — hence the need). Source
-   `instrument_centers.tsv` (repo root, reference only). `lab_instruments.tsv` is a later
-   follow-up. The proposal/consensus path is **not live anywhere**, so the
+   `instrument_centers.tsv` (repo root, reference only). `lab_instruments.tsv` is just a
+   different view of the same data — already captured, no separate work. The
+   proposal/consensus path is **not live anywhere**, so the
    lookup uses the direct tie (memory `sequencer-lab-lookup`). The **consensus
    engine is DONE (2026-06-12)**: `du_db::sequencer::recompute_consensus` derives
    observations from `fed.sequencerun ⋈ fed.biosample.center_name`, aggregates per

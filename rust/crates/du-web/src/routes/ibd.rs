@@ -26,6 +26,7 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/api/v1/ibd/suggestions", get(suggestions))
         .route("/api/v1/ibd/introduce", post(introduce))
+        .route("/api/v1/ibd/dismiss", post(dismiss))
 }
 
 #[derive(Deserialize)]
@@ -66,10 +67,11 @@ struct IntroduceBody {
 /// mutual consent opens a session (`exchange::pending_for`).
 async fn introduce(State(st): State<AppState>, Json(b): Json<IntroduceBody>) -> Result<Json<Value>, AppError> {
     verify_signed(&st.pool, &b.did, &messages::introduce(&b.did, &b.suggested_sample_guid.to_string()), &b.signature).await?;
-    // Authorize: the caller may only introduce to its own genuine, active candidate.
-    if !ibd::is_suggested_to_did(&st.pool, &b.did, b.suggested_sample_guid).await? {
-        return Err(AppError::Forbidden);
-    }
+    // Authorize + pick the exchange purpose from the suggestion's dominant signal (the caller
+    // may only introduce to its own genuine candidate).
+    let purpose = ibd::introduction_purpose(&st.pool, &b.did, b.suggested_sample_guid)
+        .await?
+        .ok_or(AppError::Forbidden)?;
     // Resolve the counterpart server-side; never surface it to the caller.
     let counterpart = ibd::owner_did_of_sample(&st.pool, b.suggested_sample_guid)
         .await?
@@ -86,13 +88,32 @@ async fn introduce(State(st): State<AppState>, Json(b): Json<IntroduceBody>) -> 
             request_uri: &request_uri,
             initiator_did: &b.did,
             partner_did: &counterpart,
-            purpose: "IBD_AUTOSOMAL",
+            purpose: &purpose,
             scope: None,
             details: json!({ "origin": "IBD_SUGGESTION" }),
         },
     )
     .await?;
-    Ok(Json(json!({ "request_uri": request_uri, "status": "PENDING" })))
+    // The suggestion became a request → CONVERTED (drops from the active candidate list).
+    ibd::mark_converted(&st.pool, &b.did, b.suggested_sample_guid).await?;
+    Ok(Json(json!({ "request_uri": request_uri, "status": "PENDING", "purpose": purpose })))
+}
+
+#[derive(Deserialize)]
+struct DismissBody {
+    did: String,
+    suggested_sample_guid: Uuid,
+    signature: String,
+}
+
+/// Dismiss a candidate so the engine stops suggesting it (preserved across recomputes).
+async fn dismiss(State(st): State<AppState>, Json(b): Json<DismissBody>) -> Result<Json<Value>, AppError> {
+    verify_signed(&st.pool, &b.did, &messages::dismiss(&b.did, &b.suggested_sample_guid.to_string()), &b.signature).await?;
+    let n = ibd::dismiss_suggestion(&st.pool, &b.did, b.suggested_sample_guid).await?;
+    if n == 0 {
+        return Err(AppError::NotFound(format!("no active suggestion for {}", b.suggested_sample_guid)));
+    }
+    Ok(Json(json!({ "suggested_sample_guid": b.suggested_sample_guid, "status": "DISMISSED" })))
 }
 
 #[cfg(test)]
@@ -199,6 +220,8 @@ mod tests {
         assert_eq!(intro.status(), StatusCode::OK);
         let iv: Value = serde_json::from_slice(&to_bytes(intro.into_body(), usize::MAX).await.unwrap()).unwrap();
         assert_eq!(iv["status"].as_str(), Some("PENDING"));
+        // Purpose routed from the suggestion's signal (POPULATION_OVERLAP → autosomal).
+        assert_eq!(iv["purpose"].as_str(), Some("IBD_AUTOSOMAL"));
         assert!(!iv.to_string().contains(counterpart_did.as_str()), "introduce response must not leak the counterpart DID");
         let request_uri = iv["request_uri"].as_str().unwrap().to_string();
         assert!(!request_uri.contains(&owner_did), "the opaque handle must not embed the initiator DID");
@@ -226,9 +249,35 @@ mod tests {
         let stranger = fed_sample(&pool, "did:plc:stranger").await;
         let bm = du_db::ibd::messages::introduce(&owner_did, &stranger.to_string());
         let bsig = STANDARD.encode(owner.sign(bm.as_bytes()).to_bytes());
-        let bad = post(state, serde_json::json!({
+        let bad = post(state.clone(), serde_json::json!({
             "did": owner_did, "suggested_sample_guid": stranger, "signature": bsig,
         })).await;
         assert_eq!(bad.status(), StatusCode::FORBIDDEN);
+
+        // Dismiss a fresh ACTIVE candidate → 200; it then no longer shows in /suggestions.
+        let other = fed_sample(&pool, "did:plc:other").await;
+        sqlx::query(
+            "INSERT INTO ibd.match_suggestion (target_sample_guid, suggested_sample_guid, suggestion_type, score, status) \
+             VALUES ($1, $2, 'POPULATION_OVERLAP', 0.7, 'ACTIVE')",
+        )
+        .bind(target)
+        .bind(other)
+        .execute(&pool)
+        .await
+        .unwrap();
+        let dm = du_db::ibd::messages::dismiss(&owner_did, &other.to_string());
+        let dsig = STANDARD.encode(owner.sign(dm.as_bytes()).to_bytes());
+        let dres = crate::routes::app(state.clone())
+            .oneshot(Request::builder().method("POST").uri("/api/v1/ibd/dismiss")
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::json!({ "did": owner_did, "suggested_sample_guid": other, "signature": dsig }).to_string())).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(dres.status(), StatusCode::OK);
+        let dts = chrono::Utc::now().timestamp();
+        let dpoll = STANDARD.encode(owner.sign(du_db::ibd::messages::poll(&owner_did, dts).as_bytes()).to_bytes());
+        let listed = get(state, format!("/api/v1/ibd/suggestions?did={owner_did}&ts={dts}&sig={}", enc(&dpoll))).await;
+        let lv: Value = serde_json::from_slice(&to_bytes(listed.into_body(), usize::MAX).await.unwrap()).unwrap();
+        assert!(!lv.to_string().contains(&other.to_string()), "dismissed candidate is gone from /suggestions");
     }
 }

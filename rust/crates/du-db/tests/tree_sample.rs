@@ -137,6 +137,15 @@ async fn places_non_d2c_samples_and_records_unplaced() {
         .unwrap();
     assert_eq!(total, 4, "3 placed + 1 unplaced, no D2C, no thrash");
 
+    // Curator triage: the junk-call sample is in the UNPLACED queue; placing it clears it.
+    let queue = tree_sample::unplaced(&pool, DnaType::YDna, 100).await.unwrap();
+    assert!(queue.iter().any(|r| r.sample_guid == s_junk && r.call_text == "not-a-haplogroup-zzz"));
+    assert!(tree_sample::place_sample(&pool, s_junk, DnaType::YDna, "R-M269").await.unwrap());
+    assert!(tree_sample::unplaced(&pool, DnaType::YDna, 100).await.unwrap().iter().all(|r| r.sample_guid != s_junk));
+    assert_eq!(tree_sample::counts_by_node(&pool, DnaType::YDna).await.unwrap().get(&parent).copied(), Some(2)); // direct + the placed junk
+    // Placing under an unknown node is a no-op (false).
+    assert!(!tree_sample::place_sample(&pool, s_junk, DnaType::YDna, "Z-NOSUCH-NODE").await.unwrap());
+
     // Marking a placed sample deleted prunes it on the next recompute.
     sqlx::query("UPDATE core.biosample SET deleted = true WHERE sample_guid = $1").bind(s_direct).execute(&pool).await.unwrap();
     tree_sample::recompute_placements(&pool, DnaType::YDna).await.unwrap();
@@ -146,4 +155,12 @@ async fn places_non_d2c_samples_and_records_unplaced() {
         .await
         .unwrap();
     assert_eq!(gone, 0, "deleted sample pruned");
+
+    // The curator placement survives recompute (CURATED is not re-resolved back to UNPLACED).
+    let curated: String = sqlx::query_scalar("SELECT status FROM tree.haplogroup_sample WHERE sample_guid = $1")
+        .bind(s_junk)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(curated, "CURATED", "curator placement preserved across recompute");
 }

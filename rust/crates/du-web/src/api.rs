@@ -1658,7 +1658,10 @@ mod tests {
         let rl = app.clone().oneshot(Request::builder().uri("/api/v1/sequencer/lab-instruments").body(Body::empty()).unwrap()).await.unwrap();
         assert_eq!(rl.status(), StatusCode::OK);
         let list: serde_json::Value = serde_json::from_slice(&to_bytes(rl.into_body(), usize::MAX).await.unwrap()).unwrap();
-        assert_eq!(list.as_array().unwrap().len(), 0);
+        // The bulk list carries the 0038-seeded YDNA-Warehouse ties (≥ 36).
+        let items = list.as_array().unwrap();
+        assert!(items.len() >= 36);
+        assert!(items.iter().any(|i| i["instrument_id"] == "A00186" && i["lab_name"] == "Family Tree DNA"));
     }
 
     /// Discovery proposal endpoints over HTTP: an unknown id → 404, the list → 200

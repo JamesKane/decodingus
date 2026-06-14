@@ -131,6 +131,48 @@ async fn candidate_generation_blocks_signals_and_respects_dismiss() {
 }
 
 #[tokio::test]
+async fn introduction_purpose_and_dismiss_convert_lifecycle() {
+    let Some(url) = database_url() else {
+        eprintln!("DATABASE_URL unset — skipping ibd lifecycle test");
+        return;
+    };
+    let db = du_db::testing::ephemeral_db(&url).await.expect("ephemeral db");
+    let pool = db.pool().clone();
+
+    // ann↔ben: autosomal (same European ancestry + near PCA). ann↔dan: shared Y haplogroup.
+    let (ann, ann_uri) = fed_sample(&pool, "did:ex:ann").await;
+    breakdown(&pool, "did:ex:ann", &ann_uri, "EUR", euro(), json!([0.01, 0.01]), 1).await;
+    y_haplogroup(&pool, "did:ex:ann", "R-FT100", 1).await;
+    let (ben, ben_uri) = fed_sample(&pool, "did:ex:ben").await;
+    breakdown(&pool, "did:ex:ben", &ben_uri, "EUR", euro(), json!([0.012, 0.011]), 2).await;
+    let (dan, dan_uri) = fed_sample(&pool, "did:ex:dan").await;
+    breakdown(&pool, "did:ex:dan", &dan_uri, "AMR", json!([{ "population": "Native American", "percentage": 100.0 }]), json!([-5.0, -5.0]), 4).await;
+    y_haplogroup(&pool, "did:ex:dan", "R-FT100", 4).await;
+
+    ibd::recompute_suggestions(&pool, &IbdConfig::default()).await.unwrap();
+
+    // Purpose routing: a shared-Y-haplogroup candidate → IBD_Y; an autosomal one → IBD_AUTOSOMAL.
+    assert_eq!(ibd::introduction_purpose(&pool, "did:ex:ann", dan).await.unwrap().as_deref(), Some("IBD_Y"));
+    assert_eq!(ibd::introduction_purpose(&pool, "did:ex:ann", ben).await.unwrap().as_deref(), Some("IBD_AUTOSOMAL"));
+    // Not the caller's candidate → None (authorization).
+    assert!(ibd::introduction_purpose(&pool, "did:ex:stranger", ben).await.unwrap().is_none());
+
+    // Convert (introduce) ann→dan: drops from the active list, but still introducible (idempotent).
+    ibd::mark_converted(&pool, "did:ex:ann", dan).await.unwrap();
+    let active = ibd::suggestions_for_did(&pool, "did:ex:ann", 50).await.unwrap();
+    assert!(!active.iter().any(|s| s.suggested_sample_guid == dan), "converted candidate leaves the active list");
+    assert_eq!(ibd::introduction_purpose(&pool, "did:ex:ann", dan).await.unwrap().as_deref(), Some("IBD_Y"));
+
+    // Dismiss ann→ben: removed from active, blocked from introduce, and not re-suggested.
+    assert_eq!(ibd::dismiss_suggestion(&pool, "did:ex:ann", ben).await.unwrap(), 1);
+    assert!(ibd::introduction_purpose(&pool, "did:ex:ann", ben).await.unwrap().is_none());
+    ibd::recompute_suggestions(&pool, &IbdConfig::default()).await.unwrap();
+    assert!(!ibd::suggestions_for_did(&pool, "did:ex:ann", 50).await.unwrap().iter().any(|s| s.suggested_sample_guid == ben));
+    // Dismissing a non-candidate affects nothing.
+    assert_eq!(ibd::dismiss_suggestion(&pool, "did:ex:stranger", ben).await.unwrap(), 0);
+}
+
+#[tokio::test]
 async fn suggestions_scoped_by_owner_did() {
     let Some(url) = database_url() else {
         eprintln!("DATABASE_URL unset — skipping ibd scope test");

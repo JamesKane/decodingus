@@ -63,12 +63,28 @@ async fn recompute_placements_locked(pool: &PgPool, dna_type: DnaType) -> Result
     .fetch_all(pool)
     .await?;
 
+    // Curator-placed rows (status CURATED) are decisions we never auto-overwrite.
+    let dna_label = pg_enum_label(&dna_type)?;
+    let curated: std::collections::HashSet<Uuid> = sqlx::query_scalar::<_, Uuid>(
+        "SELECT sample_guid FROM tree.haplogroup_sample WHERE dna_type::text = $1 AND status = 'CURATED'",
+    )
+    .bind(&dna_label)
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .collect();
+
     // Resolve each sample's call to a node id, caching by call text (calls repeat heavily).
     let mut cache: HashMap<String, Option<i64>> = HashMap::new();
     let mut processed: Vec<Uuid> = Vec::new();
     let mut placements: Vec<(Uuid, Option<i64>, String)> = Vec::new();
     let mut report = PlacementReport::default();
     for (guid, arr) in rows {
+        // Preserve curator placements: keep the row (protect from prune), don't re-resolve.
+        if curated.contains(&guid) {
+            processed.push(guid);
+            continue;
+        }
         let Some(call) = crate::biosample::pick_original_call(&arr, primary, fallback) else {
             continue; // no published call for this DNA type — not a leaf
         };
@@ -92,7 +108,7 @@ async fn recompute_placements_locked(pool: &PgPool, dna_type: DnaType) -> Result
         placements.push((guid, node_id, call));
     }
 
-    let dna = pg_enum_label(&dna_type)?;
+    let dna = &dna_label;
     let mut tx = pool.begin().await?;
     for (guid, node_id, call) in &placements {
         let status = if node_id.is_some() { "PLACED" } else { "UNPLACED" };
@@ -104,7 +120,7 @@ async fn recompute_placements_locked(pool: &PgPool, dna_type: DnaType) -> Result
                status = EXCLUDED.status, refreshed_at = now()",
         )
         .bind(guid)
-        .bind(&dna)
+        .bind(dna)
         .bind(node_id)
         .bind(call)
         .bind(status)
@@ -113,7 +129,7 @@ async fn recompute_placements_locked(pool: &PgPool, dna_type: DnaType) -> Result
     }
     // Prune placements whose sample no longer qualifies (deleted / now CITIZEN / lost its call).
     sqlx::query("DELETE FROM tree.haplogroup_sample WHERE dna_type::text = $1 AND sample_guid <> ALL($2)")
-        .bind(&dna)
+        .bind(dna)
         .bind(&processed)
         .execute(&mut *tx)
         .await?;
@@ -127,7 +143,7 @@ async fn recompute_placements_locked(pool: &PgPool, dna_type: DnaType) -> Result
 pub async fn counts_by_node(pool: &PgPool, dna_type: DnaType) -> Result<HashMap<i64, i64>, DbError> {
     let rows: Vec<(i64, i64)> = sqlx::query_as(
         "SELECT haplogroup_id, count(*)::bigint FROM tree.haplogroup_sample \
-         WHERE dna_type::text = $1 AND status = 'PLACED' AND haplogroup_id IS NOT NULL \
+         WHERE dna_type::text = $1 AND status IN ('PLACED','CURATED') AND haplogroup_id IS NOT NULL \
          GROUP BY haplogroup_id",
     )
     .bind(pg_enum_label(&dna_type)?)
@@ -143,7 +159,7 @@ pub async fn cumulative_counts(pool: &PgPool, dna_type: DnaType) -> Result<HashM
     let rows: Vec<(i64, i64)> = sqlx::query_as(
         "WITH RECURSIVE anc(start, id) AS ( \
             SELECT haplogroup_id, haplogroup_id FROM tree.haplogroup_sample \
-            WHERE dna_type::text = $1 AND status = 'PLACED' AND haplogroup_id IS NOT NULL \
+            WHERE dna_type::text = $1 AND status IN ('PLACED','CURATED') AND haplogroup_id IS NOT NULL \
             UNION ALL \
             SELECT a.start, r.parent_haplogroup_id FROM anc a \
             JOIN tree.haplogroup_relationship r ON r.child_haplogroup_id = a.id AND r.valid_until IS NULL \
@@ -166,6 +182,60 @@ pub struct LeafSample {
     pub pub_title: Option<String>,
     pub pub_doi: Option<String>,
     pub pub_url: Option<String>,
+}
+
+/// An unresolved published call awaiting curator triage (no node matched).
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct UnplacedRow {
+    pub sample_guid: Uuid,
+    pub call_text: String,
+    pub accession: Option<String>,
+    pub alias: Option<String>,
+}
+
+/// Samples whose published call didn't resolve to a node (`status = UNPLACED`) — the curator
+/// triage queue, grouped naturally by `call_text`.
+pub async fn unplaced(pool: &PgPool, dna_type: DnaType, limit: i64) -> Result<Vec<UnplacedRow>, DbError> {
+    Ok(sqlx::query_as(
+        "SELECT hs.sample_guid, hs.call_text, b.accession, b.alias \
+         FROM tree.haplogroup_sample hs \
+         JOIN core.biosample b ON b.sample_guid = hs.sample_guid \
+         WHERE hs.dna_type::text = $1 AND hs.status = 'UNPLACED' \
+         ORDER BY hs.call_text, b.accession NULLS LAST LIMIT $2",
+    )
+    .bind(pg_enum_label(&dna_type)?)
+    .bind(limit)
+    .fetch_all(pool)
+    .await?)
+}
+
+/// Curator manual placement: resolve `node_name` and pin the sample's placement to it
+/// (`status = CURATED` — a decision the recompute preserves, unlike auto `PLACED`). Bumps
+/// `tree_revision` (the count changes). Returns `false` if the node or the sample's placement
+/// row doesn't exist.
+pub async fn place_sample(pool: &PgPool, sample_guid: Uuid, dna_type: DnaType, node_name: &str) -> Result<bool, DbError> {
+    let Some(name) = crate::haplogroup::resolve_name_or_variant(pool, node_name, dna_type).await? else {
+        return Ok(false);
+    };
+    let Some(node) = crate::haplogroup::get_by_name(pool, &name, dna_type).await? else {
+        return Ok(false);
+    };
+    let mut tx = pool.begin().await?;
+    let affected = sqlx::query(
+        "UPDATE tree.haplogroup_sample SET haplogroup_id = $1, status = 'CURATED', refreshed_at = now() \
+         WHERE sample_guid = $2 AND dna_type::text = $3",
+    )
+    .bind(node.id.0)
+    .bind(sample_guid)
+    .bind(pg_enum_label(&dna_type)?)
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
+    if affected > 0 {
+        crate::tree_revision::bump(&mut *tx).await?;
+    }
+    tx.commit().await?;
+    Ok(affected > 0)
 }
 
 /// The placed samples at-or-below a node (the YFull "open a clade → see its samples" list),
@@ -191,7 +261,7 @@ pub async fn samples_under(pool: &PgPool, node_name: &str, dna_type: DnaType) ->
             WHERE pb.sample_guid = b.sample_guid \
             ORDER BY pub.publication_date DESC NULLS LAST LIMIT 1 \
          ) p ON true \
-         WHERE hs.dna_type::text = $2 AND hs.status = 'PLACED' AND b.deleted = false \
+         WHERE hs.dna_type::text = $2 AND hs.status IN ('PLACED','CURATED') AND b.deleted = false \
          ORDER BY b.accession NULLS LAST, b.sample_guid",
     )
     .bind(node_name)

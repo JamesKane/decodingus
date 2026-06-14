@@ -15,11 +15,13 @@ use crate::i18n::{Locale, T};
 use crate::render::html;
 use crate::state::AppState;
 use crate::tree_layout::{self, InNode, Laid, Orientation};
+use crate::auth::Curator;
 use axum::extract::{Path, Query, State};
 use axum::http::header::{HeaderMap, HeaderValue, COOKIE, SET_COOKIE};
 use axum::response::{IntoResponse, Response};
-use axum::routing::get;
-use axum::Router;
+use axum::routing::{get, post};
+use axum::{Json, Router};
+use serde_json::{json, Value};
 use du_db::haplogroup::WindowNode;
 use du_domain::enums::DnaType;
 use serde::Deserialize;
@@ -42,6 +44,58 @@ pub fn router() -> Router<AppState> {
         .route("/mtree", get(mtree))
         .route("/ytree/snp/:name", get(ysnp))
         .route("/mtree/snp/:name", get(mtsnp))
+        // Curator triage for sample leaves whose published call didn't resolve to a node.
+        .route("/manage/tree-sample/unplaced", get(unplaced))
+        .route("/manage/tree-sample/place", post(place))
+}
+
+/// `Y_DNA` (default) / `MT_DNA` from a `type` query param.
+fn dna_param(s: Option<&str>) -> DnaType {
+    match s {
+        Some("MT_DNA") => DnaType::MtDna,
+        _ => DnaType::YDna,
+    }
+}
+
+#[derive(Deserialize)]
+struct UnplacedQuery {
+    #[serde(rename = "type")]
+    dna_type: Option<String>,
+}
+
+/// Curator-gated: the queue of UNPLACED published calls (no node matched) for triage.
+async fn unplaced(_cur: Curator, State(st): State<AppState>, Query(q): Query<UnplacedQuery>) -> Result<Json<Value>, AppError> {
+    let dna = dna_param(q.dna_type.as_deref());
+    let items: Vec<Value> = du_db::tree_sample::unplaced(&st.pool, dna, 500)
+        .await?
+        .into_iter()
+        .map(|r| json!({
+            "sample_guid": r.sample_guid,
+            "call_text": r.call_text,
+            "accession": r.accession,
+            "alias": r.alias,
+        }))
+        .collect();
+    Ok(Json(json!({ "items": items })))
+}
+
+#[derive(Deserialize)]
+struct PlaceBody {
+    sample_guid: uuid::Uuid,
+    #[serde(rename = "type")]
+    dna_type: Option<String>,
+    /// The haplogroup name (or defining SNP) to pin this sample under.
+    haplogroup: String,
+}
+
+/// Curator-gated: manually place an UNPLACED sample under a chosen node.
+async fn place(_cur: Curator, State(st): State<AppState>, Json(b): Json<PlaceBody>) -> Result<Json<Value>, AppError> {
+    let dna = dna_param(b.dna_type.as_deref());
+    if du_db::tree_sample::place_sample(&st.pool, b.sample_guid, dna, &b.haplogroup).await? {
+        Ok(Json(json!({ "sample_guid": b.sample_guid, "haplogroup": b.haplogroup, "status": "PLACED" })))
+    } else {
+        Err(AppError::NotFound(format!("could not place {} under {}", b.sample_guid, b.haplogroup)))
+    }
 }
 
 #[derive(Deserialize)]
@@ -502,8 +556,15 @@ mod tests {
         assert!(svg.contains("1 samples"), "node shows the placed-sample count");
 
         // The sidebar lists the paper sample (with source) and not the D2C one.
-        let side = body(state, "/ytree/snp/R-M269").await;
+        let side = body(state.clone(), "/ytree/snp/R-M269").await;
         assert!(side.contains("EX-1") && side.contains("EXTERNAL"), "sidebar lists the placed sample");
         assert!(!side.contains("CIT-1"), "D2C sample never surfaces");
+
+        // The curator triage queue is Curator-gated (unauth → redirect to login).
+        let guarded = crate::routes::app(state)
+            .oneshot(Request::builder().uri("/manage/tree-sample/unplaced").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(guarded.status(), StatusCode::SEE_OTHER, "unplaced triage requires Curator");
     }
 }

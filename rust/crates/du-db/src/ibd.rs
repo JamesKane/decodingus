@@ -109,6 +109,10 @@ pub mod messages {
     pub fn introduce(did: &str, suggested_sample_guid: &str) -> String {
         format!("ibd-introduce\n{did}\n{suggested_sample_guid}")
     }
+    /// Dismiss a candidate so it stops being suggested (preserved across recomputes).
+    pub fn dismiss(did: &str, suggested_sample_guid: &str) -> String {
+        format!("ibd-dismiss\n{did}\n{suggested_sample_guid}")
+    }
 }
 
 /// A caller's ranked active candidates, scoped to the samples they own (via the
@@ -157,6 +161,65 @@ pub async fn owner_did_of_sample(pool: &PgPool, sample_guid: Uuid) -> Result<Opt
         .flatten())
 }
 
+/// The D1 exchange `purpose` for introducing the caller to one of its candidates, derived
+/// from the suggestion's dominant signal: a shared-haplogroup match → `IBD_Y`/`IBD_MT` (from
+/// the recorded arm), an autosomal signal (population / shared-match) → `IBD_AUTOSOMAL`.
+/// `None` ⇒ the candidate is not a live (`ACTIVE`/`CONVERTED`) suggestion for `did` — the
+/// caller may not introduce to it (authorization, replacing the bare existence check).
+pub async fn introduction_purpose(pool: &PgPool, did: &str, suggested_sample_guid: Uuid) -> Result<Option<String>, DbError> {
+    let row: Option<(String, Value)> = sqlx::query_as(
+        "SELECT ms.suggestion_type, ms.metadata FROM ibd.match_suggestion ms \
+         JOIN core.biosample b ON b.sample_guid = ms.target_sample_guid \
+         WHERE b.atproto->>'repo_did' = $1 AND ms.suggested_sample_guid = $2 \
+           AND ms.status IN ('ACTIVE','CONVERTED') \
+         ORDER BY ms.score DESC NULLS LAST LIMIT 1",
+    )
+    .bind(did)
+    .bind(suggested_sample_guid)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row.map(|(suggestion_type, meta)| match suggestion_type.as_str() {
+        SIG_HAPLOGROUP => match meta.get("hgDnaType").and_then(Value::as_str) {
+            Some("MT_DNA") => "IBD_MT".to_string(),
+            Some("Y_DNA") => "IBD_Y".to_string(),
+            _ => "IBD_AUTOSOMAL".to_string(),
+        },
+        _ => "IBD_AUTOSOMAL".to_string(),
+    }))
+}
+
+/// Mark the caller's suggestion for a candidate `CONVERTED` (it became an exchange request) so
+/// it drops out of the active candidate list. Idempotent; only affects the caller's own ACTIVE rows.
+pub async fn mark_converted(pool: &PgPool, did: &str, suggested_sample_guid: Uuid) -> Result<(), DbError> {
+    sqlx::query(
+        "UPDATE ibd.match_suggestion ms SET status = 'CONVERTED' \
+         FROM core.biosample b \
+         WHERE b.sample_guid = ms.target_sample_guid \
+           AND b.atproto->>'repo_did' = $1 AND ms.suggested_sample_guid = $2 AND ms.status = 'ACTIVE'",
+    )
+    .bind(did)
+    .bind(suggested_sample_guid)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// Dismiss the caller's candidate so the engine stops suggesting it (recompute preserves
+/// `DISMISSED`). Only the caller's own ACTIVE rows are affected; returns the number dismissed.
+pub async fn dismiss_suggestion(pool: &PgPool, did: &str, suggested_sample_guid: Uuid) -> Result<u64, DbError> {
+    Ok(sqlx::query(
+        "UPDATE ibd.match_suggestion ms SET status = 'DISMISSED' \
+         FROM core.biosample b \
+         WHERE b.sample_guid = ms.target_sample_guid \
+           AND b.atproto->>'repo_did' = $1 AND ms.suggested_sample_guid = $2 AND ms.status = 'ACTIVE'",
+    )
+    .bind(did)
+    .bind(suggested_sample_guid)
+    .execute(pool)
+    .await?
+    .rows_affected())
+}
+
 // ── internal model ───────────────────────────────────────────────────────────
 
 struct Profile {
@@ -172,6 +235,8 @@ struct Hit {
     b: Uuid,
     signal: &'static str,
     score: f64,
+    /// For a HAPLOGROUP hit, the shared haplogroup's DNA arm (`Y_DNA`/`MT_DNA`); else None.
+    dna: Option<&'static str>,
 }
 
 fn ordered(x: Uuid, y: Uuid) -> (Uuid, Uuid) {
@@ -297,7 +362,7 @@ async fn recompute_locked(pool: &PgPool, cfg: &IbdConfig) -> Result<SuggestionRe
                 let s = overlap(&profiles[i].breakdown, &profiles[j].breakdown);
                 if s >= cfg.min_overlap {
                     let (a, b) = ordered(profiles[i].guid, profiles[j].guid);
-                    hits.push(Hit { a, b, signal: SIG_POPULATION, score: s });
+                    hits.push(Hit { a, b, signal: SIG_POPULATION, score: s, dna: None });
                     overlap_pairs.push((a, b, s));
                     rep.population_pairs += 1;
                 }
@@ -325,16 +390,18 @@ async fn recompute_locked(pool: &PgPool, cfg: &IbdConfig) -> Result<SuggestionRe
         if members.len() < 2 {
             continue;
         }
+        // The DNA arm this shared terminal belongs to (drives the IBD_Y/IBD_MT exchange purpose).
+        let dna_arm: &'static str = if dna == "MT_DNA" { "MT_DNA" } else { "Y_DNA" };
         // Rarer shared terminal ⇒ more informative.
         let score = (1.0 - members.len() as f64 / total).max(0.01);
         for (xi, &a) in members.iter().enumerate() {
             for &b in &members[xi + 1..] {
                 let (a, b) = ordered(a, b);
-                hits.push(Hit { a, b, signal: SIG_HAPLOGROUP, score });
+                hits.push(Hit { a, b, signal: SIG_HAPLOGROUP, score, dna: Some(dna_arm) });
                 rep.haplogroup_pairs += 1;
             }
         }
-        let _ = (dna, hg);
+        let _ = hg;
     }
 
     // ── Signal 3: shared-match — 2-hop over the confirmed match graph (dormant now) ──
@@ -351,7 +418,7 @@ async fn recompute_locked(pool: &PgPool, cfg: &IbdConfig) -> Result<SuggestionRe
     .await?;
     for (a, b, shared) in sm_rows {
         let (a, b) = ordered(a, b);
-        hits.push(Hit { a, b, signal: SIG_SHARED_MATCH, score: shared as f64 });
+        hits.push(Hit { a, b, signal: SIG_SHARED_MATCH, score: shared as f64, dna: None });
         rep.shared_match_pairs += 1;
     }
 
@@ -360,6 +427,8 @@ async fn recompute_locked(pool: &PgPool, cfg: &IbdConfig) -> Result<SuggestionRe
         score: f64,
         primary: &'static str,
         signals: Vec<&'static str>,
+        /// The shared haplogroup's DNA arm, if a HAPLOGROUP signal contributed.
+        hg_dna: Option<&'static str>,
     }
     let weight = |sig: &str| match sig {
         SIG_POPULATION => cfg.w_population,
@@ -369,9 +438,12 @@ async fn recompute_locked(pool: &PgPool, cfg: &IbdConfig) -> Result<SuggestionRe
     let mut combined: HashMap<(Uuid, Uuid), Combined> = HashMap::new();
     for h in hits {
         let contrib = weight(h.signal) * h.score;
-        let e = combined.entry((h.a, h.b)).or_insert(Combined { score: 0.0, primary: h.signal, signals: vec![] });
+        let e = combined.entry((h.a, h.b)).or_insert(Combined { score: 0.0, primary: h.signal, signals: vec![], hg_dna: None });
         if !e.signals.contains(&h.signal) {
             e.signals.push(h.signal);
+        }
+        if h.dna.is_some() {
+            e.hg_dna = h.dna;
         }
         // Primary = the signal with the largest single weighted contribution.
         if contrib >= weight(e.primary) {
@@ -383,7 +455,10 @@ async fn recompute_locked(pool: &PgPool, cfg: &IbdConfig) -> Result<SuggestionRe
     // Directional candidate rows, grouped by target.
     let mut per_target: HashMap<Uuid, Vec<(Uuid, f64, &'static str, Value)>> = HashMap::new();
     for ((a, b), c) in combined {
-        let meta = json!({ "signals": c.signals });
+        let mut meta = json!({ "signals": c.signals });
+        if let Some(dna) = c.hg_dna {
+            meta.as_object_mut().unwrap().insert("hgDnaType".into(), json!(dna));
+        }
         per_target.entry(a).or_default().push((b, c.score, c.primary, meta.clone()));
         per_target.entry(b).or_default().push((a, c.score, c.primary, meta));
     }
