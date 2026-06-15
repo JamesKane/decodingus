@@ -175,9 +175,12 @@ APP_SECRET="<any 32+ char string>"   # signs session cookies
   `/api/v1/{y,mt}-tree/node/{name}/samples` lists the leaves (accession/alias/source +
   paper citation). `du-jobs run-once tree-samples-recompute` + daily. Y now, mt-ready
   (dna_type-parameterized; no mt recompute until the mt tree lands). **HTML cladogram
-  done:** each SVG node shows its cumulative `· N samples` (rolled up over the whole tree
-  via `cumulative_counts`, so window-boundary nodes count hidden descendants); the SNP
-  sidebar lists the placed leaves (label + source + citation, capped 50 + "+N more").
+  done (2026-06-14):** placed samples render as **YFull-style leaf tips** hanging off their
+  node (`tree_layout::LaidTip` via `tree_sample::direct_labels`) — each tip reserves a full
+  node slot (spaced like any leaf), the node centers over children+tips, and tip connectors
+  share the node's child bus; capped 8/node + a "+N" overflow tip → sidebar. (The JSON API
+  keeps a `sample_count` per node.) The SNP sidebar lists the placed leaves (label + source +
+  citation, capped 50 + "+N more").
   **Curator triage (2026-06-13):** `status='CURATED'` (manual placement the recompute
   preserves) + Curator-gated `GET /manage/tree-sample/unplaced` (the unresolved-call queue) +
   `POST /manage/tree-sample/place` (pin a sample under a chosen node). (Memory
