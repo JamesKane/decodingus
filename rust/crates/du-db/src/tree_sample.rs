@@ -184,6 +184,24 @@ pub struct LeafSample {
     pub pub_url: Option<String>,
 }
 
+/// Placed-sample leaf labels per node id (samples sitting **directly** at the node), for the
+/// cladogram's YFull-style tips. Label = accession, else alias, else the short guid. Bounded
+/// to `node_ids` (the rendered window); caller caps per node for display.
+pub async fn direct_labels(pool: &PgPool, dna_type: DnaType, node_ids: &[i64]) -> Result<Vec<(i64, String)>, DbError> {
+    Ok(sqlx::query_as(
+        "SELECT hs.haplogroup_id, COALESCE(b.accession, b.alias, left(b.sample_guid::text, 8)) AS label \
+         FROM tree.haplogroup_sample hs \
+         JOIN core.biosample b ON b.sample_guid = hs.sample_guid \
+         WHERE hs.dna_type::text = $1 AND hs.status IN ('PLACED','CURATED') \
+           AND hs.haplogroup_id = ANY($2) AND b.deleted = false \
+         ORDER BY hs.haplogroup_id, label",
+    )
+    .bind(pg_enum_label(&dna_type)?)
+    .bind(node_ids)
+    .fetch_all(pool)
+    .await?)
+}
+
 /// An unresolved published call awaiting curator triage (no node matched).
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct UnplacedRow {

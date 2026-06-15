@@ -22,6 +22,20 @@
     {% for link in l.links %}
     <path class="tree-link" d="{{ link.path }}"></path>
     {% endfor %}
+    {# Placed-sample leaf tips — minimal markers, visually distinct from haplogroup boxes. #}
+    {% for tip in l.tips %}
+    {% if let Some(node) = tip.overflow_node %}
+    <g class="tree-tip tree-tip-more" hx-get="{{ base_path }}/snp/{{ node }}" hx-target="#snpSidebar" role="button" tabindex="0">
+      <circle cx="{{ tip.cx }}" cy="{{ tip.cy }}" r="5" fill="#6c757d"></circle>
+      <text x="{{ tip.label_x }}" y="{{ tip.cy }}" dominant-baseline="central" font-size="11" fill="#6c757d">{{ tip.label }}</text>
+    </g>
+    {% else %}
+    <g class="tree-tip">
+      <circle cx="{{ tip.cx }}" cy="{{ tip.cy }}" r="4" fill="#2e7d32" stroke="#1b5e20"></circle>
+      <text x="{{ tip.label_x }}" y="{{ tip.cy }}" dominant-baseline="central" font-size="11" fill="#2e7d32" font-family="monospace">{{ tip.label }}</text>
+    </g>
+    {% endif %}
+    {% endfor %}
     {% for n in l.nodes %}
     <g class="tree-node">
       <rect class="tree-node-rect {{ n.fill_class }}" x="{{ n.rect_x }}" y="{{ n.rect_y }}"
@@ -31,7 +45,7 @@
       </rect>
       <text class="tree-node-name" x="{{ n.cx }}" y="{{ n.name_y }}">{% if n.is_backbone %}✓ {% else if n.is_recent %}★ {% endif %}{{ n.name }}{% if n.has_hidden %} +{% endif %}</text>
       <text class="tree-variant-link" x="{{ n.cx }}" y="{{ n.count_y }}"
-            hx-get="{{ base_path }}/snp/{{ n.name }}" hx-target="#snpSidebar">{{ n.variant_count }} {{ t.get("tree.variants") }}{% if n.sample_count > 0 %} · {{ n.sample_count }} {{ t.get("tree.samples") }}{% endif %} ▸</text>
+            hx-get="{{ base_path }}/snp/{{ n.name }}" hx-target="#snpSidebar">{{ n.variant_count }} {{ t.get("tree.variants") }} ▸</text>
       {% if let Some(f) = n.formed %}
       <text class="tree-node-age" x="{{ n.cx }}" y="{{ n.age_y }}">{{ t.get("tree.formed") }} {{ f }}</text>
       {% else if let Some(tm) = n.tmrca %}

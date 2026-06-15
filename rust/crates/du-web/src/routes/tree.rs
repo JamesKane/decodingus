@@ -259,11 +259,15 @@ async fn render_tree(
     // Depth: client-supplied ?depth= (persisted in localStorage), clamped.
     let depth = q.depth.unwrap_or(DEFAULT_DEPTH).clamp(MIN_DEPTH, MAX_DEPTH);
 
-    // Window + nesting + layout. Cumulative leaf counts roll up over the whole tree, so a
-    // window-boundary node still reflects samples placed below the visible depth.
+    // Window + nesting + layout. Each visible node's directly-placed samples hang off it as
+    // YFull-style leaf tips (capped per node).
     let window = du_db::haplogroup::subtree_window(&st.pool, dna_type, &root_name, depth).await?;
-    let counts = du_db::tree_sample::cumulative_counts(&st.pool, dna_type).await?;
-    let laid = build_root(&window, &counts).and_then(|root| tree_layout::layout(Some(&root), orientation));
+    let node_ids: Vec<i64> = window.iter().map(|n| n.id).collect();
+    let mut samples_by_node: HashMap<i64, Vec<String>> = HashMap::new();
+    for (id, label) in du_db::tree_sample::direct_labels(&st.pool, dna_type, &node_ids).await? {
+        samples_by_node.entry(id).or_default().push(label);
+    }
+    let laid = build_root(&window, &samples_by_node).and_then(|root| tree_layout::layout(Some(&root), orientation));
 
     // Breadcrumbs: ancestors (root→parent) + the current node (no link).
     let crumbs = build_crumbs(&st.pool, dna_type, base_path, &root_name).await?;
@@ -403,9 +407,12 @@ async fn default_root_name(pool: &du_db::PgPool, dna_type: DnaType, default_root
         .ok_or_else(|| AppError::NotFound(format!("no {default_root} tree loaded")))
 }
 
-/// Nest the flat window into an `InNode` tree rooted at the depth-0 node. `counts` is the
-/// cumulative placed-sample count per node id.
-fn build_root(window: &[WindowNode], counts: &HashMap<i64, i64>) -> Option<InNode> {
+/// Max sample tips drawn directly under one node before collapsing to a "+N" overflow tip.
+const NODE_TIP_CAP: usize = 8;
+
+/// Nest the flat window into an `InNode` tree rooted at the depth-0 node. `samples` maps a node
+/// id to its directly-placed sample labels (rendered as leaf tips).
+fn build_root(window: &[WindowNode], samples: &HashMap<i64, Vec<String>>) -> Option<InNode> {
     let mut children_of: HashMap<i64, Vec<&WindowNode>> = HashMap::new();
     let mut root: Option<&WindowNode> = None;
     for n in window {
@@ -416,18 +423,22 @@ fn build_root(window: &[WindowNode], counts: &HashMap<i64, i64>) -> Option<InNod
     }
     // Window root is the depth-0 node; fall back to min-depth if shapes differ.
     let root = root.or_else(|| window.iter().min_by_key(|n| n.depth))?;
-    Some(to_innode(root, &children_of, counts))
+    Some(to_innode(root, &children_of, samples))
 }
 
-fn to_innode(n: &WindowNode, children_of: &HashMap<i64, Vec<&WindowNode>>, counts: &HashMap<i64, i64>) -> InNode {
+fn to_innode(n: &WindowNode, children_of: &HashMap<i64, Vec<&WindowNode>>, samples: &HashMap<i64, Vec<String>>) -> InNode {
     let children = children_of
         .get(&n.id)
-        .map(|kids| kids.iter().map(|c| to_innode(c, children_of, counts)).collect())
+        .map(|kids| kids.iter().map(|c| to_innode(c, children_of, samples)).collect())
         .unwrap_or_default();
+    let all = samples.get(&n.id).map(Vec::as_slice).unwrap_or(&[]);
+    let tips: Vec<String> = all.iter().take(NODE_TIP_CAP).cloned().collect();
+    let sample_overflow = (all.len() as i64 - tips.len() as i64).max(0);
     InNode {
         name: n.name.clone(),
         variant_count: n.variant_count,
-        sample_count: counts.get(&n.id).copied().unwrap_or(0),
+        samples: tips,
+        sample_overflow,
         is_backbone: n.is_backbone,
         is_recent: n.is_recent,
         formed_ybp: n.formed_ybp,
@@ -551,9 +562,11 @@ mod tests {
             String::from_utf8(to_bytes(resp.into_body(), usize::MAX).await.unwrap().to_vec()).unwrap()
         };
 
-        // The cladogram node carries the cumulative count "1 samples".
+        // The placed sample hangs off the node as a leaf tip (label rendered in the SVG).
         let svg = body(state.clone(), "/ytree?root=R-M269").await;
-        assert!(svg.contains("1 samples"), "node shows the placed-sample count");
+        assert!(svg.contains("tree-tip"), "the cladogram renders sample leaf tips");
+        assert!(svg.contains("EX-1"), "the placed sample's label appears as a tip");
+        assert!(!svg.contains("CIT-1"), "the D2C sample is not a tip");
 
         // The sidebar lists the paper sample (with source) and not the D2C one.
         let side = body(state.clone(), "/ytree/snp/R-M269").await;
