@@ -16,6 +16,7 @@ pub mod biosample;
 pub mod change_set;
 pub mod consent;
 pub mod coverage;
+pub mod denovo;
 pub mod discovery;
 pub mod exchange;
 pub mod fed;

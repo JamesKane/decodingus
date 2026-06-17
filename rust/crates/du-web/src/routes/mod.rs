@@ -25,6 +25,7 @@ pub mod curator_regions;
 pub mod curator_variants;
 pub mod maps;
 pub mod naming;
+pub mod denovo_conflicts;
 pub mod pages;
 pub mod publications;
 pub mod reconcile_flags;
@@ -66,6 +67,7 @@ pub fn app(state: AppState) -> Router {
         .merge(publications::router())
         .merge(naming::router())
         .merge(reconcile_flags::router())
+        .merge(denovo_conflicts::router())
         .merge(change_sets::router())
         .merge(reviews::router())
         .merge(versioning::router())

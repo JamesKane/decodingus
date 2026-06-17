@@ -30,6 +30,17 @@ struct Args {
     /// merge only the prod tree, or to --reprocess an already-loaded tree.
     #[arg(long)]
     isogg: Option<String>,
+    /// Load a de-novo tree (the normalized ingest JSON from the ytree pipeline's
+    /// `68_export_ingest.py`) as the Y foundation: clears the Y tree and inserts
+    /// nodes + edges + defining-variant links. Greenfield, ISOGG-free. Requires
+    /// `--apply`. (Leaves the mt tree intact.)
+    #[arg(long)]
+    denovo_y: Option<String>,
+    /// Load a de-novo mtDNA tree (the `chrM.ingest.json` from `68_export_ingest.py`)
+    /// as the mt foundation: clears the mt tree and inserts it. Requires `--apply`.
+    /// (Leaves the Y tree intact.)
+    #[arg(long)]
+    denovo_mt: Option<String>,
     /// Optional: URL of the decoding-us production Y-tree to merge in.
     #[arg(long)]
     merge_prod: Option<String>,
@@ -423,6 +434,37 @@ async fn merge_into(
     Ok(())
 }
 
+/// Load one de-novo lineage (Y or mt): validate the document, clear just that
+/// lineage's tree (the other is untouched), insert nodes + edges + defining-variant
+/// links, recompute backbone, bump the revision.
+async fn load_denovo(
+    pool: &PgPool,
+    path: &str,
+    dna: DnaType,
+    expect: &str,
+    apply: bool,
+) -> anyhow::Result<()> {
+    anyhow::ensure!(apply, "--denovo-* mutates the tree; pass --apply");
+    let doc: du_db::denovo::DenovoTree = serde_json::from_str(&std::fs::read_to_string(path)?)?;
+    anyhow::ensure!(
+        doc.haplogroup_type == expect,
+        "expected a {expect} document, got {}",
+        doc.haplogroup_type
+    );
+    tracing::info!(%path, hgtype = expect, nodes = doc.nodes.len(), tips = doc.tips.len(), root = %doc.root, "de-novo: loading foundation");
+    let cleared = du_db::haplogroup::clear_dna(pool, dna).await?;
+    tracing::info!(cleared_haplogroups = cleared, hgtype = expect, "de-novo: cleared lineage");
+    let rep = du_db::denovo::load(pool, &doc).await?;
+    tracing::info!(
+        hgtype = expect, nodes = rep.nodes, edges = rep.edges, variant_links = rep.variant_links,
+        variants_reused = rep.variants_reused, variants_created = rep.variants_created,
+        unresolved_block = rep.unresolved_block, tips_placed = rep.tips_placed,
+        biosamples_created = rep.biosamples_created, conflicts = rep.conflicts_loaded,
+        "de-novo: loaded"
+    );
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
@@ -440,6 +482,19 @@ async fn main() -> anyhow::Result<()> {
     let (dna, dna_label) = parse_dna(&args.dna)?;
     let pool = du_db::connect(&url, 4).await?;
     du_db::run_migrations(&pool).await?;
+
+    // De-novo foundation load (topology + defining SNPs). Self-contained greenfield
+    // path — clears just this lineage's tree then loads the ingest JSON — distinct
+    // from the ISOGG/prod merge flow below, which it bypasses entirely. Y and mt are
+    // loaded independently and coexist.
+    if let Some(path) = &args.denovo_y {
+        load_denovo(&pool, path, DnaType::YDna, "Y_DNA", args.apply).await?;
+        return Ok(());
+    }
+    if let Some(path) = &args.denovo_mt {
+        load_denovo(&pool, path, DnaType::MtDna, "MT_DNA", args.apply).await?;
+        return Ok(());
+    }
 
     // The ISOGG JSON (if given) is parsed up front — its `aliases` feed the
     // post-process step. Kept around for alias population below.

@@ -425,32 +425,46 @@ pub struct TwinReconcile {
 /// the same parent** (a SNP search for `X`'s marker would otherwise land on the
 /// childless `X` while its subtree hangs off the invisible sibling `X~`).
 ///
-/// Folds each same-parent sibling twin into its survivor: reparents `X~`'s
-/// children to `X`, unions `X~`'s variants into `X`, and removes `X~`. Only
-/// same-parent siblings are changed — cross-parent `X`/`X~` pairs (which may be
-/// deliberate ISOGG curation) are returned in `skipped`, and genuine standalone
-/// `~` provisional nodes are left alone.
+/// **The `~` suffix is a systematic ISOGG convention** marking an interior /
+/// paragroup node (e.g. `NO~` is the real paragroup whose children include `P`,
+/// distinct from the terminal `NO`). Such nodes carry **their own defining
+/// SNPs** and are legitimate — they must NOT be folded. A genuine stitch
+/// artifact is an *empty stub*: a `~` twin with **no defining variants of its
+/// own** (every SNP sits on the survivor `X`, only the subtree hangs off `X~`).
+///
+/// So this folds only **empty-stub same-parent twins** into their survivor:
+/// reparents `X~`'s children to `X`, unions `X~`'s (zero) variants into `X`, and
+/// removes `X~`. Empty-stub cross-parent `X`/`X~` pairs (possible ISOGG
+/// curation) are returned in `skipped` for review. Paragroup `~` nodes that
+/// carry their own SNPs — the overwhelming majority — are left untouched.
 pub async fn reconcile_tilde_twins(pool: &PgPool, dna_type: DnaType) -> Result<TwinReconcile, DbError> {
     let dna = pg_enum_label(&dna_type)?;
     let mut tx = pool.begin().await?;
 
-    // Cross-parent twins: report, do not change.
-    let skipped: Vec<String> = sqlx::query_scalar(
+    // An empty-stub `~` twin carries NONE of its own defining variants. A
+    // paragroup `~` node (the systematic ISOGG convention) carries its own SNPs
+    // and is NOT a stitch artifact — exclude it from both fold and skip sets.
+    const EMPTY_STUB: &str = "AND NOT EXISTS (SELECT 1 FROM tree.haplogroup_variant hv \
+         WHERE hv.haplogroup_id = t.id AND hv.valid_until IS NULL) ";
+
+    // Cross-parent empty-stub twins: report, do not change.
+    let skipped: Vec<String> = sqlx::query_scalar(&format!(
         "SELECT t.name FROM tree.haplogroup t \
          JOIN tree.haplogroup s ON s.name = left(t.name, length(t.name)-1) \
               AND s.haplogroup_type = t.haplogroup_type AND s.valid_until IS NULL \
          JOIN tree.haplogroup_relationship rt ON rt.child_haplogroup_id = t.id AND rt.valid_until IS NULL \
          JOIN tree.haplogroup_relationship rs ON rs.child_haplogroup_id = s.id AND rs.valid_until IS NULL \
          WHERE t.haplogroup_type::text = $1 AND t.valid_until IS NULL AND t.name LIKE '%~' \
+           {EMPTY_STUB} \
            AND rt.parent_haplogroup_id <> rs.parent_haplogroup_id \
          ORDER BY t.name",
-    )
+    ))
     .bind(&dna)
     .fetch_all(&mut *tx)
     .await?;
 
-    // Same-parent sibling twins → the fold set.
-    sqlx::query(
+    // Same-parent empty-stub twins → the fold set.
+    sqlx::query(&format!(
         "CREATE TEMP TABLE _tw ON COMMIT DROP AS \
          SELECT t.id AS twin_id, s.id AS surv_id FROM tree.haplogroup t \
          JOIN tree.haplogroup s ON s.name = left(t.name, length(t.name)-1) \
@@ -458,8 +472,9 @@ pub async fn reconcile_tilde_twins(pool: &PgPool, dna_type: DnaType) -> Result<T
          JOIN tree.haplogroup_relationship rt ON rt.child_haplogroup_id = t.id AND rt.valid_until IS NULL \
          JOIN tree.haplogroup_relationship rs ON rs.child_haplogroup_id = s.id AND rs.valid_until IS NULL \
          WHERE t.haplogroup_type::text = $1 AND t.valid_until IS NULL AND t.name LIKE '%~' \
+           {EMPTY_STUB} \
            AND rt.parent_haplogroup_id = rs.parent_haplogroup_id",
-    )
+    ))
     .bind(&dna)
     .execute(&mut *tx)
     .await?;
@@ -503,19 +518,110 @@ pub async fn reconcile_tilde_twins(pool: &PgPool, dna_type: DnaType) -> Result<T
     Ok(TwinReconcile { folded, skipped })
 }
 
-/// Mark the **backbone** of a lineage: the computed ISOGG spine (single-letter
-/// major clades `A`–`T` + every ancestor up to the root) **unioned with curated
+/// Rows cleared by [`reset_tree`].
+#[derive(Debug, Default)]
+pub struct ResetSummary {
+    pub haplogroups: u64,
+    /// Derived ISOGG-recurrence variant rows removed to free the one external FK
+    /// (`core.variant.defining_haplogroup_id → tree.haplogroup`).
+    pub recurrence_variants: u64,
+}
+
+/// Clear the entire tree topology for a greenfield (re)load — the front-end of
+/// the de-novo foundation loader (and the retired ISOGG reseed). Truncates the
+/// `tree.*` state (keeping `discovery_config` config + the `tree_revision`
+/// marker), then frees the single external FK into `tree.haplogroup`
+/// (`core.variant.defining_haplogroup_id`) by deleting the derived ISOGG
+/// recurrence-variant rows — non-destructive: every such SNP retains its base
+/// (`defining_haplogroup_id IS NULL`) row, and the recurrence model is recreated
+/// by `--resolve-recurrence` if ISOGG is ever reloaded. The catalog
+/// (`core.variant`) is otherwise untouched. Minted coordinate-named variants from
+/// a prior de-novo load are left in place (re-matched by coordinate on reload).
+pub async fn reset_tree(pool: &PgPool) -> Result<ResetSummary, DbError> {
+    let mut tx = pool.begin().await?;
+    // Everything in tree.* except `haplogroup` (cleared last, after the FK is
+    // freed), `discovery_config` (config), and `tree_revision` (the cache marker).
+    sqlx::query(
+        "TRUNCATE \
+           tree.haplogroup_relationship, tree.haplogroup_variant, tree.tree_change, tree.change_set, \
+           tree.change_set_comment, tree.curator_action, tree.wip_haplogroup, tree.wip_relationship, \
+           tree.wip_haplogroup_variant, tree.wip_reparent, tree.wip_resolution, tree.haplogroup_sample, \
+           tree.haplogroup_age_estimate, tree.haplogroup_ancestral_str, tree.genealogical_anchor, \
+           tree.proposed_branch, tree.proposed_branch_evidence, tree.proposed_branch_variant, \
+           tree.biosample_private_variant, tree.denovo_conflict \
+         RESTART IDENTITY CASCADE",
+    )
+    .execute(&mut *tx)
+    .await?;
+    let recurrence_variants = sqlx::query("DELETE FROM core.variant WHERE defining_haplogroup_id IS NOT NULL")
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+    let haplogroups = sqlx::query("DELETE FROM tree.haplogroup")
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+    tx.commit().await?;
+    Ok(ResetSummary { haplogroups, recurrence_variants })
+}
+
+/// Clear just **one DNA type's** de-novo tree (so Y and mt coexist), the
+/// per-lineage greenfield front-end for a `--denovo-{y,mt}` reload. The de-novo
+/// loader populates only `haplogroup` + `haplogroup_relationship` +
+/// `haplogroup_variant` (+ later `haplogroup_sample`); the FKs into `haplogroup`
+/// are NO ACTION, so dependents are deleted first. Unlike [`reset_tree`] this
+/// leaves the other lineage (and the rest of `tree.*`) untouched. Returns the
+/// number of haplogroups removed.
+pub async fn clear_dna(pool: &PgPool, dna_type: DnaType) -> Result<u64, DbError> {
+    let dna = pg_enum_label(&dna_type)?;
+    let mut tx = pool.begin().await?;
+    let ids = "SELECT id FROM tree.haplogroup WHERE haplogroup_type::text = $1";
+    sqlx::query(&format!("DELETE FROM tree.haplogroup_variant WHERE haplogroup_id IN ({ids})"))
+        .bind(&dna)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query(&format!(
+        "DELETE FROM tree.haplogroup_relationship \
+         WHERE child_haplogroup_id IN ({ids}) OR parent_haplogroup_id IN ({ids})"
+    ))
+    .bind(&dna)
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query("DELETE FROM tree.haplogroup_sample WHERE dna_type::text = $1")
+        .bind(&dna)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("DELETE FROM tree.denovo_conflict WHERE dna_type::text = $1")
+        .bind(&dna)
+        .execute(&mut *tx)
+        .await?;
+    let n = sqlx::query("DELETE FROM tree.haplogroup WHERE haplogroup_type::text = $1")
+        .bind(&dna)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+    tx.commit().await?;
+    Ok(n)
+}
+
+/// Mark the **backbone** of a lineage: the computed spine (single-letter major
+/// clades `A`–`T` + every ancestor up to the root) **unioned with curated
 /// backbone** adopted from a source tree (nodes carrying a
 /// `provenance.backbone_source` marker, stamped by the SNP-graft enrich/graft
-/// writers). Recomputed wholesale (clears then sets) so the *computed* spine
-/// stays correct as the tree changes, while curated flags are preserved.
+/// writers). The major-clade seed matches either the **node name** (the ISOGG
+/// import names backbone nodes `A`–`T` outright) or the **`provenance.isogg`
+/// mapping** (the de-novo tree names nodes by defining SNP, e.g. `R-M269`, and
+/// carries the matched ISOGG clade in provenance) — so one pass serves both
+/// naming schemes. Recomputed wholesale (clears then sets) so the *computed*
+/// spine stays correct as the tree changes, while curated flags are preserved.
 /// Returns the number of backbone nodes.
 pub async fn recompute_backbone(pool: &PgPool, dna_type: DnaType) -> Result<i64, DbError> {
     let dna = pg_enum_label(&dna_type)?;
     sqlx::query(
         "WITH RECURSIVE seeds AS ( \
             SELECT id FROM tree.haplogroup \
-            WHERE haplogroup_type::text = $1 AND valid_until IS NULL AND name ~ '^[A-Z]$' \
+            WHERE haplogroup_type::text = $1 AND valid_until IS NULL \
+              AND (name ~ '^[A-Z]$' OR provenance->>'isogg' ~ '^[A-Z]$') \
          ), up AS ( \
             SELECT id FROM seeds \
           UNION \

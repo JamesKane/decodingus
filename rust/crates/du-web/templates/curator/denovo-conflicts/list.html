@@ -1,0 +1,38 @@
+{# Fragment: de-novo conflict rows. Target of #dc-table. #}
+<table class="table table-hover table-sm align-middle">
+  <thead><tr>
+    <th>{{ t.get("dc.col.lineage") }}</th>
+    <th>{{ t.get("dc.col.clade") }}</th>
+    <th class="text-end">{{ t.get("dc.col.tips") }}</th>
+    <th class="text-end">{{ t.get("dc.col.magnitude") }}</th>
+    <th>{{ t.get("dc.col.home") }}</th>
+    <th class="text-end">{{ t.get("dc.col.foreign") }}</th>
+    <th class="text-end">{{ t.get("dc.col.away") }}</th>
+  </tr></thead>
+  <tbody>
+    {% for r in list.rows %}
+    <tr>
+      <td><span class="badge text-bg-light">{{ r.lineage }}</span></td>
+      <td><strong>{{ r.clade }}</strong>{% if !r.label.is_empty() %} <small class="text-muted">{{ r.label }}</small>{% endif %}</td>
+      <td class="text-end">{{ r.n_tips }}</td>
+      <td class="text-end"><span class="badge text-bg-warning">{{ r.magnitude }}</span></td>
+      <td><small class="text-muted">{{ r.home_node }}</small></td>
+      <td class="text-end">{% if r.foreign_in > 0 %}<span class="badge text-bg-danger">{{ r.foreign_in }}</span>{% else %}—{% endif %}</td>
+      <td class="text-end">{% if r.members_away > 0 %}<span class="badge text-bg-danger">{{ r.members_away }}</span>{% else %}—{% endif %}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="7" class="detail-empty">{{ t.get("dc.none") }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% if list.total_pages > 1 %}
+<nav class="d-flex justify-content-between align-items-center">
+  <button class="btn btn-sm btn-outline-secondary{% if list.page <= 1 %} disabled{% endif %}"
+          hx-get="/curator/denovo-conflicts/fragment?page={{ list.page - 1 }}{% if !list.dna.is_empty() %}&type={{ list.dna }}{% endif %}" hx-target="#dc-table">{{ t.get("pagination.previous") }}</button>
+  <small class="text-muted">{{ t.get("pagination.page") }} {{ list.page }} {{ t.get("pagination.of") }} {{ list.total_pages }} ({{ list.total }})</small>
+  <button class="btn btn-sm btn-outline-secondary{% if list.page >= list.total_pages %} disabled{% endif %}"
+          hx-get="/curator/denovo-conflicts/fragment?page={{ list.page + 1 }}{% if !list.dna.is_empty() %}&type={{ list.dna }}{% endif %}" hx-target="#dc-table">{{ t.get("pagination.next") }}</button>
+</nav>
+{% else %}
+<small class="text-muted">{{ list.total }} {{ t.get("pagination.total") }}</small>
+{% endif %}
