@@ -19,11 +19,10 @@ Edge (the [Navigator](https://github.com/JamesKane/decodingus-navigator)
 companion app), on hardware the participant controls.
 
 This repository is a **Rust rewrite** of the platform, which originally ran on
-Scala 3 / Play Framework. The Rust app coexists with the Scala app during the
-transition and replaces it at a single cutover. The spine is complete and the
-data cutover is verified end-to-end against a real production dump; see
-[`rust/README.md`](rust/README.md) and [`rust/STATUS.md`](rust/STATUS.md) for the
-detailed, living status.
+Scala 3 / Play Framework. That legacy codebase has been removed — the Rust app
+under [`rust/`](rust/) is now the platform, and the data cutover is verified
+end-to-end against a real production dump. See [`rust/README.md`](rust/README.md)
+and [`rust/STATUS.md`](rust/STATUS.md) for the detailed, living status.
 
 ## Purpose
 
@@ -71,9 +70,10 @@ read. The collaboration/IBD layer that builds on this is designed in
 
 **Available now:**
 
-- **Curated haplogroup trees.** Server-rendered Y-DNA and mtDNA cladograms built
-  from multiple sources (ISOGG foundation + community + FTDNA), with temporal
-  versioning, change-set review, and SNP-anchored grafting.
+- **De-novo haplogroup trees.** Y-DNA and mtDNA phylogenies built from genotypes
+  (IQ-TREE maximum-likelihood + ancestral-state reconstruction), with per-branch
+  defining SNPs matched to the variant catalog, public samples placed as leaves,
+  temporal versioning, and change-set review.
 - **Variant catalog & naming authority.** A universal per-site variant model with
   the `DU` naming authority, alias/coordinate search, and CSV/GFF3 export, kept in
   sync by a YBrowse GFF3 ingestion pipeline (~3M variants).
@@ -99,7 +99,7 @@ read. The collaboration/IBD layer that builds on this is designed in
 - [HTMX](https://htmx.org/) + Bootstrap 5 — HATEOAS-first frontend
 - [SQLx](https://github.com/launchbadge/sqlx) + [PostgreSQL](https://www.postgresql.org/) / [PostGIS](https://postgis.net/)
 - [AT Protocol](https://atproto.com/) — decentralized identity + OAuth (PKCE / DPoP)
-- [Docker](https://www.docker.com/) for deployment; Apple `container` for Docker-less local dev
+- Deploys as a single static binary; Apple `container` runs the local PostGIS for Docker-less dev
 
 ## Repository Layout
 
@@ -109,10 +109,10 @@ rust/                 the Rust AppView (workspace) — see rust/README.md
   crates/du-web       Axum app: routes, Askama templates, i18n, auth, JSON API
   crates/du-jobs      scheduled jobs + the Jetstream reporting-mirror consumer
   crates/du-external  OpenAlex / ENA / NCBI / AWS clients
-  crates/du-migrate   legacy → new-schema ETL + the tree builder
+  crates/du-migrate   data-cutover ETL + the de-novo tree builder
   migrations/         the redesigned PostgreSQL schema
 documents/            architecture, planning specs (incl. d1–d5), proposals
-app/                  the legacy Scala/Play application (retired at cutover)
+scripts/              deploy-time helpers (maintenance splash page)
 ```
 
 Shared crates live in the sibling [`decodingus-shared`](https://github.com/JamesKane/decodingus-shared)
