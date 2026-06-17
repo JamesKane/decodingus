@@ -59,14 +59,20 @@ All under `~/Genomics/ytree/`. Y shown; mt mirrors it (`chrM.asr.*`, `mt_*`).
 
 We ingest the **publication tree** (`results/chrY.asr.publication.treefile`): the
 full ML tree collapsed under the builder's **keep-set rule** and QC-failed tips
-pruned (HG02772). A node survives iff **UFBoot ≥ 95 OR it is a primary best-clade
-haplogroup placement** (`compare/chrY.keepset.tsv`). The keep-set is essential:
-rapid Y expansions give real, named macro-clades (R, R1, R1b — all UFBoot ≈ 80)
-only moderate bootstrap, so a pure UFBoot ≥ 95 rule **gutted the named backbone**
-(R-CTS4466 dangled directly under IJK). The keep-set preserves named clades even
-at moderate support while still collapsing anonymous weak nodes; it also dedupes
-recurrent placements to one node per haplogroup (e.g. spurious DF13 `Node494`
-collapses; real DF13 `Node423` is kept). The exporter reads the surviving `NodeN`
+pruned (HG02772). A node survives iff **(UFBoot ≥ 95 AND it carries ≥1 defining
+mutation) OR it is a primary best-clade haplogroup placement** (`compare/chrY.keepset.tsv`).
+The keep-set is essential: rapid Y expansions give real, named macro-clades (R, R1,
+R1b — all UFBoot ≈ 80) only moderate bootstrap, so a pure UFBoot ≥ 95 rule **gutted
+the named backbone** (R-CTS4466 dangled directly under IJK). The keep-set preserves
+named clades even at moderate support while still collapsing anonymous weak nodes; it
+also dedupes recurrent placements to one node per haplogroup (e.g. spurious DF13
+`Node494` collapses; real DF13 `Node423` is kept). The **`n_mut ≥ 1` clause** (from
+`*.asr.branch_transitions.tsv`) drops zero-mutation bifurcations that UFBoot
+over-supported — the mtDNA "0 defining variant" placeholder nodes (`Node82`, `Node110`,
+…); their named children reattach to the parent as polytomies, so no tips are lost and
+every named clade survives. Because the exporter derives survival from the publication
+treefile itself, this refinement needed **no loader/exporter change** — only a
+re-export + reload once the builder regenerated the treefiles. The exporter reads the surviving `NodeN`
 set **directly from the publication treefile** (all artifacts share the full-tree
 `NodeN` namespace, so survivors keep their ids; SNPs/labels/tips still join by
 `NodeN`) rather than re-deriving the collapse. For chrY: **1,203 internal nodes**
@@ -177,7 +183,8 @@ and — for phase 3 — `tree_sample` (mig 0037) for the tip leaves.
    rooted at the human MRCA `Node1767` (RSRS), the **CHIMP outgroup tip is dropped**,
    there is **no `internal_node_labels`** (mt clade names `L0`/`H1a1`/`U5b2a1` are
    the display form, taken verbatim from `chrM.keepset.tsv`), and the tip/conflict
-   TSVs use `mt_haplogroup` columns. **2,015 nodes / 3,344 tips**; catalog has no mt
+   TSVs use `mt_haplogroup` columns. **1,765 nodes / 3,344 tips** (after the `n_mut ≥ 1`
+   keep-rule refinement dropped the empty 0-mutation placeholders; was 2,015); catalog has no mt
    variants so all SNPs mint. Loader uses **`clear_dna(dna)`** (dna-scoped, FKs are
    NO ACTION → delete dependents first) so **Y and mt coexist**;
    `tree-init --denovo-mt <json> --apply`. Verified: `H1→H→HV→R→N→L3→…→RSRS`,
