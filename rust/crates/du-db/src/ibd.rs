@@ -44,6 +44,10 @@ pub struct IbdConfig {
     pub w_population: f64,
     pub w_haplogroup: f64,
     pub w_shared_match: f64,
+    /// Tree-depth half-saturation for the haplogroup signal: a shared clade at this depth
+    /// scores at half its rarity. Deeper (more terminal) shared clades are far more
+    /// informative — sharing R-CTS4466 (depth ~21) ≫ sharing R (depth ~2).
+    pub depth_half_life: f64,
 }
 
 impl Default for IbdConfig {
@@ -57,6 +61,7 @@ impl Default for IbdConfig {
             w_population: 0.4,
             w_haplogroup: 0.3,
             w_shared_match: 0.3,
+            depth_half_life: 8.0,
         }
     }
 }
@@ -112,6 +117,13 @@ pub mod messages {
     /// Dismiss a candidate so it stops being suggested (preserved across recomputes).
     pub fn dismiss(did: &str, suggested_sample_guid: &str) -> String {
         format!("ibd-dismiss\n{did}\n{suggested_sample_guid}")
+    }
+    /// Attest the *outcome* of a completed Edge-to-Edge comparison: the attester (a party to
+    /// the consented exchange `request_uri`) reports that its own sample and the counterpart's
+    /// share an IBD segment in `region` totalling `cm` centimorgans. The figure is part of the
+    /// signed message so the claim is bound to the signature.
+    pub fn attest(did: &str, request_uri: &str, claimed: &str, counterpart: &str, region: &str, cm: &str) -> String {
+        format!("ibd-attest\n{did}\n{request_uri}\n{claimed}\n{counterpart}\n{region}\n{cm}")
     }
 }
 
@@ -218,6 +230,215 @@ pub async fn dismiss_suggestion(pool: &PgPool, did: &str, suggested_sample_guid:
     .execute(pool)
     .await?
     .rows_affected())
+}
+
+// ── attestation ingest (close the loop: a completed exchange → match state) ─────
+
+/// One Edge's signed report of a completed IBD comparison. PII-free: only pseudonymous
+/// sample handles, a region, and coarse totals — never segment coordinates or genotypes.
+#[derive(Debug, Clone)]
+pub struct Attestation<'a> {
+    /// The DID that signed this report (verified by the route before it reaches here).
+    pub attester_did: &'a str,
+    /// The consented exchange this comparison came out of (the privacy rail).
+    pub request_uri: &'a str,
+    /// The attester's own sample (must be owned by `attester_did`).
+    pub claimed_sample: Uuid,
+    /// The counterpart's sample (must be owned by the exchange's *other* party).
+    pub counterpart_sample: Uuid,
+    /// Match region: `AUTOSOMAL` / `X` / `Y` / `MT`.
+    pub region_type: &'a str,
+    pub total_shared_cm: Option<f64>,
+    pub num_segments: Option<i32>,
+    /// `INITIAL_REPORT` / `CONFIRMATION` / `DISPUTE` / `REVOCATION`.
+    pub attestation_type: &'a str,
+    pub signature: &'a str,
+    pub notes: Option<&'a str>,
+}
+
+/// Result of recording an attestation. `Rejected` carries a static reason the route maps
+/// to a 4xx — the attestation never touched the match graph.
+#[derive(Debug, Clone, PartialEq)]
+pub enum AttestationOutcome {
+    Recorded {
+        discovery_index_id: i64,
+        consensus_status: String,
+        publicly_discoverable: bool,
+    },
+    Rejected(&'static str),
+}
+
+/// True iff `sample` is a federated biosample published by `did` (the repo_did self-publish
+/// bridge — the same ownership proof the suggestion engine and `/introduce` rely on).
+async fn owns_sample(pool: &PgPool, did: &str, sample: Uuid) -> Result<bool, DbError> {
+    Ok(sqlx::query_scalar::<_, i64>(
+        "SELECT count(*) FROM core.biosample WHERE sample_guid = $1 AND atproto->>'repo_did' = $2",
+    )
+    .bind(sample)
+    .bind(did)
+    .fetch_one(pool)
+    .await?
+        > 0)
+}
+
+/// Two cM totals are compatible when within `max(10 cM, 20%)` — segment detectors disagree
+/// on exact boundaries, so consensus tolerates spread rather than demanding equality.
+fn cm_agree(a: f64, b: f64) -> bool {
+    (a - b).abs() <= (0.20 * a.max(b)).max(10.0)
+}
+
+/// Record a signed IBD attestation and recompute the pair's consensus.
+///
+/// Gated, in order: the `request_uri` must be a **CONSENTED** exchange with an **IBD**
+/// purpose; the attester must be a **party** to it; the attester must **own** its claimed
+/// sample and the *other* party must own the counterpart sample. This ties every match-graph
+/// edge to a real dual-consented comparison — there is no way to forge an edge for a pair
+/// that never agreed to compare. On the second party's compatible report the pair flips
+/// `CONFIRMED` + `is_publicly_discoverable`, which is what the SHARED_MATCH signal reads.
+pub async fn record_attestation(pool: &PgPool, a: &Attestation<'_>) -> Result<AttestationOutcome, DbError> {
+    // 1. The exchange must exist, be consented, and be an IBD exchange the attester is in.
+    let req: Option<(String, String, String, String)> = sqlx::query_as(
+        "SELECT initiator_did, partner_did, status, purpose FROM exchange.exchange_request WHERE request_uri = $1",
+    )
+    .bind(a.request_uri)
+    .fetch_optional(pool)
+    .await?;
+    let Some((initiator, partner, status, purpose)) = req else {
+        return Ok(AttestationOutcome::Rejected("unknown exchange request"));
+    };
+    if status != "CONSENTED" {
+        return Ok(AttestationOutcome::Rejected("exchange is not consented"));
+    }
+    if !purpose.starts_with("IBD") {
+        return Ok(AttestationOutcome::Rejected("not an IBD exchange"));
+    }
+    let counterpart_did = if a.attester_did == initiator {
+        partner
+    } else if a.attester_did == partner {
+        initiator
+    } else {
+        return Ok(AttestationOutcome::Rejected("attester is not a party to this exchange"));
+    };
+
+    // 2. The reported pair must be the two parties' own samples.
+    if !owns_sample(pool, a.attester_did, a.claimed_sample).await? {
+        return Ok(AttestationOutcome::Rejected("claimed sample is not owned by the attester"));
+    }
+    if !owns_sample(pool, &counterpart_did, a.counterpart_sample).await? {
+        return Ok(AttestationOutcome::Rejected("counterpart sample is not owned by the other party"));
+    }
+
+    // 3. Get-or-create the match-graph edge (order-independent pair × region), record the
+    //    attestation, recompute consensus — all in one transaction.
+    let (s1, s2) = ordered(a.claimed_sample, a.counterpart_sample);
+    let mut tx = pool.begin().await?;
+    sqlx::query(
+        "INSERT INTO ibd.ibd_discovery_index \
+            (sample_guid_1, sample_guid_2, match_region_type, consensus_status, is_publicly_discoverable) \
+         VALUES ($1, $2, $3, 'PENDING', false) \
+         ON CONFLICT (LEAST(sample_guid_1, sample_guid_2), GREATEST(sample_guid_1, sample_guid_2), match_region_type) \
+         DO NOTHING",
+    )
+    .bind(s1)
+    .bind(s2)
+    .bind(a.region_type)
+    .execute(&mut *tx)
+    .await?;
+    let idx_id: i64 = sqlx::query_scalar(
+        "SELECT id FROM ibd.ibd_discovery_index \
+         WHERE LEAST(sample_guid_1, sample_guid_2) = LEAST($1, $2) \
+           AND GREATEST(sample_guid_1, sample_guid_2) = GREATEST($1, $2) \
+           AND match_region_type = $3",
+    )
+    .bind(s1)
+    .bind(s2)
+    .bind(a.region_type)
+    .fetch_one(&mut *tx)
+    .await?;
+
+    sqlx::query(
+        "INSERT INTO ibd.ibd_pds_attestation \
+            (ibd_discovery_index_id, attesting_did, exchange_request_uri, attestation_signature, \
+             attestation_type, reported_total_cm, reported_segments, attestation_notes) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) \
+         ON CONFLICT (ibd_discovery_index_id, attesting_did, attestation_type) WHERE attesting_did IS NOT NULL \
+         DO UPDATE SET attestation_signature = EXCLUDED.attestation_signature, \
+            exchange_request_uri = EXCLUDED.exchange_request_uri, \
+            reported_total_cm = EXCLUDED.reported_total_cm, reported_segments = EXCLUDED.reported_segments, \
+            attestation_notes = EXCLUDED.attestation_notes, attestation_timestamp = now()",
+    )
+    .bind(idx_id)
+    .bind(a.attester_did)
+    .bind(a.request_uri)
+    .bind(a.signature)
+    .bind(a.attestation_type)
+    .bind(a.total_shared_cm)
+    .bind(a.num_segments)
+    .bind(a.notes)
+    .execute(&mut *tx)
+    .await?;
+
+    // Recompute consensus from all of this edge's attestations.
+    let atts: Vec<(String, String, Option<f64>, Option<i32>)> = sqlx::query_as(
+        "SELECT attesting_did, attestation_type, reported_total_cm, reported_segments \
+         FROM ibd.ibd_pds_attestation WHERE ibd_discovery_index_id = $1 AND attesting_did IS NOT NULL",
+    )
+    .bind(idx_id)
+    .fetch_all(&mut *tx)
+    .await?;
+
+    let disputed = atts.iter().any(|(_, t, _, _)| t == "DISPUTE" || t == "REVOCATION");
+    // The distinct parties that reported a (non-dispute) match, with their figures.
+    let mut reports: HashMap<String, (f64, Option<i32>)> = HashMap::new();
+    for (did, t, cm, segs) in &atts {
+        if t == "DISPUTE" || t == "REVOCATION" {
+            continue;
+        }
+        if let Some(cm) = cm {
+            reports.entry(did.clone()).or_insert((*cm, *segs));
+        }
+    }
+    let (consensus_status, discoverable, agreed_cm, agreed_segs) = if disputed {
+        ("DISPUTED", false, None, None)
+    } else if reports.len() >= 2 {
+        let vals: Vec<f64> = reports.values().map(|(cm, _)| *cm).collect();
+        let lo = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        let hi = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        if cm_agree(lo, hi) {
+            let avg = vals.iter().sum::<f64>() / vals.len() as f64;
+            let seg_avg = {
+                let segs: Vec<i32> = reports.values().filter_map(|(_, s)| *s).collect();
+                if segs.is_empty() { None } else { Some(segs.iter().sum::<i32>() / segs.len() as i32) }
+            };
+            ("CONFIRMED", true, Some(avg), seg_avg)
+        } else {
+            ("DISPUTED", false, None, None)
+        }
+    } else {
+        ("PENDING", false, None, None)
+    };
+
+    sqlx::query(
+        "UPDATE ibd.ibd_discovery_index \
+         SET consensus_status = $2, is_publicly_discoverable = $3, \
+             total_shared_cm_approx = COALESCE($4, total_shared_cm_approx), \
+             num_shared_segments_approx = COALESCE($5, num_shared_segments_approx) \
+         WHERE id = $1",
+    )
+    .bind(idx_id)
+    .bind(consensus_status)
+    .bind(discoverable)
+    .bind(agreed_cm)
+    .bind(agreed_segs)
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+    Ok(AttestationOutcome::Recorded {
+        discovery_index_id: idx_id,
+        consensus_status: consensus_status.to_string(),
+        publicly_discoverable: discoverable,
+    })
 }
 
 // ── internal model ───────────────────────────────────────────────────────────
@@ -382,6 +603,34 @@ async fn recompute_locked(pool: &PgPool, cfg: &IbdConfig) -> Result<SuggestionRe
     .fetch_all(pool)
     .await?;
     let total = profiles.len().max(1) as f64;
+
+    // Tree depth of every current clade, keyed (haplogroup_type, name), via one downward
+    // walk from the roots. Lets the haplogroup signal weight a shared *deep* clade above a
+    // shared shallow macro-clade (the `depth_score` refinement, enabled by the de-novo tree).
+    let depth_rows: Vec<(String, String, i32)> = sqlx::query_as(
+        "WITH RECURSIVE walk AS ( \
+            SELECT h.id, h.name, h.haplogroup_type::text AS dna, 0 AS depth \
+            FROM tree.haplogroup h \
+            WHERE h.valid_until IS NULL \
+              AND NOT EXISTS (SELECT 1 FROM tree.haplogroup_relationship r \
+                              WHERE r.child_haplogroup_id = h.id AND r.valid_until IS NULL) \
+            UNION ALL \
+            SELECT c.id, c.name, c.haplogroup_type::text, walk.depth + 1 \
+            FROM walk \
+            JOIN tree.haplogroup_relationship r ON r.parent_haplogroup_id = walk.id AND r.valid_until IS NULL \
+            JOIN tree.haplogroup c ON c.id = r.child_haplogroup_id AND c.valid_until IS NULL \
+            WHERE walk.depth < 200) \
+         SELECT dna, name, depth FROM walk",
+    )
+    .fetch_all(pool)
+    .await?;
+    let mut depth_of: HashMap<(String, String), i32> = HashMap::new();
+    for (dna, name, depth) in depth_rows {
+        // Keep the shallowest occurrence if a name recurs (defensive; tree is normally acyclic).
+        depth_of.entry((dna, name)).and_modify(|d| *d = (*d).min(depth)).or_insert(depth);
+    }
+    let half = cfg.depth_half_life.max(1.0);
+
     let mut by_hg: HashMap<(String, String), Vec<Uuid>> = HashMap::new();
     for (guid, dna, hg) in hg_rows {
         by_hg.entry((dna, hg)).or_default().push(guid);
@@ -392,8 +641,12 @@ async fn recompute_locked(pool: &PgPool, cfg: &IbdConfig) -> Result<SuggestionRe
         }
         // The DNA arm this shared terminal belongs to (drives the IBD_Y/IBD_MT exchange purpose).
         let dna_arm: &'static str = if dna == "MT_DNA" { "MT_DNA" } else { "Y_DNA" };
-        // Rarer shared terminal ⇒ more informative.
-        let score = (1.0 - members.len() as f64 / total).max(0.01);
+        // Rarer shared terminal ⇒ more informative, scaled by tree depth: a deeper shared
+        // clade is a much tighter relationship signal. Unknown clade ⇒ treated as shallow (3).
+        let rarity = (1.0 - members.len() as f64 / total).max(0.01);
+        let d = depth_of.get(&(dna.clone(), hg.clone())).copied().unwrap_or(3) as f64;
+        let depth_factor = d / (d + half);
+        let score = (rarity * depth_factor).max(0.01);
         for (xi, &a) in members.iter().enumerate() {
             for &b in &members[xi + 1..] {
                 let (a, b) = ordered(a, b);
@@ -401,14 +654,15 @@ async fn recompute_locked(pool: &PgPool, cfg: &IbdConfig) -> Result<SuggestionRe
                 rep.haplogroup_pairs += 1;
             }
         }
-        let _ = hg;
     }
 
-    // ── Signal 3: shared-match — 2-hop over the confirmed match graph (dormant now) ──
+    // ── Signal 3: shared-match — 2-hop over the *confirmed* match graph. Only
+    //    consensus-confirmed, publicly-discoverable edges count (attestation ingest gates
+    //    this — see `record_attestation`); a one-sided or disputed report never propagates. ──
     let sm_rows: Vec<(Uuid, Uuid, i64)> = sqlx::query_as(
         "WITH edges AS ( \
-            SELECT sample_guid_1 AS a, sample_guid_2 AS b FROM ibd.ibd_discovery_index \
-            UNION ALL SELECT sample_guid_2, sample_guid_1 FROM ibd.ibd_discovery_index) \
+            SELECT sample_guid_1 AS a, sample_guid_2 AS b FROM ibd.ibd_discovery_index WHERE is_publicly_discoverable \
+            UNION ALL SELECT sample_guid_2, sample_guid_1 FROM ibd.ibd_discovery_index WHERE is_publicly_discoverable) \
          SELECT e1.a, e2.a, count(*) AS shared \
          FROM edges e1 JOIN edges e2 ON e1.b = e2.b AND e1.a < e2.a \
          GROUP BY e1.a, e2.a HAVING count(*) >= $1",

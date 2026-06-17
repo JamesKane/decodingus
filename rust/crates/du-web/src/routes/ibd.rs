@@ -27,6 +27,7 @@ pub fn router() -> Router<AppState> {
         .route("/api/v1/ibd/suggestions", get(suggestions))
         .route("/api/v1/ibd/introduce", post(introduce))
         .route("/api/v1/ibd/dismiss", post(dismiss))
+        .route("/api/v1/ibd/attest", post(attest))
 }
 
 #[derive(Deserialize)]
@@ -114,6 +115,76 @@ async fn dismiss(State(st): State<AppState>, Json(b): Json<DismissBody>) -> Resu
         return Err(AppError::NotFound(format!("no active suggestion for {}", b.suggested_sample_guid)));
     }
     Ok(Json(json!({ "suggested_sample_guid": b.suggested_sample_guid, "status": "DISMISSED" })))
+}
+
+#[derive(Deserialize)]
+struct AttestBody {
+    did: String,
+    request_uri: String,
+    claimed_sample: Uuid,
+    counterpart_sample: Uuid,
+    region_type: String,
+    #[serde(default)]
+    total_shared_cm: Option<f64>,
+    #[serde(default)]
+    num_segments: Option<i32>,
+    #[serde(default = "default_attestation_type")]
+    attestation_type: String,
+    #[serde(default)]
+    notes: Option<String>,
+    signature: String,
+}
+
+fn default_attestation_type() -> String {
+    "INITIAL_REPORT".to_string()
+}
+
+/// Report the outcome of a completed Edge-to-Edge comparison. The AppView records it as
+/// match state and, once both consented parties report a compatible total, confirms the
+/// edge — which is what feeds the shared-match discovery signal. PII-free: the body carries
+/// only pseudonymous sample handles + coarse totals, never segment coordinates or genotypes.
+async fn attest(State(st): State<AppState>, Json(b): Json<AttestBody>) -> Result<Json<Value>, AppError> {
+    // The signed figure binds the claim to the signature (formatted to match the Edge).
+    let cm = b.total_shared_cm.map(|c| format!("{c:.1}")).unwrap_or_default();
+    let msg = messages::attest(
+        &b.did,
+        &b.request_uri,
+        &b.claimed_sample.to_string(),
+        &b.counterpart_sample.to_string(),
+        &b.region_type,
+        &cm,
+    );
+    verify_signed(&st.pool, &b.did, &msg, &b.signature).await?;
+
+    let outcome = ibd::record_attestation(
+        &st.pool,
+        &ibd::Attestation {
+            attester_did: &b.did,
+            request_uri: &b.request_uri,
+            claimed_sample: b.claimed_sample,
+            counterpart_sample: b.counterpart_sample,
+            region_type: &b.region_type,
+            total_shared_cm: b.total_shared_cm,
+            num_segments: b.num_segments,
+            attestation_type: &b.attestation_type,
+            signature: &b.signature,
+            notes: b.notes.as_deref(),
+        },
+    )
+    .await?;
+    match outcome {
+        ibd::AttestationOutcome::Recorded { discovery_index_id, consensus_status, publicly_discoverable } => {
+            Ok(Json(json!({
+                "discovery_index_id": discovery_index_id,
+                "consensus_status": consensus_status,
+                "publicly_discoverable": publicly_discoverable,
+            })))
+        }
+        ibd::AttestationOutcome::Rejected(reason) => {
+            tracing::warn!(reason, did = %b.did, "ibd attestation rejected");
+            Err(AppError::Forbidden)
+        }
+    }
 }
 
 #[cfg(test)]
@@ -279,5 +350,80 @@ mod tests {
         let listed = get(state, format!("/api/v1/ibd/suggestions?did={owner_did}&ts={dts}&sig={}", enc(&dpoll))).await;
         let lv: Value = serde_json::from_slice(&to_bytes(listed.into_body(), usize::MAX).await.unwrap()).unwrap();
         assert!(!lv.to_string().contains(&other.to_string()), "dismissed candidate is gone from /suggestions");
+    }
+
+    /// The attest endpoint records a signed report (200/PENDING for one side), rejects a
+    /// tampered signature (403) and a non-consented exchange (403).
+    #[tokio::test]
+    async fn attest_endpoint_signed_and_gated() {
+        let Some(url) = std::env::var("DATABASE_URL").ok().filter(|s| !s.is_empty()) else {
+            eprintln!("DATABASE_URL unset — skipping ibd attest endpoint test");
+            return;
+        };
+        let db = du_db::testing::ephemeral_db(&url).await.expect("ephemeral db");
+        let pool = db.pool().clone();
+
+        let alice = SigningKey::from_bytes(&[61u8; 32]);
+        let alice_did = du_atproto::did::did_key_from_ed25519(&alice.verifying_key());
+        let bob = SigningKey::from_bytes(&[62u8; 32]);
+        let bob_did = du_atproto::did::did_key_from_ed25519(&bob.verifying_key());
+        let sa = fed_sample(&pool, &alice_did).await;
+        let sb = fed_sample(&pool, &bob_did).await;
+        sqlx::query(
+            "INSERT INTO exchange.exchange_request (request_uri, initiator_did, partner_did, purpose, status) \
+             VALUES ('urn:web:ab', $1, $2, 'IBD_AUTOSOMAL', 'CONSENTED')",
+        )
+        .bind(&alice_did)
+        .bind(&bob_did)
+        .execute(&pool)
+        .await
+        .unwrap();
+        let state = crate::state::AppState { pool: pool.clone(), key: tower_cookies::Key::generate(), oauth: None };
+
+        let post = |state: crate::state::AppState, body: Value| async move {
+            crate::routes::app(state)
+                .oneshot(Request::builder().method("POST").uri("/api/v1/ibd/attest")
+                    .header("content-type", "application/json").body(Body::from(body.to_string())).unwrap())
+                .await
+                .unwrap()
+        };
+
+        // Signed happy path: alice's first report → 200, PENDING (awaiting bob).
+        let cm = format!("{:.1}", 250.0);
+        let msg = du_db::ibd::messages::attest(&alice_did, "urn:web:ab", &sa.to_string(), &sb.to_string(), "AUTOSOMAL", &cm);
+        let sig = STANDARD.encode(alice.sign(msg.as_bytes()).to_bytes());
+        let ok = post(state.clone(), serde_json::json!({
+            "did": alice_did, "request_uri": "urn:web:ab", "claimed_sample": sa, "counterpart_sample": sb,
+            "region_type": "AUTOSOMAL", "total_shared_cm": 250.0, "signature": sig,
+        })).await;
+        assert_eq!(ok.status(), StatusCode::OK);
+        let ov: Value = serde_json::from_slice(&to_bytes(ok.into_body(), usize::MAX).await.unwrap()).unwrap();
+        assert_eq!(ov["consensus_status"].as_str(), Some("PENDING"));
+        assert_eq!(ov["publicly_discoverable"].as_bool(), Some(false));
+
+        // Tampered signature → 403.
+        let bad = post(state.clone(), serde_json::json!({
+            "did": alice_did, "request_uri": "urn:web:ab", "claimed_sample": sa, "counterpart_sample": sb,
+            "region_type": "AUTOSOMAL", "total_shared_cm": 250.0, "signature": "AAAA",
+        })).await;
+        assert_eq!(bad.status(), StatusCode::FORBIDDEN);
+
+        // A correctly-signed report against a non-consented exchange → 403.
+        sqlx::query(
+            "INSERT INTO exchange.exchange_request (request_uri, initiator_did, partner_did, purpose, status) \
+             VALUES ('urn:web:pending', $1, $2, 'IBD_AUTOSOMAL', 'PENDING')",
+        )
+        .bind(&alice_did)
+        .bind(&bob_did)
+        .execute(&pool)
+        .await
+        .unwrap();
+        let pmsg = du_db::ibd::messages::attest(&alice_did, "urn:web:pending", &sa.to_string(), &sb.to_string(), "AUTOSOMAL", &cm);
+        let psig = STANDARD.encode(alice.sign(pmsg.as_bytes()).to_bytes());
+        let pending = post(state, serde_json::json!({
+            "did": alice_did, "request_uri": "urn:web:pending", "claimed_sample": sa, "counterpart_sample": sb,
+            "region_type": "AUTOSOMAL", "total_shared_cm": 250.0, "signature": psig,
+        })).await;
+        assert_eq!(pending.status(), StatusCode::FORBIDDEN);
     }
 }
