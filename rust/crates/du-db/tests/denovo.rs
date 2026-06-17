@@ -2,7 +2,7 @@
 //!
 //! Covers: catalog reuse by hs1 coordinate (a known SNP keeps its name), minting
 //! a novel de-novo SNP, node naming (ISOGG label → catalog-SNP fallback → NodeN),
-//! edges, and `reset_tree` clearing a prior load. Skips when DATABASE_URL is unset.
+//! edges, and `clear_dna` clearing a prior load. Skips when DATABASE_URL is unset.
 
 use du_db::denovo::{self, DenovoTree};
 use du_db::haplogroup;
@@ -226,12 +226,12 @@ async fn loads_denovo_tree_with_catalog_reuse_and_mint() {
     assert_eq!(conflicts.items[0].haplogroup, "R1b1a");
     assert_eq!(conflicts.items[0].foreign_in, 1);
 
-    // reset_tree clears the topology + conflicts (catalog SNP rows survive).
-    let reset = haplogroup::reset_tree(&pool).await.expect("reset");
-    assert_eq!(reset.haplogroups, 4);
+    // clear_dna wipes the lineage topology + conflicts (catalog SNP rows survive).
+    let cleared = haplogroup::clear_dna(&pool, DnaType::YDna).await.expect("clear");
+    assert_eq!(cleared, 4);
     let remaining: i64 = sqlx::query_scalar("SELECT count(*) FROM tree.haplogroup").fetch_one(&pool).await.unwrap();
     assert_eq!(remaining, 0);
     let snps: i64 = sqlx::query_scalar("SELECT count(*) FROM core.variant WHERE canonical_name IN ('M269','L21')")
         .fetch_one(&pool).await.unwrap();
-    assert_eq!(snps, 2, "catalog SNPs survive a tree reset");
+    assert_eq!(snps, 2, "catalog SNPs survive a tree clear");
 }

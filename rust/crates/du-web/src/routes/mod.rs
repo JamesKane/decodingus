@@ -31,7 +31,6 @@ pub mod publications;
 pub mod reconcile_flags;
 pub mod references;
 pub mod research;
-pub mod reviews;
 pub mod samples;
 pub mod sequencer;
 pub mod tree;
@@ -69,7 +68,6 @@ pub fn app(state: AppState) -> Router {
         .merge(reconcile_flags::router())
         .merge(denovo_conflicts::router())
         .merge(change_sets::router())
-        .merge(reviews::router())
         .merge(versioning::router())
         .merge(sequencer::router())
         .merge(exchange::router())

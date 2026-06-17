@@ -32,7 +32,7 @@ struct Args {
     verify: bool,
     /// Skip migrating the legacy phylogenetic tree (haplogroup / relationship /
     /// variant-link). Use when the tree is built separately by `decodingus-tree-init`
-    /// (ISOGG-founded + SNP-graft) into the empty tree namespace — biosamples carry
+    /// (the de-novo foundation) into the empty tree namespace — biosamples carry
     /// their haplogroup names as JSON and resolve against that tree at read time.
     /// The 3 tree reconcile checks are skipped too. Run ETL first, then tree-init.
     #[arg(long)]
@@ -80,8 +80,8 @@ async fn main() -> anyhow::Result<()> {
     transform::specimen_donor(&legacy, &target).await?;
     transform::biosample(&legacy, &target).await?;
     transform::variant(&legacy, &target).await?;
-    // The phylogenetic tree is built separately by decodingus-tree-init (ISOGG
-    // foundation + SNP-graft); --skip-tree leaves the namespace empty for it.
+    // The phylogenetic tree is built separately by decodingus-tree-init (the
+    // de-novo foundation); --skip-tree leaves the namespace empty for it.
     if args.skip_tree {
         tracing::info!("--skip-tree: skipping legacy haplogroup tree (build via decodingus-tree-init)");
     } else {

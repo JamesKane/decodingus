@@ -3,8 +3,8 @@
 //! Ingests the normalized JSON emitted by `~/Genomics/ytree/bin/68_export_ingest.py`
 //! (schema: `documents/proposals/denovo-tree-ingestion.md`) as the **sole tree
 //! foundation** — the tree we built ourselves from genotypes, not an import to
-//! graft onto. Greenfield by design: the caller clears `tree.*`
-//! ([`crate::haplogroup::reset_tree`]) first; this inserts nodes, edges, and
+//! graft onto. Greenfield by design: the caller clears the lineage
+//! ([`crate::haplogroup::clear_dna`]) first; this inserts nodes, edges, and
 //! defining-variant links, then recomputes the backbone.
 //!
 //! Builds the full lineage: topology + defining SNPs, sample-leaf placement of the
