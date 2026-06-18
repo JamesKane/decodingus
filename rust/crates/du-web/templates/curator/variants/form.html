@@ -41,7 +41,7 @@
         {% if is_edit %}
         <button class="btn btn-sm btn-outline-secondary" type="button" hx-get="/curator/variants/{{ id }}/panel" hx-target="#variant-detail">{{ t.get("var.cancel") }}</button>
         {% else %}
-        <button class="btn btn-sm btn-outline-secondary" type="button" onclick="document.getElementById('variant-detail').innerHTML=''">{{ t.get("var.cancel") }}</button>
+        <button class="btn btn-sm btn-outline-secondary" type="button" data-clear-target="variant-detail">{{ t.get("var.cancel") }}</button>
         {% endif %}
       </div>
     </form>

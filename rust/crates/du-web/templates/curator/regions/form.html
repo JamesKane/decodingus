@@ -27,7 +27,7 @@
         {% if is_edit %}
         <button class="btn btn-sm btn-outline-secondary" type="button" hx-get="/curator/regions/{{ id }}/panel" hx-target="#region-detail">{{ t.get("region.cancel") }}</button>
         {% else %}
-        <button class="btn btn-sm btn-outline-secondary" type="button" onclick="document.getElementById('region-detail').innerHTML=''">{{ t.get("region.cancel") }}</button>
+        <button class="btn btn-sm btn-outline-secondary" type="button" data-clear-target="region-detail">{{ t.get("region.cancel") }}</button>
         {% endif %}
       </div>
     </form>

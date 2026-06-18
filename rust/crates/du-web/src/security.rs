@@ -19,13 +19,15 @@ use uuid::Uuid;
 /// `Permissions-Policy` (no `http::header` constant for it).
 const PERMISSIONS_POLICY: HeaderName = HeaderName::from_static("permissions-policy");
 
-/// Content-Security-Policy. `'self'` for everything, with two narrow exceptions:
-/// `'unsafe-inline'` for the remaining inline scripts/styles, and the Google
-/// reCAPTCHA origins (script + frame) used by the public forms.
+/// Content-Security-Policy. Scripts are `'self'` (all externalized to /assets) plus
+/// the Google reCAPTCHA origins the public forms load. `style-src` still allows
+/// `'unsafe-inline'` (Bootstrap + a few inline `style=` / `<style>` blocks; style
+/// injection is far lower-risk than script injection). `img-src` allows the
+/// OpenStreetMap tiles the sample-origin / population maps render via Leaflet.
 const CSP: &str = "default-src 'self'; \
-    script-src 'self' 'unsafe-inline' https://www.google.com https://www.gstatic.com; \
+    script-src 'self' https://www.google.com https://www.gstatic.com; \
     style-src 'self' 'unsafe-inline'; \
-    img-src 'self' data:; \
+    img-src 'self' data: https://*.tile.openstreetmap.org; \
     font-src 'self'; \
     connect-src 'self'; \
     frame-src https://www.google.com; \
