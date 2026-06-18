@@ -141,7 +141,7 @@ async fn str_predict(
     let min_compared = query.len().clamp(1, 8);
     let preds = du_db::ystr::predict(&st.pool, &query, top_n, min_compared).await?;
 
-    let wgs_derived = matches!(req.source.as_deref(), Some("WGS_DERIVED") | Some("BIG_Y_DERIVED"));
+    let wgs_derived = matches!(req.source.as_deref(), Some("WGS_DERIVED" | "BIG_Y_DERIVED"));
     let note = if wgs_derived {
         "Predicted from WGS-derived STRs; SNP calls supersede STR prediction.".to_string()
     } else {

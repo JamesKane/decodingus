@@ -49,8 +49,8 @@ struct ListQuery {
 
 fn parse_dna(s: Option<&str>) -> Option<DnaType> {
     match s {
-        Some("Y") | Some("Y_DNA") => Some(DnaType::YDna),
-        Some("MT") | Some("MT_DNA") => Some(DnaType::MtDna),
+        Some("Y" | "Y_DNA") => Some(DnaType::YDna),
+        Some("MT" | "MT_DNA") => Some(DnaType::MtDna),
         _ => None,
     }
 }

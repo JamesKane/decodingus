@@ -179,7 +179,7 @@ pub async fn recompute_consensus(pool: &PgPool, cfg: &ConsensusConfig) -> Result
 
 async fn recompute_locked(pool: &PgPool, cfg: &ConsensusConfig) -> Result<ConsensusReport, DbError> {
     let mut rep = ConsensusReport::default();
-    let generic: Vec<String> = GENERIC_CENTERS.iter().map(|s| s.to_string()).collect();
+    let generic: Vec<String> = GENERIC_CENTERS.iter().map(|&s| s.to_string()).collect();
 
     // 1) Ensure a sequencer_instrument row for every federated instrument id —
     //    from both implicit sequenceruns and explicit instrumentObservation records.

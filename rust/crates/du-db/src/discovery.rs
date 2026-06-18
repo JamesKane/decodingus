@@ -447,7 +447,7 @@ async fn pool_and_propose(pool: &PgPool, cfg: &DiscoveryConfig, rep: &mut Discov
             .filter(|s| match reliability.get(&(s.sample_guid, dna.clone())) {
                 Some((conf, compat)) => {
                     compat.as_deref() != Some("INCOMPATIBLE")
-                        && conf.map(|c| c >= cfg.min_consensus_confidence).unwrap_or(true)
+                        && conf.map_or(true, |c| c >= cfg.min_consensus_confidence)
                 }
                 None => true,
             })

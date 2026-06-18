@@ -155,11 +155,9 @@ async fn discovery_pools_proposes_and_is_idempotent() {
 
     // Three citizens sharing the same two private variants below R-M269.
     let shared = json!([vcall("FT1001", 21648001), vcall("FT1002", 21648002)]);
-    let mut t = 1i64;
-    for did in ["did:ex:ann", "did:ex:ben", "did:ex:cat"] {
+    for (t, did) in (1i64..).zip(["did:ex:ann", "did:ex:ben", "did:ex:cat"]) {
         let (_g, uri) = biosample(&pool, did).await;
         private_variant(&pool, did, &uri, "R-M269", shared.clone(), t).await;
-        t += 1;
     }
 
     let cfg = DiscoveryConfig::default();
@@ -231,13 +229,11 @@ async fn promotion_reassigns_and_freezes_contributors() {
         .expect("terminal");
 
     let shared = json!([vcall("FT3001", 21650001), vcall("FT3002", 21650002)]);
-    let mut t = 200i64;
     let mut guids = Vec::new();
-    for did in ["did:ex:eve", "did:ex:foy", "did:ex:gil"] {
+    for (t, did) in (200i64..).zip(["did:ex:eve", "did:ex:foy", "did:ex:gil"]) {
         let (g, uri) = biosample(&pool, did).await;
         guids.push(g);
         private_variant(&pool, did, &uri, "R-M269", shared.clone(), t).await;
-        t += 1;
     }
 
     let cfg = DiscoveryConfig::default();

@@ -140,7 +140,7 @@ async fn introduction_purpose_and_dismiss_convert_lifecycle() {
     let pool = db.pool().clone();
 
     // ann↔ben: autosomal (same European ancestry + near PCA). ann↔dan: shared Y haplogroup.
-    let (ann, ann_uri) = fed_sample(&pool, "did:ex:ann").await;
+    let (_ann, ann_uri) = fed_sample(&pool, "did:ex:ann").await;
     breakdown(&pool, "did:ex:ann", &ann_uri, "EUR", euro(), json!([0.01, 0.01]), 1).await;
     y_haplogroup(&pool, "did:ex:ann", "R-FT100", 1).await;
     let (ben, ben_uri) = fed_sample(&pool, "did:ex:ben").await;

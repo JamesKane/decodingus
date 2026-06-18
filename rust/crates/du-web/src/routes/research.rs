@@ -120,9 +120,7 @@ struct SubjectsQuery {
 }
 
 async fn subjects(State(st): State<AppState>, Query(q): Query<SubjectsQuery>) -> Result<Json<Value>, AppError> {
-    if (chrono::Utc::now().timestamp() - q.ts).abs() > 300 {
-        return Err(AppError::BadRequest("stale timestamp".into()));
-    }
+    crate::sig::ensure_fresh_ts(q.ts)?;
     verify_signed(&st.pool, &q.did, &messages::poll(&q.did, q.ts), &q.sig).await?;
     if !research::is_team_member(&st.pool, q.project_id, &q.did).await? {
         return Err(AppError::Forbidden);
@@ -177,9 +175,7 @@ async fn revoke_member(State(st): State<AppState>, Json(b): Json<RevokeMemberBod
 }
 
 async fn members(State(st): State<AppState>, Query(q): Query<SubjectsQuery>) -> Result<Json<Value>, AppError> {
-    if (chrono::Utc::now().timestamp() - q.ts).abs() > 300 {
-        return Err(AppError::BadRequest("stale timestamp".into()));
-    }
+    crate::sig::ensure_fresh_ts(q.ts)?;
     verify_signed(&st.pool, &q.did, &messages::poll(&q.did, q.ts), &q.sig).await?;
     if !research::is_team_member(&st.pool, q.project_id, &q.did).await? {
         return Err(AppError::Forbidden);
@@ -295,9 +291,7 @@ struct ViewQuery {
 }
 
 async fn current_view(State(st): State<AppState>, Query(q): Query<ViewQuery>) -> Result<Json<Value>, AppError> {
-    if (chrono::Utc::now().timestamp() - q.ts).abs() > 300 {
-        return Err(AppError::BadRequest("stale timestamp".into()));
-    }
+    crate::sig::ensure_fresh_ts(q.ts)?;
     verify_signed(&st.pool, &q.did, &messages::poll(&q.did, q.ts), &q.sig).await?;
     if !research::is_team_member(&st.pool, q.project_id, &q.did).await? {
         return Err(AppError::Forbidden);

@@ -13,6 +13,18 @@
 use crate::error::AppError;
 use du_db::PgPool;
 
+/// Replay window for signed Edge requests: the signed `ts` must be within ±5 min of now.
+const SIGNED_TS_SKEW_SECS: i64 = 300;
+
+/// Reject a signed request whose timestamp is outside the replay window (a `400`). Every
+/// signed Edge endpoint calls this before [`verify_signed`] as its replay guard.
+pub fn ensure_fresh_ts(ts: i64) -> Result<(), AppError> {
+    if (chrono::Utc::now().timestamp() - ts).abs() > SIGNED_TS_SKEW_SECS {
+        return Err(AppError::BadRequest("stale timestamp".into()));
+    }
+    Ok(())
+}
+
 /// Verify that `signature` (standard base64 Ed25519) over `message` was produced by a key
 /// `did` controls. `did:key` self-certifies; otherwise the signature must match one of the
 /// DID's registered device keys. A bad/absent key → 403.

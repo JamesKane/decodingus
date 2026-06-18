@@ -38,7 +38,7 @@ impl Config {
             .ok()
             .filter(|s| !s.is_empty())
             .map(|s| s.split(',').map(|c| c.trim().to_string()).filter(|c| !c.is_empty()).collect())
-            .unwrap_or_else(|| fed::INGEST_COLLECTIONS.iter().map(|c| c.to_string()).collect());
+            .unwrap_or_else(|| fed::INGEST_COLLECTIONS.iter().map(|&c| c.to_string()).collect());
         Some(Config { url, collections })
     }
 }
@@ -198,7 +198,7 @@ fn i64_at(v: &Value, key: &str) -> Option<i64> {
     v.get(key).and_then(Value::as_i64)
 }
 fn arr_len(v: &Value, key: &str) -> i32 {
-    v.get(key).and_then(Value::as_array).map(|a| a.len() as i32).unwrap_or(0)
+    v.get(key).and_then(Value::as_array).map_or(0, |a| a.len() as i32)
 }
 /// `haplogroups.<arm>.haplogroupName` (arm = "yDna" | "mtDna").
 fn haplogroup_name(v: &Value, container: &str, arm: &str) -> Option<String> {

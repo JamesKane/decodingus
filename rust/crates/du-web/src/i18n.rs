@@ -153,8 +153,7 @@ impl<S: Send + Sync> FromRequestParts<S> for Locale {
         let path_q = parts
             .uri
             .path_and_query()
-            .map(|pq| pq.as_str())
-            .unwrap_or("/");
+            .map_or("/", |pq| pq.as_str());
         let next = percent_encoding::utf8_percent_encode(
             path_q,
             percent_encoding::NON_ALPHANUMERIC,

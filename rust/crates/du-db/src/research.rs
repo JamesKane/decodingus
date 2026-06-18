@@ -125,7 +125,7 @@ pub async fn is_team_member(pool: &PgPool, project_id: i64, did: &str) -> Result
 
 /// Whether `did` is granted `cap` in the project.
 pub async fn can(pool: &PgPool, project_id: i64, did: &str, cap: Capability) -> Result<bool, DbError> {
-    Ok(role_of(pool, project_id, did).await?.map(|r| r.allows(cap)).unwrap_or(false))
+    Ok(role_of(pool, project_id, did).await?.is_some_and(|r| r.allows(cap)))
 }
 
 /// Add or update a team member (re-activates a revoked one).
@@ -637,7 +637,7 @@ async fn refold(pool: &PgPool, subject_id: Uuid, view_scope: &str) -> Result<(),
     let mut tx = pool.begin().await?;
     let mut kept: Vec<String> = Vec::new();
     for (predicate, claims) in by_pred {
-        let single = Predicate::parse(&predicate).map(|p| p.is_single_valued()).unwrap_or(false);
+        let single = Predicate::parse(&predicate).is_some_and(|p| p.is_single_valued());
         let state = if single && claims.len() > 1 {
             let first = &claims[0].value;
             if claims.iter().all(|c| &c.value == first) {

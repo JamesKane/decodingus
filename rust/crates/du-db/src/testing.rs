@@ -77,8 +77,7 @@ pub async fn ephemeral_db(base_url: &str) -> Result<EphemeralDb, DbError> {
     static SEQ: AtomicU64 = AtomicU64::new(0);
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
+        .map_or(0, |d| d.as_nanos());
     let seq = SEQ.fetch_add(1, Ordering::Relaxed);
     let db_name = format!("du_test_{}_{}_{}", std::process::id(), nanos, seq);
 

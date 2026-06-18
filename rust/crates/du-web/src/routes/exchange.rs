@@ -159,10 +159,7 @@ struct PendingQuery {
 }
 
 async fn pending(State(st): State<AppState>, Query(q): Query<PendingQuery>) -> Result<Json<Value>, AppError> {
-    let now = chrono::Utc::now().timestamp();
-    if (now - q.ts).abs() > 300 {
-        return Err(AppError::BadRequest("stale timestamp".into()));
-    }
+    crate::sig::ensure_fresh_ts(q.ts)?;
     verify_signed(&st.pool, &q.did, &messages::poll(&q.did, q.ts), &q.sig).await?;
     let ready = exchange::pending_for(&st.pool, &q.did).await?;
     let items: Vec<Value> = ready
@@ -183,10 +180,7 @@ async fn pending(State(st): State<AppState>, Query(q): Query<PendingQuery>) -> R
 /// the recipient learns a request exists and gets the opaque `request_uri` to consent
 /// with, but learns *who* asked only after they consent (then via `/pending`).
 async fn incoming(State(st): State<AppState>, Query(q): Query<PendingQuery>) -> Result<Json<Value>, AppError> {
-    let now = chrono::Utc::now().timestamp();
-    if (now - q.ts).abs() > 300 {
-        return Err(AppError::BadRequest("stale timestamp".into()));
-    }
+    crate::sig::ensure_fresh_ts(q.ts)?;
     verify_signed(&st.pool, &q.did, &messages::poll(&q.did, q.ts), &q.sig).await?;
     let items: Vec<Value> = exchange::incoming_for(&st.pool, &q.did)
         .await?
@@ -230,9 +224,7 @@ struct PullQuery {
 }
 
 async fn relay_pull(State(st): State<AppState>, Query(q): Query<PullQuery>) -> Result<Json<Value>, AppError> {
-    if (chrono::Utc::now().timestamp() - q.ts).abs() > 300 {
-        return Err(AppError::BadRequest("stale timestamp".into()));
-    }
+    crate::sig::ensure_fresh_ts(q.ts)?;
     verify_signed(&st.pool, &q.did, &messages::poll(&q.did, q.ts), &q.sig).await?;
     let envs = exchange::pull_envelopes(&st.pool, q.session_id, &q.did).await?;
     let items: Vec<Value> = envs

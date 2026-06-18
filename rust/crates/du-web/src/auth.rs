@@ -28,8 +28,7 @@ pub fn hash_password(password: &str) -> Result<String, String> {
 pub fn verify_password(password: &str, hash: &str) -> bool {
     if hash.starts_with("$argon2") {
         PasswordHash::new(hash)
-            .map(|parsed| Argon2::default().verify_password(password.as_bytes(), &parsed).is_ok())
-            .unwrap_or(false)
+            .is_ok_and(|parsed| Argon2::default().verify_password(password.as_bytes(), &parsed).is_ok())
     } else if hash.starts_with("$2") {
         bcrypt::verify(password, hash).unwrap_or(false)
     } else {

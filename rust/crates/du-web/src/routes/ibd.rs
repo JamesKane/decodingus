@@ -39,9 +39,7 @@ struct SuggestionsQuery {
 
 /// A caller's own ranked candidates — pseudonymous (no counterpart DID).
 async fn suggestions(State(st): State<AppState>, Query(q): Query<SuggestionsQuery>) -> Result<Json<Value>, AppError> {
-    if (chrono::Utc::now().timestamp() - q.ts).abs() > 300 {
-        return Err(AppError::BadRequest("stale timestamp".into()));
-    }
+    crate::sig::ensure_fresh_ts(q.ts)?;
     verify_signed(&st.pool, &q.did, &messages::poll(&q.did, q.ts), &q.sig).await?;
     let items: Vec<Value> = ibd::suggestions_for_did(&st.pool, &q.did, 100)
         .await?
