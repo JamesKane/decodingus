@@ -1,5 +1,16 @@
 # Branch Age Estimation System
 
+> **✅ Realized in the Rust build (status 2026-06-07).** The combined branch-age
+> framework is implemented: `tree.haplogroup_ancestral_str` + the combined age
+> (mig 0013/0014), `tree.genealogical_anchor`, `genomics.str_mutation_rate`,
+> `genomics.biosample_callable_loci`, `du_db::age` (`combine` +
+> `recompute_combined_ages`), `du_db::ystr`, the `branch-age-recompute` job, and
+> `GET /api/v1/haplogroups/{name}/age`. Caveats: the Rust combine is
+> **inverse-variance** (a simplification of the full PDF multiplication below) and
+> genealogical-anchor wiring may be partial. **Kept as the scientific methodology
+> reference** (mutation rates, multi-step STR frequencies, precision tables, the
+> McDonald port) for future refinement. Triage: `triage-report.md` §3.
+
 **Reference:** McDonald, I. (2021). "Improved Models of Coalescence Ages of Y-DNA Haplogroups." *Genes*, 12(6), 862. https://doi.org/10.3390/genes12060862
 
 **Status:** Backlog
@@ -18,7 +29,7 @@ This proposal integrates with other planning documents:
 |----------|-------------|
 | `../planning/haplogroup-discovery-system.md` | **Primary integration point.** SNP counts come from `tree.haplogroup_variant`. Private variants from `tree.biosample_private_variant` provide per-sample data for individual TMRCA calculations. Age recalculation should trigger when branches are promoted. |
 | `../planning/multi-test-type-roadmap.md` | **Test type coverage data.** Callable loci vary by test type (WGS ~3Gbp, BigY-700 ~15Mbp, Chip ~2000 SNPs). Uses `test_type_definition` table for platform characteristics. |
-| `../planning/appview-pds-backfeed-system.md` | **PDS data flow.** STR profiles and private SNP counts flow from user PDS via firehose. Age estimates are NOT backfed (computed results, not user data). |
+| Federation ingest (Jetstream → `fed.*`) | **PDS data flow.** STR profiles and private SNP counts flow from the user PDS via the Jetstream summary mirror. Age estimates are AppView-computed (not backfed). |
 | `group-project-system.md` | **Group TMRCA.** Group projects display TMRCA estimates in `projectTreeView`. Project-level modal haplotypes feed into STR-based age estimation. |
 
 **Schema Note:** All haplogroup-related tables reside in the `tree` schema. Branch age fields (`formed_ybp`, `tmrca_ybp`, etc.) were added to `tree.haplogroup` in evolution 48.
@@ -79,10 +90,29 @@ Must account for:
 - **Parallel mutations** (independent lines mutate to same value)
 - **Multi-step mutations** (+2, -2, +3, etc.)
 
-**Multi-step frequencies:**
-- ω±1 ≈ 0.962 (single-step)
+**Multi-step frequencies** (McDonald §2.5.3, from ref [8]):
+- ω±1 ≈ 0.962 (single-step; adjusted to 0.96217 so Σω±n = 1)
 - ω±2 ≈ 0.032 (two-step)
 - ω±3 ≈ 0.004 (three-step)
+- ω±≥4 ÷√10 per further repeat
+
+**Implemented** (`du_db::ystr`): `P(g|m)` is McDonald's **Table 1**, embedded verbatim
+over its published range (g,m ≤ 10) and extended by the signed-step convolution of
+the ω above beyond it (deep-time, low-weight terms only — the convolution is the
+*exact* all-orders sum, so it differs from the f_r-truncated Table 1 by up to ~0.1 at
+a few cells; the embedded table is authoritative in-range). A marker's age term is
+`P(t|g) = Σ_m P(t|m)·P(g|m)` — a mixture over the hidden mutation count `m` of Poisson
+age PDFs (`du_db::pdf::Pdf::mixture`), rate per generation → years via
+`GENERATION_YEARS = 33`. STR ages **propagate up the tree** (`ystr::propagate_str`,
+the §2.2 SNP strategy): ancestral motifs are reconstructed for internal nodes
+(§2.5.2 up-pass modal-of-sub-clades + down-pass parent fill), then a node's TMRCA is
+the product over children of (child TMRCA ⊛ the parent→child STR branch time) and
+over direct tester tips — so internal nodes get ages from their descendants and a
+parent stays older than its children. (`compute_str_age`'s per-clade star pooling is
+retained as a utility but no longer drives the written ages.) Per-marker
+`omega_plus`/`omega_minus`/`multi_step_rate`
+(`genomics.str_mutation_rate`) build a marker-specific `P(g|m)` table when they depart
+from the global symmetric single-step-dominated model.
 
 ### Confidence Intervals
 
@@ -97,12 +127,86 @@ Must account for:
 
 ### 1. Reference Data (System-Level)
 
-#### SNP Mutation Rate Table
-| Region | Rate (SNPs/bp/yr) | 95% CI | Source |
-|--------|-------------------|--------|--------|
-| MSY Combined | 8.33 × 10⁻¹⁰ | 7.57–9.17 × 10⁻¹⁰ | Helgason 2015 |
-| X-degenerate + Ampliconic | 8.71 × 10⁻¹⁰ | 8.03–9.43 × 10⁻¹⁰ | Helgason 2015 |
-| Palindromic | 7.37 × 10⁻¹⁰ | 6.41–8.48 × 10⁻¹⁰ | Helgason 2015 |
+#### SNP Mutation Rate
+
+**The method uses a *single* combined rate** (McDonald 2021 §2.2.1, Eq 2–3; §3: "the
+combined Y-SNP mutation rate of Helgason et al. is used"): `µ_SNP = 8.33 × 10⁻¹⁰`
+SNPs/bp/yr (95% CI 7.57–9.17 × 10⁻¹⁰). It is **not** applied per-region.
+
+The per-region figures below are **evidence that the rate is ~constant across the
+MSY** (McDonald Appendix A.4, from Helgason 2015) — *not* a directive to apply
+different rates to different regions. The paper's conclusion: "the mutation rate is
+constant when sufficiently large regions of the MSY are considered."
+
+| Region | Rate (SNPs/bp/yr) | 95% CI | Notes |
+|--------|-------------------|--------|-------|
+| MSY combined (used) | 8.33 × 10⁻¹⁰ | 7.57–9.17 × 10⁻¹⁰ | The rate the model applies |
+| X-transposed + X-degenerate + ampliconic (15.2 Mbp) | 8.71 × 10⁻¹⁰ | 8.03–9.43 × 10⁻¹⁰ | ~constant evidence |
+| Palindromic (6.1 Mbp) | 7.37 × 10⁻¹⁰ | 6.41–8.48 × 10⁻¹⁰ | slightly lower (gene conversion), P=0.04 |
+
+**Region handling is by self-consistent *masking*, not per-region rates** (McDonald
+Appendix A.2): "As highly recurrent base pairs are excised from mutation-rate
+estimations, they should also be self-consistently removed from TMRCA calculations
+and excised from the subset of base pairs b̄." A.3 names the regions to mask
+(centromere, DYZ19; palindromic arms depending on calling). Ampliconic sequence is
+**kept** (same rate as X-degenerate). The implication for `b`: drop only the
+recurrent/heterochromatic regions — *not* all of ampliconic/palindromic — and ensure
+the SNP count `m` is excised over the same regions (`m ⊆ b`, McDonald §2.2.3).
+
+**Empirical validation (Hallast et al. 2026, 142 population-scale Y assemblies).**
+This masking choice is confirmed independently by the paper's three-way callable-mask
+comparison (their Fig 5h-i):
+- Their phylogeny ran on a **~10.4 Mb mask (10,400,778 callable positions, 25,426
+  polymorphic sites) = X-degenerate + ampliconic + "other"**, *excluding* X-transposed,
+  satellite, heterochromatin, DYZ19, and centromere — the same split as our denominator
+  (`y_xdegen + y_ampliconic + y_palindromic`, with `HET_MASK` dropping heterochromatic
+  SNPs).
+- **X-degenerate is the agreed, high-QV core** across all three masks (GRCh37 / T2T /
+  pangenome): retained bp 8.111 / 8.341 / 7.437 Mb, mean QV 50.2 / 55.2 / 60.9.
+- **Ampliconic is kept but lower quality** (QV 45.7 / 46.2 / 61.5) — consistent with
+  keeping it in `b` (same mutation rate) while flagging it low-confidence-for-*placement*.
+- **Satellite / heterochromatin / DYZ19 are low-QV (35–44) or uncallable; no mask calls
+  centromeric sequence** — validating their exclusion from the age count.
+- The de novo data underline this: 49/53 (92.5%) pedigree DNMs fall in Yq12, only ~1 SNV
+  in euchromatin, and 6/40 Yq12 SNVs trace to gene conversion (recurrent), not de novo —
+  i.e. the masked compartments are exactly where mutations are unreliable/recurrent.
+
+**Cross-check clock (Hallast et al. 2026).** The same paper provides an *independent*
+recent calibration we record but **do not** substitute for Helgason:
+
+| Clock | Rate (sub/site/yr) | 95% CI | Role |
+|-------|--------------------|--------|------|
+| Helgason 2015 (used) | 0.833 × 10⁻⁹ | 0.757–0.917 × 10⁻⁹ | the rate the model applies |
+| Hallast 2026 BEAST (cross-check) | 0.76 × 10⁻⁹ | 0.67–0.86 × 10⁻⁹ | sanity bound only |
+
+Method: BEAST v1.10.4 strict molecular clock, RAxML GTR+Γ start tree, constant-size
+coalescent, 150 M MCMC (10% burn-in), TreeAnnotator MCC tree — run on the ~10.4 Mb
+X-degenerate-style mask above. It is **~9% slower** than Helgason, so adopting it would
+push every TMRCA ~9% older; the two CIs overlap, so it functions as a consistency check,
+not a correction. Constants `HALLAST_RATE{,_LO,_HI}` live alongside `SNP_RATE` in
+`du_db::age`; the default stays Helgason (do not silently swap — surface both with
+provenance). The CEPH-pedigree de-novo rate (R1b lineages, Porubsky et al. 2025) is the
+matching *per-generation* empirical anchor for the same clock.
+
+**Calibration anchors (dated nodes).** Hallast's time-calibrated phylogeny (their Suppl.
+Fig. 1, ISOGG v15.73 labels; 95% HPD from BEAST) yields ready-made `tree.genealogical_anchor`
+rows — model-dated TMRCAs, *not* radiocarbon, so they carry `anchor_type = MODEL_DATED`
+and full provenance in `details` (source, clock, HPD) so a curator can down-weight or
+exclude them. Seeded by `scripts/seed-hallast-anchors.sql` (name-keyed, idempotent, run
+after the tree load). Currently mappable to our clade names:
+
+| Node | TMRCA (ybp) | 95% HPD | Source |
+|------|-------------|---------|--------|
+| D1 | 19,450 | 16,360–22,880 | Hallast 2026 Fig 1b / Suppl. Fig 1 |
+| HG00512 ⋂ HG02056 | ~10,300 | 8,400–12,300 | Hallast 2026 Suppl. Fig 61 |
+
+> **Circularity caveat:** these are themselves molecular-clock estimates, so feeding them
+> into the inverse-variance `COMBINED` term partly calibrates our SNP clock against another
+> SNP clock. That is intended (a tight external constraint on deep nodes), but it is *not*
+> independent evidence the way an aDNA C14 date is — hence `MODEL_DATED` and the recorded
+> provenance, so the term can be filtered. Most of the dated phylogeny lives in figures
+> (Suppl. Fig. 1 / Fig 1b) and Suppl. Tables, not extractable text; harvest more nodes from
+> the tables workbook when mapping them to our haplogroup names.
 
 #### STR Mutation Rate Database
 Per-marker mutation rates needed for ~700+ Y-STR markers:
@@ -201,7 +305,7 @@ case class StrMarkerValue(
 
 ### Edge Computing Model
 
-**Critical Architecture Principle** (from `appview-pds-backfeed-system.md`): Raw genomic data (BAM/CRAM/VCF) **never** flows to DecodingUs. All raw data analysis happens locally in the Navigator Workbench.
+**Critical Architecture Principle**: Raw genomic data (BAM/CRAM/VCF) **never** flows to DecodingUs. All raw data analysis happens locally in the Navigator Workbench.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
@@ -495,13 +599,25 @@ Group projects compute modal STR haplotypes (`projectModal`). These can feed int
 **Goal:** Add Y-STR data to improve precision.
 
 **Tasks:**
-1. [ ] Create `genomics.str_mutation_rate` table
-2. [ ] Import mutation rates from Ballantyne/Willems studies
-3. [ ] Create `tree.haplogroup_ancestral_str` table
-4. [ ] Implement ancestral STR motif calculation (modal values)
-5. [ ] Implement P(g|m) mapping with multi-step mutations
-6. [ ] Create `StrAgeService` for STR-based age calculation
-7. [ ] Integrate STR PDFs into combined calculation
+1. [x] Create `genomics.str_mutation_rate` table (migration `0014_str_age`)
+2. [x] Import mutation rates from Ballantyne/Willems studies —
+       `scripts/seed-str-mutation-rates.sql` seeds 137 markers: Willems 2016 (1000G
+       MUTEA, 116 markers + 95% CIs) primary, YHRD combined rates gap-filling 11
+       core markers Willems' short-read set misses (DYS393, DYS390, DYS449, …).
+       Only DYS447 among common single-copy markers still falls back to
+       `DEFAULT_STR_RATE = 0.0025`. (Ballantyne is McDonald's ref [8] — its
+       single:multi-step 25.23:1 already sets the global ω.)
+3. [x] Create `tree.haplogroup_ancestral_str` table (migrations `0013`/`0014`)
+4. [x] Implement ancestral STR motif calculation (modal values) — `ystr::compute_modal`
+5. [x] Implement P(g|m) mapping with multi-step mutations — `ystr` (Table 1 + convolution)
+6. [x] Create `StrAgeService` for STR-based age calculation — `ystr::compute_str_age`
+       (multi-step PDF model; supersedes the legacy linear ΣΔ/Σµ estimator)
+7. [x] Integrate STR PDFs into combined calculation — `COMBINED` (`du_db::age`) is
+       the direct PDF product (Eq 1) of the SNP TMRCA PDF (propagation), the STR
+       TMRCA PDF (`ystr::str_tmrca_pdfs`), and the genealogical anchor PDF, all on
+       the shared TREE grid (50 yr / 350 ky) — preserving non-Gaussian shape instead
+       of inverse-variance-averaging medians. Disjoint terms fall back to the
+       Gaussian combine; a stored STR_VARIANCE row with no fresh PDF still contributes.
 
 **Data needed:**
 - Y-STR profiles from PDS (ensure Atmosphere capture)

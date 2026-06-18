@@ -1,5 +1,17 @@
 # OpenAlex Publication Auto-Discovery System
 
+> **📝 Rust status (2026-06-07).** Substantially built: scheduled
+> `publication-discovery` + `publication-update` jobs (tokio, **daily** — not a
+> weekly cron), candidates in `pubs.publication_candidate` (dedupe by `openalex_id`),
+> and the curator queue `/curator/publications` (accept→promote / reject / defer) —
+> so Phase-1's "simple curator review UI" (shown `[ ]` below) is **done**. Added
+> beyond the doc: the public on-ramp `/references/submit` (DOI → candidate).
+> **Forward:** relevance scoring (`relevance_score` exists but isn't computed), smart
+> discovery, biosample-extraction hints, and the `publication_search_run` table.
+> Swap the Scala specifics (`OpenAlexService`/Pekko/`/api/private/*`/`SERIAL`/plural
+> tables) for `du_external::openalex` + `du_db::publication` +
+> `pubs.publication_candidate`. Triage: `design-doc-triage-report.md` §3.
+
 ## Overview
 
 Automatically discover and surface relevant genomic publications using OpenAlex, reducing curator burden and ensuring the platform stays current with academic research.

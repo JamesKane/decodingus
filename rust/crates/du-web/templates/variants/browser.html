@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}{{ t.get("variants.title") }} — {{ t.get("app.name") }}{% endblock %}
+{% block content %}
+<h1 class="h3 mb-3">{{ t.get("variants.title") }}</h1>
+<div class="row">
+  <div class="col-lg-7">
+    <input type="search" name="query" class="form-control mb-3"
+           placeholder="{{ t.get("variants.search.placeholder") }}"
+           value="{{ list.query }}"
+           hx-get="/variants/list"
+           hx-trigger="input changed delay:300ms, search"
+           hx-target="#variants-table"
+           hx-indicator="#search-spinner">
+    <span id="search-spinner" class="htmx-indicator spinner-border spinner-border-sm"></span>
+    {# First page embedded inline (no load round-trip); search/pager swap it. #}
+    <div id="variants-table">
+      {% include "variants/list.html" %}
+    </div>
+  </div>
+  <div class="col-lg-5">
+    <div id="detail-panel">
+      <p class="detail-empty">{{ t.get("variants.detail.select") }}</p>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,35 @@
+{# Fragment: publication list + pager. Target of #references-table. #}
+<div class="list-group mb-3">
+  {% for p in list.rows %}
+  <a class="list-group-item list-group-item-action tree-node"
+     href="/references/{{ p.id }}/biosamples"
+     hx-get="/references/{{ p.id }}/biosamples"
+     hx-target="#reference-detail">
+    <div class="fw-semibold">{{ p.title }}</div>
+    <small class="text-muted">
+      {% if !p.journal.is_empty() %}{{ p.journal }}{% endif %}
+      {% if !p.year.is_empty() %} · {{ p.year }}{% endif %}
+      {% if let Some(c) = p.citations %} · {{ c }} {{ t.get("references.col.citations") }}{% endif %}
+    </small>
+  </a>
+  {% else %}
+  <div class="list-group-item detail-empty">{{ t.get("references.none") }}</div>
+  {% endfor %}
+</div>
+
+{% if list.total_pages > 1 %}
+<nav class="d-flex justify-content-between align-items-center">
+  <button class="btn btn-sm btn-outline-secondary{% if list.page <= 1 %} disabled{% endif %}"
+          hx-get="/references/list?query={{ list.query }}&page={{ list.page - 1 }}&page_size={{ list.page_size }}"
+          hx-target="#references-table">{{ t.get("pagination.previous") }}</button>
+  <small class="text-muted">
+    {{ t.get("pagination.page") }} {{ list.page }} {{ t.get("pagination.of") }} {{ list.total_pages }}
+    ({{ list.total }} {{ t.get("pagination.total") }})
+  </small>
+  <button class="btn btn-sm btn-outline-secondary{% if list.page >= list.total_pages %} disabled{% endif %}"
+          hx-get="/references/list?query={{ list.query }}&page={{ list.page + 1 }}&page_size={{ list.page_size }}"
+          hx-target="#references-table">{{ t.get("pagination.next") }}</button>
+</nav>
+{% else %}
+<small class="text-muted">{{ list.total }} {{ t.get("pagination.total") }}</small>
+{% endif %}

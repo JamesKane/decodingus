@@ -1,0 +1,43 @@
+# DecodingUs (Rust) — production-ish compose. Works with Docker or Apple
+# `container compose`. Mirrors the deployment intent of the legacy compose.
+#
+#   docker compose up --build        (or: container compose up --build)
+
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_PASSWORD: ${DU_PG_PASSWORD:-dev}
+      POSTGRES_DB: ${DU_PG_DB:-decodingus}
+    ports:
+      - "5432:5432"
+    volumes:
+      - du-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ${DU_PG_DB:-decodingus}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: postgres://postgres:${DU_PG_PASSWORD:-dev}@db:5432/${DU_PG_DB:-decodingus}?sslmode=disable
+      APP_SECRET: ${APP_SECRET:-changeme}
+      RUST_LOG: ${RUST_LOG:-info,du_web=debug}
+    ports:
+      - "9000:9000"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:9000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  du-pgdata:

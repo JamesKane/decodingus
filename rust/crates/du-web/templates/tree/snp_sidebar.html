@@ -1,0 +1,88 @@
+{# SNP-detail sidebar for one haplogroup. Loaded into #snpSidebar by HTMX. #}
+<div class="card">
+  <div class="card-header d-flex justify-content-between align-items-center py-2">
+    <strong>{{ name }}</strong>
+    <button type="button" class="btn-close" aria-label="{{ t.get("tree.snp.close") }}"
+            data-bs-dismiss="offcanvas"></button>
+  </div>
+
+  {# Branch provenance — where this node came from (source, cross-source names,
+     when it was last updated, backbone, age). Grows in value as trees fold in. #}
+  {% if let Some(p) = provenance %}
+  <div class="card-body py-2 border-bottom small">
+    <div class="text-uppercase text-muted fw-semibold mb-1" style="font-size:.7rem;letter-spacing:.04em;">{{ t.get("tree.prov.title") }}</div>
+    <dl class="row mb-0 gx-2 gy-1">
+      <dt class="col-5 text-muted fw-normal">{{ t.get("tree.prov.source") }}</dt>
+      <dd class="col-7 mb-0">
+        <span class="badge text-bg-light border">{{ p.source }}</span>
+        {% if p.backbone %}<span class="badge text-bg-success ms-1">{{ t.get("tree.legend.backbone") }}</span>{% endif %}
+      </dd>
+      {% if !p.aliases.is_empty() %}
+      <dt class="col-5 text-muted fw-normal">{{ t.get("tree.prov.aka") }}</dt>
+      <dd class="col-7 mb-0">{% for a in p.aliases %}<code>{{ a }}</code>{% if !loop.last %}, {% endif %}{% endfor %}</dd>
+      {% endif %}
+      {% if let Some(u) = p.updated %}
+      <dt class="col-5 text-muted fw-normal">{{ t.get("tree.prov.updated") }}</dt>
+      <dd class="col-7 mb-0">{{ u }}</dd>
+      {% endif %}
+      {% if let Some(f) = p.formed_ybp %}
+      <dt class="col-5 text-muted fw-normal">{{ t.get("hg.field.formed") }}</dt>
+      <dd class="col-7 mb-0">{{ f }}</dd>
+      {% endif %}
+      {% if let Some(tm) = p.tmrca_ybp %}
+      <dt class="col-5 text-muted fw-normal">{{ t.get("hg.field.tmrca") }}</dt>
+      <dd class="col-7 mb-0">{{ tm }}</dd>
+      {% endif %}
+    </dl>
+  </div>
+  {% endif %}
+
+  {% if variants.is_empty() %}
+  <div class="card-body py-2">
+    <p class="text-muted small mb-0">{{ t.get("tree.snp.none") }}</p>
+  </div>
+  {% else %}
+  <div class="card-body py-1 px-0" style="max-height:70vh; overflow:auto">
+    <ul class="list-group list-group-flush">
+      {% for v in variants %}
+      <li class="list-group-item px-3 py-1">
+        <span class="fw-semibold">{{ v.name }}</span>
+        <span class="badge bg-light text-secondary border ms-1">{{ v.mutation_type }}</span>
+        {% if v.back_mutation %}<span class="badge text-bg-warning ms-1" title="{{ t.get("tree.snp.backMutation.help") }}">{{ t.get("tree.snp.backMutation") }}</span>
+        {% else if v.recurrent %}<span class="badge text-bg-info ms-1" title="{{ t.get("tree.snp.recurrent.help") }}">{{ t.get("tree.snp.recurrent") }}</span>{% endif %}
+        {% if let Some(tr) = v.transition %}
+        <span class="ms-1 font-monospace small">{{ tr }}</span>
+        {% endif %}
+        {% if !v.aliases.is_empty() %}
+        <div class="small text-muted">{{ t.get("tree.snp.aliases") }}: {{ v.aliases|join(", ") }}</div>
+        {% endif %}
+        {% for c in v.coordinates %}
+        <div class="small text-muted font-monospace">{{ c }}</div>
+        {% endfor %}
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  {# Placed non-D2C sample leaves at or below this node (YFull-style). #}
+  {% if !samples.is_empty() %}
+  <div class="card-body py-2 border-top">
+    <div class="text-uppercase text-muted fw-semibold mb-1" style="font-size:.7rem;letter-spacing:.04em;">{{ t.get("tree.samples.title") }}</div>
+    <ul class="list-group list-group-flush">
+      {% for s in samples %}
+      <li class="list-group-item px-0 py-1">
+        <span class="fw-semibold">{{ s.label }}</span>
+        <span class="badge bg-light text-secondary border ms-1">{{ s.source }}</span>
+        {% if let Some(c) = s.citation %}
+        <div class="small text-muted">{{ c }}</div>
+        {% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+    {% if samples_more > 0 %}
+    <div class="small text-muted mt-1">+{{ samples_more }} {{ t.get("tree.samples.more") }}</div>
+    {% endif %}
+  </div>
+  {% endif %}
+</div>

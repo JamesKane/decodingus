@@ -1,0 +1,189 @@
+{% extends "base.html" %}
+{% import "samples/_pathway.html" as paths %}
+{% block title %}{{ s.display_name }} — {{ t.get("app.name") }}{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="/assets/vendor/leaflet.css">
+<script src="/assets/vendor/leaflet.js"></script>
+<style>#sample-map { height: 320px; border-radius: .375rem; }</style>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h1 class="h3 mb-0">{{ s.display_name }}</h1>
+  <span>
+    {% if s.federated %}<span class="badge text-bg-info">{{ t.get("sample.federated") }}</span>{% endif %}
+    <span class="badge text-bg-secondary">{{ s.source }}</span>
+  </span>
+</div>
+
+{% if is_curator %}{% include "samples/_public_toggle.html" %}{% endif %}
+
+{# 1. Identity #}
+<div class="card mb-3">
+  <div class="card-header py-2"><strong>{{ t.get("sample.identity.title") }}</strong></div>
+  <div class="card-body">
+    <dl class="row mb-0">
+      {% if let Some(a) = s.accession %}
+      <dt class="col-sm-3 text-muted fw-normal">{{ t.get("sample.field.accession") }}</dt>
+      <dd class="col-sm-9"><code>{{ a }}</code></dd>
+      {% endif %}
+      {% if let Some(a) = s.alias %}
+      <dt class="col-sm-3 text-muted fw-normal">{{ t.get("sample.field.alias") }}</dt>
+      <dd class="col-sm-9">{{ a }}</dd>
+      {% endif %}
+      {% if let Some(x) = s.sex %}
+      <dt class="col-sm-3 text-muted fw-normal">{{ t.get("sample.field.sex") }}</dt>
+      <dd class="col-sm-9">{{ x }}</dd>
+      {% endif %}
+      {% if let Some(c) = s.center_name %}
+      <dt class="col-sm-3 text-muted fw-normal">{{ t.get("sample.field.center") }}</dt>
+      <dd class="col-sm-9">{{ c }}</dd>
+      {% endif %}
+      {% if let Some(d) = s.description %}
+      <dt class="col-sm-3 text-muted fw-normal">{{ t.get("sample.field.description") }}</dt>
+      <dd class="col-sm-9">{{ d }}</dd>
+      {% endif %}
+      {% if !s.publications.is_empty() %}
+      <dt class="col-sm-3 text-muted fw-normal">{{ t.get("sample.field.publications") }}</dt>
+      <dd class="col-sm-9">
+        <ul class="list-unstyled mb-0">
+          {% for p in s.publications %}
+          <li>
+            {% if let Some(href) = p.href %}
+            <a href="{{ href }}" target="_blank" rel="noopener">{{ p.title }}</a>
+            {% else %}{{ p.title }}{% endif %}
+            {% if !p.year.is_empty() %}<span class="text-muted small">({{ p.year }})</span>{% endif %}
+          </li>
+          {% endfor %}
+        </ul>
+      </dd>
+      {% endif %}
+    </dl>
+  </div>
+</div>
+
+{# 2. Haplogroup pathways #}
+<div class="row">
+  <div class="col-lg-6">{% call paths::pathway(t, t.get("sample.ydna.title"), s.y) %}</div>
+  <div class="col-lg-6">{% call paths::pathway(t, t.get("sample.mtdna.title"), s.mt) %}</div>
+</div>
+
+{# 3. Origin map #}
+<div class="card mb-3">
+  <div class="card-header py-2"><strong>{{ t.get("sample.map.title") }}</strong></div>
+  <div class="card-body">
+    {% if let Some(o) = s.origin %}
+    <div id="sample-map" data-lat="{{ o.lat }}" data-lon="{{ o.lon }}"></div>
+    {% else %}
+    <p class="text-muted small mb-0">{{ t.get("sample.map.none") }}</p>
+    {% endif %}
+  </div>
+</div>
+
+{# 4. Sequencing & coverage #}
+<div class="card mb-3">
+  <div class="card-header py-2"><strong>{{ t.get("sample.seq.title") }}</strong></div>
+  <div class="card-body">
+    {% if s.sequencing.is_empty() && s.coverage.is_empty() %}
+    <p class="text-muted small mb-0">{{ t.get("sample.seq.none") }}</p>
+    {% else %}
+    {% if !s.sequencing.is_empty() %}
+    <table class="table table-sm align-middle">
+      <thead><tr>
+        <th>{{ t.get("sample.seq.platform") }}</th>
+        <th>{{ t.get("sample.seq.instrument") }}</th>
+        <th>{{ t.get("sample.seq.testType") }}</th>
+        <th>{{ t.get("sample.seq.layout") }}</th>
+        <th class="text-end">{{ t.get("sample.seq.reads") }}</th>
+        <th class="text-end">{{ t.get("sample.seq.readLength") }}</th>
+      </tr></thead>
+      <tbody>
+        {% for r in s.sequencing %}
+        <tr>
+          <td>{{ r.platform }}</td><td>{{ r.instrument }}</td><td>{{ r.test_type }}</td>
+          <td>{{ r.layout }}</td><td class="text-end">{{ r.reads }}</td><td class="text-end">{{ r.read_length }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+    {% if !s.coverage.is_empty() %}
+    <table class="table table-sm align-middle mb-0">
+      <thead><tr>
+        <th>{{ t.get("sample.cov.build") }}</th>
+        <th>{{ t.get("sample.cov.aligner") }}</th>
+        <th>{{ t.get("sample.cov.testtype") }}</th>
+        <th class="text-end">{{ t.get("sample.cov.mean") }}</th>
+        <th class="text-end">{{ t.get("sample.cov.expected") }}</th>
+        <th class="text-end">{{ t.get("sample.cov.10x") }}</th>
+        <th class="text-end">{{ t.get("sample.cov.20x") }}</th>
+        <th class="text-end">{{ t.get("sample.cov.30x") }}</th>
+        <th>{{ t.get("sample.cov.conformance") }}</th>
+      </tr></thead>
+      <tbody>
+        {% for c in s.coverage %}
+        <tr>
+          <td>{{ c.build }}</td><td>{{ c.aligner }}</td><td>{{ c.test_type }}</td>
+          <td class="text-end">{{ c.mean }}</td>
+          <td class="text-end text-muted">{{ c.expected }}<br><span class="small">{{ t.get("sample.cov.cohort") }} {{ c.norm }}</span></td>
+          <td class="text-end">{{ c.pct_10x }}</td><td class="text-end">{{ c.pct_20x }}</td><td class="text-end">{{ c.pct_30x }}</td>
+          <td>
+            {% if c.conformance == "BELOW" %}<span class="badge text-bg-danger">{{ t.get("sample.cov.below") }}</span>
+            {% else if c.conformance == "AT" %}<span class="badge text-bg-success">{{ t.get("sample.cov.at") }}</span>
+            {% else if c.conformance == "ABOVE" %}<span class="badge text-bg-info">{{ t.get("sample.cov.above") }}</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+    {% endif %}
+  </div>
+</div>
+
+{# 5. Ancestry breakdown #}
+<div class="card mb-3">
+  <div class="card-header py-2 d-flex justify-content-between align-items-center">
+    <strong>{{ t.get("sample.ancestry.title") }}</strong>
+    {% if let Some(m) = s.ancestry_method %}<span class="small text-muted">{{ m }}</span>{% endif %}
+  </div>
+  <div class="card-body">
+    {% if s.ancestry.is_empty() %}
+    <p class="text-muted small mb-0">{{ t.get("sample.ancestry.none") }}</p>
+    {% else %}
+    <div class="progress mb-2" style="height:1.5rem;">
+      {% for c in s.ancestry %}
+      <div class="progress-bar" role="progressbar" style="width: {{ c.width }}%; background: {{ c.color }};"
+           title="{{ c.label }} {{ c.pct_label }}">{{ c.pct_label }}</div>
+      {% endfor %}
+    </div>
+    <ul class="list-inline small mb-0">
+      {% for c in s.ancestry %}
+      <li class="list-inline-item me-3">
+        <span class="badge border" style="background: {{ c.color }};">&nbsp;</span>
+        {{ c.label }} — {{ c.pct_label }}
+      </li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </div>
+</div>
+
+<p class="text-muted small">{{ t.get("sample.future.note") }}</p>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  var el = document.getElementById('sample-map');
+  if (!el || typeof L === 'undefined') return;
+  var lat = parseFloat(el.dataset.lat), lon = parseFloat(el.dataset.lon);
+  if (isNaN(lat) || isNaN(lon)) return;
+  var m = L.map('sample-map').setView([lat, lon], 5);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+    { maxZoom: 18, attribution: '&copy; OpenStreetMap contributors' }).addTo(m);
+  L.circleMarker([lat, lon], { radius: 7, color: '#0d6efd', weight: 1, fillOpacity: .8 }).addTo(m);
+})();
+</script>
+{% endblock %}

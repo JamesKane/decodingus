@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="{{ t.lang.code() }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}{{ t.get("app.name") }}{% endblock %}</title>
+  <link href="/assets/vendor/bootstrap.min.css" rel="stylesheet">
+  <link href="/assets/vendor/bootstrap-icons.min.css" rel="stylesheet">
+  <link href="/assets/main.css" rel="stylesheet">
+  <script src="/assets/vendor/htmx.min.js"></script>
+  {% block head %}{% endblock %}
+</head>
+<body hx-boost="true">
+  <nav class="navbar fixed-top navbar-expand-lg bg-body-tertiary" data-bs-theme="dark">
+    <div class="container-fluid">
+      <a class="navbar-brand" href="/">{{ t.get("app.name") }}</a>
+      <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#mainNav"
+              aria-controls="mainNav" aria-expanded="false" aria-label="Toggle navigation">
+        <span class="navbar-toggler-icon"></span>
+      </button>
+      <div class="collapse navbar-collapse" id="mainNav">
+        <ul class="navbar-nav m-auto">
+          <li class="nav-item"><a class="nav-link" href="/ytree">{{ t.get("nav.ytree") }}</a></li>
+          <li class="nav-item"><a class="nav-link" href="/mtree">{{ t.get("nav.mtree") }}</a></li>
+          <li class="nav-item"><a class="nav-link" href="/references">{{ t.get("nav.references") }}</a></li>
+          <li class="nav-item dropdown">
+            <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">{{ t.get("nav.tools") }}</a>
+            <ul class="dropdown-menu">
+              <li><a class="dropdown-item" href="/variants"><i class="bi bi-search me-2"></i>{{ t.get("nav.variants") }}</a></li>
+              <li><a class="dropdown-item" href="/coverage-benchmarks"><i class="bi bi-bar-chart me-2"></i>{{ t.get("nav.coverage") }}</a></li>
+              {# Full page load (not boosted) so Leaflet's scripts/styles initialize. #}
+              <li><a class="dropdown-item" href="/biosamples/map" hx-boost="false"><i class="bi bi-geo-alt me-2"></i>{{ t.get("nav.map") }}</a></li>
+            </ul>
+          </li>
+        </ul>
+        <ul class="navbar-nav ms-auto">
+          <li class="nav-item dropdown">
+            <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+              <i class="bi bi-translate me-1"></i>{{ t.get("lang.label") }}
+            </a>
+            <ul class="dropdown-menu dropdown-menu-end">
+              {% for o in t.languages() %}
+              <li><a class="dropdown-item{% if o.active %} active{% endif %}" href="/language/{{ o.code }}?next={{ next }}">{{ o.label }}</a></li>
+              {% endfor %}
+            </ul>
+          </li>
+          {% if let Some(u) = user %}
+          {% if u.is_curator %}
+          <li class="nav-item"><a class="nav-link" href="/curator"><i class="bi bi-tools me-1"></i>{{ t.get("nav.curator") }}</a></li>
+          {% endif %}
+          <li class="nav-item dropdown">
+            <a class="nav-link dropdown-toggle d-flex align-items-center" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+              <i class="bi bi-person-circle me-1"></i>{{ u.display_name }}
+            </a>
+            <ul class="dropdown-menu dropdown-menu-end">
+              <li><a class="dropdown-item" href="/profile"><i class="bi bi-person me-2"></i>{{ t.get("nav.profile") }}</a></li>
+              <li><hr class="dropdown-divider"></li>
+              <li>
+                <form method="post" action="/logout" hx-boost="false" class="px-0 m-0">
+                  <button type="submit" class="dropdown-item"><i class="bi bi-box-arrow-right me-2"></i>{{ t.get("nav.logout") }}</button>
+                </form>
+              </li>
+            </ul>
+          </li>
+          {% else %}
+          <li class="nav-item"><a class="nav-link" href="/login">{{ t.get("nav.login") }}</a></li>
+          {% endif %}
+        </ul>
+      </div>
+    </div>
+  </nav>
+
+  <main class="{% block main_container %}container{% endblock %} py-3">
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer>
+    <nav class="navbar fixed-bottom navbar-expand-lg bg-body-tertiary" data-bs-theme="dark">
+      <div class="container-fluid">
+        <ul class="navbar-nav m-auto">
+          <li class="nav-item"><a class="nav-link" href="/about">{{ t.get("nav.about") }}</a></li>
+          <li class="nav-item"><a class="nav-link" href="/contact">{{ t.get("contact.title") }}</a></li>
+          <li class="nav-item"><a class="nav-link" href="/terms">{{ t.get("page.terms.title") }}</a></li>
+          <li class="nav-item"><a class="nav-link" href="/privacy">{{ t.get("page.privacy.title") }}</a></li>
+          <li class="nav-item"><a class="nav-link" href="/cookies">{{ t.get("page.cookies.title") }}</a></li>
+          <li class="nav-item"><a class="nav-link" href="/faq">{{ t.get("page.faq.title") }}</a></li>
+          <li class="nav-item"><a class="nav-link" href="/api" hx-boost="false" target="_blank">{{ t.get("nav.api") }}</a></li>
+        </ul>
+        <span class="navbar-text">{{ t.get("footer.copyright") }}</span>
+      </div>
+    </nav>
+  </footer>
+
+  {# GDPR cookie-consent banner — shown by JS only when no consent cookie is set. #}
+  <div id="cookie-banner" class="position-fixed bottom-0 start-0 end-0 bg-dark text-light p-3 d-none" style="z-index:1080;">
+    <div class="container d-flex flex-wrap gap-2 align-items-center justify-content-between">
+      <span class="small">{{ t.get("consent.message") }} <a href="/privacy" class="link-light">{{ t.get("page.privacy.title") }}</a>.</span>
+      <span class="d-flex gap-2">
+        <button class="btn btn-sm btn-outline-light" data-consent="false">{{ t.get("consent.decline") }}</button>
+        <button class="btn btn-sm btn-light" data-consent="true">{{ t.get("consent.accept") }}</button>
+      </span>
+    </div>
+  </div>
+  <script>
+  (function () {
+    if (document.cookie.split('; ').some(function (c) { return c.indexOf('du_consent=') === 0; })) return;
+    var b = document.getElementById('cookie-banner');
+    if (!b) return;
+    b.classList.remove('d-none');
+    b.querySelectorAll('button[data-consent]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        fetch('/cookie-consent', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({ consent: btn.getAttribute('data-consent') })
+        }).then(function () { b.classList.add('d-none'); });
+      });
+    });
+  })();
+  </script>
+  <script src="/assets/vendor/bootstrap.bundle.min.js"></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

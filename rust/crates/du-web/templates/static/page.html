@@ -1,0 +1,287 @@
+{% extends "base.html" %}
+{% block title %}{{ title }} — {{ t.get("app.name") }}{% endblock %}
+{% block content %}
+<div class="row"><div class="col-lg-8">
+<h1 class="h3 mb-3">{{ title }}</h1>
+
+{% if page == "about" %}
+  <p>{{ t.get("app.name") }} is a citizen-science platform for phylogenetic
+  (Y-DNA and mitochondrial) and population genomics. It maintains a curated
+  known-variant catalog and haplogroup tree, and aggregates anonymized coverage
+  and ancestry summaries contributed across the federation.</p>
+  <p>Per-sample raw data never leaves the contributor's device or personal data
+  store; only computed summaries are shared. See the <a href="/privacy">privacy
+  policy</a> for details.</p>
+  <ul>
+    <li><a href="/ytree">{{ t.get("nav.ytree") }}</a> · <a href="/mtree">{{ t.get("nav.mtree") }}</a></li>
+    <li><a href="/variants">{{ t.get("nav.variants") }}</a></li>
+    <li><a href="/references">{{ t.get("nav.references") }}</a></li>
+    <li><a href="/coverage-benchmarks">{{ t.get("nav.coverage") }}</a></li>
+  </ul>
+
+{% else if page == "faq" %}
+  <ol class="list-group list-group-flush">
+    <li id="faq1" class="list-group-item border-0 px-0">
+      <article class="faq-entry">
+        <header class="mb-3">
+          <h2 class="h5 text-primary mb-2">Question 1</h2>
+          <h3 class="h6 text-secondary">What is Decoding-Us.com?</h3>
+        </header>
+        <div class="card shadow-sm"><div class="card-body">
+          <p class="card-text mb-3">Decoding-Us.com is a collaborative platform designed for the genetic genealogy and population research community. It serves two main purposes:</p>
+          <ul>
+            <li><strong>Public Resource:</strong> We analyze and visualize publicly available Whole Genome Sequencing (WGS) data from academic sources, providing alternative Y-DNA and Mitochondrial DNA trees, coverage benchmarks, and reference data.</li>
+            <li><strong>Federated Collaboration:</strong> We are building a decentralized application using the AT Protocol (the same technology behind Bluesky) that allows researchers to securely share and compare genetic data without relying on a central server to hold their files.</li>
+          </ul>
+          <p class="card-text mb-3">Our goal is to empower citizen scientists with tools to explore human history while maintaining complete ownership and control over their sensitive genetic data.</p>
+        </div></div>
+      </article>
+    </li>
+
+    <li id="faq2" class="list-group-item border-0 px-0">
+      <article class="faq-entry">
+        <header class="mb-3">
+          <h2 class="h5 text-primary mb-2">Question 2</h2>
+          <h3 class="h6 text-secondary">How does the "Federated" model work?</h3>
+        </header>
+        <div class="card shadow-sm"><div class="card-body">
+          <p class="card-text mb-3">In a traditional model (like AncestryDNA or 23andMe), you provide a biological sample (such as buccal swab or blood) for sequencing. The service then processes your sample, sequences your genetic data, and often maintains ownership or significant control over that data on their servers. Decoding-Us.com offers a unique alternative: our platform is designed to bridge data from <em>any</em> genetic service—be it 23&amp;Me, Ancestry, FTDNA, YSEQ, or direct-to-consumer Whole Genome Sequencing (WGS) providers. As long as you maintain ownership and access to your sequencing data, our system empowers you to bring it into our federated network, uniting insights from across different providers.</p>
+          <p class="card-text mb-3">In our <strong>Federated Model</strong> (Phase 3 of our roadmap), you don't upload your raw data to us. Instead:</p>
+          <ol>
+            <li>You run a "Personal Data Server" (PDS) application—software that lives on your own computer or private cloud.</li>
+            <li>This software analyzes your WGS data locally to extract non-sensitive summaries (like your haplogroup or anonymous matching tokens).</li>
+            <li>You choose to publish these summaries to the "Atmosphere"—our secure network.</li>
+            <li>Decoding-Us.com acts as an "AppView," indexing this public information so you can find matches and collaborate with other researchers.</li>
+          </ol>
+          <p class="card-text mb-3">This approach, known as a "Decentralized AppView," ensures that your massive and sensitive raw data files (BAM/CRAM) never leave your control, while still allowing you to participate in community discoveries.</p>
+        </div></div>
+      </article>
+    </li>
+
+    <li id="faq3" class="list-group-item border-0 px-0">
+      <article class="faq-entry">
+        <header class="mb-3">
+          <h2 class="h5 text-primary mb-2">Question 3</h2>
+          <h3 class="h6 text-secondary">Can I upload my Big Y, WGS, or other DNA files?</h3>
+        </header>
+        <div class="card shadow-sm"><div class="card-body">
+          <p class="card-text mb-3"><strong>No, we do not accept direct file uploads.</strong> To protect your privacy and reduce infrastructure costs, we do not host user data files.</p>
+          <p class="card-text mb-3">Instead, we provide tools that allow you to process your data on your own machine. Currently, we offer an Alpha version of the <a href="https://github.com/JamesKane/decodingus-navigator" target="_blank" rel="noopener noreferrer">Decoding-Us Navigator</a> (also known as the Navigator Workbench). This edge-computing application runs locally on your PC (Windows/Linux/Mac) and empowers you to:</p>
+          <ul>
+            <li><strong>Analyze Locally:</strong> Process BAM/CRAM files directly on your machine to generate coverage metrics and haplogroup determinations without uploading massive files.</li>
+            <li><strong>Integrate with Atmosphere:</strong> Future versions will allow you to publish anonymized summaries to your Personal Data Server, enabling you to share insights with the federated network while keeping your raw data private.</li>
+          </ul>
+          <p class="card-text mb-3">The Navigator is built on the JVM (Java/Scala) for performance and cross-platform compatibility. It represents the core of our privacy-first philosophy: bring the analysis to the data, not the data to the analysis.</p>
+        </div></div>
+      </article>
+    </li>
+
+    <li id="faq4" class="list-group-item border-0 px-0">
+      <article class="faq-entry">
+        <header class="mb-3">
+          <h2 class="h5 text-primary mb-2">Question 4</h2>
+          <h3 class="h6 text-secondary">What is the "Atmosphere" and the AT Protocol?</h3>
+        </header>
+        <div class="card shadow-sm"><div class="card-body">
+          <p class="card-text mb-3">The <strong>AT Protocol</strong> is a new technology for decentralized social networking. It allows users to own their identity and data, moving freely between different services without losing their connections.</p>
+          <p class="card-text mb-3">We call our implementation the <strong>Atmosphere</strong>. Just as the air connects us all, the Atmosphere connects individual researchers' Personal Data Servers. It uses "Lexicons"—standard dictionaries for genetic data—to ensure that a researcher in the UK can automatically compare notes with a researcher in the US, even if they use different software, provided they both speak the "Atmosphere" language.</p>
+        </div></div>
+      </article>
+    </li>
+
+    <li id="faq5" class="list-group-item border-0 px-0">
+      <article class="faq-entry">
+        <header class="mb-3">
+          <h2 class="h5 text-primary mb-2">Question 5</h2>
+          <h3 class="h6 text-secondary">Why the .com domain? Is this a commercial service?</h3>
+        </header>
+        <div class="card shadow-sm"><div class="card-body">
+          <p class="card-text mb-3">Decoding-Us.com is currently a free resource. However, hosting high-performance databases and indexing the global federation costs money. We chose a .com domain to keep our options open for long-term sustainability.</p>
+          <p class="card-text mb-3">Future sustainability models might include:</p>
+          <ul>
+            <li><strong>Patronage Donation System:</strong> A voluntary tiered donation model where community members can become "Patrons" to support hardware and hosting costs. Contributions are optional, but help ensure the platform remains free and open for everyone.</li>
+            <li><strong>Managed PDS Hosting:</strong> For users who don't want to run their own server, we could offer a paid, secure hosting service for their Personal Data Server.</li>
+            <li><strong>Sponsorships:</strong> Partnerships with sequencing labs or academic institutions, provided they align with our strict privacy and anti-tracking values.</li>
+          </ul>
+          <p class="card-text">Regardless of the model, our commitment to open-source code and user data sovereignty will remain unchanged.</p>
+        </div></div>
+      </article>
+    </li>
+
+    <li id="faq6" class="list-group-item border-0 px-0">
+      <article class="faq-entry">
+        <header class="mb-3">
+          <h2 class="h5 text-primary mb-2">Question 6</h2>
+          <h3 class="h6 text-secondary">How can I submit my haplogroup tree research for merging into DecodingUs?</h3>
+        </header>
+        <div class="card shadow-sm"><div class="card-body">
+          <p class="card-text mb-3">DecodingUs welcomes contributions from researchers to help build a more comprehensive and accurate haplogroup tree. You can submit your data via our automated Tree Merge API.</p>
+          <p class="card-text mb-3">For a detailed guide on how to format your tree data, the rules for provenance (how your research gets credited), and how conflicts are resolved, please refer to our API documentation:
+            <a href="/api" hx-boost="false" target="_blank" class="btn btn-primary mt-2">Learn more about Submitting Tree Data</a>
+          </p>
+        </div></div>
+      </article>
+    </li>
+  </ol>
+
+{% else if page == "terms" %}
+  <h2 class="h5">Acceptance of Terms</h2>
+  <p>By accessing and using Decoding-Us.com (the "Website"), you agree to be bound by these Terms of Use.</p>
+
+  <h2 class="h5 mt-4">Use of Content</h2>
+  <p>The content provided on Decoding-Us.com, including the haplogroup trees and related information, is made available under the <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener noreferrer">Creative Commons Attribution 4.0 International License (CC BY 4.0)</a>. This means you are free to:</p>
+  <ul>
+    <li>Share — copy and redistribute the material in any medium or format</li>
+    <li>Adapt — remix, transform, and build upon the material for any purpose, even commercially.</li>
+  </ul>
+  <p>Under the following terms:</p>
+  <ul>
+    <li><strong>Attribution</strong> — You must give appropriate credit, provide a link to the license, and indicate if changes were made. You may do so in any reasonable manner, but not in any way that suggests the licensor endorses you or your use.</li>
+  </ul>
+  <p>Specifically, when providing attribution, we request that you credit "Decoding-Us.com" and, where possible, include a link back to our Website: <a href="https://decoding-us.com">decoding-us.com</a>.</p>
+  <p>The haplogroup trees and related information on this Website are generated and enhanced by integrating data from multiple sources, including aggregated, non-personally identifiable data obtained from a private federation of genetic genealogy researchers operating AT Protocol Personal Data Server (PDS) applications, <strong>and publicly available genetic data from repositories such as the <a href="https://www.ebi.ac.uk/ena/browser/home" target="_blank" rel="noopener noreferrer">European Nucleotide Archive</a> and <a href="https://my.pgp-hms.org/public_genetic_data" target="_blank" rel="noopener noreferrer">PGP: Harvard</a>. This integration allows for broader population coverage and more comprehensive branch identification.</strong> The data from the private federation is made publicly available by the researchers within their <abbr title="Personal Data Store">PDS</abbr> privacy controls and is crawled by Decoding-Us.com. Publicly available data from repositories is accessed and integrated according to their respective terms of use.</p>
+
+  <h2 class="h5 mt-4">Features for Research Collaboration</h2>
+  <p>Decoding-Us.com provides an Application View that allows researchers within the private federation using AT Protocol <abbr title="Personal Data Store">PDS</abbr> applications to communicate with each other based on shared genealogical and genetic information. This messaging feature is facilitated to encourage collaboration and potential relative matching. Users of the <abbr title="Personal Data Store">PDS</abbr> control whether they receive and engage with these messages.</p>
+  <p>The Website may also display anonymized ancestral population and Earliest Known Most Distant Ancestor (<abbr title="Most Distant Known Ancestor">MDKA</abbr>) information obtained from publicly shared data within the federation. This information is intended to provide genealogical context and facilitate connections among researchers. Please note that the <abbr title="Most Distant Known Ancestor">MDKA</abbr>'s date of birth may be masked to protect potential privacy.</p>
+
+  <h2 class="h5 mt-4">Responsibility for <abbr title="Personal Data Store">PDS</abbr> User Interactions</h2>
+  <p>The messaging functionality is a feature provided to facilitate communication between users of the AT Protocol <abbr title="Personal Data Store">PDS</abbr> within the private federation. Decoding-Us.com acts as an interface and does not assume responsibility for the content, conduct, or outcomes of these direct interactions between <abbr title="Personal Data Store">PDS</abbr> users. Users are solely responsible for their communications and interactions with others within the federated environment.</p>
+
+  <h2 class="h5 mt-4">Use of Anonymized Genealogical Data</h2>
+  <p>Any anonymized ancestral population and MDKA information displayed on Decoding-Us.com is derived from publicly shared data within the private research federation. While this information is intended to be helpful for genealogical research, Decoding-Us.com makes no warranties regarding its accuracy or completeness. Users should exercise their own judgment and conduct independent research to verify any genealogical information obtained through the Website.</p>
+
+  <h2 class="h5 mt-4">No Warranties</h2>
+  <p>THE CONTENT ON THIS WEBSITE IS PROVIDED "AS IS" AND WITHOUT WARRANTIES OF ANY KIND, EXPRESS OR IMPLIED. TO THE FULLEST EXTENT PERMITTED BY APPLICABLE LAW, DECODING-US.COM DISCLAIMS ALL WARRANTIES, INCLUDING, BUT NOT LIMITED TO, IMPLIED WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT. WE DO NOT WARRANT THAT THE WEBSITE WILL BE UNINTERRUPTED OR ERROR-FREE, THAT DEFECTS WILL BE CORRECTED, OR THAT THE WEBSITE OR THE SERVERS THAT MAKE IT AVAILABLE ARE FREE OF VIRUSES OR OTHER HARMFUL COMPONENTS.</p>
+
+  <h2 class="h5 mt-4">Limitation of Liability</h2>
+  <p>TO THE FULLEST EXTENT PERMITTED BY APPLICABLE LAW, IN NO EVENT SHALL DECODING-US.COM BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR PUNITIVE DAMAGES (INCLUDING, WITHOUT LIMITATION, DAMAGES FOR LOSS OF PROFITS, DATA, USE, GOODWILL, OR OTHER INTANGIBLE LOSSES) ARISING OUT OF OR RELATING TO YOUR ACCESS TO OR USE OF, OR YOUR INABILITY TO ACCESS OR USE, THE WEBSITE OR ITS CONTENT, WHETHER BASED ON WARRANTY, CONTRACT, TORT (INCLUDING NEGLIGENCE), STATUTE, OR ANY OTHER LEGAL THEORY, EVEN IF DECODING-US.COM HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.</p>
+
+  <h2 class="h5 mt-4">Governing Law</h2>
+  <p>These Terms of Use shall be governed by and construed in accordance with the laws of the State of Wisconsin, USA, without regard to its conflict of law provisions.</p>
+
+  <p class="mt-3"><strong>Last Updated:</strong> 2025-05-13</p>
+
+{% else if page == "privacy" %}
+  <p class="lead">This Privacy Statement explains how Decoding-Us.com (the "Website") handles the limited data processed during your interaction with our application, including the use of data from a federated platform.</p>
+
+  <h2 class="h5 mt-4">1. Introduction</h2>
+  <p>This statement outlines our practices regarding the processing of personal data in connection with Decoding-Us.com. As a <a href="https://htmx.org/essays/hateoas/" target="_blank" rel="noopener noreferrer">Hypermedia as the Engine of Application State (HATEOAS)</a> application focused on providing public data, we also integrate anonymized and public data from a federated platform to enhance our content.</p>
+
+  <h2 class="h5 mt-4">2. Features Facilitating Research Collaboration</h2>
+  <p>Decoding-Us.com provides an Application View that allows users of participating AT Protocol Personal Data Servers (PDS) within the private research federation to send messages to one another. This messaging functionality is intended to facilitate collaboration among researchers based on shared haplogroups in the genealogical era, ancestral populations, or existing matching networks. Users on the PDS have full control over whether to allow or ignore incoming messages.</p>
+  <p>To further enhance research and potential connections, Decoding-Us.com may also collect anonymized ancestral population information and Earliest Known Most Distant Ancestor (MDKA) data from publicly shared data on the federated <abbr title="Personal Data Repository">PDS</abbr>. This <abbr title="Most Distant Known Ancestor">MDKA</abbr> information may include geocoordinates, date of birth, date of death, and surname. To protect potential privacy, the <abbr title="Most Distant Known Ancestor">MDKA</abbr>'s date of birth will be masked if it falls within the last 100 years.</p>
+  <p>It is crucial to understand that researchers control what information they make public on their <abbr title="Personal Data Repository">PDS</abbr> through their privacy settings. Decoding-Us.com only accesses and processes data that has been explicitly shared publicly by these researchers within the federated environment. We do not access or collect any private or personally identifiable genetic or genealogical data beyond what researchers choose to share publicly.</p>
+  <p>The purpose of these features is to empower researchers to connect, share insights, and collaboratively refine haplogroup understanding and genealogical connections. The anonymized <abbr title="Most Distant Known Ancestor">MDKA</abbr> information helps provide context without revealing recent personal details.</p>
+
+  <h2 class="h5 mt-4">3. Data We Collect</h2>
+  <p>Currently, this Website does not actively collect personal data such as names, email addresses, or account information directly from our viewing users. Our design does not require or facilitate user registration or login on Decoding-Us.com itself.</p>
+  <p>However, our server logs automatically record certain information when you access the Website, including:</p>
+  <ul>
+    <li>Your IP address</li>
+    <li>The date and time of your request</li>
+    <li>The type of browser and operating system you are using (user-agent string)</li>
+    <li>The specific endpoints (URLs) you access</li>
+  </ul>
+  <p>Through our Application View functionality for the private research federation, we may also process the following types of <strong>publicly shared, anonymized data</strong> from participating <abbr title="Personal Data Repository">PDS</abbr>:</p>
+  <ul>
+    <li>Aggregated statistics on genetic tests and coverage.</li>
+    <li>Information about private SNPs beyond the terminal haplogroup branch.</li>
+    <li>Data on negative calls for the terminal branch and its siblings.</li>
+    <li>Anonymized ancestral population information.</li>
+    <li>Earliest Known Most Distant Ancestor (MDKA) data (geocoordinates, masked date of birth if within the last 100 years, date of death, and surname).</li>
+  </ul>
+  <p>This data is processed to facilitate research collaboration and enhance the haplogroup information presented on Decoding-Us.com.</p>
+
+  <h2 class="h5 mt-4">4. Communication Between <abbr title="Personal Data Repository">PDS</abbr> Users</h2>
+  <p>The messaging feature is facilitated by the AT Protocol <abbr title="Personal Data Repository">PDS</abbr> infrastructure. Decoding-Us.com provides the interface for this communication, but the control over allowing or ignoring messages resides entirely with the individual <abbr title="Personal Data Repository">PDS</abbr> users. We do not monitor the content of these messages.</p>
+
+  <h2 class="h5 mt-4">5. Data Sharing</h2>
+  <p>Decoding-Us.com does not share the personal data of our website viewers with the federated researchers or their AT Protocol <abbr title="Personal Data Repository">PDS</abbr> applications. Our interaction with the federation involves crawling and analyzing aggregated, non-personally identifiable data that researchers have chosen to make public within their <abbr title="Personal Data Repository">PDS</abbr> privacy controls. We also facilitate direct messaging between <abbr title="Personal Data Repository">PDS</abbr> users within the federation, but we do not access or store the content of these messages. The anonymized ancestral population and MDKA information we collect is used to enhance the research capabilities and content on Decoding-Us.com and is not shared back with individual <abbr title="Personal Data Repository">PDS</abbr> users in a personally identifiable way.</p>
+
+  <h2 class="h5 mt-4">6. Your Rights and International Data Protection Laws</h2>
+  <p>Depending on your location and applicable data protection laws, such as the General Data Protection Regulation (GDPR) in the European Union, the California Consumer Privacy Act (CCPA) in California, and similar regulations elsewhere, you may have certain rights regarding your personal data. These rights can include the right to access, rectify, erase, restrict processing, and object to the processing of your personal data, as well as the right to data portability.</p>
+  <p>While the scope of personal data we currently process from our users is limited to server logs, we are committed to respecting these rights where applicable. If you have any inquiries regarding your rights under relevant data protection laws and how they might apply to the limited data we process, please contact us using the information below.</p>
+
+  <h2 class="h5 mt-4">7. Updates to this Privacy Statement</h2>
+  <p>We may update this Privacy Statement from time to time to reflect changes in our practices or legal requirements, including the integration with the federated platform. We will post any changes on this page, and we encourage you to review this statement periodically.</p>
+
+  <p class="mt-3"><strong>Last Updated:</strong> 2025-05-13</p>
+
+{% else if page == "cookies" %}
+  <p class="lead">This Cookie Usage Policy explains how Decoding-Us.com (the "Website") uses cookies.</p>
+
+  <h2 class="h5 mt-4">What are Cookies?</h2>
+  <p>Cookies are small text files that are placed on your computer or mobile device when you visit a website. They are widely used to make websites work, or work more efficiently, as well as to provide information to the owners of the website.</p>
+
+  <h2 class="h5 mt-4">Cookies We Use</h2>
+  <p>This Website uses cookies <strong>exclusively</strong> for authentication and authorization purposes. Specifically:</p>
+  <ul>
+    <li><strong>Session Cookies:</strong> To maintain your logged-in state as you navigate the Website. These cookies are essential for the authentication system to function and are deleted when you close your browser or log out.</li>
+    <li><strong>Security Cookies:</strong> To help protect your account and prevent unauthorized access, including CSRF (Cross-Site Request Forgery) protection tokens.</li>
+  </ul>
+
+  <h2 class="h5 mt-4">What We Do NOT Use Cookies For</h2>
+  <p>We want to be clear about what we do <strong>not</strong> do with cookies:</p>
+  <ul>
+    <li><strong>No Tracking:</strong> We do not track your browsing activity on other websites.</li>
+    <li><strong>No Analytics:</strong> We do not use cookies for analytics or to monitor user behavior patterns.</li>
+    <li><strong>No Marketing:</strong> We do not use cookies for advertising or marketing purposes.</li>
+    <li><strong>No Third-Party Sharing:</strong> We do not share cookie data with any third parties.</li>
+    <li><strong>No Data Sales:</strong> We do not sell any information collected through cookies.</li>
+  </ul>
+
+  <h2 class="h5 mt-4">Third-Party Cookies</h2>
+  <p>This Website does <strong>not</strong> utilize any third-party cookies. We do not embed third-party tracking scripts, advertising networks, or social media widgets that would set their own cookies.</p>
+
+  <h2 class="h5 mt-4">Managing Cookies</h2>
+  <p>Since our cookies are essential for authentication, disabling them will prevent you from logging into the Website. You can manage cookies through your browser settings:</p>
+  <ul>
+    <li>Most browsers allow you to view, manage, and delete cookies in the privacy or security settings.</li>
+    <li>If you delete our session cookies, you will be logged out and need to sign in again.</li>
+  </ul>
+
+  <h2 class="h5 mt-4">Updates to this Cookie Policy</h2>
+  <p>We may update this Cookie Usage Policy from time to time. Any changes will be posted on this page. Our commitment to using cookies only for authentication and authorization purposes will not change without clear notice to our users.</p>
+
+  <p class="mt-3"><strong>Last Updated:</strong> 2025-12-09</p>
+
+{% else if page == "reputation" %}
+  <p class="lead">The Decoding Us Reputation System is designed to foster a high-quality, trustworthy community for genetic genealogy and research. It rewards positive contributions and protects the community from spam and abuse.</p>
+
+  <h2 class="h5 mt-4">How it Works</h2>
+  <p>Every user starts with a neutral reputation score. As you contribute to the platform, your score increases. Conversely, actions that harm the community may lower your score. Higher scores unlock advanced features, ensuring that powerful tools are used by trusted members.</p>
+
+  <h2 class="h5 mt-4">Earning Reputation</h2>
+  <p>You can earn reputation points through:</p>
+  <ul>
+    <li><strong>Identity Verification:</strong> Verifying your email and identity (+10 points).</li>
+    <li><strong>Data Contributions:</strong> Submitting sequencer metadata that is verified by the community (+5 points).</li>
+    <li><strong>Community Engagement:</strong> Having your posts or comments upvoted by others (+1 point).</li>
+    <li><strong>Research Participation:</strong> Accepting recruitment requests from researchers (+2 points).</li>
+    <li><strong>Welcome Bonus:</strong> New users receive a starter bonus (+5 points).</li>
+  </ul>
+
+  <h2 class="h5 mt-4">Losing Reputation</h2>
+  <p>Your reputation score decreases if:</p>
+  <ul>
+    <li><strong>Spam Reports:</strong> Your content is marked as spam by moderators or community consensus (-50 points).</li>
+    <li><strong>Negative Feedback:</strong> Your posts are consistently downvoted (-1 point).</li>
+  </ul>
+
+  <h2 class="h5 mt-4">Reputation Levels</h2>
+  <p>Your score determines your access to certain features:</p>
+  <ul>
+    <li><strong>Newcomer (0-10):</strong> Read-only access to public feeds.</li>
+    <li><strong>Member (10+):</strong> Can post to the public feed and upvote content.</li>
+    <li><strong>Trusted (20+):</strong> Can initiate Direct Messages (DMs) with other users.</li>
+    <li><strong>Community Leader (50+):</strong> Can create new groups and has higher visibility.</li>
+  </ul>
+
+  <div class="alert alert-info mt-4">
+    <strong>Note:</strong> Reputation scores are calculated transparently based on these rules. Our goal is to create a safe environment where scientific collaboration can thrive.
+  </div>
+{% endif %}
+
+</div></div>
+{% endblock %}

@@ -1,0 +1,48 @@
+{# Fragment: biosample report for one publication. Target of #reference-detail. #}
+<div class="card">
+  <div class="card-header">
+    <strong>{{ t.get("references.biosamples.title") }}</strong>
+    <div class="small text-muted text-truncate">{{ pub_title }}</div>
+    {% if let Some(doi) = pub_doi %}
+    <a class="small" href="https://doi.org/{{ doi }}" target="_blank" rel="noopener">{{ t.get("references.viewDoi") }}: {{ doi }}</a>
+    {% endif %}
+  </div>
+  <div class="card-body p-2">
+    {% if rows.is_empty() %}
+    <p class="detail-empty m-2">{{ t.get("references.biosamples.none") }}</p>
+    {% else %}
+    <table class="table table-sm align-middle mb-2">
+      <thead><tr>
+        <th>{{ t.get("references.col.accession") }}</th>
+        <th>{{ t.get("references.col.source") }}</th>
+        <th>{{ t.get("references.col.alias") }}</th>
+      </tr></thead>
+      <tbody>
+        {% for b in rows %}
+        <tr title="{{ b.description }}">
+          <td>
+            {% if b.accession.is_empty() %}<code>{{ b.accession }}</code>
+            {% else %}<a href="/sample/{{ b.accession }}" hx-boost="false"><code>{{ b.accession }}</code></a>{% endif %}
+          </td>
+          <td><span class="badge text-bg-light">{{ b.source }}</span></td>
+          <td><small>{{ b.alias }}</small></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% if total_pages > 1 %}
+    <nav class="d-flex justify-content-between align-items-center px-2">
+      <button class="btn btn-sm btn-outline-secondary{% if page <= 1 %} disabled{% endif %}"
+              hx-get="/references/{{ pub_id }}/biosamples?page={{ page - 1 }}&page_size={{ page_size }}"
+              hx-target="#reference-detail">{{ t.get("pagination.previous") }}</button>
+      <small class="text-muted">{{ t.get("pagination.page") }} {{ page }} {{ t.get("pagination.of") }} {{ total_pages }}</small>
+      <button class="btn btn-sm btn-outline-secondary{% if page >= total_pages %} disabled{% endif %}"
+              hx-get="/references/{{ pub_id }}/biosamples?page={{ page + 1 }}&page_size={{ page_size }}"
+              hx-target="#reference-detail">{{ t.get("pagination.next") }}</button>
+    </nav>
+    {% else %}
+    <small class="text-muted px-2">{{ total }} {{ t.get("pagination.total") }}</small>
+    {% endif %}
+    {% endif %}
+  </div>
+</div>

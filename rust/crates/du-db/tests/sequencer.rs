@@ -1,0 +1,106 @@
+//! Live-DB test for `du_db::sequencer` — instrument → lab lookup over the
+//! preseeded direct `sequencer_instrument.lab_id` association. Re-runnable; skips
+//! (passes) when DATABASE_URL is unset.
+
+use sqlx::PgPool;
+
+fn database_url() -> Option<String> {
+    std::env::var("DATABASE_URL").ok().filter(|s| !s.is_empty())
+}
+
+async fn lab(pool: &PgPool, name: &str, d2c: bool, web: Option<&str>) -> i64 {
+    sqlx::query_scalar(
+        "INSERT INTO genomics.sequencing_lab (name, is_d2c, website_url) VALUES ($1,$2,$3) RETURNING id",
+    )
+    .bind(name)
+    .bind(d2c)
+    .bind(web)
+    .fetch_one(pool)
+    .await
+    .expect("insert lab")
+}
+
+async fn instrument(pool: &PgPool, iid: &str, model: Option<&str>, manuf: Option<&str>, lab_id: Option<i64>) {
+    sqlx::query(
+        "INSERT INTO genomics.sequencer_instrument (instrument_id, model_name, manufacturer, lab_id) \
+         VALUES ($1,$2,$3,$4)",
+    )
+    .bind(iid)
+    .bind(model)
+    .bind(manuf)
+    .bind(lab_id)
+    .execute(pool)
+    .await
+    .expect("insert instrument");
+}
+
+#[tokio::test]
+async fn lookup_resolves_preseeded_association() {
+    let Some(url) = database_url() else {
+        eprintln!("DATABASE_URL unset — skipping sequencer test");
+        return;
+    };
+    let db = du_db::testing::ephemeral_db(&url).await.expect("ephemeral db");
+    let pool = db.pool().clone();
+
+    // A test-only lab/instrument (names chosen to not collide with the 0038 seed).
+    let acme = lab(&pool, "Acme Test Sequencing", true, Some("https://acme.test")).await;
+    instrument(&pool, "ACME-T1", Some("NovaSeq 6000"), Some("Illumina"), Some(acme)).await;
+    // An instrument with no preseeded lab association.
+    instrument(&pool, "M01234", Some("MiSeq"), Some("Illumina"), None).await;
+
+    // Known instrument resolves with full lab detail.
+    let hit = du_db::sequencer::lookup_lab(&pool, "ACME-T1").await.expect("lookup").expect("found");
+    assert_eq!(hit.lab_name, "Acme Test Sequencing");
+    assert!(hit.is_d2c);
+    assert_eq!(hit.website_url.as_deref(), Some("https://acme.test"));
+    assert_eq!(hit.model_name.as_deref(), Some("NovaSeq 6000"));
+    assert_eq!(hit.manufacturer.as_deref(), Some("Illumina"));
+
+    // Unknown instrument → None.
+    assert!(du_db::sequencer::lookup_lab(&pool, "ZZ99999").await.expect("lookup").is_none());
+    // Instrument with no lab association → None (inner join drops it).
+    assert!(du_db::sequencer::lookup_lab(&pool, "M01234").await.expect("lookup").is_none());
+
+    // Bulk list includes the test instrument (alongside the 0038-seeded ones); the
+    // unassociated M01234 is excluded.
+    let all = du_db::sequencer::lab_instruments(&pool).await.expect("list");
+    assert!(all.iter().any(|i| i.instrument_id == "ACME-T1"));
+    assert!(!all.iter().any(|i| i.instrument_id == "M01234"));
+}
+
+/// The 0038 seed preloads the YDNA-Warehouse d2c instrument→lab map (n_crams>2, max-lab).
+#[tokio::test]
+async fn seed_preloads_ydna_warehouse_labs() {
+    let Some(url) = database_url() else {
+        eprintln!("DATABASE_URL unset — skipping seed test");
+        return;
+    };
+    let db = du_db::testing::ephemeral_db(&url).await.expect("ephemeral db");
+    let pool = db.pool().clone();
+
+    // A few representative ties: the max-lab winner, not a runner-up or NO_CSV.
+    let a00186 = du_db::sequencer::lookup_lab(&pool, "A00186").await.unwrap().expect("seeded");
+    assert_eq!(a00186.lab_name, "Family Tree DNA");
+    assert!(a00186.is_d2c);
+    assert_eq!(a00186.model_name.as_deref(), Some("NovaSeq6000"));
+    assert_eq!(du_db::sequencer::lookup_lab(&pool, "YSEQ1").await.unwrap().unwrap().lab_name, "YSEQ");
+    assert_eq!(du_db::sequencer::lookup_lab(&pool, "A00182").await.unwrap().unwrap().lab_name, "YSEQ"); // YSEQ:6 beats NO_CSV:1
+    assert_eq!(du_db::sequencer::lookup_lab(&pool, "FP200007833").await.unwrap().unwrap().lab_name, "Nebula Genomics");
+    assert_eq!(du_db::sequencer::lookup_lab(&pool, "ST-E00317").await.unwrap().unwrap().lab_name, "Full Genomes Corporation");
+
+    // Below-threshold / no-lab instruments are NOT seeded (n_crams ≤ 2, or NO_CSV/blank).
+    assert!(du_db::sequencer::lookup_lab(&pool, "UNKNOWN").await.unwrap().is_none());
+    assert!(du_db::sequencer::lookup_lab(&pool, "MG01HX03").await.unwrap().is_none()); // n_crams=2
+
+    // 36 instruments across 5 labs were seeded.
+    let seeded: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM genomics.sequencer_instrument i \
+         JOIN genomics.sequencing_lab l ON l.id = i.lab_id \
+         WHERE l.name IN ('Family Tree DNA','Dante Labs','Nebula Genomics','Full Genomes Corporation','YSEQ')",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(seeded, 36);
+}

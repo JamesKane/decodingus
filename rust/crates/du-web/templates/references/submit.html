@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}{{ t.get("submit.title") }} — {{ t.get("app.name") }}{% endblock %}
+{% block head %}{% if let Some(_k) = site_key %}<script src="https://www.google.com/recaptcha/api.js" async defer></script>{% endif %}{% endblock %}
+{% block content %}
+<div class="row"><div class="col-lg-7">
+<h1 class="h3 mb-1">{{ t.get("submit.title") }}</h1>
+<p class="text-muted small mb-3">{{ t.get("submit.intro") }}</p>
+
+{% if let Some(title) = queued %}
+<div class="alert alert-success">
+  {{ t.get("submit.queued") }}<br><strong>{{ title }}</strong>
+</div>
+<a class="btn btn-sm btn-outline-secondary" href="/references">{{ t.get("submit.back") }}</a>
+{% else %}
+{% if let Some(err) = error %}<div class="alert alert-danger">{{ err }}</div>{% endif %}
+<form method="post" action="/references/submit" hx-boost="false">
+  <div class="mb-2">
+    <label class="form-label">{{ t.get("submit.doi") }}</label>
+    <input class="form-control" name="doi" value="{{ doi }}" placeholder="10.1038/s41586-024-00000-0" required>
+    <div class="form-text">{{ t.get("submit.doi.help") }}</div>
+  </div>
+  {% if let Some(k) = site_key %}<div class="g-recaptcha mb-3" data-sitekey="{{ k }}"></div>{% endif %}
+  <button class="btn btn-primary">{{ t.get("submit.button") }}</button>
+  <a class="btn btn-outline-secondary" href="/references">{{ t.get("submit.back") }}</a>
+</form>
+{% endif %}
+</div></div>
+{% endblock %}

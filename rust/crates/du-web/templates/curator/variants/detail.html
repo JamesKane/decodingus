@@ -1,0 +1,23 @@
+{# Fragment: variant detail + actions. Target of #variant-detail. #}
+<div class="card">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <strong><code>{{ v.name }}</code></strong>
+    <span class="badge text-bg-secondary">{{ v.mutation_type }}</span>
+  </div>
+  <div class="card-body">
+    {% if let Some(err) = error %}<div class="alert alert-warning py-2">{{ err }}</div>{% endif %}
+    <dl class="row mb-2">
+      <dt class="col-5">{{ t.get("var.field.status") }}</dt><dd class="col-7">{{ v.naming_status }}</dd>
+      <dt class="col-5">{{ t.get("var.field.commonNames") }}</dt><dd class="col-7">{{ v.common_names }}</dd>
+      <dt class="col-5">{{ t.get("var.field.rsIds") }}</dt><dd class="col-7">{{ v.rs_ids }}</dd>
+      <dt class="col-5">{{ t.get("var.field.builds") }}</dt><dd class="col-7">{{ v.builds }}</dd>
+    </dl>
+    <div class="d-flex gap-2">
+      <button class="btn btn-sm btn-outline-primary" hx-get="/curator/variants/{{ v.id }}/edit" hx-target="#variant-detail">{{ t.get("var.edit") }}</button>
+      {% if can_delete %}
+      <button class="btn btn-sm btn-outline-danger" hx-delete="/curator/variants/{{ v.id }}" hx-target="#variant-detail"
+              hx-confirm="{{ t.get("var.delete.confirm") }}">{{ t.get("var.delete") }}</button>
+      {% endif %}
+    </div>
+  </div>
+</div>

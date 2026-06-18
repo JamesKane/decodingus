@@ -1,0 +1,53 @@
+{# Fragment: proposal detail + review actions. Target of #proposal-detail. #}
+<div class="card">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <strong>{{ row.name }}</strong>
+    <span class="badge text-bg-secondary">{{ row.status }}</span>
+  </div>
+  <div class="card-body">
+    {% if split %}
+    <div class="alert alert-warning py-2 px-3 small mb-3">{{ t.get("prop.split.note") }}</div>
+    {% endif %}
+    <dl class="row mb-2">
+      <dt class="col-6">{{ t.get("prop.col.parent") }}</dt><dd class="col-6">{{ row.parent }}</dd>
+      <dt class="col-6">{{ t.get("prop.col.dna") }}</dt><dd class="col-6">{{ row.dna }}</dd>
+      <dt class="col-6">{{ t.get("prop.col.evidence") }}</dt><dd class="col-6">{{ row.evidence_count }}</dd>
+      <dt class="col-6">{{ t.get("prop.col.submitters") }}</dt><dd class="col-6">{{ row.submitter_count }}</dd>
+      <dt class="col-6">{{ t.get("prop.col.confidence") }}</dt><dd class="col-6">{{ row.confidence }}</dd>
+    </dl>
+
+    {% if !variants.is_empty() %}
+    <h6>{{ t.get("prop.variants") }}</h6>
+    <table class="table table-sm align-middle mb-3">
+      <thead><tr><th>{{ t.get("prop.var.name") }}</th><th class="text-end">{{ t.get("prop.var.support") }}</th></tr></thead>
+      <tbody>
+        {% for v in variants %}
+        <tr><td><code>{{ v.name }}</code></td><td class="text-end">{{ v.support }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+
+    <h6>{{ t.get("prop.evidence") }}</h6>
+    {% for e in evidence %}
+    <pre class="bg-light p-2 rounded small mb-2"><code>{{ e }}</code></pre>
+    {% endfor %}
+
+    {% if open %}
+    <form hx-post="/curator/proposals/{{ row.id }}/review" hx-target="#proposal-detail" hx-swap="innerHTML" class="mt-2">
+      <input class="form-control form-control-sm mb-2" name="notes" placeholder="{{ t.get("prop.notes") }}">
+      <div class="d-flex gap-2">
+        <button class="btn btn-sm btn-success" name="action" value="APPROVE">{{ t.get("prop.approve") }}</button>
+        <button class="btn btn-sm btn-outline-danger" name="action" value="REJECT">{{ t.get("prop.reject") }}</button>
+        <button class="btn btn-sm btn-outline-secondary" name="action" value="DEFER">{{ t.get("prop.defer") }}</button>
+      </div>
+    </form>
+    {% endif %}
+    {% if accepted %}
+    <button class="btn btn-sm btn-primary mt-2"
+            hx-post="/curator/proposals/{{ row.id }}/promote" hx-target="#proposal-detail" hx-swap="innerHTML">
+      {{ t.get("prop.promote") }}
+    </button>
+    {% endif %}
+  </div>
+</div>

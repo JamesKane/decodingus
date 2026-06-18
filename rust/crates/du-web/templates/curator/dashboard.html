@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}{{ t.get("curator.title") }} — {{ t.get("app.name") }}{% endblock %}
+{% block content %}
+<h1 class="h3 mb-3">{{ t.get("curator.title") }}</h1>
+<p class="text-muted">{{ t.get("curator.welcome") }} <strong>{{ display_name }}</strong> · {{ t.get("curator.roles") }}: {{ roles }}</p>
+<div class="list-group" style="max-width: 32rem;">
+  <a class="list-group-item list-group-item-action" href="/curator/haplogroups">
+    {{ t.get("curator.tool.haplogroups") }}
+  </a>
+  <a class="list-group-item list-group-item-action" href="/curator/variants">
+    {{ t.get("curator.tool.variants") }}
+  </a>
+  <a class="list-group-item list-group-item-action" href="/curator/naming">
+    {{ t.get("curator.tool.naming") }}
+  </a>
+  <a class="list-group-item list-group-item-action" href="/curator/reconcile-flags">
+    {{ t.get("curator.tool.reconcile_flags") }}
+  </a>
+  <a class="list-group-item list-group-item-action" href="/curator/denovo-conflicts">
+    {{ t.get("curator.tool.denovo_conflicts") }}
+  </a>
+  <a class="list-group-item list-group-item-action" href="/curator/regions">
+    {{ t.get("curator.tool.regions") }}
+  </a>
+  <a class="list-group-item list-group-item-action" href="/curator/proposals">
+    {{ t.get("curator.tool.proposals") }}
+  </a>
+  <a class="list-group-item list-group-item-action" href="/curator/publications">
+    {{ t.get("curator.tool.publications") }}
+  </a>
+  <a class="list-group-item list-group-item-action" href="/curator/change-sets">
+    {{ t.get("curator.tool.change_sets") }}
+  </a>
+  <a class="list-group-item list-group-item-action" href="/curator/instrument-proposals">
+    {{ t.get("curator.tool.instrument_proposals") }}
+  </a>
+</div>
+{% endblock %}

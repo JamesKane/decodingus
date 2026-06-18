@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}{{ t.get("contact.title") }} — {{ t.get("app.name") }}{% endblock %}
+{% block head %}{% if let Some(_k) = site_key %}<script src="https://www.google.com/recaptcha/api.js" async defer></script>{% endif %}{% endblock %}
+{% block content %}
+<div class="row"><div class="col-lg-7">
+<h1 class="h3 mb-3">{{ t.get("contact.title") }}</h1>
+{% if sent %}
+<div class="alert alert-success">{{ t.get("contact.sent") }}</div>
+<a class="btn btn-sm btn-outline-secondary" href="/">{{ t.get("nav.about") }}</a>
+{% else %}
+{% if let Some(err) = error %}<div class="alert alert-danger">{{ err }}</div>{% endif %}
+<form method="post" action="/contact" hx-boost="false">
+  <div class="mb-2"><label class="form-label">{{ t.get("contact.name") }}</label><input class="form-control" name="name"></div>
+  <div class="mb-2"><label class="form-label">{{ t.get("contact.email") }}</label><input class="form-control" type="email" name="email"></div>
+  <div class="mb-2"><label class="form-label">{{ t.get("contact.subject") }}</label><input class="form-control" name="subject"></div>
+  <div class="mb-2"><label class="form-label">{{ t.get("contact.message") }}</label><textarea class="form-control" name="message" rows="5" required></textarea></div>
+  {% if let Some(k) = site_key %}<div class="g-recaptcha mb-3" data-sitekey="{{ k }}"></div>{% endif %}
+  <button class="btn btn-primary">{{ t.get("contact.send") }}</button>
+</form>
+{% endif %}
+</div></div>
+{% endblock %}

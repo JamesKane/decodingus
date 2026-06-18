@@ -1,0 +1,16 @@
+{# Curator visibility toggle. Target of its own HTMX swap. #}
+<div id="sample-public-toggle" class="card border-warning mb-3">
+  <div class="card-body py-2 d-flex align-items-center justify-content-between">
+    <span class="small text-muted">{{ t.get("sample.curator.visibility") }}</span>
+    <form class="form-check form-switch m-0"
+          hx-post="/curator/samples/{{ slug }}/public"
+          hx-target="#sample-public-toggle" hx-swap="outerHTML"
+          hx-trigger="change from:input">
+      <input class="form-check-input" type="checkbox" name="is_public" role="switch"
+             {% if is_public %}checked{% endif %}>
+      <label class="form-check-label small">
+        {% if is_public %}{{ t.get("sample.curator.public") }}{% else %}{{ t.get("sample.curator.private") }}{% endif %}
+      </label>
+    </form>
+  </div>
+</div>

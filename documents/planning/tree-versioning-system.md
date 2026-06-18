@@ -1,5 +1,25 @@
 # Tree Versioning System: Production and WIP Trees
 
+> **📝 Rust status (2026-06-07).** Built — the doc's recommended **Option B (overlay
+> change-sets)** is what shipped: `tree.change_set` (native enum
+> `tree.change_set_status`) + `tree.tree_change`; there is **no `tree.tree_version`
+> table** (Option A was not taken); audit in `tree.curator_action`. **Stale below:**
+> the Scala/Slick/`*.scala.html` code, the `SERIAL`/`VARCHAR CHECK`/`TIMESTAMP`
+> schema (reality uses `BIGINT IDENTITY` + native enums + the existing temporal
+> `valid_from`/`valid_until` model, no version-id columns), the public
+> `/api/v1/tree/change-sets` + `/api/v1/curator/changes/*` endpoints (reality:
+> `/curator/change-sets/*` + `/curator/reviews/*` UI and `/manage/change-sets/*`
+> machine), and the granular `tree.version.*` permissions (reality: the single
+> **`Curator`** role).
+>
+> **Substantive evolution:** ambiguity handling moved from a file-based
+> `ambiguity_report_path` to the **`tree.wip_*` staging tables + the `/curator/reviews`
+> resolution flow** (REPARENT / MERGE_EXISTING / DEFER), enacted by the change-set
+> apply engine — see the user guide
+> [`../curator-guide-tree-versioning.md`](../curator-guide-tree-versioning.md). Treat
+> the API/permissions/`.scala` sections below as historical. Triage:
+> `design-doc-triage-report.md` §2.
+
 ## Executive Summary
 
 This document outlines a system for managing multiple versions of the haplogroup tree: a **Production** (canonical, public-facing) version and a **WIP** (Work-In-Progress, staging) version. This enables large-scale tree merges (ISOGG, ytree.net, academic sources) to be ingested, reviewed, and validated before affecting production reporting.

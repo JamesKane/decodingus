@@ -1,0 +1,42 @@
+{# Macro: one haplogroup pathway (root → tip). Imported by samples/report.html.
+   `t` is the translator, passed in since macros can't see template fields. #}
+{% macro pathway(t, title, pv) %}
+<div class="card mb-3">
+  <div class="card-header py-2 d-flex justify-content-between align-items-center">
+    <strong>{{ title }}</strong>
+    {% if let Some(call) = pv.call %}<code class="small">{{ call }}</code>{% endif %}
+  </div>
+  {% if pv.reconciled %}
+  <div class="card-header py-1 bg-light small text-muted d-flex flex-wrap gap-3">
+    <span class="badge text-bg-success">{{ t.get("sample.recon.consensus") }}</span>
+    {% if pv.run_count != "" %}<span>{{ pv.run_count }} {{ t.get("sample.recon.runs") }}</span>{% endif %}
+    {% if pv.confidence != "" %}<span>{{ t.get("sample.recon.confidence") }} {{ pv.confidence }}</span>{% endif %}
+    {% if pv.concordance != "" %}<span>{{ t.get("sample.recon.concordance") }} {{ pv.concordance }}</span>{% endif %}
+  </div>
+  {% endif %}
+  {% if pv.call.is_none() %}
+  <div class="card-body small text-muted">{{ t.get("sample.pathway.noCall") }}</div>
+  {% else if !pv.placed %}
+  <div class="card-body small text-muted">{{ t.get("sample.pathway.unplaced") }}</div>
+  {% else %}
+  <div class="card-body p-0">
+    <ol class="list-group list-group-flush list-group-numbered">
+      {% for st in pv.steps %}
+      <li class="list-group-item d-flex justify-content-between align-items-start">
+        <div class="ms-2 me-auto">
+          <a class="fw-semibold" href="{{ st.href }}" hx-boost="false">{{ st.name }}</a>
+          {% if !st.snps.is_empty() %}
+          <div class="small text-muted font-monospace">{{ st.snps|join(", ") }}</div>
+          {% endif %}
+        </div>
+        <span class="text-nowrap ms-2">
+          {% if st.formed != "—" %}<span class="badge text-bg-light border" title="{{ t.get("hg.field.formed") }}">{{ st.formed }}</span>{% endif %}
+          {% if st.tmrca != "—" %}<span class="badge text-bg-light border" title="{{ t.get("hg.field.tmrca") }}">{{ st.tmrca }} {{ t.get("sample.ybp") }}</span>{% endif %}
+        </span>
+      </li>
+      {% endfor %}
+    </ol>
+  </div>
+  {% endif %}
+</div>
+{% endmacro %}

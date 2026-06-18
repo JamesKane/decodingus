@@ -1,0 +1,49 @@
+{# Fragment: variant create/edit form. Target of #variant-detail. #}
+<div class="card">
+  <div class="card-header">{% if is_edit %}{{ t.get("var.edit") }}{% else %}{{ t.get("var.new") }}{% endif %}</div>
+  <div class="card-body">
+    <form hx-post="{{ action }}" hx-target="#variant-detail" hx-swap="innerHTML">
+      <div class="mb-2">
+        <label class="form-label">{{ t.get("var.field.name") }}</label>
+        <input class="form-control" name="name" value="{{ name }}" required>
+      </div>
+      <div class="row">
+        <div class="col mb-2">
+          <label class="form-label">{{ t.get("var.field.type") }}</label>
+          <select class="form-select" name="mutation_type">
+            <option value="SNP"{% if mutation_type == "SNP" %} selected{% endif %}>SNP</option>
+            <option value="INDEL"{% if mutation_type == "INDEL" %} selected{% endif %}>INDEL</option>
+            <option value="STR"{% if mutation_type == "STR" %} selected{% endif %}>STR</option>
+            <option value="DEL"{% if mutation_type == "DEL" %} selected{% endif %}>DEL</option>
+            <option value="INS"{% if mutation_type == "INS" %} selected{% endif %}>INS</option>
+            <option value="MNP"{% if mutation_type == "MNP" %} selected{% endif %}>MNP</option>
+          </select>
+        </div>
+        <div class="col mb-2">
+          <label class="form-label">{{ t.get("var.field.status") }}</label>
+          <select class="form-select" name="naming_status">
+            <option value="UNNAMED"{% if naming_status == "UNNAMED" %} selected{% endif %}>UNNAMED</option>
+            <option value="PENDING_REVIEW"{% if naming_status == "PENDING_REVIEW" %} selected{% endif %}>PENDING_REVIEW</option>
+            <option value="NAMED"{% if naming_status == "NAMED" %} selected{% endif %}>NAMED</option>
+          </select>
+        </div>
+      </div>
+      <div class="mb-2">
+        <label class="form-label">{{ t.get("var.field.commonNames") }}</label>
+        <input class="form-control" name="common_names" value="{{ common_names }}">
+      </div>
+      <div class="mb-2">
+        <label class="form-label">{{ t.get("var.field.rsIds") }}</label>
+        <input class="form-control" name="rs_ids" value="{{ rs_ids }}">
+      </div>
+      <div class="d-flex gap-2 mt-2">
+        <button class="btn btn-sm btn-primary" type="submit">{{ t.get("var.save") }}</button>
+        {% if is_edit %}
+        <button class="btn btn-sm btn-outline-secondary" type="button" hx-get="/curator/variants/{{ id }}/panel" hx-target="#variant-detail">{{ t.get("var.cancel") }}</button>
+        {% else %}
+        <button class="btn btn-sm btn-outline-secondary" type="button" onclick="document.getElementById('variant-detail').innerHTML=''">{{ t.get("var.cancel") }}</button>
+        {% endif %}
+      </div>
+    </form>
+  </div>
+</div>

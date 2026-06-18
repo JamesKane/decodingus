@@ -1,0 +1,32 @@
+{# Fragment: candidate rows. Target of #candidate-table. #}
+<table class="table table-hover table-sm align-middle">
+  <thead><tr>
+    <th>{{ t.get("pc.col.title") }}</th>
+    <th>{{ t.get("pc.col.date") }}</th>
+    <th>{{ t.get("pc.col.status") }}</th>
+    <th class="text-end">{{ t.get("pc.col.relevance") }}</th>
+  </tr></thead>
+  <tbody>
+    {% for r in list.rows %}
+    <tr class="tree-node" hx-get="/curator/publications/{{ r.id }}/panel" hx-target="#candidate-detail" hx-swap="innerHTML">
+      <td><strong>{{ r.title }}</strong><br><small class="text-muted">{{ r.journal }}</small></td>
+      <td><small class="text-muted">{{ r.date }}</small></td>
+      <td><span class="badge text-bg-light">{{ r.status }}</span></td>
+      <td class="text-end">{{ r.relevance }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="4" class="detail-empty">{{ t.get("pc.none") }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% if list.total_pages > 1 %}
+<nav class="d-flex justify-content-between align-items-center">
+  <button class="btn btn-sm btn-outline-secondary{% if list.page <= 1 %} disabled{% endif %}"
+          hx-get="/curator/publications/fragment?status={{ list.status }}&page={{ list.page - 1 }}" hx-target="#candidate-table">{{ t.get("pagination.previous") }}</button>
+  <small class="text-muted">{{ t.get("pagination.page") }} {{ list.page }} {{ t.get("pagination.of") }} {{ list.total_pages }} ({{ list.total }})</small>
+  <button class="btn btn-sm btn-outline-secondary{% if list.page >= list.total_pages %} disabled{% endif %}"
+          hx-get="/curator/publications/fragment?status={{ list.status }}&page={{ list.page + 1 }}" hx-target="#candidate-table">{{ t.get("pagination.next") }}</button>
+</nav>
+{% else %}
+<small class="text-muted">{{ list.total }} {{ t.get("pagination.total") }}</small>
+{% endif %}

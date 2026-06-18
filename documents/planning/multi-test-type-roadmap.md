@@ -1,5 +1,49 @@
 # Multi-Test-Type Support Roadmap
 
+> **⚖️ This doc conflates AppView and Navigator concerns (2026-06-12).** Most of it —
+> per-test-type taxonomy/tracking, chip parsing, marker-coverage, file formats, the
+> `genotyping_test_summary`/accuracy-tier machinery — is **Navigator's** (the Edge
+> tracks data *by test*). The **AppView only cares that the calls are reliable enough
+> to build the shared genealogy components** (tree, IBD, reports). That reliability
+> has exactly two inputs:
+>   1. **Coverage conformance** — is a run's depth in line with the norm? **DONE** (D7
+>      below).
+>   2. **Cross-technology consensus** — the per-biosample call reconciled across all
+>      its sequencing technologies (`fed.haplogroup_reconciliation`: consensus_haplogroup
+>      + confidence + snp_concordance + run_count). **In the AppView the *consensus*
+>      drives tree evolution + reporting, never the individual runs.** This is mirrored
+>      but **not yet wired in** — the remaining AppView piece.
+>
+> Cross-test-type IBD (Phase 6) is the separate D1/D3 Edge-to-Edge track. The
+> haplogroup-marker-coverage / accuracy-tier machinery (Phases 4–5) is Navigator's.
+>
+> **⚖️ D7 coverage QA DONE (2026-06-12).** Built:
+> `genomics.test_type_coverage_norm` (mig 0030) — the **empirically-derived** cohort
+> norm per test type (median/quartile depth, pct tiers, typical Y/mt marker counts),
+> recomputed from `fed.coverage_summary ⋈ fed.sequencerun` + `fed.genotype` by
+> `du_db::coverage::recompute_norms` (`du-jobs run-once coverage-norms` + hourly);
+> per-sample **conformance** on the report (actual depth vs cohort norm + advertised
+> spec → BELOW/AT/ABOVE), baselined on the empirical norm because an advertised "30×
+> WGS" is a ~90 Gb raw-yield spec and D2C labs don't target 30× aligned; vendor
+> conformance on `coverage::benchmarks` (`meets_spec`/`depth_delta`); read API
+> `GET /api/v1/test-types[/:code]`. Deferred: age-contribution wiring (typical SNP
+> counts captured), raw-yield (Gbases) norm. Memory `test-type-coverage-norms`.
+> The Phase-1 schema notes below remain accurate for `test_type_definition` /
+> `coverage_expectation_profile`.
+>
+> **⚖️ Rust status (2026-06-07).** **Phase-1 schema is built**, leaner than below:
+> `genomics.test_type_definition` (omits `expected_target_depth`,
+> `expected_marker_count`, `version`, `release_date`, `deprecated_at`,
+> `successor_test_type_id`, `documentation_url`), coverage thresholds in a separate
+> `genomics.coverage_expectation_profile`, and a **native `sequence_library.test_type_id`
+> FK** (no string column to migrate); `du-domain` `DataGenerationMethod` /
+> `TargetType` enums exist. **Seed data is not yet loaded.** Phases 2–6 (target
+> regions, `genotyping_test_summary`, marker-coverage reference, test-type-aware
+> confidence, cross-test-type IBD) are **forward work = `design-roadmap-rust-rewrite.md`
+> D7**. Read the Scala/Slick/Tapir/Pekko + removed `/api/private` specifics as
+> illustrative — restate in Rust (axum/utoipa; the Jetstream mirror) when built.
+> Triage: `design-doc-triage-report.md` §5.
+
 ## Executive Summary
 
 This document outlines the roadmap for extending DecodingUs beyond Whole Genome Sequencing (WGS) to support:
@@ -18,8 +62,8 @@ This roadmap integrates with other planning documents:
 | Document | Relationship |
 |----------|-------------|
 | `haplogroup-discovery-system.md` | **Primary integration point.** Y/mtDNA variants from all test types feed into the discovery system for tree building. This roadmap's chip and targeted sequencing services delegate to the discovery system's `PrivateVariantExtractionService`. |
-| `ibd-matching-system.md` | IBD comparisons happen Edge-to-Edge using autosomal data. This roadmap's test type metadata helps determine comparison compatibility. |
-| `jsonb-consolidation-analysis.md` | Some tables in this roadmap may be candidates for JSONB consolidation. |
+| `d3-ibd-matching-impl.md` (on `d1-encrypted-edge-exchange.md`) | IBD comparisons happen Edge-to-Edge using autosomal data. This roadmap's test type metadata helps determine comparison compatibility. |
+| JSONB consolidation (realized, mig 0002/0004) | The 1:1/1:few tables here were folded into JSONB on their parents in the redesign. |
 
 **Schema Note:** All haplogroup-related tables reside in the `tree` schema as defined in `haplogroup-discovery-system.md`. This includes:
 - `tree.haplogroup`, `tree.haplogroup_variant`, `tree.haplogroup_relationship`
@@ -1261,7 +1305,7 @@ class ParserFtdna extends ChipDataParser { ... }
 1. **Reference Data Download**: Edge App fetches marker coverage reference from DecodingUs to know which Y/mtDNA SNPs to extract
 2. **Metadata Registration**: Edge App submits `GenotypingTestSummary` after local processing
 3. **Haplogroup Variant Submission**: Edge App submits Y/mtDNA variants for tree building
-4. **IBD Coordination**: Autosomal comparisons happen Edge-to-Edge per `ibd-matching-system.md`
+4. **IBD Coordination**: Autosomal comparisons happen Edge-to-Edge per `d3-ibd-matching-impl.md`
 
 ---
 

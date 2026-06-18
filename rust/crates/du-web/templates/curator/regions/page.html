@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}{{ t.get("region.title") }} — {{ t.get("app.name") }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h1 class="h3 mb-0">{{ t.get("region.title") }}</h1>
+  <button class="btn btn-sm btn-primary" hx-get="/curator/regions/new" hx-target="#region-detail">
+    + {{ t.get("region.new") }}
+  </button>
+</div>
+<div class="row">
+  <div class="col-lg-6">
+    <input type="search" name="query" class="form-control mb-3" id="region-q"
+           placeholder="{{ t.get("region.search") }}" value="{{ list.query }}"
+           hx-get="/curator/regions/fragment" hx-target="#region-table"
+           hx-trigger="input changed delay:300ms, search">
+    <div id="region-table"
+         hx-get="/curator/regions/fragment"
+         hx-trigger="load, region-changed from:body"
+         hx-include="#region-q">
+      {% include "curator/regions/list.html" %}
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div id="region-detail"><p class="detail-empty">{{ t.get("region.select") }}</p></div>
+  </div>
+</div>
+{% endblock %}

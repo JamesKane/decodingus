@@ -1,0 +1,28 @@
+[package]
+name = "du-external"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+# External integrations: OpenAlex + ENA (reqwest), AWS SES + Secrets Manager.
+# The AWS SDK is behind the optional `aws` feature so the default build (and CI)
+# stays lean; production enables it. Without `aws`: logging mailer + env secrets.
+[features]
+aws = ["dep:aws-config", "dep:aws-sdk-sesv2", "dep:aws-sdk-secretsmanager"]
+
+[dependencies]
+du-domain = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+reqwest = { workspace = true }
+chrono = { workspace = true }
+tracing = { workspace = true }
+
+aws-config = { version = "1", features = ["behavior-version-latest"], optional = true }
+aws-sdk-sesv2 = { version = "1", optional = true }
+aws-sdk-secretsmanager = { version = "1", optional = true }
+
+[dev-dependencies]
+tokio = { workspace = true }

@@ -1,5 +1,14 @@
 # Haplogroup Discovery System
 
+> **ℹ️ Rust status (2026-06-07).** This conceptual overview still holds. Two
+> terminology notes: ingestion is via the outbound **Jetstream summary mirror**
+> (`fed.*`), not a credential-holding "Firehose" (that inbound model was dropped);
+> and **auto-promotion** is a future option — curator accept is the gate today. The
+> curator review/promote half is built; the automated discovery engine is forward
+> work (`design-roadmap-rust-rewrite.md` D6). Full technical design + status:
+> [`haplogroup-discovery-system.md`](./haplogroup-discovery-system.md). Triage:
+> `design-doc-triage-report.md` §7.
+
 ## What It Does
 
 The Haplogroup Discovery System automatically finds new branches on the Y-DNA and mtDNA family trees by analyzing genetic samples from the community.

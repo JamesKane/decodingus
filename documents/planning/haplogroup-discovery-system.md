@@ -1,5 +1,34 @@
 # Haplogroup Discovery System
 
+> **⚖️ Rust status (2026-06-07).** Prerequisites (variant-schema simplification:
+> universal JSONB coordinates, parallel-mutation handling, JSONB aliases) are
+> **done**. Schema is present (`tree.proposed_branch` + `_evidence` + `_variant`,
+> `tree.biosample_private_variant`, `tree.discovery_config`, `tree.wip_*`), and the
+> **curator review/promote + proposal-pooling half is built** (`du-db::proposal`,
+> `/curator/proposals`, `/manage/curation/proposals` intake).
+>
+> **Architecture evolved:** the Rust model is **Edge-submits** —
+> Navigator extracts the private variants and the citizen publishes them; the AppView
+> pools across submitters. There is **no AppView-side extraction from
+> `HaplogroupResult.mismatchingSnps`** as the pipeline below describes (this aligns
+> with the no-PII / edge-compute direction).
+>
+> **D6 DONE (2026-06-12).** Delivery is a **`com.decodingus.atmosphere.privateVariant`
+> lexicon** record (one per biosample/DNA-arm: terminal + variant calls) mirrored via
+> Jetstream into `fed.private_variant` (mig 0028). The **discovery consensus engine**
+> (`du_db::discovery`, mig 0029) materializes them into `tree.biosample_private_variant`
+> and pools the per-sample variant sets into `tree.proposed_branch` by **variant-set
+> Jaccard** — a declarative, idempotent recompute (stable proposal ids via a
+> `cluster_key` partial-unique index, config thresholds from `tree.discovery_config`,
+> confidence = count + distinct submitters + variant-set consistency,
+> `READY_FOR_REVIEW`/`SPLIT_CANDIDATE` transitions, opt-in auto-promote off by
+> default). Promotion reassigns + freezes the contributing samples
+> (`discovery::reassign_after_promote`). Read API `GET /api/v1/discovery/proposals[/:id]`;
+> the `/curator/proposals` UI surfaces defining variants + confidence + a split banner.
+> The Scala/Slick/Tapir/"Firehose"/`mismatchingSnps`-extraction specifics below are
+> **superseded** — kept for historical context only. Memory `discovery-consensus-engine`;
+> triage `design-doc-triage-report.md` §8.
+
 ## Executive Summary
 
 This document outlines a comprehensive system for evolving Y-DNA and mtDNA haplogroup trees based on discoveries from **all biosample sources**: both Citizen Biosamples (AT Protocol) and External/Publication Biosamples loaded by curators. The system manages "private branches" (proposed terminal variants), tracks consensus formation across multiple biosamples regardless of source, and provides curator oversight for tree modifications.
@@ -16,7 +45,7 @@ Before implementing the discovery system, the variant schema must be migrated to
 2. **Parallel mutation handling** - Same variant name can exist for different lineages
 3. **JSONB aliases** - No separate `variant_alias` table
 
-See: `documents/proposals/variant-schema-simplification.md`
+See: realized in `core.variant` (mig 0002 — universal JSONB coordinates/aliases).
 
 **Key dependency**: The `tree.biosample_private_variant` and `tree.proposed_branch_variant` tables reference the variant table. The new schema changes how variants are identified:
 
@@ -1448,7 +1477,7 @@ decodingus.discovery {
 - [ ] Remove `variant_alias` table and related code
 - [ ] Rename `variant_v2` to `variant`
 
-**See:** `documents/proposals/variant-schema-simplification.md`
+**See:** realized in `core.variant` (mig 0002).
 
 **Risk Mitigation:**
 - Dual-write period: write to both old and new schema during transition
@@ -1683,7 +1712,7 @@ Foundation curator tools for manual tree management, independent of the automate
 3. **Publication Integration**: Automatically create proposals from new publications
 4. **Collaborative Curation**: Multi-curator review workflow with voting
 5. **Geographic Correlation**: Analyze proposal evidence by geographic distribution
-6. **DecodingUs Naming Authority**: Establish "DU" prefix for naming discovered variants; publish in format for YBrowse aggregation (see `documents/proposals/variant-schema-simplification.md`)
+6. **DecodingUs Naming Authority**: Establish "DU" prefix for naming discovered variants; publish in format for YBrowse aggregation (see `planning/variant-naming-authority.md`)
 7. **Pangenome Coordinates**: Extend variant coordinates JSONB to support graph-based pangenome references as they become available
 
 ### Scalability

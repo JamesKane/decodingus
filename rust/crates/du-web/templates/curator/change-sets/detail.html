@@ -1,0 +1,111 @@
+{# Fragment: change-set review panel. Target of #change-set-detail. #}
+<div class="card">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <strong>{{ cs.source }}</strong>
+    <span class="badge text-bg-secondary">{{ cs.status }}</span>
+  </div>
+  <div class="card-body">
+    {% if let Some(n) = cs.notice %}
+    <div class="alert alert-info py-2 px-3 small mb-3">{{ n }}</div>
+    {% endif %}
+
+    <dl class="row mb-2">
+      <dt class="col-5">{{ t.get("cs.col.type") }}</dt><dd class="col-7">{{ cs.dna_type }}</dd>
+      <dt class="col-5">{{ t.get("cs.col.changes") }}</dt><dd class="col-7">{{ cs.change_count }}</dd>
+      <dt class="col-5">{{ t.get("cs.col.created") }}</dt><dd class="col-7">{{ cs.created_by }} · {{ cs.created_at }}</dd>
+      {% if let Some(pb) = cs.promoted_by %}
+      <dt class="col-5">{{ t.get("cs.finalized") }}</dt>
+      <dd class="col-7">{{ pb }}{% if let Some(pa) = cs.promoted_at %} · {{ pa }}{% endif %}</dd>
+      {% endif %}
+    </dl>
+    {% if cs.description != "" %}<p class="text-muted small">{{ cs.description }}</p>{% endif %}
+
+    {# diff summary #}
+    <div class="mb-3">
+      <span class="badge text-bg-success me-1">+{{ cs.added }} {{ t.get("cs.diff.added") }}</span>
+      <span class="badge text-bg-danger me-1">-{{ cs.removed }} {{ t.get("cs.diff.removed") }}</span>
+      <span class="badge text-bg-warning me-1">~{{ cs.modified }} {{ t.get("cs.diff.modified") }}</span>
+      <span class="badge text-bg-info">⤳{{ cs.reparented }} {{ t.get("cs.diff.reparented") }}</span>
+    </div>
+    {% if !cs.diff.is_empty() %}
+    <details class="mb-3">
+      <summary class="small text-muted">{{ t.get("cs.diff.detail") }}</summary>
+      <ul class="list-unstyled small mb-0 mt-2">
+        {% for d in cs.diff %}
+        <li class="mb-1">
+          <span class="badge text-bg-light">{{ d.diff_type }}</span> <strong>{{ d.name }}</strong>
+          <pre class="bg-light p-2 rounded small mb-0"><code>{{ d.detail }}</code></pre>
+        </li>
+        {% endfor %}
+      </ul>
+    </details>
+    {% endif %}
+
+    {# per-change review #}
+    <h6>{{ t.get("cs.changes") }}</h6>
+    <table class="table table-sm align-middle">
+      <tbody>
+        {% for c in cs.changes %}
+        <tr>
+          <td>
+            <span class="badge text-bg-light">{{ c.change_type }}</span>
+            <strong>{{ c.name }}</strong>
+            {% if c.new_values != "" %}
+            <details><summary class="small text-muted">{{ t.get("cs.values") }}</summary><pre class="bg-light p-2 rounded small mb-0"><code>{{ c.new_values }}</code></pre></details>
+            {% endif %}
+          </td>
+          <td class="text-end" style="white-space:nowrap;">
+            <span class="badge {% if c.status == "APPROVED" %}text-bg-success{% else if c.status == "REJECTED" %}text-bg-danger{% else %}text-bg-light{% endif %}">{{ c.status }}</span>
+            {% if cs.can_review %}
+            <span class="ms-1">
+              <button class="btn btn-sm btn-outline-success py-0" title="{{ t.get("cs.approve") }}"
+                      hx-post="/curator/change-sets/{{ cs.id }}/changes/{{ c.id }}/review" hx-vals='{"action":"APPROVE"}'
+                      hx-target="#change-set-detail" hx-swap="innerHTML">✓</button>
+              <button class="btn btn-sm btn-outline-danger py-0" title="{{ t.get("cs.reject") }}"
+                      hx-post="/curator/change-sets/{{ cs.id }}/changes/{{ c.id }}/review" hx-vals='{"action":"REJECT"}'
+                      hx-target="#change-set-detail" hx-swap="innerHTML">✗</button>
+            </span>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td class="detail-empty">{{ t.get("cs.changes.none") }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    {# lifecycle actions #}
+    <div class="d-flex gap-2 flex-wrap mb-3">
+      {% if cs.can_start %}
+      <button class="btn btn-sm btn-primary" hx-post="/curator/change-sets/{{ cs.id }}/start-review"
+              hx-target="#change-set-detail" hx-swap="innerHTML">{{ t.get("cs.start_review") }}</button>
+      {% endif %}
+      {% if cs.can_review %}
+      <button class="btn btn-sm btn-outline-success" hx-post="/curator/change-sets/{{ cs.id }}/approve-all"
+              hx-target="#change-set-detail" hx-swap="innerHTML">{{ t.get("cs.approve_all") }}</button>
+      {% endif %}
+      {% if cs.can_apply %}
+      <button class="btn btn-sm btn-success" hx-post="/curator/change-sets/{{ cs.id }}/apply"
+              hx-target="#change-set-detail" hx-swap="innerHTML"
+              hx-confirm="{{ t.get("cs.apply.confirm") }}">{{ t.get("cs.apply") }}</button>
+      {% endif %}
+      {% if cs.can_discard %}
+      <button class="btn btn-sm btn-outline-danger" hx-post="/curator/change-sets/{{ cs.id }}/discard"
+              hx-target="#change-set-detail" hx-swap="innerHTML"
+              hx-confirm="{{ t.get("cs.discard.confirm") }}">{{ t.get("cs.discard") }}</button>
+      {% endif %}
+    </div>
+
+    {# comments #}
+    <h6>{{ t.get("cs.comments") }}</h6>
+    {% for c in cs.comments %}
+    <div class="border-start ps-2 mb-2 small"><strong>{{ c.by }}</strong> <span class="text-muted">{{ c.at }}</span><br>{{ c.comment }}</div>
+    {% else %}
+    <p class="detail-empty small">{{ t.get("cs.comments.none") }}</p>
+    {% endfor %}
+    <form hx-post="/curator/change-sets/{{ cs.id }}/comments" hx-target="#change-set-detail" hx-swap="innerHTML" class="mt-2 d-flex gap-2">
+      <input class="form-control form-control-sm" name="comment" placeholder="{{ t.get("cs.comment.placeholder") }}" required>
+      <button class="btn btn-sm btn-outline-secondary">{{ t.get("cs.comment.add") }}</button>
+    </form>
+  </div>
+</div>

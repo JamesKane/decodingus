@@ -1,0 +1,34 @@
+{# Fragment: change-set rows. Target of #change-set-table. #}
+<table class="table table-hover table-sm align-middle">
+  <thead><tr>
+    <th>{{ t.get("cs.col.source") }}</th>
+    <th>{{ t.get("cs.col.type") }}</th>
+    <th>{{ t.get("cs.col.status") }}</th>
+    <th class="text-end">{{ t.get("cs.col.changes") }}</th>
+    <th>{{ t.get("cs.col.created") }}</th>
+  </tr></thead>
+  <tbody>
+    {% for r in list.rows %}
+    <tr class="tree-node" hx-get="/curator/change-sets/{{ r.id }}/panel" hx-target="#change-set-detail" hx-swap="innerHTML">
+      <td><strong>{{ r.source }}</strong></td>
+      <td><small class="text-muted">{{ r.dna_type }}</small></td>
+      <td><span class="badge text-bg-light">{{ r.status }}</span></td>
+      <td class="text-end">{{ r.change_count }}</td>
+      <td><small class="text-muted">{{ r.created_by }} · {{ r.created_at }}</small></td>
+    </tr>
+    {% else %}
+    <tr><td colspan="5" class="detail-empty">{{ t.get("cs.none") }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% if list.total_pages > 1 %}
+<nav class="d-flex justify-content-between align-items-center">
+  <button class="btn btn-sm btn-outline-secondary{% if list.page <= 1 %} disabled{% endif %}"
+          hx-get="/curator/change-sets/fragment?status={{ list.status }}&page={{ list.page - 1 }}" hx-target="#change-set-table">{{ t.get("pagination.previous") }}</button>
+  <small class="text-muted">{{ t.get("pagination.page") }} {{ list.page }} {{ t.get("pagination.of") }} {{ list.total_pages }} ({{ list.total }})</small>
+  <button class="btn btn-sm btn-outline-secondary{% if list.page >= list.total_pages %} disabled{% endif %}"
+          hx-get="/curator/change-sets/fragment?status={{ list.status }}&page={{ list.page + 1 }}" hx-target="#change-set-table">{{ t.get("pagination.next") }}</button>
+</nav>
+{% else %}
+<small class="text-muted">{{ list.total }} {{ t.get("pagination.total") }}</small>
+{% endif %}

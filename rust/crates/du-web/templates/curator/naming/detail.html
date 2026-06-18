@@ -1,0 +1,47 @@
+{# Fragment: variant naming panel. Target of #naming-detail. #}
+<div class="card">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <strong>{% if let Some(n) = v.name %}{{ n }}{% else %}<em class="text-muted">{{ t.get("nm.unnamed") }}</em>{% endif %}</strong>
+    <span class="badge text-bg-secondary">{{ v.status }}</span>
+  </div>
+  <div class="card-body">
+    {% if let Some(n) = v.notice %}<div class="alert alert-info py-2 px-3 small mb-3">{{ n }}</div>{% endif %}
+
+    <dl class="row mb-2 small">
+      <dt class="col-4">{{ t.get("nm.coord") }}</dt><dd class="col-8">{{ v.coord }}</dd>
+      <dt class="col-4">{{ t.get("nm.type") }}</dt><dd class="col-8">{{ v.mutation_type }}</dd>
+      {% if let Some(d) = v.defining %}<dt class="col-4">{{ t.get("nm.defines") }}</dt><dd class="col-8"><code>{{ d }}</code></dd>{% endif %}
+      {% if !v.aliases.is_empty() %}
+      <dt class="col-4">{{ t.get("nm.aliases") }}</dt>
+      <dd class="col-8">{% for a in v.aliases %}<code>{{ a }}</code>{% if !loop.last %}, {% endif %}{% endfor %}</dd>
+      {% endif %}
+    </dl>
+
+    {% if !v.dedup.is_empty() %}
+    <div class="alert alert-warning py-2 px-3 small mb-3">
+      {{ t.get("nm.dedup.warn") }}
+      {% for c in v.dedup %}<code>{{ c.name }}</code>{% if !loop.last %}, {% endif %}{% endfor %}
+      <div class="text-muted">{{ t.get("nm.dedup.hint") }}</div>
+    </div>
+    {% endif %}
+
+    {% if v.can_assign %}
+    <div class="d-flex gap-2 flex-wrap">
+      <button class="btn btn-sm btn-success"
+              hx-post="/curator/naming/{{ v.id }}/assign" hx-target="#naming-detail" hx-swap="innerHTML"
+              hx-confirm="{{ t.get("nm.assign.confirm") }}">{{ t.get("nm.assign") }}</button>
+      {% if v.status != "PENDING_REVIEW" %}
+      <button class="btn btn-sm btn-outline-secondary"
+              hx-post="/curator/naming/{{ v.id }}/status" hx-vals='{"status":"PENDING_REVIEW"}'
+              hx-target="#naming-detail" hx-swap="innerHTML">{{ t.get("nm.flag") }}</button>
+      {% else %}
+      <button class="btn btn-sm btn-outline-secondary"
+              hx-post="/curator/naming/{{ v.id }}/status" hx-vals='{"status":"UNNAMED"}'
+              hx-target="#naming-detail" hx-swap="innerHTML">{{ t.get("nm.unflag") }}</button>
+      {% endif %}
+    </div>
+    {% else %}
+    <p class="detail-empty small mb-0">{{ t.get("nm.named_note") }}</p>
+    {% endif %}
+  </div>
+</div>

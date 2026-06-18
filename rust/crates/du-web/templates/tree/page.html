@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% block title %}{{ title }} — {{ t.get("app.name") }}{% endblock %}
+{# Full viewport width — the cladogram wants all the horizontal room it can get. #}
+{% block main_container %}container-fluid{% endblock %}
+{% block content %}
+<div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+  <h1 class="h3 mb-0 me-auto">{{ title }}</h1>
+
+  {# Search: haplogroup name OR defining variant. Swaps just the tree. #}
+  <form class="d-flex" role="search" action="{{ base_path }}" method="get"
+        hx-get="{{ base_path }}" hx-target="#tree-container" hx-push-url="true">
+    <input class="form-control form-control-sm" type="search" name="root" value="{{ query }}"
+           placeholder="{{ t.get("tree.search.placeholder") }}" aria-label="search" style="min-width:14rem">
+    <button class="btn btn-sm btn-outline-secondary ms-1" type="submit">{{ t.get("tree.search.button") }}</button>
+  </form>
+
+  {# Depth selector — persisted in localStorage and injected into every tree
+     request (see configRequest below), so it survives nav and sessions. #}
+  <div class="d-flex align-items-center gap-1">
+    <label for="tree-depth" class="form-label small text-muted mb-0">{{ t.get("tree.depth") }}</label>
+    <select id="tree-depth" class="form-select form-select-sm" style="width:auto" aria-label="{{ t.get("tree.depth") }}"
+            data-base="{{ base_path }}" data-root="{{ root_name }}">
+      {% for opt in depth_options %}
+      <option value="{{ opt.0 }}"{% if opt.1 %} selected{% endif %}>{{ opt.0 }}</option>
+      {% endfor %}
+    </select>
+  </div>
+
+  {# Orientation toggle — full-page (boosted) nav so the shell + cookie update. #}
+  <div class="btn-group btn-group-sm" role="group" aria-label="{{ t.get("tree.orientation") }}">
+    <a class="btn btn-outline-secondary{% if !orientation.is_vertical() %} active{% endif %}"
+       href="{{ base_path }}?root={{ root_name }}&orient=h">{{ t.get("tree.horizontal") }}</a>
+    <a class="btn btn-outline-secondary{% if orientation.is_vertical() %} active{% endif %}"
+       href="{{ base_path }}?root={{ root_name }}&orient=v">{{ t.get("tree.vertical") }}</a>
+  </div>
+</div>
+
+<div class="tree-legend small text-muted mb-2">
+  <span class="legend-swatch node-backbone"></span> {{ t.get("tree.legend.backbone") }}
+  <span class="legend-swatch node-recent ms-3"></span> {{ t.get("tree.legend.recent") }}
+  <span class="legend-swatch node-default ms-3"></span> {{ t.get("tree.legend.default") }}
+</div>
+
+{# Tree takes the full width; the SNP detail panel is an off-canvas that slides in
+   on a variant click, so nothing is reserved while it's empty. #}
+<div id="tree-container">
+  {% include "tree/svg.html" %}
+</div>
+
+<div class="offcanvas offcanvas-end" tabindex="-1" id="snpOffcanvas" aria-label="{{ t.get("tree.variants") }}">
+  <div class="offcanvas-body p-2">
+    <div id="snpSidebar"></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  var KEY = 'du.tree.depth', MIN = 1, MAX = 8;
+
+  // Stored depth preference (null if unset or out of range → use server default).
+  function storedDepth() {
+    var n = parseInt(localStorage.getItem(KEY), 10);
+    return (n >= MIN && n <= MAX) ? n : null;
+  }
+
+  // One-time global hooks (this script re-runs on every boosted body swap).
+  if (!window.__duTree) {
+    window.__duTree = true;
+
+    // Inject the persisted depth into every tree-window request (re-root,
+    // breadcrumb, search, orientation toggle) — but not the SNP sidebar.
+    document.body.addEventListener('htmx:configRequest', function (e) {
+      var p = (e.detail && e.detail.path) || '';
+      if (p.indexOf('/snp/') === -1 && (p.indexOf('/ytree') === 0 || p.indexOf('/mtree') === 0)) {
+        var d = storedDepth();
+        if (d) e.detail.parameters['depth'] = String(d);
+      }
+    });
+
+    // Open the off-canvas SNP panel whenever a variant click swaps into it.
+    document.body.addEventListener('htmx:afterSwap', function (e) {
+      var t = e.detail && e.detail.target;
+      if (t && t.id === 'snpSidebar' && t.innerHTML.trim() !== '') {
+        bootstrap.Offcanvas.getOrCreateInstance(document.getElementById('snpOffcanvas')).show();
+      }
+    });
+  }
+
+  // Per-render: wire the selector and align the view to the stored preference.
+  var sel = document.getElementById('tree-depth');
+  if (sel) {
+    var base = sel.dataset.base, root = sel.dataset.root;
+    var url = base + '?root=' + encodeURIComponent(root);
+    var rendered = parseInt(sel.value, 10);
+    var stored = storedDepth();
+    // Returning visitor whose preference differs from this (default) render:
+    // reload just the tree window at the stored depth.
+    if (stored && stored !== rendered) {
+      sel.value = String(stored);
+      htmx.ajax('GET', url, { target: '#tree-container' });
+    }
+    sel.addEventListener('change', function () {
+      localStorage.setItem(KEY, sel.value);
+      htmx.ajax('GET', url, { target: '#tree-container', pushUrl: true });
+    });
+  }
+})();
+</script>
+{% endblock %}

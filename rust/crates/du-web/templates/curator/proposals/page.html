@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}{{ t.get("prop.title") }} — {{ t.get("app.name") }}{% endblock %}
+{% block content %}
+<h1 class="h3 mb-3">{{ t.get("prop.title") }}</h1>
+<div class="row">
+  <div class="col-lg-7">
+    <select name="status" class="form-select w-auto mb-3" id="prop-status"
+            hx-get="/curator/proposals/fragment" hx-target="#proposal-table" hx-trigger="change">
+      <option value="">{{ t.get("prop.filter.all") }}</option>
+      <option value="PROPOSED"{% if list.status == "PROPOSED" %} selected{% endif %}>PROPOSED</option>
+      <option value="UNDER_REVIEW"{% if list.status == "UNDER_REVIEW" %} selected{% endif %}>UNDER_REVIEW</option>
+      <option value="ACCEPTED"{% if list.status == "ACCEPTED" %} selected{% endif %}>ACCEPTED</option>
+      <option value="REJECTED"{% if list.status == "REJECTED" %} selected{% endif %}>REJECTED</option>
+    </select>
+    <div id="proposal-table"
+         hx-get="/curator/proposals/fragment"
+         hx-trigger="load, proposal-changed from:body"
+         hx-include="#prop-status">
+      {% include "curator/proposals/list.html" %}
+    </div>
+  </div>
+  <div class="col-lg-5">
+    <div id="proposal-detail"><p class="detail-empty">{{ t.get("prop.select") }}</p></div>
+  </div>
+</div>
+{% endblock %}

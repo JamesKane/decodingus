@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}{{ t.get("hg.title") }} — {{ t.get("app.name") }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h1 class="h3 mb-0">{{ t.get("hg.title") }}</h1>
+  <button class="btn btn-sm btn-primary" hx-get="/curator/haplogroups/new" hx-target="#hg-detail">
+    + {{ t.get("hg.new") }}
+  </button>
+</div>
+<div class="row">
+  <div class="col-lg-7">
+    <div id="hg-filters" class="d-flex gap-2 mb-3">
+      <input type="search" name="query" class="form-control" placeholder="{{ t.get("hg.search") }}"
+             value="{{ list.query }}"
+             hx-get="/curator/haplogroups/fragment" hx-target="#hg-table"
+             hx-trigger="input changed delay:300ms, search" hx-include="#hg-filters">
+      <select name="dna" class="form-select w-auto"
+              hx-get="/curator/haplogroups/fragment" hx-target="#hg-table"
+              hx-trigger="change" hx-include="#hg-filters">
+        <option value="">{{ t.get("hg.filter.all") }}</option>
+        <option value="Y_DNA"{% if list.dna == "Y_DNA" %} selected{% endif %}>Y-DNA</option>
+        <option value="MT_DNA"{% if list.dna == "MT_DNA" %} selected{% endif %}>mtDNA</option>
+      </select>
+    </div>
+    {# Reloads on load and whenever a mutation fires hg-changed on the body. #}
+    <div id="hg-table"
+         hx-get="/curator/haplogroups/fragment"
+         hx-trigger="load, hg-changed from:body"
+         hx-include="#hg-filters">
+      {% include "curator/haplogroups/list.html" %}
+    </div>
+  </div>
+  <div class="col-lg-5">
+    <div id="hg-detail">
+      <p class="detail-empty">{{ t.get("hg.select") }}</p>
+    </div>
+  </div>
+</div>
+{% endblock %}

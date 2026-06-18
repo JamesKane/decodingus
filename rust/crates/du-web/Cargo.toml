@@ -1,0 +1,44 @@
+[package]
+name = "du-web"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "decodingus"
+path = "src/main.rs"
+
+# Axum web app: routers, extractors, Askama templates, i18n, HTMX fragments.
+[dependencies]
+du-domain = { workspace = true }
+du-db = { workspace = true }
+du-external = { workspace = true }
+du-atproto = { workspace = true }
+axum = { workspace = true }
+tokio = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+tower-cookies = { workspace = true }
+askama = { workspace = true }
+utoipa = { workspace = true }
+utoipa-swagger-ui = { workspace = true }
+chrono = { workspace = true }
+base64 = { workspace = true }
+sha2 = { workspace = true }
+percent-encoding = { workspace = true }
+argon2 = { workspace = true }
+bcrypt = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }
+
+[dev-dependencies]
+# Edge-side signing in exchange/research broker tests (the broker only verifies).
+ed25519-dalek = { workspace = true }
+# Direct row seeding in broker endpoint tests (group_project, etc.).
+sqlx = { workspace = true }

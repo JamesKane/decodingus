@@ -1,5 +1,41 @@
 # Sequencer Lab Inference System
 
+> **⚖️ Rust status (2026-06-07).** The **full schema is built — including the
+> consensus tables this doc marks NEW**: `genomics.sequencing_lab`,
+> `genomics.sequencer_instrument`, `genomics.instrument_observation`, and
+> `genomics.instrument_association_proposal` (mig 0004). Deltas: `genomics` schema +
+> `BIGINT IDENTITY`; `sequencer_instrument` has **no `lab_id` FK** (and adds
+> `model_name`/`manufacturer`/`year_introduced`/`estimated_max_throughput`) —
+> instrument↔lab resolves via observation→proposal→accept, not a static FK; the
+> proposed instrument confidence columns live in the proposal table instead.
+> **DONE (2026-06-12): lookup API, consensus engine (production-hardened), curator
+> HTMX review UI, AND the `instrumentObservation` lexicon end-to-end** — citizens
+> publish `com.decodingus.atmosphere.instrumentObservation` records (real confidence
+> level KNOWN/INFERRED/GUESSED + `observedAt`); the Jetstream consumer mirrors them
+> into `fed.instrument_observation` (mig 0027), and `recompute_consensus` folds them
+> in alongside the implicit `centerName` claims with **real confidence-level +
+> recency scoring** (the score's `recency`/`level` terms are no longer constants).
+> Nothing material remains; future items are the "Future Considerations" list below.
+> The consensus engine
+> (`du_db::sequencer::recompute_consensus`) derives observations from
+> `fed.sequencerun ⋈ fed.biosample.center_name` into `genomics.instrument_observation`,
+> aggregates per instrument into `instrument_association_proposal` (dominant lab,
+> distinct-citizen counts, confidence, threshold status, conflict held at PENDING),
+> and a curator **accept** (`/manage/instrument-proposals/:id/accept`) sets
+> `sequencer_instrument.lab_id` — the same column the lookup resolves. Run by
+> `du-jobs run-once sequencer-consensus` (+ hourly). Accept/reject are audited to
+> `ident.audit_log`. Auto-accept is opt-in (off by default — curator-gated). The
+> lookup serves the **preseeded direct** instrument→lab tie:
+> mig 0025 re-adds a nullable `genomics.sequencer_instrument.lab_id`, the ETL
+> backfills it from the legacy `lab_id`, and `du_db::sequencer::{lookup_lab,
+> lab_instruments}` resolves through it. Endpoints: `GET /api/v1/sequencer/lab?
+> instrument_id=…` (→ `SequencerLabDto`, 404 if unknown) and `GET /api/v1/sequencer/
+> lab-instruments` (bulk cache seed). The proposal tables stay dormant; when
+> consensus goes live, accepting a proposal will set `lab_id`. The consensus source
+> will be `fed.sequencerun.instrument_id`; the `instrumentObservation` lexicon + its
+> `fed.*` mirror are still undefined. The "Current State / existing API endpoints /
+> domain models" below are **Scala-era**. Triage: `design-doc-triage-report.md` §6.
+
 ## Executive Summary
 
 This document outlines enhancements to the existing sequencer lab lookup system to support:

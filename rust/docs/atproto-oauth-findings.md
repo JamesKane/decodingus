@@ -1,0 +1,267 @@
+# AT Protocol federation — initial findings (for the Edge team)
+
+Status of the DecodingUs (Rust) side of AT Protocol federation, and the open
+points to settle jointly before the end-to-end handshake can be tested.
+
+## Design pivot
+
+We are **dropping the custom "private firehose."** Current atproto direction
+resolves its purpose:
+
+- **Permissions / permission sets** (mature spec): apps declare granular OAuth
+  scopes as lexicon-published permission sets; the PDS enforces them.
+  <https://atproto.com/specs/permission>
+- **Private data bypasses the firehose**: private/group-private records live in a
+  separate namespace (no MST/commit, not broadcast); a consumer gets a
+  **notification then fetches the record from the PDS over scoped OAuth**.
+  (Working group; group-private spec still maturing upstream.)
+
+So federation = **OAuth (permission-scoped) access to PDS records + notify/fetch**,
+not a bespoke relay.
+
+## What's built on our side (this repo)
+
+- `du-atproto`: DID/AT-URI parsing, `did:key` Ed25519 verification, DID-doc/PDS
+  resolution; OAuth client crypto — PKCE (S256), ES256 JOSE, **DPoP** proofs,
+  `private_key_jwt` client assertion, client + authorization-server metadata,
+  PAR/authorize/token builders. All unit-tested (PKCE vs RFC 7636 vector, ES256
+  sign/verify, DPoP shape).
+- `du-web`: serves the two documents below and wires `/login/atproto` (resolve →
+  PAR → redirect) and `/oauth/callback` (token exchange → session). DPoP-nonce
+  single-retry implemented. Session is our existing signed cookie; users are
+  upserted by DID (`ident.users` + an `atproto` login_info row).
+
+### Concrete artifacts to review / register
+
+Served at the deployed base URL (e.g. `https://decoding-us.com`):
+
+- **`/oauth/client-metadata.json`** — `client_id` = that URL; confidential web
+  client; `token_endpoint_auth_method = private_key_jwt`, `alg = ES256`;
+  `dpop_bound_access_tokens = true`; `redirect_uris = [".../oauth/callback"]`;
+  `scope` from `OAUTH_SCOPE`.
+- **`/oauth/jwks.json`** — the client's public P-256 JWK (no private material);
+  `kid` = JWK thumbprint. Private key is supplied via `OAUTH_EC_KEY` (base64url
+  of the 32-byte scalar); if unset, an ephemeral key is generated and logged.
+
+## Open points to settle with the Edge team
+
+1. **Client auth method.** We assume a *confidential* web client using
+   `private_key_jwt` (ES256) + DPoP. Confirm the PDS/authorization server the
+   edge accounts use supports this (vs requiring a public client).
+2. **Hosting / registration.** `client_id` must be a publicly reachable HTTPS URL
+   serving `client-metadata.json`, and `redirect_uris` must match exactly.
+   Confirm the production base URL and that `/oauth/*` is deployed there.
+3. **Scopes / permission sets.** We default to `atproto transition:generic`.
+   What does the app actually need? We expect a **permission set lexicon**
+   (e.g. under `app.decodingus.*`) granting read access to the genomic record
+   collections. Edge team to define those collections + the permission set the
+   PDS will grant.
+4. **Signing key lifecycle.** Persist `OAUTH_EC_KEY`; agree on rotation (JWKS can
+   publish multiple keys; `kid` already set).
+5. **DPoP nonce.** We retry once on a server `DPoP-Nonce`. Confirm the
+   authorization server's nonce behavior (PAR + token endpoints).
+6. **Identity resolution.** Handle→DID uses the HTTPS well-known method only
+   (DNS `_atproto` TXT is a future add). DID→PDS uses `plc.directory` for
+   `did:plc` and well-known for `did:web`. Confirm whether edge accounts use
+   `did:plc` (and a self-hosted PLC, if any) or `did:web`.
+7. **Private data / notify-fetch.** Once group-private data lands, the app will
+   fetch records from the PDS with the access token. Define: which collections,
+   and the notification mechanism (does Navigator push to us, or do we poll?).
+
+## What we need from Edge to test end-to-end
+
+A test PDS + test account (handle + DID) and its authorization-server endpoints,
+so `/login/atproto?handle=<test>` can complete the real PAR → redirect → token
+flow against it. Everything up to the network handshake is implemented and
+unit-tested; the live exchange is the joint step.
+
+## Local PDS handshake — validated (2026-06)
+
+Stood up the official PDS in a local container and validated the live
+**discovery + PAR** path (the browser redirect + token exchange still needs HTTPS
+identity infra — see "remaining" below).
+
+> **Navigator team:** the shared, client-facing version of this runbook — incl.
+> test-account creation and the public/loopback-client gotchas — lives in
+> `DUNavigator/documents/atmosphere/13-Local-PDS-Testing.md`.
+
+### Runbook
+
+```sh
+# 1. Pull + boot the PDS (Apple `container`; each gets its own IP, no port-map).
+container image pull ghcr.io/bluesky-social/pds:latest
+mkdir -p /tmp/pdsdata/blocks
+container run -d --name pds -v /tmp/pdsdata:/pds \
+  -e PDS_HOSTNAME=pds.test -e PDS_PORT=3000 \
+  -e PDS_JWT_SECRET=$(openssl rand --hex 16) \
+  -e PDS_ADMIN_PASSWORD=$(openssl rand --hex 16) \
+  -e PDS_PLC_ROTATION_KEY_K256_PRIVATE_KEY_HEX=$(openssl rand --hex 32) \
+  -e PDS_DATA_DIRECTORY=/pds -e PDS_BLOBSTORE_DISK_LOCATION=/pds/blocks \
+  -e PDS_DID_PLC_URL=https://plc.directory -e PDS_INVITE_REQUIRED=false -e PDS_DEV_MODE=true \
+  ghcr.io/bluesky-social/pds:latest
+IP=$(container ls | awk '$1=="pds"{print $6}' | cut -d/ -f1)   # e.g. 192.168.64.5
+
+# 2. Run the gated live handshake test (decodingus-shared).
+PDS_TEST_URL=http://$IP:3000 cargo test -p du-atproto --test live_pds -- --nocapture
+```
+
+Gotchas learned:
+- PDS rejects `.local` hostnames; use a `.test` domain. It needs `/pds` to exist
+  (bind-mount). It serves HTTP on `:3000` and expects TLS termination in front;
+  the OAuth **issuer is `https://PDS_HOSTNAME`** regardless.
+- **DPoP `htu` must be the server's canonical endpoint** (`https://pds.test/oauth/par`
+  from metadata), NOT the transport URL you connect over (`http://<ip>:3000/...`).
+  Signing the transport URL yields `invalid_dpop_proof: DPoP "htu" mismatch`.
+- The PDS issues a **`use_dpop_nonce`** on the first PAR; our single-retry with the
+  `DPoP-Nonce` response header then returns `201` + a `request_uri`. ✓
+
+### What this validates (`crates/du-atproto/tests/live_pds.rs`)
+
+Authorization-server metadata fetch + parse, the **public (loopback) client** PAR
+form, the DPoP proof, and the `use_dpop_nonce` retry — accepted by a real atproto
+auth server (`201 Created`, `request_uri` returned). Confirms `token_endpoint_auth_
+methods = [none, private_key_jwt]` and `client_id_metadata_document_supported`.
+
+### Remaining for the full browser loop (deferred)
+
+The redirect → consent → `code` → token exchange needs the auth server reachable
+over **HTTPS at its canonical host** with a cert our client trusts, because DPoP
+`htu` + the issuer are https-canonical. Options: a TLS reverse proxy at
+`https://pds.test` (hosts entry + dev CA trusted by reqwest) for a full local loop,
+or an HTTPS tunnel to a real account for the confidential-client path. Identity
+resolution (handle→DID→PDS) similarly wants HTTPS well-known / a PLC.
+
+## Full browser loop over TLS — wired + verified to consent (2026-06)
+
+Closed the gap from "discovery + PAR" to a **real HTTPS handshake** against the
+local PDS, using a TLS proxy so the auth server is reachable at its canonical
+`https://pds.test` (issuer + DPoP `htu` are https-canonical, so this removes the
+http-transport `htu` workaround entirely).
+
+> **One command:** `make oauth-dev` (Postgres + PDS + Caddy + CA + test account,
+> then runs du-web with the env). `make oauth-up` for the stack only, `oauth-down`
+> to tear down. Runtime-agnostic (Apple `container` or Docker) — see
+> `scripts/oauth-dev.sh`. The sections below are the underlying mechanics it
+> automates (and the manual-browser consent step, §6.3-equivalent, still applies).
+
+### Infra: TLS proxy (Caddy internal CA)
+
+```sh
+PDS_IP=$(container ls | awk '$1=="pds"{print $6}' | cut -d/ -f1)
+printf '{\n  auto_https disable_redirects\n}\npds.test {\n  tls internal\n  reverse_proxy %s:3000\n}\n' "$PDS_IP" > /tmp/Caddyfile
+container run -d --name caddy -v /tmp/Caddyfile:/etc/caddy/Caddyfile docker.io/library/caddy:2
+CADDY_IP=$(container ls | awk '$1=="caddy"{print $6}' | cut -d/ -f1)
+container exec caddy cat /data/caddy/pki/authorities/local/root.crt > /tmp/caddy_ca.crt   # the dev CA
+```
+
+### du-web dev OAuth (public / loopback client)
+
+`oauth.rs` gained a dev path that avoids the confidential-client's hosted-metadata
++ HTTPS requirement: a **public loopback client** (PKCE, no client assertion),
+fixed-PDS (skips handle→DID→PDS resolution), and an HTTP client that trusts the
+dev CA and pins `pds.test`→IP (no `/etc/hosts` needed server-side):
+
+```sh
+DATABASE_URL=... APP_SECRET=... PORT=9000 \
+OAUTH_BASE_URL=http://127.0.0.1:9000 \
+DU_OAUTH_DEV_PDS=https://pds.test \
+DU_OAUTH_DEV_CA=/tmp/caddy_ca.crt \
+DU_OAUTH_DEV_RESOLVE=pds.test:$CADDY_IP \
+DU_OAUTH_LOOPBACK=http://127.0.0.1:9000 \
+cargo run -p du-web
+```
+
+Route: `GET /login/atproto/dev?handle=<acct>` → discover → PAR → 303 to
+`https://pds.test/oauth/authorize`. The callback (`/oauth/callback`) does the
+**public** token exchange (`token_form_public`) → session.
+
+### Verified (no browser)
+
+- Discovery + PAR + DPoP + `use_dpop_nonce` retry over **canonical `https://pds.test`**
+  (dev CA trusted, host pinned) → `request_uri`, then a 303 to the authorize page.
+- The authorize page renders (`200`) with our **loopback client accepted** —
+  `__authorizeData.clientMetadata.redirect_uris = [http://127.0.0.1:9000/oauth/callback]`.
+
+### Manual browser step (the consent)
+
+The authorize → sign-in → consent → `code` step is intentionally browser-gated
+(requires `Sec-Fetch-*` headers + a minified SPA with CSRF), so it's completed in
+a real browser rather than scripted:
+
+1. Trust `/tmp/caddy_ca.crt` in the browser (or click through the warning) and add
+   a hosts entry `pds.test → $CADDY_IP` (the browser needs name resolution; the
+   server side uses `DU_OAUTH_DEV_RESOLVE` instead).
+2. Open `http://127.0.0.1:9000/login/atproto/dev?handle=alice.pds.test`.
+3. Sign in (e.g. `alice.pds.test` / the account password) and approve.
+4. The PDS redirects to `http://127.0.0.1:9000/oauth/callback?code=…&state=…`;
+   du-web exchanges the code (public flow) and sets the session cookie.
+
+The token-exchange path is implemented and ready; only the human consent click is
+out of band. (A headless completion would mean reproducing the oauth-provider's
+sign-in/accept SPA calls — brittle + version-specific; not worth scripting.)
+
+## Confidential web-client — joint test plan (2026-06)
+
+The public/loopback client (above) is verified end-to-end against a local PDS up
+to consent. The **confidential** web client (`private_key_jwt` + hosted metadata)
+adds two things the public flow doesn't exercise: the auth server **fetching +
+validating our `client-metadata.json`/`jwks.json`**, and accepting the
+**`private_key_jwt`** client assertion. These need our OAuth documents reachable
+over HTTPS at the `client_id` host — which a local PDS on Apple `container` can't
+resolve (no `--add-host` to point a fake `client_id` host at our box), so this is
+the **joint test with the Edge team against a real PDS** (real DNS/HTTPS).
+
+### Our side — VERIFIED (no joint step needed)
+
+- `/oauth/client-metadata.json` is spec-correct: `client_id` == the doc URL,
+  `redirect_uris` https under the same origin, `token_endpoint_auth_method =
+  private_key_jwt`, `token_endpoint_auth_signing_alg = ES256`,
+  `dpop_bound_access_tokens = true`, `grant_types = [authorization_code,
+  refresh_token]`, `response_types = [code]`, `application_type = web`, `jwks_uri`
+  correct. (Verified live against `OAUTH_BASE_URL=https://decoding-us.com`.)
+- `/oauth/jwks.json` is a clean public P-256 JWK (`use=sig`, `alg=ES256`, `kid` =
+  JWK thumbprint, no private material).
+- `client_assertion` JWT, DPoP proof, PKCE, client-metadata shape — all unit-tested
+  in `du-atproto` (`es256_jws_roundtrips_and_verifies`: `alg=ES256`, `kid` ==
+  thumbprint, `iss`/`sub` == client_id, `aud` == issuer, signature verifies).
+- The confidential PAR/token forms + `use_dpop_nonce` single-retry are wired in
+  `du-web/oauth.rs` (`/login/atproto`); the request mechanics (PAR/DPoP/nonce) are
+  the same ones already proven live via the public-client path — the only delta is
+  adding the (unit-tested) `client_assertion`.
+
+### Prereqs for the joint test
+
+- **decodingus:** deploy `/oauth/client-metadata.json` + `/oauth/jwks.json` at the
+  public `client_id` host (`OAUTH_BASE_URL`, e.g. `https://decoding-us.com`); set a
+  **persisted `OAUTH_EC_KEY`** (base64url 32-byte scalar) so the JWKS `kid` is
+  stable; `redirect_uris` must exactly match the deployed callback.
+- **Edge:** a test PDS + account (handle + DID) and its issuer; confirm the auth
+  server accepts a confidential client (`token_endpoint_auth_methods` includes
+  `private_key_jwt` — the reference PDS does) and supports
+  `client_id_metadata_document` fetch.
+
+### Steps
+
+1. **Metadata fetch.** Confirm the PDS can GET our `client_id` doc + `jwks_uri`
+   over HTTPS (200, `application/json`, `client_id` matches the URL). Watch our
+   access logs for the fetch.
+2. **PAR.** `GET /login/atproto?handle=<test>` → resolve handle→DID→PDS→issuer →
+   PAR (`private_key_jwt` + DPoP). Expect `use_dpop_nonce` then `201` + `request_uri`.
+3. **Authorize + consent.** Redirect to `/oauth/authorize`; sign in + approve in
+   the browser → redirect to our `/oauth/callback?code&state`.
+4. **Token.** Exchange the code (`private_key_jwt` + DPoP + nonce) → access/refresh
+   tokens; `sub` = the DID. We upsert the user by DID + set the session cookie.
+5. **Scopes.** Confirm the granted scope matches what we requested (`atproto …` /
+   the agreed permission set).
+
+### Confirm on each side
+
+| decodingus | Edge / PDS |
+|:---|:---|
+| metadata + JWKS served at client_id; `kid` stable (persisted key) | PDS fetches + validates the client-metadata document |
+| `redirect_uris` exact-match the deployed callback | `private_key_jwt` (ES256) assertion accepted at PAR + token |
+| DPoP-nonce single-retry on PAR + token | the auth server's actual `DPoP-Nonce` behavior |
+| session established; user upserted by DID | scopes / permission set actually granted |
+
+See the "Open points to settle with the Edge team" section above for the
+still-open decisions (scopes/permission set, key lifecycle, identity resolution).

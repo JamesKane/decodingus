@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}{{ t.get("dc.title") }} — {{ t.get("app.name") }}{% endblock %}
+{% block content %}
+<h1 class="h3 mb-1">{{ t.get("dc.title") }}</h1>
+<p class="text-muted small mb-3">{{ t.get("dc.intro") }}</p>
+<div class="btn-group btn-group-sm mb-3" role="group">
+  <a class="btn btn-outline-secondary{% if list.dna.is_empty() %} active{% endif %}"
+     hx-get="/curator/denovo-conflicts/fragment" hx-target="#dc-table">{{ t.get("dc.filter.all") }}</a>
+  <a class="btn btn-outline-secondary{% if list.dna == "Y" %} active{% endif %}"
+     hx-get="/curator/denovo-conflicts/fragment?type=Y" hx-target="#dc-table">{{ t.get("dc.filter.y") }}</a>
+  <a class="btn btn-outline-secondary{% if list.dna == "MT" %} active{% endif %}"
+     hx-get="/curator/denovo-conflicts/fragment?type=MT" hx-target="#dc-table">{{ t.get("dc.filter.mt") }}</a>
+</div>
+<div id="dc-table" hx-get="/curator/denovo-conflicts/fragment" hx-trigger="load">
+  {% include "curator/denovo-conflicts/list.html" %}
+</div>
+{% endblock %}

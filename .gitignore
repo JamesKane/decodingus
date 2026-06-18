@@ -15,3 +15,6 @@ target
 
 # Docker volumes
 postgres_data/
+
+# macOS
+.DS_Store

@@ -1,0 +1,36 @@
+{# Fragment: reconcile-flag merge panel. Target of #flag-detail. #}
+<div class="card">
+  <div class="card-header"><strong>{% if f.resolved %}{{ t.get("rf.resolved") }}{% else %}{{ f.locus }}{% endif %}</strong></div>
+  <div class="card-body">
+    {% if let Some(n) = f.notice %}<div class="alert alert-success py-2 px-3 small mb-3">{{ n }}</div>{% endif %}
+
+    {% if f.resolved %}
+    <p class="detail-empty mb-0">{{ t.get("rf.resolved.note") }}</p>
+    {% else %}
+    <p class="small text-muted mb-2">{{ t.get("rf.synonyms") }}: {{ f.names }}</p>
+    <p class="small mb-2">{{ t.get("rf.split_note") }}</p>
+
+    <form hx-post="/curator/reconcile-flags/{{ f.id }}/merge" hx-target="#flag-detail" hx-swap="innerHTML"
+          hx-confirm="{{ t.get("rf.merge.confirm") }}">
+      <table class="table table-sm align-middle">
+        <thead><tr>
+          <th style="width:2rem;">{{ t.get("rf.keep") }}</th>
+          <th>{{ t.get("rf.col.canonical") }}</th>
+          <th>{{ t.get("rf.col.defines") }}</th>
+        </tr></thead>
+        <tbody>
+          {% for v in f.variants %}
+          <tr>
+            <td><input type="radio" name="keep" value="{{ v.id }}"{% if loop.first %} checked{% endif %} required></td>
+            <td><strong>{{ v.canonical }}</strong></td>
+            <td><small class="text-muted">{{ v.defines }}</small></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <button class="btn btn-sm btn-warning">{{ t.get("rf.merge") }}</button>
+      <span class="small text-muted ms-2">{{ t.get("rf.merge.hint") }}</span>
+    </form>
+    {% endif %}
+  </div>
+</div>

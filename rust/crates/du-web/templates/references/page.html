@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}{{ t.get("references.title") }} — {{ t.get("app.name") }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h1 class="h3 mb-0">{{ t.get("references.title") }}</h1>
+  <a class="btn btn-sm btn-outline-primary" href="/references/submit">{{ t.get("submit.cta") }}</a>
+</div>
+<div class="row">
+  <div class="col-lg-7">
+    <input type="search" name="query" class="form-control mb-3"
+           placeholder="{{ t.get("references.search.placeholder") }}"
+           value="{{ list.query }}"
+           hx-get="/references/list"
+           hx-trigger="input changed delay:300ms, search"
+           hx-target="#references-table"
+           hx-indicator="#ref-spinner">
+    <span id="ref-spinner" class="htmx-indicator spinner-border spinner-border-sm"></span>
+    <div id="references-table">
+      {% include "references/list.html" %}
+    </div>
+  </div>
+  <div class="col-lg-5">
+    <div id="reference-detail">
+      <p class="detail-empty">{{ t.get("references.select") }}</p>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,24 @@
+[package]
+name = "du-db"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+# Data-access layer: SQLx pool + per-aggregate query modules. Runtime-checked
+# queries for now (no live DB in this environment); migrate to compile-time
+# `query_as!` + committed `.sqlx` offline cache once a dev DB is reachable.
+[dependencies]
+du-domain = { workspace = true }
+sqlx = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+chrono = { workspace = true }
+du-domain = { workspace = true }

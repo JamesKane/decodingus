@@ -1,0 +1,104 @@
+# DecodingUs — Rust workspace (rewrite of the Play/Scala 3 app)
+# See /Users/jkane/.claude/plans/robust-knitting-lampson.md
+[workspace]
+resolver = "2"
+members = [
+    "crates/du-db",
+    "crates/du-external",
+    "crates/du-web",
+    "crates/du-jobs",
+    "crates/du-migrate",
+]
+# du-domain, du-atproto, du-bio live in the sibling `decodingus-shared` repo
+# (shared with Navigator) and are pulled in via the path deps below.
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.80"
+license = "BSD-3-Clause"
+repository = "https://github.com/decodingus/decodingus"
+
+[workspace.dependencies]
+# Shared crates — git deps pinned to a rev on the decodingus-shared repo (this
+# also unblocks the Docker build, whose context can't reach a sibling path dep).
+# To update: push decodingus-shared, then bump `rev` (or switch to a pushed tag,
+# e.g. `tag = "v0.1.0"`). For local co-dev against working-tree changes, add a
+# [patch] section pointing these back at ../../decodingus-shared/crates/*.
+du-domain  = { git = "https://github.com/JamesKane/decodingus-shared.git", rev = "f975a0835fe67b1e86d919fcb085fca4db1cb1f4" }
+du-atproto = { git = "https://github.com/JamesKane/decodingus-shared.git", rev = "f975a0835fe67b1e86d919fcb085fca4db1cb1f4" }
+du-bio     = { git = "https://github.com/JamesKane/decodingus-shared.git", rev = "f975a0835fe67b1e86d919fcb085fca4db1cb1f4" }
+# Internal (decodingus-only) crates
+du-db = { path = "crates/du-db" }
+du-external = { path = "crates/du-external" }
+
+# Async runtime + web
+tokio = { version = "1", features = ["full"] }
+axum = { version = "0.7", features = ["macros"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["fs", "trace", "compression-gzip", "catch-panic"] }
+tower-cookies = { version = "0.10", features = ["signed"] }
+
+# Database (runtime-checked queries for now; switch to compile-time macros + .sqlx
+# offline cache once a dev DB is reachable — see plan §3 / §9)
+sqlx = { version = "0.8", default-features = false, features = [
+    "runtime-tokio-rustls", "postgres", "uuid", "chrono", "json", "macros", "migrate",
+] }
+
+# Templating (typed, compile-time — Twirl analog)
+askama = "0.12"
+
+# OpenAPI surface (Tapir analog): typed API descriptions + Swagger UI
+utoipa = { version = "5", features = ["axum_extras", "chrono", "uuid"] }
+utoipa-swagger-ui = { version = "8", features = ["axum"] }
+
+# Serialization / JSONB payloads
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Common types
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+rust_decimal = "1"
+
+# HTTP client (external APIs)
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+
+# WebSocket client (Jetstream coverage-mirror consumer in du-jobs)
+tokio-tungstenite = { version = "0.24", default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }
+futures-util = { version = "0.3", default-features = false }
+
+# URL/query encoding (language-switcher `next` param)
+percent-encoding = "2"
+
+# AT Protocol identity/crypto
+multibase = "0.9"
+base64 = "0.22"
+sha2 = "0.10"
+p256 = { version = "0.13", features = ["ecdsa"] }
+rand_core = { version = "0.6", features = ["getrandom"] }
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Errors / logging / config
+thiserror = "2"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Crypto
+argon2 = { version = "0.5", features = ["std"] }
+bcrypt = "0.16"
+ed25519-dalek = "2"
+aes-gcm = "0.10"
+
+# NB: raw-read processing (BAM/CRAM) and variant calling are OUT OF SCOPE for the
+# AppView — Navigator (edge) does local calling and the AppView aggregates the
+# resulting summaries/proposals. du-bio here is text-format + coordinate math
+# (VCF variant ingest, BED callable loci, liftover), so no htslib/noodles dep.
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
