@@ -8,6 +8,14 @@
   <link href="/assets/vendor/bootstrap-icons.min.css" rel="stylesheet">
   <link href="/assets/main.css" rel="stylesheet">
   <script src="/assets/vendor/htmx.min.js"></script>
+  <script>
+    // CSRF double-submit: echo the `csrf` cookie as a header on every HTMX request
+    // (hx-boost routes all form submits + links through HTMX, so this covers them).
+    document.addEventListener('htmx:configRequest', function (e) {
+      var m = document.cookie.match(/(?:^|;\s*)csrf=([^;]+)/);
+      if (m) { e.detail.headers['X-CSRF-Token'] = decodeURIComponent(m[1]); }
+    });
+  </script>
   {% block head %}{% endblock %}
 </head>
 <body hx-boost="true">
@@ -109,9 +117,10 @@
     b.classList.remove('d-none');
     b.querySelectorAll('button[data-consent]').forEach(function (btn) {
       btn.addEventListener('click', function () {
+        var t = (document.cookie.match(/(?:^|;\s*)csrf=([^;]+)/) || [])[1] || '';
         fetch('/cookie-consent', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': decodeURIComponent(t) },
           body: new URLSearchParams({ consent: btn.getAttribute('data-consent') })
         }).then(function () { b.classList.add('d-none'); });
       });

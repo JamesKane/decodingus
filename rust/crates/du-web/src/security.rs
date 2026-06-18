@@ -11,9 +11,10 @@
 //! follow-up that would let us drop `'unsafe-inline'` from `script-src`.
 
 use axum::extract::Request;
-use axum::http::{header, HeaderName, HeaderValue};
+use axum::http::{header, HeaderName, HeaderValue, Method, StatusCode};
 use axum::middleware::Next;
-use axum::response::Response;
+use axum::response::{IntoResponse, Response};
+use uuid::Uuid;
 
 /// `Permissions-Policy` (no `http::header` constant for it).
 const PERMISSIONS_POLICY: HeaderName = HeaderName::from_static("permissions-policy");
@@ -58,6 +59,59 @@ pub async fn set_security_headers(req: Request, next: Next) -> Response {
     res
 }
 
+// ── CSRF (stateless double-submit) ──────────────────────────────────────────
+
+/// CSRF cookie name (double-submit). Deliberately **not** HttpOnly: the
+/// `htmx:configRequest` hook in `base.html` reads it and echoes it as the
+/// `X-CSRF-Token` request header on every HTMX request (and, via `hx-boost`,
+/// every boosted form submit).
+const CSRF_COOKIE: &str = "csrf";
+
+fn is_state_changing(m: &Method) -> bool {
+    matches!(*m, Method::POST | Method::PUT | Method::PATCH | Method::DELETE)
+}
+
+/// Read the `csrf` cookie value out of the request's `Cookie` header.
+fn csrf_cookie(req: &Request) -> Option<String> {
+    req.headers()
+        .get(header::COOKIE)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.split(';').find_map(|kv| kv.trim().strip_prefix("csrf=").map(str::to_string)))
+        .filter(|t| !t.is_empty())
+}
+
+/// Stateless double-submit CSRF protection for the cookie-session browser routes.
+///
+/// Issues a random `csrf` cookie on first contact, then on every state-changing
+/// method requires the `X-CSRF-Token` header to equal that cookie. An attacker on
+/// another origin can neither read the victim's cookie (to forge the header) nor
+/// set the header on a cross-site form post, so the two never match.
+///
+/// **Exempt:** `/api/v1/*` — the JSON API is read-only or Ed25519-signature-authed
+/// (a forged request can't produce a valid signature), so CSRF does not apply.
+pub async fn csrf_protect(req: Request, next: Next) -> Response {
+    let cookie_token = csrf_cookie(&req);
+    let exempt = req.uri().path().starts_with("/api/v1/");
+
+    if is_state_changing(req.method()) && !exempt {
+        let header_token = req.headers().get("x-csrf-token").and_then(|v| v.to_str().ok());
+        let valid = matches!((&cookie_token, header_token), (Some(c), Some(h)) if c == h);
+        if !valid {
+            return (StatusCode::FORBIDDEN, "CSRF validation failed").into_response();
+        }
+    }
+
+    let issue = cookie_token.is_none();
+    let mut res = next.run(req).await;
+    if issue {
+        let token = Uuid::new_v4().simple().to_string();
+        if let Ok(v) = HeaderValue::from_str(&format!("{CSRF_COOKIE}={token}; Path=/; SameSite=Strict")) {
+            res.headers_mut().append(header::SET_COOKIE, v);
+        }
+    }
+    res
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -99,5 +153,49 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(res.headers().get(header::X_FRAME_OPTIONS).unwrap(), "SAMEORIGIN");
+    }
+
+    fn csrf_app() -> Router {
+        Router::new()
+            .route("/form", get(|| async { "ok" }).post(|| async { "posted" }))
+            .route("/api/v1/thing", axum::routing::post(|| async { "api" }))
+            .layer(axum::middleware::from_fn(csrf_protect))
+    }
+
+    async fn send(app: Router, method: &str, uri: &str, cookie: Option<&str>, token: Option<&str>) -> Response {
+        let mut b = HttpRequest::builder().method(method).uri(uri);
+        if let Some(c) = cookie {
+            b = b.header(header::COOKIE, format!("csrf={c}"));
+        }
+        if let Some(t) = token {
+            b = b.header("x-csrf-token", t);
+        }
+        app.oneshot(b.body(Body::empty()).unwrap()).await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn get_issues_token_cookie() {
+        let res = send(csrf_app(), "GET", "/form", None, None).await;
+        assert_eq!(res.status(), StatusCode::OK);
+        let sc = res.headers().get(header::SET_COOKIE).unwrap().to_str().unwrap();
+        assert!(sc.starts_with("csrf=") && sc.contains("SameSite=Strict"), "issues a csrf cookie: {sc}");
+    }
+
+    #[tokio::test]
+    async fn post_requires_matching_token() {
+        // No cookie/header → blocked.
+        assert_eq!(send(csrf_app(), "POST", "/form", None, None).await.status(), StatusCode::FORBIDDEN);
+        // Cookie but no header → blocked.
+        assert_eq!(send(csrf_app(), "POST", "/form", Some("abc"), None).await.status(), StatusCode::FORBIDDEN);
+        // Mismatched header → blocked.
+        assert_eq!(send(csrf_app(), "POST", "/form", Some("abc"), Some("xyz")).await.status(), StatusCode::FORBIDDEN);
+        // Matching cookie + header → allowed.
+        assert_eq!(send(csrf_app(), "POST", "/form", Some("abc"), Some("abc")).await.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn api_v1_is_exempt() {
+        // The Ed25519-signed / read-only JSON API does not require a CSRF token.
+        assert_eq!(send(csrf_app(), "POST", "/api/v1/thing", None, None).await.status(), StatusCode::OK);
     }
 }

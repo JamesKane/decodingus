@@ -77,6 +77,8 @@ pub fn app(state: AppState) -> Router {
         .merge(crate::api::router())
         .nest_service("/assets", ServeDir::new(assets_dir()))
         .layer(CookieManagerLayer::new())
+        // Double-submit CSRF on the browser routes (exempts /api/v1/*).
+        .layer(axum::middleware::from_fn(crate::security::csrf_protect))
         // Outermost: stamp the security headers onto every response (pages, assets, API).
         .layer(axum::middleware::from_fn(crate::security::set_security_headers))
         .with_state(state)
