@@ -145,7 +145,10 @@ pub async fn load(pool: &PgPool, doc: &DenovoTree) -> Result<LoadReport, DbError
     // 1. Resolve every defining SNP to a core.variant id (catalog reuse or mint),
     //    caching by (contig, pos, ancestral, derived). Records each node's links
     //    and remembers any catalog name (for SNP-based node naming below).
-    let mut vcache: HashMap<(String, i64, String, String), (i64, Option<String>)> = HashMap::new();
+    // Cache key = hs1 (contig, position, ancestral, derived); value = (variant_id, catalog name).
+    type VariantKey = (String, i64, String, String);
+    type ResolvedVariant = (i64, Option<String>);
+    let mut vcache: HashMap<VariantKey, ResolvedVariant> = HashMap::new();
     // node id -> Vec<(variant_id, ancestral, derived)>
     let mut node_links: HashMap<&str, Vec<(i64, &str, &str)>> = HashMap::new();
     // node id -> first catalog SNP name (by position order) for naming fallback

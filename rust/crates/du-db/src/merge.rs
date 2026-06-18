@@ -137,7 +137,7 @@ async fn get_or_create_variant(
     if let Some(&id) = cache.get(name) {
         return Ok(id);
     }
-    let id = crate::variant::ensure_base_variant_id(&mut **tx, name).await?;
+    let id = crate::variant::ensure_base_variant_id(tx, name).await?;
     cache.insert(name.to_string(), id);
     Ok(id)
 }

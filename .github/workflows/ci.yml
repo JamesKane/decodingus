@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches: [main, rust-rewrite-foundation]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  check:
+    name: build · clippy · test
+    runs-on: ubuntu-latest
+    # The Rust workspace lives in rust/; the repo root holds only docs + scripts.
+    defaults:
+      run:
+        working-directory: rust
+
+    # PostGIS-enabled Postgres for the DB-backed tests (migrations need the
+    # postgis / citext / pgcrypto extensions). Tests create ephemeral databases.
+    services:
+      postgres:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: dev
+          POSTGRES_DB: decodingus
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgres://postgres:dev@localhost:5432/decodingus?sslmode=disable
+      APP_SECRET: devdevdevdevdevdevdevdevdevdevdev
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+
+      - name: Build
+        run: cargo build --workspace --locked
+
+      # Strict lint on shipping code (lib + bins). Test-target lints are not gated;
+      # `cargo test` below still compiles them.
+      - name: Clippy
+        run: cargo clippy --workspace --locked -- -D warnings
+
+      - name: Test
+        run: cargo test --workspace --locked
