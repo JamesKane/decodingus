@@ -17,6 +17,7 @@ mod i18n;
 mod render;
 mod oauth;
 mod routes;
+mod security;
 mod sig;
 mod state;
 mod tree_layout;
