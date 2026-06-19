@@ -1,12 +1,14 @@
 # Proposal: Privacy-First Group Project System
 
-> **📝 Status (2026-06-07): forward; reconciled by D5.** This is the member-sovereign
-> group-project proposal; `planning/d5-group-project-reconciliation.md` is the
-> authoritative reconciliation with D1–D4 — it adopts this proposal's roles/policies/
-> succession, maps its aggregate records (`projectTreeView`/`projectModal`/
-> `strComparison`) onto D4's rails, makes governance/membership the AppView-enforced
-> `research.project`/`project_member` ACL, and treats the member-sovereign visibility
-> model as the post-claim state. Unbuilt (`social`/`research` placeholder schema).
+> **📝 Status (2026-06-19): forward; D5 ACL built, social surface = Tier 2b of
+> `planning/social-layer-roadmap.md`.** Member-sovereign group-project proposal;
+> `planning/d5-group-project-reconciliation.md` is the authoritative reconciliation with
+> D1–D4 — it adopts this proposal's roles/policies/succession, maps its aggregate records
+> (`projectTreeView`/`projectModal`/`strComparison`) onto D4's rails, makes governance/
+> membership the AppView-enforced `research.project`/`project_member` ACL, and treats the
+> member-sovereign visibility model as the post-claim state. The **D5 ACL is built**; the
+> **social surface** (project feed via `feed_post topic=project:<id>`, membership UI,
+> discussion) is roadmap Tier 2b, gated on D5 + groupProject PDS ingest.
 > Triage: `triage-report.md` §4.
 
 **Status:** Draft

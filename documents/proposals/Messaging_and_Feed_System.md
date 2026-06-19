@@ -1,12 +1,14 @@
 # Messaging & Feed System Design
 
-> **📝 Status (2026-06-07): forward (Bucket B).** Schema present
-> (`social.{user_block, conversation, message, feed_post}`, mig 0009); **no logic**.
-> Refresh Slick→Rust when the social layer is scheduled. **Reconcile with the no-PII
-> direction:** DMs must NOT be central plaintext (`social.message`) — route them over
-> the **D1 encrypted relay** (or AT-Proto records); the public feed (AT-Proto
-> `feed.post` + AppView index) is fine. Reconcile threads with D4 assertions.
-> Triage: `triage-report.md` §5.
+> **📝 Status (2026-06-19): partially built — see `planning/social-layer-roadmap.md`.**
+> The team↔tester core (support threads + announcements + central community feed) is
+> **live** (mig 0041 + `du_db::social` + web + signed Edge API). This doc keeps the
+> detailed Slick→Rust design; the roadmap is the authoritative build plan + tier
+> sequencing. **No-PII reconciliation (honored):** central plaintext is used only for
+> **operator** comms (tester↔team threads/feed); **peer tester↔tester DMs are Tier 3**
+> and ride the **D1 encrypted relay** (AppView relays ciphertext, never `social.message`
+> plaintext). Federated feed (AT-Proto `feed.post` + Jetstream index) and recruitment
+> campaigns are Tier 3 (kept). Triage: `triage-report.md` §5.
 
 ## 1. Overview
 This document outlines the design for a comprehensive messaging and social feed system for DecodingUs. The goal is to facilitate communication between:
