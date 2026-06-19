@@ -130,3 +130,23 @@ pub async fn session_info(pool: &PgPool, user_id: UserId) -> Result<(Option<Stri
     .await?;
     Ok((display_name, roles))
 }
+
+/// The AT-Proto DID linked to a user, if any. Group projects are DID-owned, so the web
+/// project flow uses this to bridge the session user into the D5 (DID-keyed) ACL.
+pub async fn did_of(pool: &PgPool, user_id: UserId) -> Result<Option<String>, DbError> {
+    Ok(sqlx::query_scalar("SELECT did FROM ident.users WHERE id = $1")
+        .bind(user_id.0)
+        .fetch_optional(pool)
+        .await?
+        .flatten())
+}
+
+/// A display name for a DID (for rendering DID-keyed rosters), if the DID is bridged into
+/// `ident.users`. Falls back to `None` (caller shows the DID).
+pub async fn display_name_by_did(pool: &PgPool, did: &str) -> Result<Option<String>, DbError> {
+    Ok(sqlx::query_scalar("SELECT display_name FROM ident.users WHERE did = $1")
+        .bind(did)
+        .fetch_optional(pool)
+        .await?
+        .flatten())
+}

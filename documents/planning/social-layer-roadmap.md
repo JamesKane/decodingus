@@ -108,16 +108,18 @@ flows call:
 The rail is live now; the IBD/D4 *producers* land when those flows do (one `notify_system`
 call each — no further notification work).
 
-### 2b. Group-project social surface — **BLOCKED (assessed 2026-06-19)**
-Two concrete blockers before this is buildable: (1) **no project-create path** —
-`social.group_project` rows are only inserted in tests; projects are meant to arrive via
-Navigator **groupProject PDS ingest** (unbuilt), so there is nothing to attach a feed/
-roster to. (2) **DID/UUID impedance** — D5 research membership is DID-keyed while feed
-authorship is `ident.users` UUID-keyed; gating a project feed by membership needs the
-viewer's DID. Unblock by building a web project-create flow OR the groupProject ingest
-first. `proposals/group-project-system.md`, reconciled by
-`planning/d5-group-project-reconciliation.md`. The **D5 ACL is already built**
-(`research.project_member`). Missing social surface (once unblocked):
+### 2b. Group-project social surface — **BUILT (2026-06-19)**
+Unblocked by a **web project-create flow** (`routes/projects.rs`): a logged-in member
+with an AT-Proto DID creates a project (becoming founding ADMIN `owner_did`), gets a
+**members-only feed** (`feed_post kind=PROJECT, topic=project:<id>` — isolated from the
+global COMMUNITY feed) and a **roster** + admin member management, all on the built **D5
+ACL** (`du_db::research` role/capability checks). The viewer's DID is bridged from
+`ident.users` (`auth::did_of`); accounts without a DID get a "needs AT-Proto account"
+notice. New `du_db::research` project helpers (`create_project`/`get_project`/
+`projects_for_member`). Project posts are membership-gated, not reputation-gated.
+`proposals/group-project-system.md` / `planning/d5-group-project-reconciliation.md`.
+(Projects will ALSO arrive via Navigator groupProject PDS ingest later; this web flow is
+the bridge until then.) Remaining social surface, lower priority:
 - **Project feed** (reuse `feed_post` with `topic=project:<id>`, gated by D5 membership).
 - **Membership UI** (roster, roles, join/leave) on top of the D5 ACL.
 - **Project discussion / aggregate views** (`projectTreeView`/`strComparison` map onto

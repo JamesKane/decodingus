@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}{{ name }} — {{ t.get("app.name") }}{% endblock %}
+{% block content %}
+<a href="/projects" class="small text-muted">&larr; {{ t.get("proj.back") }}</a>
+<h1 class="h3 mt-2 mb-1">{{ name }}</h1>
+{% if description != "" %}<p class="text-muted">{{ description }}</p>{% endif %}
+<div class="row">
+  <!-- feed -->
+  <div class="col-lg-8">
+    <h6 class="text-muted">{{ t.get("proj.feed") }}</h6>
+    <form method="post" action="/projects/{{ id }}/posts" class="card card-body mb-3">
+      <textarea class="form-control mb-2" name="content" rows="2" placeholder="{{ t.get("proj.post.ph") }}" required></textarea>
+      <div><button class="btn btn-sm btn-primary" type="submit">{{ t.get("proj.post") }}</button></div>
+    </form>
+    {% if posts.is_empty() %}
+    <p class="detail-empty">{{ t.get("proj.feed.none") }}</p>
+    {% else %}
+    {% for p in posts %}
+    <div class="card mb-2">
+      <div class="card-body py-2 px-3">
+        <div class="small text-muted mb-1">{{ p.author }} · {{ p.at }}</div>
+        <div style="white-space: pre-wrap;">{{ p.content }}</div>
+        {% for r in p.replies %}
+        <div class="border-start ps-2 mt-2 ms-2 small">
+          <div class="text-muted">{{ r.author }} · {{ r.at }}</div>
+          <div style="white-space: pre-wrap;">{{ r.content }}</div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endfor %}
+    {% endif %}
+  </div>
+  <!-- roster -->
+  <div class="col-lg-4">
+    <h6 class="text-muted">{{ t.get("proj.members") }}</h6>
+    <ul class="list-group mb-3">
+      {% for m in members %}
+      <li class="list-group-item d-flex justify-content-between align-items-center py-2">
+        <span>{{ m.name }} <span class="badge text-bg-light">{{ m.role }}</span></span>
+        {% if m.removable %}
+        <form method="post" action="/projects/{{ id }}/members/revoke" class="d-inline">
+          <input type="hidden" name="member_did" value="{{ m.did }}">
+          <button class="btn btn-sm btn-link text-danger py-0 px-1" type="submit" title="{{ t.get("proj.revoke") }}">✕</button>
+        </form>
+        {% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+    {% if is_admin %}
+    <form method="post" action="/projects/{{ id }}/members" class="card card-body">
+      <label class="form-label small mb-1">{{ t.get("proj.add_member") }}</label>
+      <input class="form-control form-control-sm mb-2" name="member_did" placeholder="did:plc:…" required>
+      <select class="form-select form-select-sm mb-2" name="role">
+        {% for r in roles %}<option value="{{ r }}">{{ r }}</option>{% endfor %}
+      </select>
+      <button class="btn btn-sm btn-outline-primary" type="submit">{{ t.get("proj.add") }}</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

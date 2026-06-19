@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}{{ t.get("proj.new") }} — {{ t.get("app.name") }}{% endblock %}
+{% block content %}
+<h1 class="h3 mb-3">{{ t.get("proj.new") }}</h1>
+<form method="post" action="/projects" style="max-width: 36rem;">
+  <div class="mb-2">
+    <label class="form-label small mb-1">{{ t.get("proj.name") }}</label>
+    <input class="form-control" name="name" required>
+  </div>
+  <div class="mb-2">
+    <label class="form-label small mb-1">{{ t.get("proj.type") }}</label>
+    <select class="form-select" name="project_type">
+      {% for ty in types %}<option value="{{ ty }}">{{ ty }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="mb-2">
+    <label class="form-label small mb-1">{{ t.get("proj.lineage") }}</label>
+    <select class="form-select" name="lineage">
+      <option value="">—</option>
+      <option value="Y_DNA">Y_DNA</option>
+      <option value="MT_DNA">MT_DNA</option>
+      <option value="BOTH">BOTH</option>
+    </select>
+  </div>
+  <div class="mb-3">
+    <label class="form-label small mb-1">{{ t.get("proj.description") }}</label>
+    <textarea class="form-control" name="description" rows="3"></textarea>
+  </div>
+  <button class="btn btn-primary" type="submit">{{ t.get("proj.create") }}</button>
+  <a class="btn btn-link" href="/projects">{{ t.get("proj.cancel") }}</a>
+</form>
+{% endblock %}

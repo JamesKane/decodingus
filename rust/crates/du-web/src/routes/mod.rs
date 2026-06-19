@@ -28,6 +28,7 @@ pub mod maps;
 pub mod naming;
 pub mod denovo_conflicts;
 pub mod pages;
+pub mod projects;
 pub mod publications;
 pub mod reconcile_flags;
 pub mod references;
@@ -76,6 +77,7 @@ pub fn app(state: AppState) -> Router {
         .merge(sequencer::router())
         .merge(social::router())
         .merge(social_edge::router())
+        .merge(projects::router())
         .merge(exchange::router())
         .merge(ibd::router())
         .merge(research::router())
