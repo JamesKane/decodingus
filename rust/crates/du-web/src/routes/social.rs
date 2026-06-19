@@ -30,6 +30,10 @@ pub fn router() -> Router<AppState> {
         .route("/feed/:id/block", post(feed_block_author))
         .route("/blocks", get(blocks_page))
         .route("/blocks/:user_id/unblock", post(unblock))
+        .route("/notifications", get(notifications_page))
+        .route("/notifications/unread-count", get(notif_badge))
+        .route("/notifications/:id/open", get(notif_open))
+        .route("/notifications/read-all", post(notif_read_all))
 }
 
 /// A small pill of the caller's unread-reply count, or empty when zero. Lazy-loaded by
@@ -441,6 +445,72 @@ async fn blocks_page(User(s): User, State(st): State<AppState>, locale: Locale) 
 async fn unblock(User(s): User, State(st): State<AppState>, Path(user_id): Path<Uuid>) -> Result<Response, AppError> {
     du_db::social::unblock(&st.pool, s.user_id, user_id).await?;
     Ok(Redirect::to("/blocks").into_response())
+}
+
+// ── notifications ─────────────────────────────────────────────────────────────
+struct NotifView {
+    id: String,
+    actor: String,
+    title: String,
+    at: String,
+    unread: bool,
+}
+
+#[derive(askama::Template)]
+#[template(path = "social/notifications.html")]
+struct NotificationsTemplate {
+    t: T,
+    next: String,
+    user: Option<NavUser>,
+    notifications: Vec<NotifView>,
+}
+
+async fn notifications_page(User(s): User, State(st): State<AppState>, locale: Locale) -> Result<Response, AppError> {
+    let notifications = du_db::notification::list(&st.pool, s.user_id, 100)
+        .await?
+        .into_iter()
+        .map(|n| NotifView {
+            id: n.id.to_string(),
+            actor: n.actor_name.unwrap_or_default(),
+            title: n.title,
+            at: n.created_at.format("%Y-%m-%d %H:%M").to_string(),
+            unread: n.read_at.is_none(),
+        })
+        .collect();
+    Ok(html(&NotificationsTemplate {
+        t: locale.t,
+        next: locale.next,
+        user: Some(NavUser { is_curator: s.is_curator(), display_name: s.display_name }),
+        notifications,
+    }))
+}
+
+/// Lazy bell badge (navbar), empty when zero. Loaded async so renders stay query-free.
+async fn notif_badge(User(s): User, State(st): State<AppState>) -> Result<Html<String>, AppError> {
+    let n = du_db::notification::unread_count(&st.pool, s.user_id).await?;
+    Ok(Html(if n > 0 {
+        format!("<span class=\"badge text-bg-danger rounded-pill ms-1\">{n}</span>")
+    } else {
+        String::new()
+    }))
+}
+
+/// Mark one notification read and navigate to its target (GET so it's a plain link).
+async fn notif_open(User(s): User, State(st): State<AppState>, Path(id): Path<Uuid>) -> Result<Response, AppError> {
+    du_db::notification::mark_read(&st.pool, id, s.user_id).await?;
+    // Resolve the destination from the (recipient-scoped) notification; fall back to list.
+    let dest = du_db::notification::list(&st.pool, s.user_id, 200)
+        .await?
+        .into_iter()
+        .find(|n| n.id == id)
+        .and_then(|n| n.link)
+        .unwrap_or_else(|| "/notifications".into());
+    Ok(Redirect::to(&dest).into_response())
+}
+
+async fn notif_read_all(User(s): User, State(st): State<AppState>) -> Result<Response, AppError> {
+    du_db::notification::mark_all_read(&st.pool, s.user_id).await?;
+    Ok(Redirect::to("/notifications").into_response())
 }
 
 #[cfg(test)]

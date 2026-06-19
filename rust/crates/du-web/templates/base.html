@@ -49,6 +49,7 @@
           {% if u.is_curator %}
           <li class="nav-item"><a class="nav-link" href="/curator"><i class="bi bi-tools me-1"></i>{{ t.get("nav.curator") }}<span hx-get="/curator/inbox/unread-count" hx-trigger="load, every 60s" hx-swap="innerHTML"></span></a></li>
           {% endif %}
+          <li class="nav-item"><a class="nav-link" href="/notifications" title="{{ t.get("nav.notifications") }}"><i class="bi bi-bell"></i><span hx-get="/notifications/unread-count" hx-trigger="load, every 60s" hx-swap="innerHTML"></span></a></li>
           <li class="nav-item dropdown">
             <a class="nav-link dropdown-toggle d-flex align-items-center" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
               <i class="bi bi-person-circle me-1"></i>{{ u.display_name }}

@@ -26,6 +26,8 @@ pub fn router() -> Router<AppState> {
         .route("/api/v1/social/thread/:id", get(thread_messages))
         .route("/api/v1/social/post", post(feed_post))
         .route("/api/v1/social/feed", get(feed_read))
+        .route("/api/v1/social/notifications", get(notifications_read))
+        .route("/api/v1/social/notifications/read", post(notifications_mark))
 }
 
 /// Bridge a signature-verified DID into its `ident.users` id (idempotent), awarding the
@@ -197,6 +199,51 @@ async fn feed_read(State(st): State<AppState>, Query(q): Query<PollQuery>) -> Re
     Ok(Json(json!({ "announcements": announcements, "community": community })))
 }
 
+// ── notifications ─────────────────────────────────────────────────────────────
+async fn notifications_read(State(st): State<AppState>, Query(q): Query<PollQuery>) -> Result<Json<Value>, AppError> {
+    ensure_fresh_ts(q.ts)?;
+    verify_signed(&st.pool, &q.did, &du_db::social::messages::poll(&q.did, q.ts), &q.sig).await?;
+    let uid = uid_of(&st, &q.did).await?;
+    let items: Vec<Value> = du_db::notification::list(&st.pool, uid, 100)
+        .await?
+        .into_iter()
+        .map(|n| {
+            json!({
+                "id": n.id, "kind": n.kind, "title": n.title, "body": n.body,
+                "link": n.link, "actor": n.actor_name, "at": n.created_at, "unread": n.read_at.is_none(),
+            })
+        })
+        .collect();
+    let unread = du_db::notification::unread_count(&st.pool, uid).await?;
+    Ok(Json(json!({ "items": items, "unread": unread })))
+}
+
+#[derive(Deserialize)]
+struct NotifReadBody {
+    did: String,
+    /// Omit to mark all read; set to mark one.
+    id: Option<Uuid>,
+    ts: i64,
+    signature: String,
+}
+
+async fn notifications_mark(State(st): State<AppState>, Json(b): Json<NotifReadBody>) -> Result<Json<Value>, AppError> {
+    ensure_fresh_ts(b.ts)?;
+    verify_signed(
+        &st.pool,
+        &b.did,
+        &du_db::notification::messages::read(&b.did, b.id.map(|u| u.to_string()).as_deref(), b.ts),
+        &b.signature,
+    )
+    .await?;
+    let uid = uid_of(&st, &b.did).await?;
+    let n = match b.id {
+        Some(id) => du_db::notification::mark_read(&st.pool, id, uid).await? as u64,
+        None => du_db::notification::mark_all_read(&st.pool, uid).await?,
+    };
+    Ok(Json(json!({ "marked": n })))
+}
+
 #[cfg(test)]
 mod tests {
     use axum::body::{to_bytes, Body};
@@ -264,6 +311,17 @@ mod tests {
         let items = rv["items"].as_array().unwrap();
         assert_eq!(items.len(), 2);
         assert_eq!(items[1]["from_team"], json!(true));
+
+        // The team reply also produced a notification the Navigator can poll (same signed
+        // poll proof). It carries the THREAD_REPLY kind and a deep-link.
+        let nmsg = messages::poll(&tester_did, ts);
+        let nsig = STANDARD.encode(tester.sign(nmsg.as_bytes()).to_bytes());
+        let notifs = send(state.clone(), "GET",
+            format!("/api/v1/social/notifications?did={tester_did}&ts={ts}&sig={}", urlencode(&nsig)), Value::Null).await;
+        assert_eq!(notifs.status(), StatusCode::OK);
+        let nv: Value = serde_json::from_slice(&to_bytes(notifs.into_body(), usize::MAX).await.unwrap()).unwrap();
+        assert_eq!(nv["unread"], json!(1));
+        assert_eq!(nv["items"][0]["kind"], json!("THREAD_REPLY"));
 
         // A different DID cannot read that thread (404 — ownership isolation).
         let other = SigningKey::from_bytes(&[72u8; 32]);

@@ -25,6 +25,7 @@ pub mod haplogroup;
 pub mod ibd;
 pub mod merge;
 pub mod naming;
+pub mod notification;
 pub mod pagination;
 pub mod pdf;
 pub mod proposal;

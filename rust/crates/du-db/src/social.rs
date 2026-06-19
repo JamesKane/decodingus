@@ -149,6 +149,23 @@ pub async fn post_message(
     .execute(&mut *tx)
     .await?;
     tx.commit().await?;
+    // A team reply notifies the thread's requester (one-way bell). User replies go back
+    // into the team's inbox queue, which has its own unread badge — no per-user recipient.
+    if from_team {
+        if let Some(requester) = thread_requester(pool, conversation_id).await? {
+            crate::notification::notify(
+                pool,
+                requester,
+                crate::notification::kinds::THREAD_REPLY,
+                "The team replied to your support thread",
+                None,
+                Some(&format!("/messages/{conversation_id}")),
+                None,
+                Some(crate::notification::Related { entity_type: "CONVERSATION", entity_id: conversation_id }),
+            )
+            .await?;
+        }
+    }
     Ok(msg_id)
 }
 
@@ -333,7 +350,7 @@ pub async fn create_post(
     content: &str,
     parent: Option<Uuid>,
 ) -> Result<Uuid, DbError> {
-    Ok(sqlx::query_scalar(
+    let id: Uuid = sqlx::query_scalar(
         "INSERT INTO social.feed_post (author_id, kind, topic, content, parent_post_id) \
          VALUES ($1, $2, $3, $4, $5) RETURNING id",
     )
@@ -343,7 +360,29 @@ pub async fn create_post(
     .bind(content)
     .bind(parent)
     .fetch_one(pool)
-    .await?)
+    .await?;
+    // A reply notifies the parent post's author (skipped if replying to yourself).
+    if let Some(parent_id) = parent {
+        let parent_author: Option<Uuid> =
+            sqlx::query_scalar("SELECT author_id FROM social.feed_post WHERE id = $1")
+                .bind(parent_id)
+                .fetch_optional(pool)
+                .await?;
+        if let Some(recipient) = parent_author {
+            crate::notification::notify(
+                pool,
+                recipient,
+                crate::notification::kinds::FEED_REPLY,
+                "replied to your post",
+                None,
+                Some("/feed"),
+                Some(author_id),
+                Some(crate::notification::Related { entity_type: "FEED_POST", entity_id: parent_id }),
+            )
+            .await?;
+        }
+    }
+    Ok(id)
 }
 
 /// List top-level feed posts (no parent), pinned first then newest. Filter by `kind`

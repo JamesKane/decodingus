@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}{{ t.get("notif.title") }} — {{ t.get("app.name") }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h1 class="h3 mb-0">{{ t.get("notif.title") }}</h1>
+  {% if !notifications.is_empty() %}
+  <form method="post" action="/notifications/read-all" class="d-inline">
+    <button class="btn btn-sm btn-outline-secondary" type="submit">{{ t.get("notif.read_all") }}</button>
+  </form>
+  {% endif %}
+</div>
+{% if notifications.is_empty() %}
+<p class="detail-empty">{{ t.get("notif.none") }}</p>
+{% else %}
+<div class="list-group" style="max-width: 36rem;">
+  {% for n in notifications %}
+  <a class="list-group-item list-group-item-action d-flex justify-content-between align-items-start{% if n.unread %} list-group-item-light{% endif %}"
+     href="/notifications/{{ n.id }}/open">
+    <span>
+      {% if n.unread %}<span class="badge text-bg-primary me-1">●</span>{% endif %}
+      {% if n.actor != "" %}<strong>{{ n.actor }}</strong> {% endif %}{{ n.title }}
+    </span>
+    <span class="small text-muted" style="white-space:nowrap;">{{ n.at }}</span>
+  </a>
+  {% endfor %}
+</div>
+{% endif %}
+{% endblock %}

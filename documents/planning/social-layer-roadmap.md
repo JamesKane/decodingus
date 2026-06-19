@@ -94,19 +94,30 @@ list** in the member area. Small.
 The actual "orchestration": connect the social layer to the collaboration platform. Each
 piece is buildable independently but proves out only when its upstream events exist.
 
-### 2a. Notifications + the SYSTEM rail
-Generalize the unread-badge infrastructure into a notification model (new reply, new
-match, mention, upvote). The substance is the **`kind=SYSTEM` rail** that the collab
-flows write into:
+### 2a. Notifications + the SYSTEM rail — **BUILT (2026-06-19)**
+`mig 0044 social.notification` + `du_db::notification`: `notify`/`notify_system`,
+`list`/`unread_count`/`mark_read`(recipient-scoped)/`mark_all_read`. Producers wired into
+`du_db::social`: a **team reply** → `THREAD_REPLY` to the requester; a **feed reply** →
+`FEED_REPLY` to the parent author (self-notify skipped). Web: navbar **bell** (lazy
+badge) + `/notifications`. Signed Edge: `GET /api/v1/social/notifications` +
+`POST …/notifications/read`. **`notify_system` (actor = NULL) is the rail** the collab
+flows call:
 - **IBD/match-consent** (`planning/d3-ibd-matching-impl.md`, `d1-encrypted-edge-exchange.md`)
-  → a SYSTEM thread/notification ("a possible match wants to connect").
+  → `notify_system(recipient, "A possible match wants to connect", …)`.
 - **D4 research assertions** (dispute/settle) → notify project members.
-Schema-ready (`kind=SYSTEM` allowed; no migration). Gated on D1/D3 producing events.
+The rail is live now; the IBD/D4 *producers* land when those flows do (one `notify_system`
+call each — no further notification work).
 
-### 2b. Group-project social surface
-`proposals/group-project-system.md`, reconciled by `planning/d5-group-project-reconciliation.md`.
-The **D5 ACL is already built** (`research.project_member`, see the group-project-acl
-work). Missing is the social surface:
+### 2b. Group-project social surface — **BLOCKED (assessed 2026-06-19)**
+Two concrete blockers before this is buildable: (1) **no project-create path** —
+`social.group_project` rows are only inserted in tests; projects are meant to arrive via
+Navigator **groupProject PDS ingest** (unbuilt), so there is nothing to attach a feed/
+roster to. (2) **DID/UUID impedance** — D5 research membership is DID-keyed while feed
+authorship is `ident.users` UUID-keyed; gating a project feed by membership needs the
+viewer's DID. Unblock by building a web project-create flow OR the groupProject ingest
+first. `proposals/group-project-system.md`, reconciled by
+`planning/d5-group-project-reconciliation.md`. The **D5 ACL is already built**
+(`research.project_member`). Missing social surface (once unblocked):
 - **Project feed** (reuse `feed_post` with `topic=project:<id>`, gated by D5 membership).
 - **Membership UI** (roster, roles, join/leave) on top of the D5 ACL.
 - **Project discussion / aggregate views** (`projectTreeView`/`strComparison` map onto
