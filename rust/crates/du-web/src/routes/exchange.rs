@@ -97,7 +97,7 @@ async fn create_request(State(st): State<AppState>, Json(b): Json<RequestBody>) 
             return Err(AppError::Forbidden);
         }
     }
-    exchange::create_request(
+    let inserted = exchange::create_request(
         &st.pool,
         &exchange::NewRequest {
             request_uri: &b.request_uri,
@@ -109,7 +109,33 @@ async fn create_request(State(st): State<AppState>, Json(b): Json<RequestBody>) 
         },
     )
     .await?;
+    // The SYSTEM notification rail's real D1 producer: alert the partner that a request
+    // is awaiting their consent (only on first creation — re-sends don't re-notify).
+    if inserted {
+        notify_exchange(&st, &b.partner_did, request_title(&b.purpose)).await?;
+    }
     Ok(Json(json!({ "request_uri": b.request_uri, "status": "PENDING" })))
+}
+
+/// A purpose-appropriate alert title for an incoming exchange request. The AppView never
+/// learns who/what beyond the DID + purpose tag, so the copy stays generic.
+fn request_title(purpose: &str) -> &'static str {
+    if purpose.starts_with("IBD") {
+        "A possible DNA match wants to connect"
+    } else if purpose == "GENEALOGY_PII" {
+        "Someone wants to share genealogy details with you"
+    } else {
+        "You have a new secure connection request"
+    }
+}
+
+/// Bridge a DID into `ident.users` and drop a SYSTEM notification on it. The exchange is
+/// DID-keyed; notifications are UUID-keyed — same participant, both ids. (PII-free: the
+/// stored title carries no name, only the purpose-class.)
+async fn notify_exchange(st: &AppState, recipient_did: &str, title: &str) -> Result<(), AppError> {
+    let uid = du_db::auth::upsert_user_by_did(&st.pool, recipient_did, None, None).await?.0;
+    du_db::notification::notify_system(&st.pool, uid, title, None, None).await?;
+    Ok(())
 }
 
 #[derive(Deserialize)]
@@ -142,7 +168,14 @@ async fn consent(State(st): State<AppState>, Json(b): Json<ConsentBody>) -> Resu
     .await?;
     match outcome {
         exchange::ConsentOutcome::Unknown => Err(AppError::NotFound(format!("request {}", b.request_uri))),
-        exchange::ConsentOutcome::Consented(sid) => Ok(Json(json!({ "status": "CONSENTED", "session_id": sid }))),
+        exchange::ConsentOutcome::Consented(sid) => {
+            // Dual consent reached → alert the *other* party that the channel is open.
+            if let Some(meta) = exchange::request_meta(&st.pool, &b.request_uri).await? {
+                let other = if meta.initiator_did == b.consenting_did { meta.partner_did } else { meta.initiator_did };
+                notify_exchange(&st, &other, "Your connection request was accepted — you can now exchange securely").await?;
+            }
+            Ok(Json(json!({ "status": "CONSENTED", "session_id": sid })))
+        }
         exchange::ConsentOutcome::Declined => Ok(Json(json!({ "status": "DECLINED" }))),
         exchange::ConsentOutcome::Recorded => Ok(Json(json!({ "status": "PENDING" }))),
     }
@@ -290,6 +323,15 @@ mod tests {
         assert_eq!(r.status(), StatusCode::OK);
         let v: serde_json::Value = serde_json::from_slice(&to_bytes(r.into_body(), usize::MAX).await.unwrap()).unwrap();
         assert_eq!(v["status"], "PENDING");
+
+        // The request notifies the partner via the SYSTEM rail (the D1 producer). The
+        // partner DID is bridged into ident.users on demand; a GENEALOGY_PII request
+        // reads as a genealogy-share alert.
+        let partner_uid = du_db::auth::upsert_user_by_did(db.pool(), partner, None, None).await.unwrap().0;
+        assert_eq!(du_db::notification::unread_count(db.pool(), partner_uid).await.unwrap(), 1);
+        let notes = du_db::notification::list(db.pool(), partner_uid, 5).await.unwrap();
+        assert_eq!(notes[0].kind, du_db::notification::kinds::SYSTEM);
+        assert!(notes[0].title.contains("genealogy"));
 
         // Tampered signature → 403.
         let mut bad = body.clone();

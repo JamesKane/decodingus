@@ -132,12 +132,19 @@ Gated on D5 (done) + groupProject PDS-record ingest (Navigator side).
 
 Larger lifts gated on protocol/crypto maturity. Confirmed in scope 2026-06-19.
 
-### 3a. Peer DMs over the D1 encrypted relay
-The tester↔tester direct messages deliberately **not** central-stored. Bodies ride the
-**D1 encrypted relay** (`du-exchange`, mig 0032 `exchange.*`); the **AppView relays
-ciphertext only** — no plaintext `social.message` for peer DMs. Honors the no-PII
-invariant. Gated on the Navigator-side `du-exchange` crypto (X25519/AES-GCM) being live.
-Reuses our thread/notification UI for the envelope; only the body transport differs.
+### 3a. Peer DMs over the D1 encrypted relay — **AppView side BUILT (2026-06-19)**
+The D1 broker (`exchange.*`, mig 0032) already provides the full ciphertext relay
+(request → dual consent → session → blind `relay_envelope` store-and-forward). What was
+missing on the AppView is the **orchestration hook**, now wired: an exchange **request
+arrives → SYSTEM notification** to the partner (purpose-aware: IBD match / genealogy-PII
+DM / generic), and **dual consent → notification** to the other party. `create_request`
+returns an inserted-bool so re-sends don't re-notify; the partner DID is bridged into
+`ident.users` for the (UUID-keyed) notification. This is the **real D1 producer for the
+2a SYSTEM rail** — and it serves both peer DMs *and* IBD-match consent. The AppView stays
+a **blind ciphertext relay**; the crypto (X25519/AES-GCM) remains Navigator-side, so the
+end-to-end DM still needs the Edge `du-exchange` crate. No central plaintext — invariant
+held. **Remaining (Edge):** the Navigator crypto + a DM UI (the AppView can't render
+ciphertext, by design).
 
 ### 3b. Federated public feed
 Publish community posts as AT-Proto **`com.decodingus.atmosphere.feed.post`** records on

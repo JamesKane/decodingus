@@ -99,9 +99,10 @@ pub async fn request_meta(pool: &PgPool, request_uri: &str) -> Result<Option<Req
         .await?)
 }
 
-/// Record a signed exchange request (idempotent on `request_uri`).
-pub async fn create_request(pool: &PgPool, r: &NewRequest<'_>) -> Result<(), DbError> {
-    sqlx::query(
+/// Record a signed exchange request (idempotent on `request_uri`). Returns whether a new
+/// row was inserted — so a re-sent request doesn't re-notify the partner.
+pub async fn create_request(pool: &PgPool, r: &NewRequest<'_>) -> Result<bool, DbError> {
+    let n = sqlx::query(
         "INSERT INTO exchange.exchange_request \
             (request_uri, initiator_did, partner_did, purpose, scope, details) \
          VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (request_uri) DO NOTHING",
@@ -113,8 +114,9 @@ pub async fn create_request(pool: &PgPool, r: &NewRequest<'_>) -> Result<(), DbE
     .bind(r.scope)
     .bind(&r.details)
     .execute(pool)
-    .await?;
-    Ok(())
+    .await?
+    .rows_affected();
+    Ok(n > 0)
 }
 
 /// Outcome of recording a consent.
