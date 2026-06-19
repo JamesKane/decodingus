@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}{{ t.get("msg.title") }} — {{ t.get("app.name") }}{% endblock %}
+{% block content %}
+<a href="/messages" class="small text-muted">&larr; {{ t.get("msg.back") }}</a>
+<div class="card mt-2" style="max-width: 48rem;">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <strong>{% if thread.subject != "" %}{{ thread.subject }}{% else %}{{ t.get("msg.thread") }}{% endif %}</strong>
+    <span class="badge {% if thread.status == "open" %}text-bg-warning{% else if thread.status == "replied" %}text-bg-info{% else %}text-bg-secondary{% endif %}">{{ thread.status }}</span>
+  </div>
+  <div class="card-body">
+    <div class="mb-3" style="max-height: 28rem; overflow-y: auto;">
+      {% for m in thread.messages %}
+      <div class="d-flex mb-2 {% if !m.from_team %}justify-content-end{% endif %}">
+        <div class="p-2 rounded {% if m.from_team %}bg-light{% else %}text-bg-primary{% endif %}" style="max-width: 85%;">
+          <div class="small {% if m.from_team %}text-muted{% else %}text-white-50{% endif %}">
+            {% if m.from_team %}{{ t.get("msg.team") }}{% else %}{{ m.who }}{% endif %} · {{ m.at }}
+          </div>
+          <div style="white-space: pre-wrap;">{{ m.body }}</div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    <form method="post" action="/messages/{{ thread.id }}/reply">
+      <div class="mb-2">
+        <textarea class="form-control" name="body" rows="3" placeholder="{{ t.get("msg.reply.ph") }}" required></textarea>
+      </div>
+      <button class="btn btn-primary btn-sm" type="submit">{{ t.get("msg.send") }}</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

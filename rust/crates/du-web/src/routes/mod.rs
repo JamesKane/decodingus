@@ -21,6 +21,7 @@ pub mod exchange;
 pub mod ibd;
 pub mod curation;
 pub mod curator;
+pub mod curator_inbox;
 pub mod curator_regions;
 pub mod curator_variants;
 pub mod maps;
@@ -33,6 +34,8 @@ pub mod references;
 pub mod research;
 pub mod samples;
 pub mod sequencer;
+pub mod social;
+pub mod social_edge;
 pub mod tree;
 pub mod variants;
 pub mod versioning;
@@ -60,6 +63,7 @@ pub fn app(state: AppState) -> Router {
         .merge(pages::router())
         .merge(auth_routes::router())
         .merge(curator::router())
+        .merge(curator_inbox::router())
         .merge(curator_variants::router())
         .merge(curator_regions::router())
         .merge(curation::router())
@@ -70,6 +74,8 @@ pub fn app(state: AppState) -> Router {
         .merge(change_sets::router())
         .merge(versioning::router())
         .merge(sequencer::router())
+        .merge(social::router())
+        .merge(social_edge::router())
         .merge(exchange::router())
         .merge(ibd::router())
         .merge(research::router())

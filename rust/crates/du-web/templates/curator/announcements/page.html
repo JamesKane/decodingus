@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}{{ t.get("announce.title") }} — {{ t.get("app.name") }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-1">
+  <h1 class="h3 mb-0">{{ t.get("announce.title") }}</h1>
+  <a class="btn btn-sm btn-outline-secondary" href="/curator/inbox">{{ t.get("announce.inbox") }}</a>
+</div>
+<p class="text-muted small mb-3">{{ t.get("announce.intro") }}</p>
+{% if posted %}<div class="alert alert-success py-2 px-3 small">{{ t.get("announce.posted") }}</div>{% endif %}
+<div class="row">
+  <div class="col-lg-5">
+    <form method="post" action="/curator/announcements">
+      <div class="mb-2">
+        <label class="form-label small mb-1">{{ t.get("announce.body") }}</label>
+        <textarea class="form-control" name="content" rows="4" required></textarea>
+      </div>
+      <div class="mb-2">
+        <label class="form-label small mb-1">{{ t.get("announce.topic") }}</label>
+        <input class="form-control form-control-sm" name="topic" placeholder="general">
+      </div>
+      <div class="form-check mb-3">
+        <input class="form-check-input" type="checkbox" name="pinned" id="pinned">
+        <label class="form-check-label small" for="pinned">{{ t.get("announce.pin") }}</label>
+      </div>
+      <button class="btn btn-primary btn-sm" type="submit">{{ t.get("announce.post") }}</button>
+    </form>
+  </div>
+  <div class="col-lg-7">
+    <h6 class="text-muted">{{ t.get("announce.recent") }}</h6>
+    {% if rows.is_empty() %}
+    <p class="detail-empty">{{ t.get("announce.none") }}</p>
+    {% else %}
+    {% for a in rows %}
+    <div class="card mb-2">
+      <div class="card-body py-2 px-3">
+        <div class="d-flex justify-content-between small text-muted mb-1">
+          <span>{% if a.pinned %}📌 {% endif %}{{ a.author }}{% if a.topic != "" %} · {{ a.topic }}{% endif %}</span>
+          <span>{{ a.at }}</span>
+        </div>
+        <div style="white-space: pre-wrap;">{{ a.content }}</div>
+        {% if a.replies > 0 %}<div class="small text-muted mt-1">{{ a.replies }} {{ t.get("announce.replies") }}</div>{% endif %}
+      </div>
+    </div>
+    {% endfor %}
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,26 @@
+{# Fragment: support-thread list. Target of #thread-table. #}
+{% if list.rows.is_empty() %}
+<p class="detail-empty">{{ t.get("inbox.none") }}</p>
+{% else %}
+<table class="table table-sm table-hover align-middle">
+  <thead><tr>
+    <th>{{ t.get("inbox.col.requester") }}</th>
+    <th>{{ t.get("inbox.col.subject") }}</th>
+    <th>{{ t.get("inbox.col.status") }}</th>
+    <th class="text-end">{{ t.get("inbox.col.activity") }}</th>
+  </tr></thead>
+  <tbody>
+    {% for r in list.rows %}
+    <tr role="button" hx-get="/curator/inbox/{{ r.id }}" hx-target="#thread-detail" hx-swap="innerHTML">
+      <td>{% if r.team_unread %}<span class="badge text-bg-primary me-1">●</span>{% endif %}{{ r.requester }}</td>
+      <td>{{ r.subject }}</td>
+      <td><span class="badge {% if r.status == "open" %}text-bg-warning{% else if r.status == "replied" %}text-bg-info{% else %}text-bg-secondary{% endif %}">{{ r.status }}</span></td>
+      <td class="text-end small text-muted" style="white-space:nowrap;">{{ r.last_activity }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% if list.total_pages > 1 %}
+<p class="small text-muted">{{ t.get("inbox.page") }} {{ list.page }} / {{ list.total_pages }} · {{ list.total }}</p>
+{% endif %}
+{% endif %}

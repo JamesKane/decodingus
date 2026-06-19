@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}{{ t.get("feed.title") }} — {{ t.get("app.name") }}{% endblock %}
+{% block content %}
+<h1 class="h3 mb-1">{{ t.get("feed.title") }}</h1>
+<p class="text-muted small mb-3">{{ t.get("feed.intro") }}</p>
+{% if feed.posted %}<div class="alert alert-success py-2 px-3 small">{{ t.get("feed.posted") }}</div>{% endif %}
+
+{% if feed.can_post %}
+<form method="post" action="/feed" class="card card-body mb-3" style="max-width: 44rem;">
+  <div class="mb-2">
+    <textarea class="form-control" name="content" rows="2" placeholder="{{ t.get("feed.compose.ph") }}" required></textarea>
+  </div>
+  <div class="d-flex gap-2 align-items-center">
+    <input class="form-control form-control-sm" name="topic" placeholder="{{ t.get("feed.topic.ph") }}" style="max-width: 14rem;">
+    <button class="btn btn-primary btn-sm" type="submit">{{ t.get("feed.post") }}</button>
+  </div>
+</form>
+{% else %}
+<div class="alert alert-secondary py-2 px-3 small" style="max-width: 44rem;">{{ t.get("feed.locked") }}</div>
+{% endif %}
+
+{% if feed.posts.is_empty() %}
+<p class="detail-empty">{{ t.get("feed.none") }}</p>
+{% else %}
+<div style="max-width: 44rem;">
+  {% for p in feed.posts %}
+  <div class="card mb-2 {% if p.kind == "ANNOUNCEMENT" %}border-primary{% endif %}">
+    <div class="card-body py-2 px-3">
+      <div class="d-flex justify-content-between small text-muted mb-1">
+        <span>
+          {% if p.kind == "ANNOUNCEMENT" %}<span class="badge text-bg-primary me-1">{{ t.get("feed.badge.team") }}</span>{% endif %}
+          {% if p.pinned %}📌 {% endif %}{{ p.author }}{% if p.topic != "" %} · {{ p.topic }}{% endif %}
+        </span>
+        <span>{{ p.at }}</span>
+      </div>
+      <div style="white-space: pre-wrap;">{{ p.content }}</div>
+
+      {% for r in p.replies %}
+      <div class="border-start ps-2 mt-2 ms-2 small">
+        <div class="text-muted">{{ r.author }} · {{ r.at }}</div>
+        <div style="white-space: pre-wrap;">{{ r.content }}</div>
+      </div>
+      {% endfor %}
+
+      {% if feed.can_post %}
+      <form method="post" action="/feed/{{ p.id }}/reply" class="d-flex gap-2 mt-2">
+        <input class="form-control form-control-sm" name="content" placeholder="{{ t.get("feed.reply.ph") }}" required>
+        <button class="btn btn-sm btn-outline-secondary" type="submit">{{ t.get("feed.reply") }}</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+{% endblock %}
