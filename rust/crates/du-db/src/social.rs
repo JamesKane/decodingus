@@ -313,12 +313,15 @@ pub struct FeedPost {
     pub pinned: bool,
     pub created_at: DateTime<Utc>,
     pub reply_count: i64,
+    /// Net vote score (sum of feed_vote.value).
+    pub score: i64,
 }
 
 const FEED_COLS: &str = "p.id, p.author_id, u.display_name AS author_name, p.kind, p.topic, \
      p.content, p.parent_post_id, p.pinned, p.created_at, \
      (SELECT count(*) FROM social.feed_post r \
-      WHERE r.parent_post_id = p.id AND r.deleted_at IS NULL) AS reply_count";
+      WHERE r.parent_post_id = p.id AND r.deleted_at IS NULL) AS reply_count, \
+     COALESCE((SELECT sum(v.value) FROM social.feed_vote v WHERE v.post_id = p.id), 0) AS score";
 
 /// Create a feed post (top-level when `parent` is `None`, else a reply). `kind` is
 /// `ANNOUNCEMENT` (team only — gated by the caller) or `COMMUNITY`.
@@ -429,6 +432,164 @@ pub async fn set_pinned(pool: &PgPool, id: Uuid, pinned: bool) -> Result<(), DbE
     Ok(())
 }
 
+// ── feed voting + moderation ──────────────────────────────────────────────────
+
+/// The voter's current vote on a post (-1, 0, or 1) — for rendering button state.
+pub async fn user_vote(pool: &PgPool, post_id: Uuid, voter_id: Uuid) -> Result<i16, DbError> {
+    Ok(sqlx::query_scalar(
+        "SELECT COALESCE((SELECT value FROM social.feed_vote WHERE post_id = $1 AND voter_id = $2), 0::smallint)",
+    )
+    .bind(post_id)
+    .bind(voter_id)
+    .fetch_one(pool)
+    .await?)
+}
+
+/// Cast/toggle a vote (`value` ∈ {-1, 1}; re-casting the same value clears it). Updates
+/// the post author's reputation by the net delta (via [`crate::reputation`]) and returns
+/// the post's new net score. Self-votes are a no-op. The author must be passed in (the
+/// caller already has the post). Voting a `post_author` of `voter` is rejected upstream
+/// by the self-vote guard here.
+pub async fn cast_vote(
+    pool: &PgPool,
+    post_id: Uuid,
+    voter_id: Uuid,
+    post_author: Uuid,
+    value: i16,
+) -> Result<i64, DbError> {
+    if voter_id == post_author {
+        return post_score(pool, post_id).await; // no self-votes; score unchanged
+    }
+    let old: i16 = user_vote(pool, post_id, voter_id).await?;
+    let new = if value == old { 0 } else { value }; // re-cast clears
+    let delta = (new - old) as i32;
+    if delta != 0 {
+        if new == 0 {
+            sqlx::query("DELETE FROM social.feed_vote WHERE post_id = $1 AND voter_id = $2")
+                .bind(post_id)
+                .bind(voter_id)
+                .execute(pool)
+                .await?;
+        } else {
+            sqlx::query(
+                "INSERT INTO social.feed_vote (post_id, voter_id, value) VALUES ($1, $2, $3) \
+                 ON CONFLICT (post_id, voter_id) DO UPDATE SET value = EXCLUDED.value, created_at = now()",
+            )
+            .bind(post_id)
+            .bind(voter_id)
+            .bind(new)
+            .execute(pool)
+            .await?;
+        }
+        // Attribute the net reputation change to the author (delta may be ±1 or ±2).
+        let event = if delta > 0 {
+            crate::reputation::events::FEED_POST_UPVOTED
+        } else {
+            crate::reputation::events::FEED_POST_DOWNVOTED
+        };
+        let related = crate::reputation::Related { entity_type: "FEED_POST", entity_id: post_id };
+        crate::reputation::record_event(pool, post_author, event, Some(delta), Some(related), Some(voter_id)).await?;
+    }
+    post_score(pool, post_id).await
+}
+
+/// A post's net vote score.
+pub async fn post_score(pool: &PgPool, post_id: Uuid) -> Result<i64, DbError> {
+    Ok(sqlx::query_scalar(
+        "SELECT COALESCE((SELECT sum(value) FROM social.feed_vote WHERE post_id = $1), 0)",
+    )
+    .bind(post_id)
+    .fetch_one(pool)
+    .await?)
+}
+
+/// A pending abuse report awaiting moderation (joined with content + reporter name).
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+pub struct ReportRow {
+    pub id: Uuid,
+    pub post_id: Uuid,
+    pub reporter_name: Option<String>,
+    pub reason: Option<String>,
+    pub content: String,
+    pub author_name: Option<String>,
+    pub post_deleted: bool,
+    pub created_at: DateTime<Utc>,
+}
+
+/// File an abuse report on a post (one open report per reporter; idempotent).
+pub async fn report_post(pool: &PgPool, post_id: Uuid, reporter_id: Uuid, reason: Option<&str>) -> Result<(), DbError> {
+    sqlx::query(
+        "INSERT INTO social.feed_report (post_id, reporter_id, reason) VALUES ($1, $2, $3) \
+         ON CONFLICT (post_id, reporter_id) DO NOTHING",
+    )
+    .bind(post_id)
+    .bind(reporter_id)
+    .bind(reason)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// The moderation queue: open reports, oldest first.
+pub async fn open_reports(pool: &PgPool) -> Result<Vec<ReportRow>, DbError> {
+    Ok(sqlx::query_as(
+        "SELECT r.id, r.post_id, ru.display_name AS reporter_name, r.reason, \
+                p.content, au.display_name AS author_name, (p.deleted_at IS NOT NULL) AS post_deleted, \
+                r.created_at \
+         FROM social.feed_report r \
+         JOIN social.feed_post p ON p.id = r.post_id \
+         LEFT JOIN ident.users ru ON ru.id = r.reporter_id \
+         LEFT JOIN ident.users au ON au.id = p.author_id \
+         WHERE r.status = 'open' ORDER BY r.created_at ASC",
+    )
+    .fetch_all(pool)
+    .await?)
+}
+
+/// Count open reports (the moderation badge).
+pub async fn open_report_count(pool: &PgPool) -> Result<i64, DbError> {
+    Ok(sqlx::query_scalar("SELECT count(*) FROM social.feed_report WHERE status = 'open'")
+        .fetch_one(pool)
+        .await?)
+}
+
+/// Resolve a report. `spam = true` → soft-delete the post and dock the author
+/// (SPAM_REPORT_VALIDATED); `false` → dismiss. Returns whether a row was updated.
+pub async fn resolve_report(pool: &PgPool, report_id: Uuid, resolver_id: Uuid, spam: bool) -> Result<bool, DbError> {
+    let status = if spam { "actioned" } else { "dismissed" };
+    let post_id: Option<Uuid> = sqlx::query_scalar(
+        "UPDATE social.feed_report SET status = $2, resolved_by = $3, resolved_at = now() \
+         WHERE id = $1 AND status = 'open' RETURNING post_id",
+    )
+    .bind(report_id)
+    .bind(status)
+    .bind(resolver_id)
+    .fetch_optional(pool)
+    .await?;
+    let Some(post_id) = post_id else { return Ok(false) };
+    if spam {
+        // Author penalty + take the content down (idempotent if already deleted).
+        if let Some(author) = sqlx::query_scalar::<_, Uuid>("SELECT author_id FROM social.feed_post WHERE id = $1")
+            .bind(post_id)
+            .fetch_optional(pool)
+            .await?
+        {
+            let related = crate::reputation::Related { entity_type: "FEED_POST", entity_id: post_id };
+            crate::reputation::record_event(
+                pool,
+                author,
+                crate::reputation::events::SPAM_REPORT_VALIDATED,
+                None,
+                Some(related),
+                Some(resolver_id),
+            )
+            .await?;
+        }
+        delete_post(pool, post_id, None).await?;
+    }
+    Ok(true)
+}
+
 // ── blocks + reputation ───────────────────────────────────────────────────────
 
 /// Block `blocked` from the `blocker`'s perspective (idempotent).
@@ -455,6 +616,27 @@ pub async fn unblock(pool: &PgPool, blocker: Uuid, blocked: Uuid) -> Result<(), 
     Ok(())
 }
 
+/// A user the caller has blocked (for the managed block list).
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+pub struct BlockRow {
+    pub blocked_id: Uuid,
+    pub blocked_name: Option<String>,
+    pub reason: Option<String>,
+    pub created_at: DateTime<Utc>,
+}
+
+/// The users `blocker` has blocked, newest first.
+pub async fn list_blocks(pool: &PgPool, blocker: Uuid) -> Result<Vec<BlockRow>, DbError> {
+    Ok(sqlx::query_as(
+        "SELECT b.blocked_id, u.display_name AS blocked_name, b.reason, b.created_at \
+         FROM social.user_block b LEFT JOIN ident.users u ON u.id = b.blocked_id \
+         WHERE b.blocker_id = $1 ORDER BY b.created_at DESC",
+    )
+    .bind(blocker)
+    .fetch_all(pool)
+    .await?)
+}
+
 /// Whether a block exists in **either** direction between two users — used to hide feed
 /// content and refuse contact regardless of who blocked whom.
 pub async fn is_blocked_either(pool: &PgPool, a: Uuid, b: Uuid) -> Result<bool, DbError> {
@@ -468,12 +650,5 @@ pub async fn is_blocked_either(pool: &PgPool, a: Uuid, b: Uuid) -> Result<bool, 
     .await?)
 }
 
-/// A user's reputation score (0 if they have no row yet) — the feed/DM gate reads this.
-pub async fn reputation_score(pool: &PgPool, user_id: Uuid) -> Result<i64, DbError> {
-    Ok(sqlx::query_scalar(
-        "SELECT COALESCE((SELECT score FROM social.user_reputation_score WHERE user_id = $1), 0)",
-    )
-    .bind(user_id)
-    .fetch_one(pool)
-    .await?)
-}
+// Reputation score lives in `du_db::reputation` (the engine that writes it); the feed/DM
+// gates call `reputation::can_post_to_feed` / `score_of`.

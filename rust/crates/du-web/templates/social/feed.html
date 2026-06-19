@@ -35,6 +35,30 @@
       </div>
       <div style="white-space: pre-wrap;">{{ p.content }}</div>
 
+      <div class="d-flex align-items-center gap-1 mt-2 small">
+        <form method="post" action="/feed/{{ p.id }}/vote" class="d-inline">
+          <input type="hidden" name="value" value="1">
+          <button class="btn btn-sm py-0 px-1 {% if p.up_active %}btn-success{% else %}btn-outline-secondary{% endif %}"
+                  type="submit" title="{{ t.get("feed.upvote") }}">▲</button>
+        </form>
+        <span class="fw-semibold" style="min-width:1.5rem; text-align:center;">{{ p.score }}</span>
+        <form method="post" action="/feed/{{ p.id }}/vote" class="d-inline">
+          <input type="hidden" name="value" value="-1">
+          <button class="btn btn-sm py-0 px-1 {% if p.down_active %}btn-danger{% else %}btn-outline-secondary{% endif %}"
+                  type="submit" title="{{ t.get("feed.downvote") }}">▼</button>
+        </form>
+        <form method="post" action="/feed/{{ p.id }}/report" class="d-inline ms-2"
+              onsubmit="return confirm('{{ t.get("feed.report.confirm") }}');">
+          <button class="btn btn-sm btn-link text-muted py-0 px-1" type="submit">{{ t.get("feed.report") }}</button>
+        </form>
+        {% if p.can_block %}
+        <form method="post" action="/feed/{{ p.id }}/block" class="d-inline"
+              onsubmit="return confirm('{{ t.get("feed.block.confirm") }}');">
+          <button class="btn btn-sm btn-link text-muted py-0 px-1" type="submit">{{ t.get("feed.block") }}</button>
+        </form>
+        {% endif %}
+      </div>
+
       {% for r in p.replies %}
       <div class="border-start ps-2 mt-2 ms-2 small">
         <div class="text-muted">{{ r.author }} · {{ r.at }}</div>

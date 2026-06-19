@@ -19,10 +19,6 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use uuid::Uuid;
 
-/// Minimum reputation to post to the community feed (0 for alpha/beta — open posting).
-/// Mirrors the web gate in [`super::social`].
-const MIN_FEED_REPUTATION: i64 = 0;
-
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/api/v1/social/thread", post(thread_write))
@@ -32,9 +28,12 @@ pub fn router() -> Router<AppState> {
         .route("/api/v1/social/feed", get(feed_read))
 }
 
-/// Bridge a signature-verified DID into its `ident.users` id (idempotent).
+/// Bridge a signature-verified DID into its `ident.users` id (idempotent), awarding the
+/// one-time signup bonus on first touch.
 async fn uid_of(st: &AppState, did: &str) -> Result<Uuid, AppError> {
-    Ok(du_db::auth::upsert_user_by_did(&st.pool, did, None, None).await?.0)
+    let uid = du_db::auth::upsert_user_by_did(&st.pool, did, None, None).await?.0;
+    du_db::reputation::record_once(&st.pool, uid, du_db::reputation::events::NEW_USER_BONUS).await?;
+    Ok(uid)
 }
 
 // ── support threads ───────────────────────────────────────────────────────────
@@ -157,7 +156,7 @@ async fn feed_post(State(st): State<AppState>, Json(b): Json<PostBody>) -> Resul
         return Err(AppError::BadRequest("content is required".into()));
     }
     let uid = uid_of(&st, &b.did).await?;
-    if social::reputation_score(&st.pool, uid).await? < MIN_FEED_REPUTATION {
+    if !du_db::reputation::can_post_to_feed(&st.pool, uid).await? {
         return Err(AppError::Forbidden);
     }
     let topic = b.topic.as_deref().map(str::trim).filter(|s| !s.is_empty());
@@ -175,6 +174,7 @@ fn post_json(p: du_db::social::FeedPost) -> Value {
         "pinned": p.pinned,
         "at": p.created_at,
         "reply_count": p.reply_count,
+        "score": p.score,
         "parent_post_id": p.parent_post_id,
     })
 }

@@ -16,11 +16,6 @@ use axum::{Form, Router};
 use serde::Deserialize;
 use uuid::Uuid;
 
-/// Minimum reputation to post to the community feed. Kept at 0 for alpha/beta (open
-/// posting); raise to throttle spam once the cohort grows. Announcements + support
-/// threads are never gated by this.
-const MIN_FEED_REPUTATION: i64 = 0;
-
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/messages", get(messages_page).post(open_thread))
@@ -30,6 +25,11 @@ pub fn router() -> Router<AppState> {
         .route("/messages/:id/reply", post(thread_reply))
         .route("/feed", get(feed_page).post(create_post))
         .route("/feed/:id/reply", post(feed_reply))
+        .route("/feed/:id/vote", post(feed_vote))
+        .route("/feed/:id/report", post(feed_report))
+        .route("/feed/:id/block", post(feed_block_author))
+        .route("/blocks", get(blocks_page))
+        .route("/blocks/:user_id/unblock", post(unblock))
 }
 
 /// A small pill of the caller's unread-reply count, or empty when zero. Lazy-loaded by
@@ -220,6 +220,10 @@ struct PostView {
     content: String,
     pinned: bool,
     at: String,
+    score: i64,
+    up_active: bool,
+    down_active: bool,
+    can_block: bool,
     replies: Vec<PostView>,
 }
 
@@ -229,35 +233,13 @@ struct FeedView {
     posted: bool,
 }
 
-/// Build a feed post + its (one level of) replies, dropping anything from/to a user the
-/// viewer has blocked (either direction).
-async fn to_post_view(
-    st: &AppState,
-    viewer: Uuid,
-    p: du_db::social::FeedPost,
-    with_replies: bool,
-) -> Result<Option<PostView>, AppError> {
-    if du_db::social::is_blocked_either(&st.pool, viewer, p.author_id).await? {
-        return Ok(None);
-    }
-    let mut replies = Vec::new();
-    if with_replies && p.reply_count > 0 {
-        for r in du_db::social::post_replies(&st.pool, p.id).await? {
-            if !du_db::social::is_blocked_either(&st.pool, viewer, r.author_id).await? {
-                replies.push(PostView {
-                    id: r.id.to_string(),
-                    kind: r.kind,
-                    author: r.author_name.unwrap_or_else(|| "member".into()),
-                    topic: r.topic.unwrap_or_default(),
-                    content: r.content,
-                    pinned: r.pinned,
-                    at: r.created_at.format("%Y-%m-%d %H:%M").to_string(),
-                    replies: Vec::new(),
-                });
-            }
-        }
-    }
-    Ok(Some(PostView {
+/// Build a single post's view (no replies), resolving the viewer's current vote so the
+/// up/down buttons render their active state. `can_block` offers a block affordance on
+/// other members' community posts (never on the team's announcements or your own).
+async fn row_view(st: &AppState, viewer: Uuid, p: du_db::social::FeedPost) -> Result<PostView, AppError> {
+    let my_vote = du_db::social::user_vote(&st.pool, p.id, viewer).await?;
+    let can_block = p.author_id != viewer && p.kind == "COMMUNITY";
+    Ok(PostView {
         id: p.id.to_string(),
         kind: p.kind,
         author: p.author_name.unwrap_or_else(|| "member".into()),
@@ -265,15 +247,44 @@ async fn to_post_view(
         content: p.content,
         pinned: p.pinned,
         at: p.created_at.format("%Y-%m-%d %H:%M").to_string(),
-        replies,
-    }))
+        score: p.score,
+        up_active: my_vote > 0,
+        down_active: my_vote < 0,
+        can_block,
+        replies: Vec::new(),
+    })
+}
+
+/// Build a feed post + its (one level of) replies. When `enforce_blocks` is set, drop the
+/// post (and any replies) from/to a user the viewer has blocked — used for community
+/// posts but NOT team announcements (which must always be visible).
+async fn to_post_view(
+    st: &AppState,
+    viewer: Uuid,
+    p: du_db::social::FeedPost,
+    enforce_blocks: bool,
+) -> Result<Option<PostView>, AppError> {
+    if enforce_blocks && du_db::social::is_blocked_either(&st.pool, viewer, p.author_id).await? {
+        return Ok(None);
+    }
+    let has_replies = p.reply_count > 0;
+    let mut view = row_view(st, viewer, p).await?;
+    if has_replies {
+        let pid: Uuid = view.id.parse().expect("uuid round-trips");
+        for r in du_db::social::post_replies(&st.pool, pid).await? {
+            if !du_db::social::is_blocked_either(&st.pool, viewer, r.author_id).await? {
+                view.replies.push(row_view(st, viewer, r).await?);
+            }
+        }
+    }
+    Ok(Some(view))
 }
 
 async fn load_feed(st: &AppState, viewer: Uuid, posted: bool) -> Result<FeedView, AppError> {
-    // Announcements first (pinned/newest), then the community stream.
+    // Team announcements first (always visible), then the block-filtered community stream.
     let mut posts = Vec::new();
     for p in du_db::social::list_feed(&st.pool, Some("ANNOUNCEMENT"), None, 1, 25).await?.items {
-        if let Some(v) = to_post_view(st, viewer, p, true).await? {
+        if let Some(v) = to_post_view(st, viewer, p, false).await? {
             posts.push(v);
         }
     }
@@ -282,7 +293,7 @@ async fn load_feed(st: &AppState, viewer: Uuid, posted: bool) -> Result<FeedView
             posts.push(v);
         }
     }
-    let can_post = du_db::social::reputation_score(&st.pool, viewer).await? >= MIN_FEED_REPUTATION;
+    let can_post = du_db::reputation::can_post_to_feed(&st.pool, viewer).await?;
     Ok(FeedView { posts, can_post, posted })
 }
 
@@ -317,7 +328,7 @@ async fn create_post(
     locale: Locale,
     Form(f): Form<PostForm>,
 ) -> Result<Response, AppError> {
-    if du_db::social::reputation_score(&st.pool, s.user_id).await? < MIN_FEED_REPUTATION {
+    if !du_db::reputation::can_post_to_feed(&st.pool, s.user_id).await? {
         return Err(AppError::Forbidden);
     }
     let content = f.content.trim();
@@ -341,7 +352,7 @@ async fn feed_reply(
     Path(id): Path<Uuid>,
     Form(f): Form<PostForm>,
 ) -> Result<Response, AppError> {
-    if du_db::social::reputation_score(&st.pool, s.user_id).await? < MIN_FEED_REPUTATION {
+    if !du_db::reputation::can_post_to_feed(&st.pool, s.user_id).await? {
         return Err(AppError::Forbidden);
     }
     let content = f.content.trim();
@@ -350,6 +361,86 @@ async fn feed_reply(
     }
     du_db::social::create_post(&st.pool, s.user_id, "COMMUNITY", None, content, Some(id)).await?;
     Ok(Redirect::to("/feed").into_response())
+}
+
+#[derive(Deserialize)]
+struct VoteForm {
+    /// 1 = upvote, -1 = downvote (re-casting the same value clears it).
+    value: i16,
+}
+
+async fn feed_vote(
+    User(s): User,
+    State(st): State<AppState>,
+    Path(id): Path<Uuid>,
+    Form(f): Form<VoteForm>,
+) -> Result<Response, AppError> {
+    if !matches!(f.value, 1 | -1) {
+        return Err(AppError::BadRequest("vote must be 1 or -1".into()));
+    }
+    let post = du_db::social::get_post(&st.pool, id).await?.ok_or_else(|| AppError::NotFound(format!("post {id}")))?;
+    du_db::social::cast_vote(&st.pool, id, s.user_id, post.author_id, f.value).await?;
+    Ok(Redirect::to("/feed").into_response())
+}
+
+async fn feed_report(
+    User(s): User,
+    State(st): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> Result<Response, AppError> {
+    du_db::social::report_post(&st.pool, id, s.user_id, None).await?;
+    Ok(Redirect::to("/feed").into_response())
+}
+
+/// Block the author of a post (community posts only; never yourself or the team).
+async fn feed_block_author(
+    User(s): User,
+    State(st): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> Result<Response, AppError> {
+    let post = du_db::social::get_post(&st.pool, id).await?.ok_or_else(|| AppError::NotFound(format!("post {id}")))?;
+    if post.author_id != s.user_id && post.kind == "COMMUNITY" {
+        du_db::social::block(&st.pool, s.user_id, post.author_id, None).await?;
+    }
+    Ok(Redirect::to("/feed").into_response())
+}
+
+struct BlockRow {
+    user_id: String,
+    name: String,
+    at: String,
+}
+
+#[derive(askama::Template)]
+#[template(path = "social/blocks.html")]
+struct BlocksTemplate {
+    t: T,
+    next: String,
+    user: Option<NavUser>,
+    blocks: Vec<BlockRow>,
+}
+
+async fn blocks_page(User(s): User, State(st): State<AppState>, locale: Locale) -> Result<Response, AppError> {
+    let blocks = du_db::social::list_blocks(&st.pool, s.user_id)
+        .await?
+        .into_iter()
+        .map(|b| BlockRow {
+            user_id: b.blocked_id.to_string(),
+            name: b.blocked_name.unwrap_or_else(|| "member".into()),
+            at: b.created_at.format("%Y-%m-%d").to_string(),
+        })
+        .collect();
+    Ok(html(&BlocksTemplate {
+        t: locale.t,
+        next: locale.next,
+        user: Some(NavUser { is_curator: s.is_curator(), display_name: s.display_name }),
+        blocks,
+    }))
+}
+
+async fn unblock(User(s): User, State(st): State<AppState>, Path(user_id): Path<Uuid>) -> Result<Response, AppError> {
+    du_db::social::unblock(&st.pool, s.user_id, user_id).await?;
+    Ok(Redirect::to("/blocks").into_response())
 }
 
 #[cfg(test)]

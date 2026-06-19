@@ -396,6 +396,9 @@ async fn callback(
 
     let user_id =
         du_db::auth::upsert_user_by_did(&st.pool, &did, handle.as_deref(), Some(&display)).await?;
+    // AT-Proto OAuth proves DID control → award verified + welcome (both one-time/idempotent).
+    du_db::reputation::record_once(&st.pool, user_id.0, du_db::reputation::events::ACCOUNT_VERIFIED).await?;
+    du_db::reputation::record_once(&st.pool, user_id.0, du_db::reputation::events::NEW_USER_BONUS).await?;
     let (display_name, roles) = du_db::auth::session_info(&st.pool, user_id).await?;
 
     let session = Session {

@@ -57,6 +57,7 @@
               <li><a class="dropdown-item" href="/profile"><i class="bi bi-person me-2"></i>{{ t.get("nav.profile") }}</a></li>
               <li><a class="dropdown-item" href="/messages"><i class="bi bi-envelope me-2"></i>{{ t.get("nav.messages") }}<span hx-get="/messages/unread-count" hx-trigger="load, every 60s" hx-swap="innerHTML"></span></a></li>
               <li><a class="dropdown-item" href="/feed"><i class="bi bi-chat-dots me-2"></i>{{ t.get("nav.feed") }}</a></li>
+              <li><a class="dropdown-item" href="/blocks"><i class="bi bi-slash-circle me-2"></i>{{ t.get("nav.blocks") }}</a></li>
               <li><hr class="dropdown-divider"></li>
               <li>
                 <form method="post" action="/logout" hx-boost="false" class="px-0 m-0">

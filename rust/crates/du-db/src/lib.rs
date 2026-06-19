@@ -29,6 +29,7 @@ pub mod pagination;
 pub mod pdf;
 pub mod proposal;
 pub mod publication;
+pub mod reputation;
 pub mod research;
 pub mod test_type;
 pub mod sequencer;

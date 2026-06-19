@@ -28,6 +28,8 @@ pub fn router() -> Router<AppState> {
         .route("/curator/inbox/:id/reply", post(thread_reply))
         .route("/curator/inbox/:id/status", post(thread_status))
         .route("/curator/announcements", get(announce_page).post(announce_create))
+        .route("/curator/moderation", get(moderation_page))
+        .route("/curator/moderation/:id/resolve", post(moderation_resolve))
 }
 
 // ── inbox: thread list ────────────────────────────────────────────────────────
@@ -130,6 +132,73 @@ async fn inbox_list(
 ) -> Result<Response, AppError> {
     let list = load_inbox(&st, &q).await?;
     Ok(html(&InboxListTemplate { t: locale.t, list }))
+}
+
+// ── feed moderation queue ─────────────────────────────────────────────────────
+struct ReportView {
+    id: String,
+    reporter: String,
+    reason: String,
+    author: String,
+    content: String,
+    deleted: bool,
+    at: String,
+}
+
+#[derive(askama::Template)]
+#[template(path = "curator/moderation/page.html")]
+struct ModerationTemplate {
+    t: T,
+    next: String,
+    user: Option<NavUser>,
+    reports: Vec<ReportView>,
+}
+
+async fn render_moderation(st: &AppState, s: &crate::auth::Session, locale: Locale) -> Result<Response, AppError> {
+    let reports = du_db::social::open_reports(&st.pool)
+        .await?
+        .into_iter()
+        .map(|r| ReportView {
+            id: r.id.to_string(),
+            reporter: r.reporter_name.unwrap_or_else(|| "unknown".into()),
+            reason: r.reason.unwrap_or_default(),
+            author: r.author_name.unwrap_or_else(|| "unknown".into()),
+            content: r.content,
+            deleted: r.post_deleted,
+            at: r.created_at.format("%Y-%m-%d %H:%M").to_string(),
+        })
+        .collect();
+    Ok(html(&ModerationTemplate {
+        t: locale.t,
+        next: locale.next,
+        user: Some(NavUser { display_name: s.display_name.clone(), is_curator: true }),
+        reports,
+    }))
+}
+
+async fn moderation_page(Curator(s): Curator, State(st): State<AppState>, locale: Locale) -> Result<Response, AppError> {
+    render_moderation(&st, &s, locale).await
+}
+
+#[derive(Deserialize)]
+struct ResolveForm {
+    action: String, // "spam" | "dismiss"
+}
+
+async fn moderation_resolve(
+    Curator(s): Curator,
+    State(st): State<AppState>,
+    locale: Locale,
+    Path(id): Path<uuid::Uuid>,
+    Form(f): Form<ResolveForm>,
+) -> Result<Response, AppError> {
+    let spam = match f.action.as_str() {
+        "spam" => true,
+        "dismiss" => false,
+        _ => return Err(AppError::BadRequest("bad action".into())),
+    };
+    du_db::social::resolve_report(&st.pool, id, s.user_id, spam).await?;
+    render_moderation(&st, &s, locale).await
 }
 
 /// A pill of the open-thread count for the navbar (lazy-loaded), empty when zero.

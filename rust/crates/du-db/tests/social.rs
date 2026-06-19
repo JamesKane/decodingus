@@ -102,8 +102,7 @@ async fn feed_announcements_replies_and_blocks() {
     let community = social::list_feed(pool, Some("COMMUNITY"), None, 1, 50).await.unwrap();
     assert!(community.items.is_empty(), "a reply is not a top-level feed post");
 
-    // Reputation defaults to 0; blocks are bidirectional.
-    assert_eq!(social::reputation_score(pool, citizen).await.unwrap(), 0);
+    // Blocks are bidirectional.
     assert!(!social::is_blocked_either(pool, team, citizen).await.unwrap());
     social::block(pool, citizen, team, Some("spam")).await.unwrap();
     assert!(social::is_blocked_either(pool, team, citizen).await.unwrap(), "either direction");
@@ -114,4 +113,50 @@ async fn feed_announcements_replies_and_blocks() {
     assert!(!social::delete_post(pool, ann, Some(citizen)).await.unwrap(), "non-author cannot delete");
     assert!(social::delete_post(pool, ann, Some(team)).await.unwrap());
     assert!(social::get_post(pool, ann).await.unwrap().is_none());
+}
+
+#[tokio::test]
+async fn feed_voting_drives_reputation_and_moderation() {
+    let Some(url) = database_url() else {
+        eprintln!("DATABASE_URL unset — skipping feed voting test");
+        return;
+    };
+    let db = du_db::testing::ephemeral_db(&url).await.expect("ephemeral db");
+    let pool = db.pool();
+    let author = user(pool, "vote-author").await;
+    let voter = user(pool, "vote-voter").await;
+    let curator = user(pool, "vote-mod").await;
+
+    let post = social::create_post(pool, author, "COMMUNITY", None, "hello world", None).await.unwrap();
+
+    // Upvote: post score +1, author reputation +1, voter's vote recorded.
+    assert_eq!(social::cast_vote(pool, post, voter, author, 1).await.unwrap(), 1);
+    assert_eq!(du_db::reputation::score_of(pool, author).await.unwrap(), 1);
+    assert_eq!(social::user_vote(pool, post, voter).await.unwrap(), 1);
+
+    // Re-casting the same value clears the vote (toggle off): score and rep back to 0.
+    assert_eq!(social::cast_vote(pool, post, voter, author, 1).await.unwrap(), 0);
+    assert_eq!(du_db::reputation::score_of(pool, author).await.unwrap(), 0);
+    assert_eq!(social::user_vote(pool, post, voter).await.unwrap(), 0);
+
+    // Downvote: −1 each.
+    assert_eq!(social::cast_vote(pool, post, voter, author, -1).await.unwrap(), -1);
+    assert_eq!(du_db::reputation::score_of(pool, author).await.unwrap(), -1);
+
+    // Self-votes are a no-op.
+    assert_eq!(social::cast_vote(pool, post, author, author, 1).await.unwrap(), -1, "self-vote ignored");
+    assert_eq!(du_db::reputation::score_of(pool, author).await.unwrap(), -1);
+
+    // Report → moderation queue → resolve as spam removes the post and docks the author.
+    social::report_post(pool, post, voter, Some("spam")).await.unwrap();
+    let reports = social::open_reports(pool).await.unwrap();
+    assert_eq!(reports.len(), 1);
+    assert_eq!(social::open_report_count(pool).await.unwrap(), 1);
+    let report_id = reports[0].id;
+
+    assert!(social::resolve_report(pool, report_id, curator, true).await.unwrap());
+    assert!(social::get_post(pool, post).await.unwrap().is_none(), "spam post removed");
+    assert_eq!(du_db::reputation::score_of(pool, author).await.unwrap(), -51, "-1 vote + -50 spam");
+    assert_eq!(social::open_report_count(pool).await.unwrap(), 0);
+    assert!(!social::resolve_report(pool, report_id, curator, true).await.unwrap(), "already resolved");
 }
