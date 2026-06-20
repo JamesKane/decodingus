@@ -31,6 +31,7 @@ pub mod pages;
 pub mod projects;
 pub mod publications;
 pub mod recruitment;
+pub mod recruitment_edge;
 pub mod reconcile_flags;
 pub mod references;
 pub mod research;
@@ -80,6 +81,7 @@ pub fn app(state: AppState) -> Router {
         .merge(social_edge::router())
         .merge(projects::router())
         .merge(recruitment::router())
+        .merge(recruitment_edge::router())
         .merge(exchange::router())
         .merge(ibd::router())
         .merge(research::router())

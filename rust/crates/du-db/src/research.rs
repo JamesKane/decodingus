@@ -253,6 +253,19 @@ pub async fn projects_for_member(pool: &PgPool, did: &str) -> Result<Vec<Project
     .await?)
 }
 
+/// Projects `did` may run a recruitment campaign in — those it owns or is ADMIN/CO_ADMIN of
+/// (the `ManageSubjects` gate `recruiter_ctx` enforces). The Navigator lists these to create
+/// a campaign without ever leaving the desktop client.
+pub async fn recruitable_projects(pool: &PgPool, did: &str) -> Result<Vec<ProjectRow>, DbError> {
+    let mut out = Vec::new();
+    for p in projects_for_member(pool, did).await? {
+        if can(pool, p.id, did, Capability::ManageSubjects).await? {
+            out.push(p);
+        }
+    }
+    Ok(out)
+}
+
 // ── registry ops ──────────────────────────────────────────────────────────────
 
 /// Register a subject in a project: mint a fresh pseudonymous id when `subject_id` is

@@ -82,3 +82,65 @@ async fn cohort_delivery_response_and_optin_privacy() {
     assert_eq!(recruitment::invitations_for(pool, "did:test:m3").await.unwrap().len(), 1);
     assert!(recruitment::invitations_for(pool, "did:test:m1").await.unwrap().is_empty(), "answered ⇒ no longer pending");
 }
+
+/// Insert a Y haplogroup node; returns its id.
+async fn ynode(pool: &PgPool, name: &str) -> i64 {
+    sqlx::query_scalar("INSERT INTO tree.haplogroup (name, haplogroup_type) VALUES ($1, 'Y_DNA'::core.dna_type) RETURNING id")
+        .bind(name)
+        .fetch_one(pool)
+        .await
+        .expect("insert node")
+}
+
+async fn yedge(pool: &PgPool, parent: i64, child: i64) {
+    sqlx::query("INSERT INTO tree.haplogroup_relationship (child_haplogroup_id, parent_haplogroup_id) VALUES ($1, $2)")
+        .bind(child)
+        .bind(parent)
+        .execute(pool)
+        .await
+        .expect("insert edge");
+}
+
+/// When the target resolves to a tree node, the cohort expands to every descendant clade —
+/// a tester placed at a subclade is recruited by a campaign for the ancestor. An off-tree
+/// target still falls back to a literal-string match.
+#[tokio::test]
+async fn cohort_expands_to_subclades() {
+    let Some(url) = database_url() else {
+        eprintln!("DATABASE_URL unset — skipping subclade expansion test");
+        return;
+    };
+    let db = du_db::testing::ephemeral_db(&url).await.expect("ephemeral db");
+    let pool = db.pool();
+
+    // Tree: R-M269 → R-L23 → R-Z2103 (a three-deep chain), plus an off-target sibling J-M172.
+    let m269 = ynode(pool, "R-M269").await;
+    let l23 = ynode(pool, "R-L23").await;
+    let z2103 = ynode(pool, "R-Z2103").await;
+    ynode(pool, "J-M172").await;
+    yedge(pool, m269, l23).await;
+    yedge(pool, l23, z2103).await;
+
+    // Carriers placed at each level (and one off-target).
+    biosample(pool, "did:test:root", "a", "R-M269").await;
+    biosample(pool, "did:test:mid", "a", "R-L23").await;
+    biosample(pool, "did:test:deep", "a", "R-Z2103").await;
+    biosample(pool, "did:test:offtarget", "a", "J-M172").await;
+
+    // A campaign for R-M269 reaches the whole subtree: root + mid + deep, never the sibling.
+    let cohort = recruitment::compute_cohort(pool, "R-M269", "Y_DNA", None).await.unwrap();
+    assert_eq!(cohort.len(), 3);
+    assert!(cohort.contains(&"did:test:root".to_string()));
+    assert!(cohort.contains(&"did:test:mid".to_string()));
+    assert!(cohort.contains(&"did:test:deep".to_string()));
+    assert!(!cohort.contains(&"did:test:offtarget".to_string()), "sibling clade excluded");
+
+    // Targeting a mid node only reaches at-or-below it (mid + deep, not the root).
+    let below = recruitment::compute_cohort(pool, "R-L23", "Y_DNA", None).await.unwrap();
+    assert_eq!(below, vec!["did:test:deep".to_string(), "did:test:mid".to_string()]);
+
+    // An off-tree target falls back to the literal match (only the exact carrier).
+    biosample(pool, "did:test:offtree", "a", "R-NOTINTREE").await;
+    let literal = recruitment::compute_cohort(pool, "R-NOTINTREE", "Y_DNA", None).await.unwrap();
+    assert_eq!(literal, vec!["did:test:offtree".to_string()]);
+}
