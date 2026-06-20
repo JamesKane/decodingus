@@ -11,6 +11,20 @@ use serde::Serialize;
 use sqlx::PgPool;
 use uuid::Uuid;
 
+/// Canonical signing strings for the recruitment Edge API (`/api/v1/recruitment/*`). The
+/// Navigator mirrors these byte-for-byte (`navigator_sync::recruitment::messages`), so the
+/// two ends cannot drift. Respond-only for now (campaign creation stays on the web flow).
+pub mod messages {
+    /// Replay-guarded poll for the caller's open invitations.
+    pub fn poll(did: &str, ts: i64) -> String {
+        format!("recruitment-poll\n{did}\n{ts}")
+    }
+    /// Accept (`true`) or decline (`false`) an invitation to a campaign.
+    pub fn respond(did: &str, campaign_id: i64, accept: bool) -> String {
+        format!("recruitment-respond\n{did}\n{campaign_id}\n{accept}")
+    }
+}
+
 /// A campaign as the researcher sees it — aggregate only (no invited/declined DIDs).
 #[derive(Debug, Clone, Serialize, sqlx::FromRow)]
 pub struct CampaignRow {
