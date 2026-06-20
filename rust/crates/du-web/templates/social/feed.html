@@ -29,12 +29,14 @@
       <div class="d-flex justify-content-between small text-muted mb-1">
         <span>
           {% if p.kind == "ANNOUNCEMENT" %}<span class="badge text-bg-primary me-1">{{ t.get("feed.badge.team") }}</span>{% endif %}
+          {% if p.federated %}<span class="badge text-bg-info me-1">{{ t.get("feed.badge.fed") }}</span>{% endif %}
           {% if p.pinned %}📌 {% endif %}{{ p.author }}{% if p.topic != "" %} · {{ p.topic }}{% endif %}
         </span>
         <span>{{ p.at }}</span>
       </div>
       <div style="white-space: pre-wrap;">{{ p.content }}</div>
 
+      {% if !p.federated %}
       <div class="d-flex align-items-center gap-1 mt-2 small">
         <form method="post" action="/feed/{{ p.id }}/vote" class="d-inline">
           <input type="hidden" name="value" value="1">
@@ -71,6 +73,7 @@
         <input class="form-control form-control-sm" name="content" placeholder="{{ t.get("feed.reply.ph") }}" required>
         <button class="btn btn-sm btn-outline-secondary" type="submit">{{ t.get("feed.reply") }}</button>
       </form>
+      {% endif %}
       {% endif %}
     </div>
   </div>

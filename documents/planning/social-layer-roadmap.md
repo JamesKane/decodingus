@@ -146,13 +146,17 @@ end-to-end DM still needs the Edge `du-exchange` crate. No central plaintext —
 held. **Remaining (Edge):** the Navigator crypto + a DM UI (the AppView can't render
 ciphertext, by design).
 
-### 3b. Federated public feed
-Publish community posts as AT-Proto **`com.decodingus.atmosphere.feed.post`** records on
-the author's PDS and **Jetstream-index** them in the AppView (the same ingest/aggregate
-backbone as `fed.coverage_summary`), instead of central-only. Aligns with the federated
-ingest/aggregate AppView role (no-PII direction). Needs: the lexicon, a Jetstream
-consumer + index table, and dedup/merge with any central posts. Central feed stays the
-default until this lands.
+### 3b. Federated public feed — **AppView side BUILT (2026-06-19)**
+The AppView now ingests `com.decodingus.atmosphere.feed.post` records and merges them into
+the community feed (read-only). `mig 0045 fed.feed_post` mirror + `du_db::fed::feed`
+(`upsert` time_us-guarded / `recent`); the du-jobs Jetstream consumer adds the collection
+(`build_feed_post`: top-level `createdAt`, `reply.{root,parent}.uri`); the web `/feed`
+**interleaves** federated posts with central community posts by recency, badged "via
+Atmosphere" and read-only (vote/reply/block stay AppView-native); the Edge feed returns
+them in a `federated` array. Lexicon documented in `documents/atmosphere/10-Feed-Records.md`.
+**Remaining (Edge):** Navigator must **publish** `feed.post` records (the AppView only
+ingests — the mirror is empty until it does). Read-path follow-ups: cross-author reply
+threading + federated-author block-filtering.
 
 ### 3c. Recruitment campaigns
 `Messaging_and_Feed_System.md §6`: researchers bulk-message cohorts selected by genetics

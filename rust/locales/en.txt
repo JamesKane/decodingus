@@ -484,6 +484,7 @@ feed.post=Post
 feed.locked=You need a little more reputation before posting to the feed.
 feed.none=Nothing here yet.
 feed.badge.team=Team
+feed.badge.fed=via Atmosphere
 feed.reply.ph=Reply…
 feed.reply=Reply
 feed.upvote=Upvote

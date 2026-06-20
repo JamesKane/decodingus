@@ -228,6 +228,8 @@ struct PostView {
     up_active: bool,
     down_active: bool,
     can_block: bool,
+    /// A read-only post mirrored from a member's PDS (no local vote/reply/block).
+    federated: bool,
     replies: Vec<PostView>,
 }
 
@@ -255,6 +257,7 @@ async fn row_view(st: &AppState, viewer: Uuid, p: du_db::social::FeedPost) -> Re
         up_active: my_vote > 0,
         down_active: my_vote < 0,
         can_block,
+        federated: false,
         replies: Vec::new(),
     })
 }
@@ -284,19 +287,55 @@ async fn to_post_view(
     Ok(Some(view))
 }
 
+/// Render a federated (PDS-mirrored) post — read-only, author resolved where the DID is
+/// bridged, else a shortened DID.
+fn fed_view(f: du_db::fed::feed::FedPost) -> (chrono::DateTime<chrono::Utc>, PostView) {
+    let at = f.created_at;
+    let author = f.author_name.unwrap_or_else(|| {
+        // did:plc:abcd… — show a short, recognizable handle-less label.
+        f.did.split(':').next_back().map(|s| s.chars().take(12).collect()).unwrap_or(f.did.clone())
+    });
+    let view = PostView {
+        id: String::new(),
+        kind: "COMMUNITY".into(),
+        author,
+        topic: f.topic.unwrap_or_default(),
+        content: f.text,
+        pinned: false,
+        at: at.map(|d| d.format("%Y-%m-%d %H:%M").to_string()).unwrap_or_default(),
+        score: 0,
+        up_active: false,
+        down_active: false,
+        can_block: false,
+        federated: true,
+        replies: Vec::new(),
+    };
+    (at.unwrap_or_else(chrono::Utc::now), view)
+}
+
 async fn load_feed(st: &AppState, viewer: Uuid, posted: bool) -> Result<FeedView, AppError> {
-    // Team announcements first (always visible), then the block-filtered community stream.
+    // Team announcements first (always visible)...
     let mut posts = Vec::new();
     for p in du_db::social::list_feed(&st.pool, Some("ANNOUNCEMENT"), None, 1, 25).await?.items {
         if let Some(v) = to_post_view(st, viewer, p, false).await? {
             posts.push(v);
         }
     }
+    // ...then the community stream: central posts (block-filtered) + federated posts
+    // (PDS-mirrored, read-only) interleaved by recency.
+    let mut stream: Vec<(chrono::DateTime<chrono::Utc>, PostView)> = Vec::new();
     for p in du_db::social::list_feed(&st.pool, Some("COMMUNITY"), None, 1, 50).await?.items {
+        let ts = p.created_at;
         if let Some(v) = to_post_view(st, viewer, p, true).await? {
-            posts.push(v);
+            stream.push((ts, v));
         }
     }
+    for f in du_db::fed::feed::recent(&st.pool, None, 50).await? {
+        stream.push(fed_view(f));
+    }
+    stream.sort_by_key(|(ts, _)| std::cmp::Reverse(*ts));
+    posts.extend(stream.into_iter().map(|(_, v)| v));
+
     let can_post = du_db::reputation::can_post_to_feed(&st.pool, viewer).await?;
     Ok(FeedView { posts, can_post, posted })
 }

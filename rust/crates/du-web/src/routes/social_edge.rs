@@ -196,7 +196,14 @@ async fn feed_read(State(st): State<AppState>, Query(q): Query<PollQuery>) -> Re
         .into_iter()
         .map(post_json)
         .collect();
-    Ok(Json(json!({ "announcements": announcements, "community": community })))
+    // PDS-mirrored community posts (read-only; the AppView never has their plaintext until
+    // a member publishes them publicly).
+    let federated: Vec<Value> = du_db::fed::feed::recent(&st.pool, None, 50)
+        .await?
+        .into_iter()
+        .map(|f| json!({ "did": f.did, "author": f.author_name, "text": f.text, "topic": f.topic, "uri": f.at_uri, "at": f.created_at }))
+        .collect();
+    Ok(Json(json!({ "announcements": announcements, "community": community, "federated": federated })))
 }
 
 // ── notifications ─────────────────────────────────────────────────────────────
