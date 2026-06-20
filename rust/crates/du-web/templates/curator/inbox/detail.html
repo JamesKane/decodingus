@@ -1,0 +1,40 @@
+{# Fragment: support-thread conversation + reply. Target of #thread-detail. #}
+<div class="card">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <strong>{{ thread.requester }}</strong>
+    <span class="badge {% if thread.status == "open" %}text-bg-warning{% else if thread.status == "replied" %}text-bg-info{% else %}text-bg-secondary{% endif %}">{{ thread.status }}</span>
+  </div>
+  <div class="card-body">
+    {% if thread.subject != "" %}<p class="text-muted small mb-3">{{ thread.subject }}</p>{% endif %}
+
+    <div class="mb-3" style="max-height: 24rem; overflow-y: auto;">
+      {% for m in thread.messages %}
+      <div class="d-flex mb-2 {% if m.from_team %}justify-content-end{% endif %}">
+        <div class="p-2 rounded {% if m.from_team %}text-bg-primary{% else %}bg-light{% endif %}" style="max-width: 85%;">
+          <div class="small {% if m.from_team %}text-white-50{% else %}text-muted{% endif %}">{{ m.who }} · {{ m.at }}</div>
+          <div style="white-space: pre-wrap;">{{ m.body }}</div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+
+    <form hx-post="/curator/inbox/{{ thread.id }}/reply" hx-target="#thread-detail" hx-swap="innerHTML" class="mb-2">
+      <div class="mb-2">
+        <textarea class="form-control form-control-sm" name="body" rows="3"
+                  placeholder="{{ t.get("inbox.reply.placeholder") }}" required></textarea>
+      </div>
+      <div class="d-flex gap-2">
+        <button class="btn btn-sm btn-primary" type="submit">{{ t.get("inbox.reply.send") }}</button>
+        {% if thread.status != "closed" %}
+        <button class="btn btn-sm btn-outline-secondary" type="button"
+                hx-post="/curator/inbox/{{ thread.id }}/status" hx-vals='{"status":"closed"}'
+                hx-target="#thread-detail" hx-swap="innerHTML">{{ t.get("inbox.close") }}</button>
+        {% else %}
+        <button class="btn btn-sm btn-outline-secondary" type="button"
+                hx-post="/curator/inbox/{{ thread.id }}/status" hx-vals='{"status":"open"}'
+                hx-target="#thread-detail" hx-swap="innerHTML">{{ t.get("inbox.reopen") }}</button>
+        {% endif %}
+      </div>
+    </form>
+  </div>
+</div>

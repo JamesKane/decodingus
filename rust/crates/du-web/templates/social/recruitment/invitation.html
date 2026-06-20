@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}{{ t.get("invite.title") }} — {{ t.get("app.name") }}{% endblock %}
+{% block content %}
+<div class="card mx-auto" style="max-width: 36rem;">
+  <div class="card-header"><strong>{{ t.get("invite.title") }}</strong></div>
+  <div class="card-body">
+    <p class="text-muted small mb-2">{{ t.get("invite.from") }} <strong>{{ project_name }}</strong></p>
+    <h5>{{ title }}</h5>
+    <div class="mb-3" style="white-space: pre-wrap;">{{ message }}</div>
+    {% if status == "INVITED" %}
+    <p class="text-muted small">{{ t.get("invite.explain") }}</p>
+    <div class="d-flex gap-2">
+      <form method="post" action="/recruitment/{{ cid }}/respond">
+        <input type="hidden" name="action" value="accept">
+        <button class="btn btn-success" type="submit">{{ t.get("invite.accept") }}</button>
+      </form>
+      <form method="post" action="/recruitment/{{ cid }}/respond">
+        <input type="hidden" name="action" value="decline">
+        <button class="btn btn-outline-secondary" type="submit">{{ t.get("invite.decline") }}</button>
+      </form>
+    </div>
+    {% else if status == "ACCEPTED" %}
+    <div class="alert alert-success py-2 px-3 small mb-0">{{ t.get("invite.accepted") }}</div>
+    {% else %}
+    <div class="alert alert-secondary py-2 px-3 small mb-0">{{ t.get("invite.declined") }}</div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

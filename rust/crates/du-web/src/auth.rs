@@ -92,6 +92,23 @@ impl FromRequestParts<AppState> for MaybeUser {
     }
 }
 
+/// Any authenticated session, or a redirect to /login. Use as a handler argument to
+/// gate routes that require a signed-in user (member areas: messages, feed posting).
+pub struct User(pub Session);
+
+#[axum::async_trait]
+impl FromRequestParts<AppState> for User {
+    type Rejection = Response;
+
+    async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, Self::Rejection> {
+        let cookies = Cookies::from_request_parts(parts, state).await.expect("cookie layer present");
+        match read_session(&cookies, state) {
+            Some(s) => Ok(User(s)),
+            None => Err(Redirect::to("/login").into_response()),
+        }
+    }
+}
+
 /// A session with curator privileges, or a redirect to /login. Use as a handler
 /// argument to gate curator routes.
 pub struct Curator(pub Session);

@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}{{ t.get("msg.title") }} — {{ t.get("app.name") }}{% endblock %}
+{% block content %}
+<h1 class="h3 mb-1">{{ t.get("msg.title") }}</h1>
+<p class="text-muted small mb-3">{{ t.get("msg.intro") }}</p>
+<div class="row">
+  <div class="col-lg-7">
+    <div id="my-threads" hx-get="/messages/fragment" hx-trigger="load, my-threads-changed from:body">
+      {% include "social/threads_list.html" %}
+    </div>
+  </div>
+  <div class="col-lg-5">
+    <div class="card">
+      <div class="card-header">{{ t.get("msg.new") }}</div>
+      <div class="card-body">
+        <form method="post" action="/messages">
+          <div class="mb-2">
+            <label class="form-label small mb-1">{{ t.get("msg.subject") }}</label>
+            <input class="form-control form-control-sm" name="subject" placeholder="{{ t.get("msg.subject.ph") }}">
+          </div>
+          <div class="mb-2">
+            <label class="form-label small mb-1">{{ t.get("msg.message") }}</label>
+            <textarea class="form-control" name="body" rows="4" required></textarea>
+          </div>
+          <button class="btn btn-primary btn-sm" type="submit">{{ t.get("msg.send") }}</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

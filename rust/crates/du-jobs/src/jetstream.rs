@@ -171,6 +171,12 @@ async fn handle(pool: &PgPool, ev: &Event) -> anyhow::Result<()> {
                 device_key::upsert(pool, &device_key::DeviceKey { common: c, public_key }).await?
             }
         }
+        fed::NS_FEED_POST => {
+            // A post with no text is unusable — skip rather than store an empty row.
+            if let Some(post) = build_feed_post(c, record) {
+                fed::feed::upsert(pool, &post).await?
+            }
+        }
         other => tracing::debug!(collection = other, "ignoring unwanted collection"),
     }
     Ok(())
@@ -427,6 +433,24 @@ fn build_reconciliation(c: fed::Common, record: &Value) -> analytics::Reconcilia
     }
 }
 
+/// `com.decodingus.atmosphere.feed.post` → a mirrored community post. Unlike the genomic
+/// records, its timestamp is the top-level `createdAt` (not `meta.createdAt`); a strongRef
+/// reply carries `reply.{root,parent}.uri`. Returns `None` for a textless post.
+fn build_feed_post(mut c: fed::Common, record: &Value) -> Option<fed::feed::FeedPost> {
+    let text = str_at(record, "text").filter(|t| !t.trim().is_empty())?;
+    let reply_uri = |side: &str| {
+        record.get("reply").and_then(|r| r.get(side)).and_then(|s| s.get("uri")).and_then(Value::as_str).map(String::from)
+    };
+    c.record_created_at = str_at(record, "createdAt").and_then(|s| fed::to_utc(&s)).or(c.record_created_at);
+    Some(fed::feed::FeedPost {
+        text,
+        topic: str_at(record, "topic"),
+        parent_uri: reply_uri("parent"),
+        root_uri: reply_uri("root"),
+        common: c,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -447,6 +471,25 @@ mod tests {
         let cfg = Config { url: "wss://jet/subscribe".into(), collections: vec!["a.b.c".into(), "d.e.f".into()] };
         assert_eq!(build_url(&cfg, None), "wss://jet/subscribe?wantedCollections=a.b.c&wantedCollections=d.e.f");
         assert_eq!(build_url(&cfg, Some(7)), "wss://jet/subscribe?wantedCollections=a.b.c&wantedCollections=d.e.f&cursor=7");
+    }
+
+    #[test]
+    fn feed_post_extracts_text_topic_reply_and_top_level_createdat() {
+        let record = json!({
+            "text": "Anyone else R-M269 from Ireland?",
+            "createdAt": "2026-06-19T12:00:00Z",
+            "topic": "haplogroup:R-M269",
+            "reply": { "root": { "uri": "at://x/p/root" }, "parent": { "uri": "at://x/p/par" } }
+        });
+        let p = build_feed_post(mk_common(), &record).expect("post built");
+        assert_eq!(p.text, "Anyone else R-M269 from Ireland?");
+        assert_eq!(p.topic.as_deref(), Some("haplogroup:R-M269"));
+        assert_eq!(p.parent_uri.as_deref(), Some("at://x/p/par"));
+        assert_eq!(p.root_uri.as_deref(), Some("at://x/p/root"));
+        // createdAt is read from the top level (not meta.createdAt).
+        assert!(p.common.record_created_at.is_some());
+        // A textless post is skipped.
+        assert!(build_feed_post(mk_common(), &json!({ "text": "  " })).is_none());
     }
 
     #[test]

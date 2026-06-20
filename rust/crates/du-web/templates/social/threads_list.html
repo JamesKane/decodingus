@@ -1,0 +1,17 @@
+{# Fragment: the signed-in user's own support threads. Target of #my-threads. #}
+{% if list.rows.is_empty() %}
+<p class="detail-empty">{{ t.get("msg.none") }}</p>
+{% else %}
+<div class="list-group">
+  {% for r in list.rows %}
+  <a class="list-group-item list-group-item-action d-flex justify-content-between align-items-start" href="/messages/{{ r.id }}">
+    <div>
+      {% if r.user_unread %}<span class="badge text-bg-primary me-1">{{ t.get("msg.new_reply") }}</span>{% endif %}
+      <strong>{{ r.subject }}</strong>
+      <div class="small text-muted">{{ r.last_activity }}</div>
+    </div>
+    <span class="badge {% if r.status == "open" %}text-bg-warning{% else if r.status == "replied" %}text-bg-info{% else %}text-bg-secondary{% endif %}">{{ r.status }}</span>
+  </a>
+  {% endfor %}
+</div>
+{% endif %}

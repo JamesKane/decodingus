@@ -61,6 +61,8 @@ async fn authenticate(
     }
 
     let user_id = credential.unwrap().user_id;
+    // One-time welcome bonus (idempotent) so the reputation gate has a floor to work with.
+    du_db::reputation::record_once(&st.pool, user_id.0, du_db::reputation::events::NEW_USER_BONUS).await?;
     let (display_name, roles) = du_db::auth::session_info(&st.pool, user_id).await?;
     let session = Session {
         user_id: user_id.0,

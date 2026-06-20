@@ -4,6 +4,15 @@
 <h1 class="h3 mb-3">{{ t.get("curator.title") }}</h1>
 <p class="text-muted">{{ t.get("curator.welcome") }} <strong>{{ display_name }}</strong> · {{ t.get("curator.roles") }}: {{ roles }}</p>
 <div class="list-group" style="max-width: 32rem;">
+  <a class="list-group-item list-group-item-action" href="/curator/inbox">
+    {{ t.get("curator.tool.inbox") }}
+  </a>
+  <a class="list-group-item list-group-item-action" href="/curator/announcements">
+    {{ t.get("curator.tool.announcements") }}
+  </a>
+  <a class="list-group-item list-group-item-action" href="/curator/moderation">
+    {{ t.get("curator.tool.moderation") }}
+  </a>
   <a class="list-group-item list-group-item-action" href="/curator/haplogroups">
     {{ t.get("curator.tool.haplogroups") }}
   </a>

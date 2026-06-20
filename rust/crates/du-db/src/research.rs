@@ -8,6 +8,7 @@
 //! Navigator Edge — keep them byte-stable.
 
 use crate::DbError;
+use chrono::{DateTime, Utc};
 use serde_json::{json, Value};
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -183,6 +184,71 @@ pub async fn members_of(pool: &PgPool, project_id: i64) -> Result<Vec<MemberRow>
          ) t ORDER BY joined_at",
     )
     .bind(project_id)
+    .fetch_all(pool)
+    .await?)
+}
+
+// ── group projects (the social-surface read/write the web flow uses) ──────────
+
+/// A group project, as the project list/detail render it.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct ProjectRow {
+    pub id: i64,
+    pub project_guid: Uuid,
+    pub project_name: String,
+    pub project_type: String,
+    pub target_lineage: Option<String>,
+    pub description: Option<String>,
+    pub owner_did: Option<String>,
+    pub created_at: DateTime<Utc>,
+}
+
+const PROJECT_COLS: &str = "id, project_guid, project_name, project_type, target_lineage, \
+                            description, owner_did, created_at";
+
+/// Create a group project owned by `owner_did` (the founding ADMIN). Returns its id.
+pub async fn create_project(
+    pool: &PgPool,
+    name: &str,
+    project_type: &str,
+    lineage: Option<&str>,
+    description: Option<&str>,
+    owner_did: &str,
+) -> Result<i64, DbError> {
+    Ok(sqlx::query_scalar(
+        "INSERT INTO social.group_project (project_name, project_type, target_lineage, description, owner_did) \
+         VALUES ($1, $2, $3, $4, $5) RETURNING id",
+    )
+    .bind(name)
+    .bind(project_type)
+    .bind(lineage)
+    .bind(description)
+    .bind(owner_did)
+    .fetch_one(pool)
+    .await?)
+}
+
+/// One project by id (not deleted).
+pub async fn get_project(pool: &PgPool, id: i64) -> Result<Option<ProjectRow>, DbError> {
+    Ok(sqlx::query_as(&format!(
+        "SELECT {PROJECT_COLS} FROM social.group_project WHERE id = $1 AND deleted = false"
+    ))
+    .bind(id)
+    .fetch_optional(pool)
+    .await?)
+}
+
+/// Projects `did` owns or is a live member of, newest first.
+pub async fn projects_for_member(pool: &PgPool, did: &str) -> Result<Vec<ProjectRow>, DbError> {
+    Ok(sqlx::query_as(&format!(
+        "SELECT {PROJECT_COLS} FROM social.group_project g \
+         WHERE g.deleted = false AND ( \
+            g.owner_did = $1 \
+            OR EXISTS (SELECT 1 FROM research.project_member m \
+                       WHERE m.project_id = g.id AND m.member_did = $1 AND m.left_at IS NULL)) \
+         ORDER BY g.created_at DESC"
+    ))
+    .bind(did)
     .fetch_all(pool)
     .await?)
 }
