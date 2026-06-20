@@ -26,6 +26,10 @@ pub mod kinds {
     pub const MATCH: &str = "MATCH";
     pub const ASSERTION: &str = "ASSERTION";
     pub const SYSTEM: &str = "SYSTEM";
+    /// A recruitment invitation. The Navigator routes these straight to its invitations
+    /// section; the campaign id is the last segment of `link` (`/recruitment/{cid}`) — the
+    /// campaign id is a BIGINT and can't live in the UUID `related_entity_id`.
+    pub const RECRUITMENT_INVITE: &str = "RECRUITMENT_INVITE";
 }
 
 /// A notification as shown in the list (actor name joined for display).

@@ -7,13 +7,14 @@
 
 use crate::DbError;
 use chrono::{DateTime, Utc};
+use du_domain::enums::DnaType;
 use serde::Serialize;
 use sqlx::PgPool;
 use uuid::Uuid;
 
 /// Canonical signing strings for the recruitment Edge API (`/api/v1/recruitment/*`). The
 /// Navigator mirrors these byte-for-byte (`navigator_sync::recruitment::messages`), so the
-/// two ends cannot drift. Respond-only for now (campaign creation stays on the web flow).
+/// two ends cannot drift.
 pub mod messages {
     /// Replay-guarded poll for the caller's open invitations.
     pub fn poll(did: &str, ts: i64) -> String {
@@ -22,6 +23,16 @@ pub mod messages {
     /// Accept (`true`) or decline (`false`) an invitation to a campaign.
     pub fn respond(did: &str, campaign_id: i64, accept: bool) -> String {
         format!("recruitment-respond\n{did}\n{campaign_id}\n{accept}")
+    }
+    /// Replay-guarded poll for the projects the caller may recruit for.
+    pub fn projects(did: &str, ts: i64) -> String {
+        format!("recruitment-projects\n{did}\n{ts}")
+    }
+    /// Create a campaign in `project_id` targeting `target_haplogroup` on `lineage`. The
+    /// free-text title/message are *not* signed (content, not targeting); the structural
+    /// fields that decide who gets contacted are.
+    pub fn create(did: &str, project_id: i64, target_haplogroup: &str, lineage: &str) -> String {
+        format!("recruitment-create\n{did}\n{project_id}\n{target_haplogroup}\n{lineage}")
     }
 }
 
@@ -65,25 +76,37 @@ pub async fn create_campaign(
 }
 
 /// Compute the matching cohort: distinct DIDs whose mirrored biosample carries the target
-/// haplogroup on the chosen lineage (exact match, v1 — subclade expansion via the tree is
-/// a follow-up). `exclude` (the researcher) is dropped from the cohort.
+/// haplogroup — or, when the target resolves to a tree node, **any of its subclades** — on
+/// the chosen lineage. `exclude` (the researcher) is dropped from the cohort. When the target
+/// doesn't resolve to a node (an off-tree call), it falls back to the literal-string match
+/// (the v1 behavior), so campaigns for not-yet-placed clades still reach exact carriers.
 pub async fn compute_cohort(
     pool: &PgPool,
     target_haplogroup: &str,
     lineage: &str,
     exclude: Option<&str>,
 ) -> Result<Vec<String>, DbError> {
-    let column = match lineage {
-        "Y_DNA" => "y_haplogroup",
-        "MT_DNA" => "mt_haplogroup",
+    let (column, dna_type) = match lineage {
+        "Y_DNA" => ("y_haplogroup", DnaType::YDna),
+        "MT_DNA" => ("mt_haplogroup", DnaType::MtDna),
         _ => return Err(DbError::Conflict(format!("unknown lineage {lineage}"))),
+    };
+    // Expand the target to itself + every descendant clade via the tree (subtree includes the
+    // root). If it doesn't resolve to a node, match the literal string the researcher typed.
+    let names = match crate::haplogroup::resolve_name_or_variant(pool, target_haplogroup, dna_type).await? {
+        Some(canonical) => crate::haplogroup::subtree(pool, dna_type, Some(&canonical))
+            .await?
+            .into_iter()
+            .map(|n| n.name)
+            .collect::<Vec<String>>(),
+        None => vec![target_haplogroup.to_string()],
     };
     // Column is a fixed map, never interpolated from user input.
     let sql = format!(
         "SELECT DISTINCT did FROM fed.biosample \
-         WHERE {column} = $1 AND ($2::text IS NULL OR did <> $2) ORDER BY did"
+         WHERE {column} = ANY($1) AND ($2::text IS NULL OR did <> $2) ORDER BY did"
     );
-    Ok(sqlx::query_scalar(&sql).bind(target_haplogroup).bind(exclude).fetch_all(pool).await?)
+    Ok(sqlx::query_scalar(&sql).bind(&names).bind(exclude).fetch_all(pool).await?)
 }
 
 /// Deliver a campaign to a cohort: INVITED rows (idempotent) + set `cohort_size` to the

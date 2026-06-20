@@ -28,10 +28,64 @@ async fn viewer_did(st: &AppState, user_id: Uuid) -> Result<Option<String>, AppE
     Ok(du_db::auth::did_of(&st.pool, du_domain::ids::UserId(user_id)).await?)
 }
 
-/// Bridge a DID into `ident.users` and drop a SYSTEM notification (the recruitment rail).
-async fn notify_did(st: &AppState, did: &str, title: &str, link: &str) -> Result<(), AppError> {
+/// Bridge a DID into `ident.users` and drop a RECRUITMENT_INVITE notification (the rail the
+/// Navigator routes straight to its invitations section; the campaign id is `link`'s last
+/// segment).
+async fn invite_did(st: &AppState, did: &str, cid: i64) -> Result<(), AppError> {
     let uid = du_db::auth::upsert_user_by_did(&st.pool, did, None, None).await?.0;
-    du_db::notification::notify_system(&st.pool, uid, title, Some(link), None).await?;
+    du_db::notification::notify(
+        &st.pool,
+        uid,
+        du_db::notification::kinds::RECRUITMENT_INVITE,
+        "A research project is recruiting members like you",
+        None,
+        Some(&format!("/recruitment/{cid}")),
+        None,
+        None,
+    )
+    .await?;
+    Ok(())
+}
+
+/// Create a campaign, compute + deliver its cohort, and invite each fresh target. Shared by
+/// the web form and the Navigator Edge create endpoint so the two flows can't drift. The
+/// caller has already authorized `creator_uid`/`creator_did` (D5 `ManageSubjects` + rep).
+#[allow(clippy::too_many_arguments)]
+pub(super) async fn create_and_deliver(
+    st: &AppState,
+    project_id: i64,
+    creator_uid: Uuid,
+    creator_did: &str,
+    title: &str,
+    message: &str,
+    target_haplogroup: &str,
+    lineage: &str,
+) -> Result<i64, AppError> {
+    let cid = du_db::recruitment::create_campaign(&st.pool, project_id, creator_uid, title, message, target_haplogroup, lineage).await?;
+    // Compute + deliver to the matching cohort (the researcher never sees these DIDs).
+    let cohort = du_db::recruitment::compute_cohort(&st.pool, target_haplogroup, lineage, Some(creator_did)).await?;
+    let fresh = du_db::recruitment::deliver(&st.pool, cid, &cohort).await?;
+    for target in &fresh {
+        invite_did(st, target, cid).await?;
+    }
+    Ok(cid)
+}
+
+/// On a fresh acceptance: award the accepter reputation (good-faith opt-in) and notify the
+/// campaign owner of the opt-in. Shared by the web and Edge respond handlers. Only ever called
+/// once per (campaign, member) since `recruitment::respond` flips an INVITED row a single time.
+pub(super) async fn on_acceptance(st: &AppState, cid: i64, accepter_uid: Uuid) -> Result<(), AppError> {
+    du_db::reputation::record_event(&st.pool, accepter_uid, du_db::reputation::events::RECRUITMENT_ACCEPTED, None, None, None).await?;
+    if let Some((owner_uid, project_id)) = du_db::recruitment::campaign_owner_project(&st.pool, cid).await? {
+        du_db::notification::notify_system(
+            &st.pool,
+            owner_uid,
+            "A member accepted your recruitment invitation",
+            Some(&format!("/projects/{project_id}/recruit")),
+            None,
+        )
+        .await?;
+    }
     Ok(())
 }
 
@@ -125,14 +179,7 @@ async fn create_campaign(
     if !matches!(f.lineage.as_str(), "Y_DNA" | "MT_DNA") {
         return Err(AppError::BadRequest("lineage must be Y_DNA or MT_DNA".into()));
     }
-    let cid = du_db::recruitment::create_campaign(&st.pool, id, s.user_id, title, message, hg, &f.lineage).await?;
-    // Compute + deliver to the matching cohort (the researcher never sees these DIDs).
-    let cohort = du_db::recruitment::compute_cohort(&st.pool, hg, &f.lineage, Some(&did)).await?;
-    let fresh = du_db::recruitment::deliver(&st.pool, cid, &cohort).await?;
-    let link = format!("/recruitment/{cid}");
-    for target in &fresh {
-        notify_did(&st, target, "A research project is recruiting members like you", &link).await?;
-    }
+    create_and_deliver(&st, id, s.user_id, &did, title, message, hg, &f.lineage).await?;
     Ok(Redirect::to(&format!("/projects/{id}/recruit")).into_response())
 }
 
@@ -195,18 +242,9 @@ async fn respond(
         _ => return Err(AppError::BadRequest("bad action".into())),
     };
     let changed = du_db::recruitment::respond(&st.pool, cid, &did, accept).await?;
-    // On an acceptance, the researcher learns this opt-in — alert them.
+    // On a fresh acceptance, award the opt-in + alert the researcher.
     if changed && accept {
-        if let Some((owner_uid, project_id)) = du_db::recruitment::campaign_owner_project(&st.pool, cid).await? {
-            du_db::notification::notify_system(
-                &st.pool,
-                owner_uid,
-                "A member accepted your recruitment invitation",
-                Some(&format!("/projects/{project_id}/recruit")),
-                None,
-            )
-            .await?;
-        }
+        on_acceptance(&st, cid, s.user_id).await?;
     }
     Ok(Redirect::to(&format!("/recruitment/{cid}")).into_response())
 }
