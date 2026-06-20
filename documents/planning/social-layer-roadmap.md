@@ -158,12 +158,18 @@ them in a `federated` array. Lexicon documented in `documents/atmosphere/10-Feed
 ingests — the mirror is empty until it does). Read-path follow-ups: cross-author reply
 threading + federated-author block-filtering.
 
-### 3c. Recruitment campaigns
-`Messaging_and_Feed_System.md §6`: researchers bulk-message cohorts selected by genetics
-(`RECRUITMENT` conversation type, cohort-builder → target DIDs). **The most PII-sensitive
-piece** — targeting by haplogroup/ancestry. Build only behind: verified-researcher
-reputation gate (Tier 1) + project ACL (D5) + **D1 consent** so the AppView never hands a
-researcher "everyone." Sequenced after 2a/2b so the consent + notification rails exist.
+### 3c. Recruitment campaigns — **BUILT (2026-06-19)**
+A **privacy-preserving cohort broker** (`mig 0046` + `du_db::recruitment` + `routes/
+recruitment.rs`). A project admin (D5 `ManageSubjects` + `RECRUIT_MIN` reputation) defines
+criteria (haplogroup + lineage) + a message at `/projects/:id/recruit`; the AppView
+computes the cohort from `fed.biosample` (exact-haplogroup match, self-excluded) and
+**brokers invitations** via the notification rail. The **researcher never receives the
+cohort** — `campaigns_for_project` shows aggregate counts only and `accepted_dids` only
+opt-ins; invited/declined DIDs are never surfaced. Targets respond at `/recruitment/:id`
+(reached from `/notifications`); an accept notifies the researcher. This realizes
+`Messaging_and_Feed_System.md §6` under the "never materialize everyone" invariant.
+**Follow-ups:** subclade cohort expansion via the tree (v1 is exact-match); a signed-Edge
+path for Navigator-native campaign creation/response; raise `RECRUIT_MIN` as rep matures.
 
 ---
 
@@ -172,6 +178,11 @@ researcher "everyone." Sequenced after 2a/2b so the consent + notification rails
 1. **Tier 1** (1a → 1b → 1c) — finish the core; self-contained, beta-ready.
 2. **Tier 2** when D1/D3 events exist (2a first — it's the rail 3c needs; 2b alongside).
 3. **Tier 3** last: 3a/3b in parallel (independent), 3c after 2a/2b.
+
+**Status (2026-06-19): all three tiers BUILT on the AppView side** (branch
+`feat/social-layer-orchestration`). Remaining work is **Edge/cross-repo**: the Navigator
+crypto + DM UI (3a), publishing `feed.post` records (3b), and optional signed-Edge
+recruitment (3c) — plus the read-path follow-ups noted per section.
 
 **Deferred/separate:** Patronage (`proposals/Patronage_Donation_System.md`) — revive at
 ~a few hundred active users.

@@ -24,6 +24,9 @@ pub mod events {
 pub const FEED_POST_MIN: i64 = 0;
 pub const DM_MIN: i64 = 20;
 pub const GROUP_MIN: i64 = 50;
+/// Min score to run a recruitment campaign (bulk cohort outreach). Low for alpha — the
+/// primary control is the D5 project-admin gate; raise this as the rep economy matures.
+pub const RECRUIT_MIN: i64 = 0;
 
 /// The thing a reputation event is about (e.g. the upvoted post), for the ledger.
 pub struct Related<'a> {

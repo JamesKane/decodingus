@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}{{ t.get("recruit.title") }} — {{ project_name }}{% endblock %}
+{% block content %}
+<a href="/projects/{{ project_id }}" class="small text-muted">&larr; {{ project_name }}</a>
+<h1 class="h3 mt-2 mb-1">{{ t.get("recruit.title") }}</h1>
+<p class="text-muted small mb-3">{{ t.get("recruit.intro") }}</p>
+<div class="row">
+  <div class="col-lg-5">
+    <form method="post" action="/projects/{{ project_id }}/recruit" class="card card-body">
+      <div class="mb-2">
+        <label class="form-label small mb-1">{{ t.get("recruit.subject") }}</label>
+        <input class="form-control form-control-sm" name="title" required>
+      </div>
+      <div class="mb-2">
+        <label class="form-label small mb-1">{{ t.get("recruit.message") }}</label>
+        <textarea class="form-control" name="message" rows="4" required></textarea>
+      </div>
+      <div class="row g-2 mb-2">
+        <div class="col-7">
+          <label class="form-label small mb-1">{{ t.get("recruit.haplogroup") }}</label>
+          <input class="form-control form-control-sm" name="target_haplogroup" placeholder="R-M269" required>
+        </div>
+        <div class="col-5">
+          <label class="form-label small mb-1">{{ t.get("recruit.lineage") }}</label>
+          <select class="form-select form-select-sm" name="lineage">
+            <option value="Y_DNA">Y_DNA</option>
+            <option value="MT_DNA">MT_DNA</option>
+          </select>
+        </div>
+      </div>
+      <button class="btn btn-primary btn-sm" type="submit">{{ t.get("recruit.send") }}</button>
+      <p class="form-text">{{ t.get("recruit.privacy") }}</p>
+    </form>
+  </div>
+  <div class="col-lg-7">
+    <h6 class="text-muted">{{ t.get("recruit.campaigns") }}</h6>
+    {% if campaigns.is_empty() %}
+    <p class="detail-empty">{{ t.get("recruit.none") }}</p>
+    {% else %}
+    {% for c in campaigns %}
+    <div class="card mb-2">
+      <div class="card-body py-2 px-3">
+        <div class="d-flex justify-content-between">
+          <strong>{{ c.title }}</strong>
+          <span class="badge text-bg-light">{{ c.lineage }} · {{ c.haplogroup }}</span>
+        </div>
+        <div class="small text-muted mb-1">{{ t.get("recruit.invited") }}: {{ c.cohort_size }} · {{ t.get("recruit.accepted") }}: {{ c.accepted_count }}</div>
+        {% if !c.accepted.is_empty() %}
+        <div class="small">{{ t.get("recruit.opted_in") }}:
+          {% for name in c.accepted %}<span class="badge text-bg-success">{{ name }}</span> {% endfor %}
+        </div>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

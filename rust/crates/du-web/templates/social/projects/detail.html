@@ -2,7 +2,10 @@
 {% block title %}{{ name }} — {{ t.get("app.name") }}{% endblock %}
 {% block content %}
 <a href="/projects" class="small text-muted">&larr; {{ t.get("proj.back") }}</a>
-<h1 class="h3 mt-2 mb-1">{{ name }}</h1>
+<div class="d-flex justify-content-between align-items-center mt-2 mb-1">
+  <h1 class="h3 mb-0">{{ name }}</h1>
+  {% if is_admin %}<a class="btn btn-sm btn-outline-primary" href="/projects/{{ id }}/recruit">{{ t.get("recruit.title") }}</a>{% endif %}
+</div>
 {% if description != "" %}<p class="text-muted">{{ description }}</p>{% endif %}
 <div class="row">
   <!-- feed -->
