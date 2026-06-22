@@ -50,6 +50,7 @@ async fn load_denovo(pool: &PgPool, path: &str, dna: DnaType, expect: &str, appl
         variants_reused = rep.variants_reused, variants_created = rep.variants_created,
         unresolved_block = rep.unresolved_block, tips_placed = rep.tips_placed,
         biosamples_created = rep.biosamples_created, conflicts = rep.conflicts_loaded,
+        private_collapsed = rep.private_collapsed, private_seeded = rep.private_seeded,
         "de-novo: loaded"
     );
     Ok(())

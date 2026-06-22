@@ -26,6 +26,14 @@ use uuid::Uuid;
 
 use crate::{pg_enum_label, DbError, Page};
 
+/// Cache key for a defining SNP: hs1 (contig, position, ancestral, derived).
+type VariantKey = (String, i64, String, String);
+
+/// Distinct SNPs resolved per round trip in the batched prefill.
+const RESOLVE_CHUNK: usize = 500;
+/// Defining-variant links inserted per `unnest` batch.
+const LINK_CHUNK: usize = 5000;
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DenovoTree {
@@ -116,6 +124,11 @@ pub struct LoadReport {
     pub biosamples_created: usize,
     /// De-novo-vs-reference conflicts recorded for curator triage.
     pub conflicts_loaded: usize,
+    /// Private singleton terminal nodes collapsed into the discovery substrate
+    /// (not published as public tree nodes).
+    pub private_collapsed: usize,
+    /// `tree.biosample_private_variant` rows seeded from collapsed private branches.
+    pub private_seeded: usize,
 }
 
 /// UFBoot support → the `confidence_level` text bucket.
@@ -145,14 +158,63 @@ pub async fn load(pool: &PgPool, doc: &DenovoTree) -> Result<LoadReport, DbError
     // 1. Resolve every defining SNP to a core.variant id (catalog reuse or mint),
     //    caching by (contig, pos, ancestral, derived). Records each node's links
     //    and remembers any catalog name (for SNP-based node naming below).
-    // Cache key = hs1 (contig, position, ancestral, derived); value = (variant_id, catalog name).
-    type VariantKey = (String, i64, String, String);
+    // Cache value = (variant_id, catalog name); key is the module-level `VariantKey`.
     type ResolvedVariant = (i64, Option<String>);
     let mut vcache: HashMap<VariantKey, ResolvedVariant> = HashMap::new();
     // node id -> Vec<(variant_id, ancestral, derived)>
     let mut node_links: HashMap<&str, Vec<(i64, &str, &str)>> = HashMap::new();
     // node id -> first catalog SNP name (by position order) for naming fallback
     let mut node_snp_name: HashMap<&str, String> = HashMap::new();
+
+    // Batch-resolve every DISTINCT defining SNP up front (set-based catalog match +
+    // bulk mint), so the per-node loop below is pure cache hits. A 10k-tip de-novo
+    // tree has ~1M defining links; resolving them row-by-row is ~2M round trips in
+    // one transaction — pathological over a slow link. This keeps it to a handful of
+    // chunked queries. Falls back to the per-row `resolve_variant` only on a cache
+    // miss (which shouldn't happen after the prefill).
+    {
+        let mut keys: Vec<VariantKey> = Vec::new();
+        let mut seen: HashSet<VariantKey> = HashSet::new();
+        for node in &doc.nodes {
+            for v in &node.defining_variants {
+                let key = (v.chrom.clone(), v.pos, v.ancestral.clone(), v.derived.clone());
+                if seen.insert(key.clone()) {
+                    keys.push(key);
+                }
+            }
+        }
+        prefill_vcache(&mut tx, &keys, &mut vcache, &mut rep).await?;
+    }
+
+    // Identify private singleton terminals: an unlabeled leaf node whose only member
+    // is a single tip. Its defining SNPs are that one sample's privates, not a shared
+    // clade — so instead of publishing it as a public node (step 3), it is collapsed:
+    // the sample hangs on its (public) parent and the SNPs are seeded into the
+    // discovery substrate (step 6). Surviving unlabeled nodes — internal splits and
+    // ≥2-tip terminals — stay as real (if unnamed) branches.
+    let mut child_count: HashMap<&str, usize> = HashMap::new();
+    let mut parent_of: HashMap<&str, &str> = HashMap::new();
+    for node in &doc.nodes {
+        if let Some(p) = &node.parent {
+            *child_count.entry(p.as_str()).or_default() += 1;
+            parent_of.insert(node.id.as_str(), p.as_str());
+        }
+    }
+    let mut tip_count: HashMap<&str, usize> = HashMap::new();
+    for tip in &doc.tips {
+        *tip_count.entry(tip.parent_node.as_str()).or_default() += 1;
+    }
+    let private: HashSet<&str> = doc
+        .nodes
+        .iter()
+        .filter(|n| {
+            n.label.is_none()
+                && child_count.get(n.id.as_str()).copied().unwrap_or(0) == 0
+                && tip_count.get(n.id.as_str()).copied().unwrap_or(0) == 1
+        })
+        .map(|n| n.id.as_str())
+        .collect();
+    rep.private_collapsed = private.len();
 
     for node in &doc.nodes {
         let mut links = Vec::with_capacity(node.defining_variants.len());
@@ -204,6 +266,9 @@ pub async fn load(pool: &PgPool, doc: &DenovoTree) -> Result<LoadReport, DbError
     // 3. Insert nodes, building the NodeN -> db id map.
     let mut idmap: HashMap<&str, i64> = HashMap::new();
     for node in &doc.nodes {
+        if private.contains(node.id.as_str()) {
+            continue; // collapsed into the discovery substrate (step 6)
+        }
         let name = &name_of[node.id.as_str()];
         // Collapsed-branch SNPs lifted to this node: a tagged provenance block, not
         // defining links (so they don't pollute the strict defining-SNP model).
@@ -244,8 +309,12 @@ pub async fn load(pool: &PgPool, doc: &DenovoTree) -> Result<LoadReport, DbError
         rep.nodes += 1;
     }
 
-    // 4. Insert edges (parent → child).
+    // 4. Insert edges (parent → child). Private terminals were not inserted, and
+    //    (being childless) are never referenced as a parent, so skip them.
     for node in &doc.nodes {
+        if private.contains(node.id.as_str()) {
+            continue;
+        }
         let Some(parent) = &node.parent else { continue };
         let child_id = idmap[node.id.as_str()];
         let parent_id = *idmap
@@ -263,22 +332,38 @@ pub async fn load(pool: &PgPool, doc: &DenovoTree) -> Result<LoadReport, DbError
         rep.edges += 1;
     }
 
-    // 5. Link defining variants to their node (the branch leading to it).
-    for node in &doc.nodes {
-        let hg_id = idmap[node.id.as_str()];
-        for (vid, anc, der) in &node_links[node.id.as_str()] {
+    // 5. Link defining variants to their node (the branch leading to it). Batched via
+    //    UNNEST — ~1M links on a big tree would be ~1M round trips row-by-row.
+    {
+        let mut hg_ids: Vec<i64> = Vec::new();
+        let mut var_ids: Vec<i64> = Vec::new();
+        let mut ancs: Vec<String> = Vec::new();
+        let mut ders: Vec<String> = Vec::new();
+        for node in &doc.nodes {
+            if private.contains(node.id.as_str()) {
+                continue; // private SNPs go to the discovery substrate, not links
+            }
+            let hg_id = idmap[node.id.as_str()];
+            for (vid, anc, der) in &node_links[node.id.as_str()] {
+                hg_ids.push(hg_id);
+                var_ids.push(*vid);
+                ancs.push((*anc).to_string());
+                ders.push((*der).to_string());
+            }
+        }
+        for chunk in (0..hg_ids.len()).step_by(LINK_CHUNK).map(|s| s..(s + LINK_CHUNK).min(hg_ids.len())) {
             sqlx::query(
                 "INSERT INTO tree.haplogroup_variant (haplogroup_id, variant_id, ancestral_allele, derived_allele) \
-                 VALUES ($1, $2, $3, $4)",
+                 SELECT * FROM unnest($1::bigint[], $2::bigint[], $3::text[], $4::text[])",
             )
-            .bind(hg_id)
-            .bind(vid)
-            .bind(*anc)
-            .bind(*der)
+            .bind(&hg_ids[chunk.clone()])
+            .bind(&var_ids[chunk.clone()])
+            .bind(&ancs[chunk.clone()])
+            .bind(&ders[chunk])
             .execute(&mut *tx)
             .await?;
-            rep.variant_links += 1;
         }
+        rep.variant_links += hg_ids.len();
     }
 
     // 6. Place tips as biosample leaves under their terminal (surviving) node. A
@@ -286,8 +371,21 @@ pub async fn load(pool: &PgPool, doc: &DenovoTree) -> Result<LoadReport, DbError
     //    by accession; the placement is dna-scoped (cleared by clear_dna). The de-novo
     //    tree position is authoritative, so this is a direct placement, not a
     //    call-resolution (unlike tree_sample::recompute_placements).
+    //
+    //    A private singleton tip's terminal node was collapsed (step 3 skipped it), so
+    //    the sample hangs on the collapsed node's PUBLIC parent and its private SNPs
+    //    are accumulated for the discovery substrate seed below.
+    let mut bpv_guids: Vec<Uuid> = Vec::new();
+    let mut bpv_vids: Vec<i64> = Vec::new();
+    let mut bpv_terms: Vec<i64> = Vec::new();
     for tip in &doc.tips {
-        let Some(&hg_id) = idmap.get(tip.parent_node.as_str()) else { continue };
+        let is_private = private.contains(tip.parent_node.as_str());
+        let place_target = if is_private {
+            parent_of.get(tip.parent_node.as_str()).and_then(|p| idmap.get(*p))
+        } else {
+            idmap.get(tip.parent_node.as_str())
+        };
+        let Some(&hg_id) = place_target else { continue };
         // Public reference panels (PRJEB*) → EXTERNAL/public; anything else (e.g. an
         // own genome) stays STANDARD/private.
         let (src, is_public) = match tip.cohort.as_deref() {
@@ -334,7 +432,38 @@ pub async fn load(pool: &PgPool, doc: &DenovoTree) -> Result<LoadReport, DbError
         .execute(&mut *tx)
         .await?;
         rep.tips_placed += 1;
+
+        if is_private {
+            // The collapsed node's defining SNPs become this sample's privates,
+            // anchored at its surviving (public) terminal `hg_id`.
+            for (vid, _, _) in &node_links[tip.parent_node.as_str()] {
+                bpv_guids.push(guid);
+                bpv_vids.push(*vid);
+                bpv_terms.push(hg_id);
+            }
+        }
     }
+
+    // 6b. Seed collapsed private SNPs into the discovery substrate. origin='DENOVO'
+    //     so discovery::materialize's prune (fed-scoped) never reaps them; status
+    //     'ACTIVE' so the consensus engine pools them by (terminal, dna). Batched
+    //     UNNEST — one sample can carry dozens of privates (~580k rows on a big tree).
+    for chunk in (0..bpv_guids.len()).step_by(LINK_CHUNK).map(|s| s..(s + LINK_CHUNK).min(bpv_guids.len())) {
+        sqlx::query(
+            "INSERT INTO tree.biosample_private_variant \
+               (sample_guid, variant_id, haplogroup_type, terminal_haplogroup_id, status, origin) \
+             SELECT g, v, $4::core.dna_type, t, 'ACTIVE', 'DENOVO' \
+             FROM unnest($1::uuid[], $2::bigint[], $3::bigint[]) AS m(g, v, t) \
+             ON CONFLICT (sample_guid, variant_id, haplogroup_type) DO NOTHING",
+        )
+        .bind(&bpv_guids[chunk.clone()])
+        .bind(&bpv_vids[chunk.clone()])
+        .bind(&bpv_terms[chunk.clone()])
+        .bind(&dna_label)
+        .execute(&mut *tx)
+        .await?;
+    }
+    rep.private_seeded = bpv_guids.len();
 
     // 7. Record de-novo-vs-reference conflicts for curator triage (this dna's prior
     //    rows were cleared by clear_dna before the load).
@@ -406,7 +535,14 @@ async fn resolve_variant(
     }});
     if let Some(id) = sqlx::query_scalar::<_, i64>(
         "INSERT INTO core.variant (canonical_name, mutation_type, naming_status, coordinates) \
-         VALUES ($1, 'SNP'::core.mutation_type, 'UNNAMED'::core.naming_status, $2) \
+         VALUES ($1, \
+           (CASE \
+              WHEN length($2->'hs1'->>'ancestral') = 1 AND length($2->'hs1'->>'derived') = 1 THEN 'SNP' \
+              WHEN length($2->'hs1'->>'ancestral') = length($2->'hs1'->>'derived') THEN 'MNP' \
+              WHEN length($2->'hs1'->>'derived') > length($2->'hs1'->>'ancestral') THEN 'INS' \
+              ELSE 'DEL' \
+            END)::core.mutation_type, \
+           'UNNAMED'::core.naming_status, $2) \
          ON CONFLICT (canonical_name, COALESCE(defining_haplogroup_id, -1)) WHERE canonical_name IS NOT NULL \
          DO NOTHING RETURNING id",
     )
@@ -425,6 +561,106 @@ async fn resolve_variant(
     .fetch_one(&mut *tx)
     .await?;
     Ok((id, Some(synth)))
+}
+
+/// Batch-resolve distinct de-novo SNP keys to `core.variant` ids, populating `vcache`
+/// with the same semantics as the per-row [`resolve_variant`] (catalog reuse by hs1
+/// coordinate, polarity-agnostic; else mint a coordinate-named UNNAMED variant). Chunked
+/// so a ~1M-link tree costs ~O(distinct/chunk) round trips instead of one per SNP — the
+/// difference between a few seconds and a fragile 30-minute single transaction.
+async fn prefill_vcache(
+    tx: &mut sqlx::PgConnection,
+    keys: &[VariantKey],
+    vcache: &mut HashMap<VariantKey, (i64, Option<String>)>,
+    rep: &mut LoadReport,
+) -> Result<(), DbError> {
+    for chunk in keys.chunks(RESOLVE_CHUNK) {
+        let contigs: Vec<&str> = chunk.iter().map(|k| k.0.as_str()).collect();
+        let poss: Vec<i64> = chunk.iter().map(|k| k.1).collect();
+        let ancs: Vec<&str> = chunk.iter().map(|k| k.2.as_str()).collect();
+        let ders: Vec<&str> = chunk.iter().map(|k| k.3.as_str()).collect();
+
+        // Catalog resolve, set-based: one row per key (NULL id ⇒ miss), idx = 1-based input order.
+        let rows: Vec<(i64, Option<i64>, Option<String>)> = sqlx::query_as(
+            "SELECT k.idx, v.id, v.canonical_name \
+             FROM unnest($1::text[], $2::bigint[], $3::text[], $4::text[]) \
+                  WITH ORDINALITY AS k(contig, pos, anc, der, idx) \
+             LEFT JOIN LATERAL ( \
+               SELECT id, canonical_name FROM core.variant \
+               WHERE coordinates @> jsonb_build_object('hs1', jsonb_build_object('contig', k.contig, 'position', k.pos)) \
+                 AND defining_haplogroup_id IS NULL \
+                 AND ( (coordinates->'hs1'->>'ancestral' = k.anc AND coordinates->'hs1'->>'derived' = k.der) \
+                    OR (coordinates->'hs1'->>'ancestral' = k.der AND coordinates->'hs1'->>'derived' = k.anc) ) \
+               ORDER BY (canonical_name IS NULL), id LIMIT 1) v ON true",
+        )
+        .bind(&contigs)
+        .bind(&poss)
+        .bind(&ancs)
+        .bind(&ders)
+        .fetch_all(&mut *tx)
+        .await?;
+
+        let mut miss_idx: Vec<usize> = Vec::new();
+        for (idx, id, name) in &rows {
+            let i = (*idx as usize) - 1;
+            match id {
+                Some(vid) => {
+                    rep.variants_reused += 1;
+                    vcache.insert(chunk[i].clone(), (*vid, name.clone()));
+                }
+                None => miss_idx.push(i),
+            }
+        }
+        if miss_idx.is_empty() {
+            continue;
+        }
+
+        // Bulk-mint the misses (idempotent by the deterministic synthetic name).
+        let synths: Vec<String> =
+            miss_idx.iter().map(|&i| { let k = &chunk[i]; format!("{}:{}{}>{}", k.0, k.1, k.2, k.3) }).collect();
+        let coords: Vec<serde_json::Value> = miss_idx
+            .iter()
+            .map(|&i| { let k = &chunk[i]; json!({ "hs1": { "contig": k.0, "position": k.1, "ancestral": k.2, "derived": k.3 } }) })
+            .collect();
+        // RETURNING gives only the freshly-inserted names ⇒ accurate `variants_created`
+        // (a synth already present from a prior load is neither reused nor created).
+        let created: Vec<String> = sqlx::query_scalar(
+            "INSERT INTO core.variant (canonical_name, mutation_type, naming_status, coordinates) \
+             SELECT s, \
+               (CASE \
+                  WHEN length(c->'hs1'->>'ancestral') = 1 AND length(c->'hs1'->>'derived') = 1 THEN 'SNP' \
+                  WHEN length(c->'hs1'->>'ancestral') = length(c->'hs1'->>'derived') THEN 'MNP' \
+                  WHEN length(c->'hs1'->>'derived') > length(c->'hs1'->>'ancestral') THEN 'INS' \
+                  ELSE 'DEL' \
+                END)::core.mutation_type, \
+               'UNNAMED'::core.naming_status, c \
+             FROM unnest($1::text[], $2::jsonb[]) AS m(s, c) \
+             ON CONFLICT (canonical_name, COALESCE(defining_haplogroup_id, -1)) WHERE canonical_name IS NOT NULL \
+             DO NOTHING RETURNING canonical_name",
+        )
+        .bind(&synths)
+        .bind(&coords)
+        .fetch_all(&mut *tx)
+        .await?;
+        rep.variants_created += created.len();
+
+        // Resolve every miss's id by name (covers freshly-minted + prior-run synths).
+        let fetched: Vec<(String, i64)> = sqlx::query_as(
+            "SELECT canonical_name, id FROM core.variant WHERE canonical_name = ANY($1) AND defining_haplogroup_id IS NULL",
+        )
+        .bind(&synths)
+        .fetch_all(&mut *tx)
+        .await?;
+        let by_name: HashMap<String, i64> = fetched.into_iter().collect();
+        for (j, &i) in miss_idx.iter().enumerate() {
+            let synth = &synths[j];
+            let vid = *by_name
+                .get(synth)
+                .ok_or_else(|| DbError::Decode(format!("minted variant {synth} not found")))?;
+            vcache.insert(chunk[i].clone(), (vid, Some(synth.clone())));
+        }
+    }
+    Ok(())
 }
 
 /// A row of the curator de-novo-conflict queue.
