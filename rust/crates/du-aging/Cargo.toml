@@ -1,0 +1,26 @@
+[package]
+name = "du-aging"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+# Standalone batch preloader for the SNP-Poisson branch-age system: ingests
+# academic WGS cohorts (1000G/SGDP/…) from per-sample chrY gVCF + GATK callable
+# BEDs, places each sample on the live tree, and seeds the age model's inputs
+# (tree.biosample_private_variant + genomics.biosample_callable_loci). The
+# branch-age job then computes ages with real testers and callable denominators.
+[[bin]]
+name = "decodingus-aging-preload"
+path = "src/main.rs"
+
+[dependencies]
+du-db = { workspace = true }
+du-bio = { workspace = true }
+tokio = { workspace = true }
+sqlx = { workspace = true }
+clap = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+uuid = { workspace = true }

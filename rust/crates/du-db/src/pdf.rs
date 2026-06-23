@@ -54,18 +54,30 @@ impl Pdf {
     pub fn poisson_on(m: i64, b: f64, mu: f64, res: f64, max_age: f64) -> Pdf {
         let mut pdf = Pdf::zeros(res, max_age);
         let m = m.max(0) as f64;
-        for i in 0..pdf.mass.len() {
+        // Build the log-likelihood m·ln(λ) − λ per bin, then exponentiate *after*
+        // subtracting the peak (log-sum-exp). The raw value overflows f64::exp for
+        // large m — a deep backbone branch with hundreds of real SNPs peaks at
+        // m·ln(m) − m ≫ 709 → Inf → NaN after normalize, which collapses the node and
+        // cascades up the tree. Shifting by the max keeps every term in (0, 1].
+        let mut logp = vec![f64::NEG_INFINITY; pdf.mass.len()];
+        let mut max_log = f64::NEG_INFINITY;
+        for (i, lg) in logp.iter_mut().enumerate() {
             let lambda = pdf.age(i) * b * mu; // t·b·µ
-            // log-space: m·ln(λ) − λ (the 1/m! constant drops out in normalization).
-            pdf.mass[i] = if lambda <= 0.0 {
+            *lg = if lambda <= 0.0 {
                 if m == 0.0 {
-                    1.0
+                    0.0 // ln(1): all mass at t=0 when there are no mutations
                 } else {
-                    0.0
+                    f64::NEG_INFINITY
                 }
             } else {
-                (m * lambda.ln() - lambda).exp()
+                m * lambda.ln() - lambda
             };
+            if *lg > max_log {
+                max_log = *lg;
+            }
+        }
+        for (i, &lg) in logp.iter().enumerate() {
+            pdf.mass[i] = if lg.is_finite() { (lg - max_log).exp() } else { 0.0 };
         }
         pdf.normalize();
         pdf
@@ -131,8 +143,28 @@ impl Pdf {
         out
     }
 
+    /// Zero all mass below `min_years` and renormalize — the coalescent causality
+    /// floor: an ancestor cannot be younger than a dated descendant. `None` if no
+    /// mass remains at or above the floor (the whole estimate was below it).
+    pub fn truncate_below(&self, min_years: f64) -> Option<Pdf> {
+        let lo = self.bin_of(min_years.max(0.0));
+        let mut out = Pdf { res: self.res, mass: self.mass.clone() };
+        for m in out.mass.iter_mut().take(lo.min(self.mass.len())) {
+            *m = 0.0;
+        }
+        (out.total() > 0.0).then(|| {
+            out.normalize();
+            out
+        })
+    }
+
     /// Distribution of the sum of two ages (Eq 7: parent age = child age ⊛
-    /// parent→child branch time). Mass that would land beyond the grid is dropped.
+    /// parent→child branch time). Mass that would land beyond the grid is **clamped**
+    /// into the top bin (age ≥ max_age), not dropped — dropping it silently loses
+    /// probability, so a node whose age approaches the grid ceiling (e.g. a deep
+    /// backbone branch with thousands of SNPs) would underflow to an empty/garbage PDF
+    /// and corrupt every ancestor. Clamping keeps the distribution proper and the
+    /// propagation monotonic (the ancestor pegs at the ceiling instead of collapsing).
     pub fn convolve(&self, other: &Pdf) -> Pdf {
         debug_assert_eq!(self.res, other.res, "PDFs must share a grid resolution");
         let mut out = Pdf { res: self.res, mass: vec![0.0; self.mass.len()] };
@@ -147,6 +179,8 @@ impl Pdf {
             for j in blo..=bhi {
                 let k = i + j;
                 if k > last {
+                    // Overflow: pile the remaining mass (k and beyond) into the top bin.
+                    out.mass[last] += a * other.mass[j..=bhi].iter().sum::<f64>();
                     break; // j only increases → rest also overflow
                 }
                 out.mass[k] += a * other.mass[j];
