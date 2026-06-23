@@ -22,10 +22,16 @@ use sqlx::postgres::PgPoolOptions;
 #[derive(Parser, Debug)]
 #[command(name = "decodingus-aging-preload")]
 struct Cli {
-    /// Cohort directory of per-sample subdirs (e.g. /Volumes/nas/Genomics/PRJEB31736).
-    #[arg(long)]
-    cohort_dir: PathBuf,
-    /// Contig in the callable BED (hs1/CHM13 frame).
+    /// Sample source (repeatable). Each path is EITHER a cohort directory of
+    /// per-sample subdirs (academic `/Volumes/nas/Genomics/PRJEB31736`, the D2C pool
+    /// `/Volumes/nas/Genomics/d2c/flat`) OR a single sample directory that directly
+    /// holds a callable BED (`/Volumes/nas/Genomics/mine/WGS229`) — auto-detected.
+    /// Pass several to seed PRJEB* + D2C + own genomes in one full-scale run.
+    #[arg(long = "cohort-dir", required = true)]
+    cohort_dir: Vec<PathBuf>,
+    /// Contig in the callable BED (hs1/CHM13 frame). One value covers all sources:
+    /// D2C ships `chrY` BEDs, the academic/own `chrYM` BEDs still label their Y rows
+    /// `chrY`, so the same filter applies.
     #[arg(long, default_value = "chrY")]
     contig: String,
     /// Process at most N samples (0 = all).
@@ -70,6 +76,18 @@ fn cohort_samples(cohort_dir: &Path) -> Result<Vec<SampleBed>> {
     Ok(out)
 }
 
+/// Samples under one input path. If a callable BED sits *directly* in `path`, it is a
+/// single-sample directory (e.g. `mine/WGS229`, accession = `WGS229`); otherwise it is
+/// a cohort of per-sample subdirs (PRJEB*, `d2c/flat`). Auto-detected so all three
+/// layouts share one `--cohort-dir` flag.
+fn gather_samples(path: &Path) -> Result<Vec<SampleBed>> {
+    if let Some(single) = discover(path) {
+        Ok(vec![single])
+    } else {
+        cohort_samples(path)
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
@@ -77,7 +95,14 @@ async fn main() -> Result<()> {
         .init();
     let cli = Cli::parse();
 
-    let mut samples = cohort_samples(&cli.cohort_dir)?;
+    // Aggregate every input, then dedup by accession (a sample present in two inputs is
+    // seeded once; seed_callable is idempotent regardless). Sorted for stable previews.
+    let mut samples = Vec::new();
+    for dir in &cli.cohort_dir {
+        samples.extend(gather_samples(dir)?);
+    }
+    samples.sort_by(|a, b| a.accession.cmp(&b.accession));
+    samples.dedup_by(|a, b| a.accession == b.accession);
     if cli.limit > 0 {
         samples.truncate(cli.limit);
     }
@@ -86,7 +111,7 @@ async fn main() -> Result<()> {
     let pool = PgPoolOptions::new().max_connections(4).connect(&url).await?;
     let regions = db::load_y_regions(&pool).await?;
     tracing::info!(
-        cohort = %cli.cohort_dir.display(),
+        inputs = cli.cohort_dir.len(),
         samples = samples.len(),
         xdegen_bp = callable::total_bp(&regions.xdegen),
         ampliconic_bp = callable::total_bp(&regions.ampliconic),
