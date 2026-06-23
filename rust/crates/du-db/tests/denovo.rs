@@ -118,16 +118,74 @@ async fn denovo_lineages_coexist_and_clear_independently() {
     let db = du_db::testing::ephemeral_db(&url).await.expect("ephemeral db");
     let pool = db.pool().clone();
 
-    denovo::load(&pool, &doc()).await.expect("load Y"); // Y_DNA, 4 nodes
+    denovo::load(&pool, &doc()).await.expect("load Y"); // Y_DNA: 4 nodes, Node4 collapses → 3
     denovo::load(&pool, &mt_doc()).await.expect("load mt"); // MT_DNA, 2 nodes
-    assert_eq!(count_dna(&pool, "Y_DNA").await, 4);
+    assert_eq!(count_dna(&pool, "Y_DNA").await, 3);
     assert_eq!(count_dna(&pool, "MT_DNA").await, 2);
 
     // clear_dna touches only the named lineage.
     let cleared = haplogroup::clear_dna(&pool, DnaType::MtDna).await.expect("clear mt");
     assert_eq!(cleared, 2);
     assert_eq!(count_dna(&pool, "MT_DNA").await, 0, "mt cleared");
-    assert_eq!(count_dna(&pool, "Y_DNA").await, 4, "Y preserved");
+    assert_eq!(count_dna(&pool, "Y_DNA").await, 3, "Y preserved");
+}
+
+#[tokio::test]
+async fn clear_dna_neutralizes_private_variant_refs_for_repeatable_reload() {
+    // The de-novo tree is reloaded repeatedly during iteration. A prior load's
+    // private-variant rows reference nodes by id via a non-cascading FK; clear_dna
+    // must neutralize them (delete loader-owned DENOVO rows, unlink fed-mirrored FED
+    // rows) so the haplogroup delete isn't blocked and the reload is idempotent.
+    let Some(url) = database_url() else {
+        eprintln!("DATABASE_URL unset — skipping clear_dna private-variant test");
+        return;
+    };
+    let db = du_db::testing::ephemeral_db(&url).await.expect("ephemeral db");
+    let pool = db.pool().clone();
+
+    seed_catalog_snp(&pool, "M269", 21452686, "T", "C").await;
+    seed_catalog_snp(&pool, "L21", 13500000, "G", "A").await;
+    denovo::load(&pool, &doc()).await.expect("load Y");
+
+    // Seed one DENOVO + one FED private-variant row referencing a loaded node.
+    let sample: uuid::Uuid =
+        sqlx::query_scalar("SELECT sample_guid FROM core.biosample WHERE accession='TESTSAMPLE1'")
+            .fetch_one(&pool).await.unwrap();
+    let node: i64 = sqlx::query_scalar("SELECT id FROM tree.haplogroup WHERE name='R-M269'")
+        .fetch_one(&pool).await.unwrap();
+    // Two distinct variants — (sample, variant, type) is unique.
+    for (snp, origin) in [("M269", "DENOVO"), ("L21", "FED")] {
+        let var: i64 = sqlx::query_scalar("SELECT id FROM core.variant WHERE canonical_name=$1")
+            .bind(snp).fetch_one(&pool).await.unwrap();
+        sqlx::query(
+            "INSERT INTO tree.biosample_private_variant \
+               (sample_guid, variant_id, haplogroup_type, terminal_haplogroup_id, origin) \
+             VALUES ($1, $2, 'Y_DNA'::core.dna_type, $3, $4)",
+        )
+        .bind(sample).bind(var).bind(node).bind(origin)
+        .execute(&pool).await.unwrap();
+    }
+
+    // Clear must succeed despite the FK refs (this is what the bug failed on).
+    let cleared = haplogroup::clear_dna(&pool, DnaType::YDna).await.expect("clear with private refs");
+    assert_eq!(cleared, 3); // Node4 collapsed, so 3 public nodes
+    assert_eq!(count_dna(&pool, "Y_DNA").await, 0, "tree cleared");
+
+    // DENOVO rows deleted (the seeded one + Node4's auto-collapsed private); FED kept.
+    let denovo_left: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM tree.biosample_private_variant WHERE origin='DENOVO'")
+            .fetch_one(&pool).await.unwrap();
+    assert_eq!(denovo_left, 0, "DENOVO private rows deleted on clear");
+    let (fed_left, fed_terminal): (i64, Option<i64>) = sqlx::query_as(
+        "SELECT count(*), max(terminal_haplogroup_id) FROM tree.biosample_private_variant WHERE origin='FED'",
+    )
+    .fetch_one(&pool).await.unwrap();
+    assert_eq!(fed_left, 1, "FED private row preserved across reload");
+    assert_eq!(fed_terminal, None, "FED row's stale node link nulled");
+
+    // The actual goal: a fresh load now succeeds end-to-end over the cleared lineage.
+    denovo::load(&pool, &doc()).await.expect("reload Y");
+    assert_eq!(count_dna(&pool, "Y_DNA").await, 3, "reloaded cleanly");
 }
 
 #[tokio::test]
@@ -145,12 +203,17 @@ async fn loads_denovo_tree_with_catalog_reuse_and_mint() {
 
     let rep = denovo::load(&pool, &doc()).await.expect("load");
 
-    assert_eq!(rep.nodes, 4);
-    assert_eq!(rep.edges, 3);
-    assert_eq!(rep.variant_links, 3);
+    // Node4 is an unlabeled single-tip leaf → collapsed as a private singleton: it is
+    // not published as a node, its tip hangs on Node4's public parent (Node3), and its
+    // novel SNP becomes that sample's DENOVO private. So 3 public nodes, not 4.
+    assert_eq!(rep.nodes, 3);
+    assert_eq!(rep.edges, 2);
+    assert_eq!(rep.variant_links, 2, "M269 + L21 define nodes; Node4's SNP is a private");
     assert_eq!(rep.variants_reused, 2, "M269 + L21 reused from catalog");
-    assert_eq!(rep.variants_created, 1, "the novel SNP is minted");
+    assert_eq!(rep.variants_created, 1, "the novel SNP is still minted (as the private's variant)");
     assert_eq!(rep.unresolved_block, 1, "the collapsed-branch SNP is a tagged block, not a link");
+    assert_eq!(rep.private_collapsed, 1, "Node4 collapsed into the discovery substrate");
+    assert_eq!(rep.private_seeded, 1, "its novel SNP seeded as a private");
 
     // Unresolved (collapsed) SNP: recorded in provenance, NOT a defining link.
     let (uc, uv): (Option<i32>, Option<String>) = sqlx::query_as(
@@ -164,12 +227,12 @@ async fn loads_denovo_tree_with_catalog_reuse_and_mint() {
          WHERE v.coordinates->'hs1'->>'position' = '5000000'").fetch_one(&pool).await.unwrap();
     assert_eq!(unres_linked, 0, "unresolved SNP is NOT a haplogroup_variant defining link");
 
-    // Naming: label primary; unlabeled node falls back to its catalog SNP name;
-    // unlabeled node with only a novel SNP takes the minted coordinate name.
+    // Naming: label primary; unlabeled node falls back to its catalog SNP name.
+    // (Node4 collapsed, so it is no longer a named node.)
     assert_eq!(node_name(&pool, "Node1").await.as_deref(), Some("Node1"), "root: no label/SNP → NodeN");
     assert_eq!(node_name(&pool, "Node2").await.as_deref(), Some("R-M269"), "label primary");
     assert_eq!(node_name(&pool, "Node3").await.as_deref(), Some("L21"), "fallback to catalog SNP");
-    assert_eq!(node_name(&pool, "Node4").await.as_deref(), Some("chrY:999999A>G"), "minted coord name");
+    assert_eq!(node_name(&pool, "Node4").await, None, "collapsed private singleton is not a node");
 
     // SNP linkage + catalog reuse (M269 keeps its identity, not a duplicate).
     assert!(defines(&pool, "R-M269", "M269").await);
@@ -200,10 +263,10 @@ async fn loads_denovo_tree_with_catalog_reuse_and_mint() {
     assert!(is_backbone(&pool, "R-M269").await, "isogg=R node is backbone");
     assert!(is_backbone(&pool, "Node1").await, "ancestor of the major clade is backbone");
     assert!(!is_backbone(&pool, "L21").await, "off-spine node is not backbone");
-    assert!(!is_backbone(&pool, "chrY:999999A>G").await, "off-spine node is not backbone");
 
-    // Tip placement: a biosample (deduped by accession) + a haplogroup_sample leaf
-    // under its terminal node. PRJEB* cohorts are public.
+    // Tip placement: a biosample (deduped by accession) + a haplogroup_sample leaf.
+    // TESTSAMPLE1's terminal (Node4) collapsed, so the leaf hangs on Node4's public
+    // parent (Node3 = "L21"). PRJEB* cohorts are public.
     assert_eq!(rep.tips_placed, 1);
     assert_eq!(rep.biosamples_created, 1);
     let (src, is_public): (String, bool) =
@@ -217,7 +280,15 @@ async fn loads_denovo_tree_with_catalog_reuse_and_mint() {
          JOIN tree.haplogroup h ON h.id = hs.haplogroup_id \
          WHERE b.accession = 'TESTSAMPLE1' AND hs.dna_type::text = 'Y_DNA' AND hs.status = 'PLACED'")
         .fetch_optional(&pool).await.unwrap();
-    assert_eq!(placed_under.as_deref(), Some("chrY:999999A>G"), "leaf under its terminal node (Node4)");
+    assert_eq!(placed_under.as_deref(), Some("L21"), "leaf hangs on the collapsed node's parent (Node3)");
+    // The collapsed node's novel SNP became this sample's DENOVO private at that node.
+    let priv_at: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM tree.biosample_private_variant pv \
+         JOIN core.biosample b ON b.sample_guid = pv.sample_guid \
+         JOIN tree.haplogroup h ON h.id = pv.terminal_haplogroup_id \
+         WHERE b.accession='TESTSAMPLE1' AND pv.origin='DENOVO' AND h.name='L21'")
+        .fetch_one(&pool).await.unwrap();
+    assert_eq!(priv_at, 1, "Node4's novel SNP is TESTSAMPLE1's private at Node3");
 
     // Conflicts: recorded for curator triage and listed worst-first.
     assert_eq!(rep.conflicts_loaded, 1);
@@ -228,7 +299,7 @@ async fn loads_denovo_tree_with_catalog_reuse_and_mint() {
 
     // clear_dna wipes the lineage topology + conflicts (catalog SNP rows survive).
     let cleared = haplogroup::clear_dna(&pool, DnaType::YDna).await.expect("clear");
-    assert_eq!(cleared, 4);
+    assert_eq!(cleared, 3);
     let remaining: i64 = sqlx::query_scalar("SELECT count(*) FROM tree.haplogroup").fetch_one(&pool).await.unwrap();
     assert_eq!(remaining, 0);
     let snps: i64 = sqlx::query_scalar("SELECT count(*) FROM core.variant WHERE canonical_name IN ('M269','L21')")
