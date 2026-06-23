@@ -48,18 +48,29 @@ struct SampleBed {
     bed: PathBuf,
 }
 
-/// Locate a sample's chrY callable BED within its subdir.
+/// Locate a sample's chrY callable BED within its subdir, accession = dir name.
+/// Accepts a GATK `*callable.bed` (per-sample, state-annotated) or a BigY lifted
+/// `*regions.bed` (3-column panel). When several match, the highest-ranked wins:
+/// GATK callable over BigY regions, and a chrYM (Y+M) file over a chrY-only one.
 fn discover(dir: &Path) -> Option<SampleBed> {
     let accession = dir.file_name()?.to_str()?.to_string();
-    let mut bed = None;
+    let mut best: Option<(u8, PathBuf)> = None;
     for entry in fs::read_dir(dir).ok()?.flatten() {
         let p = entry.path();
         let Some(fname) = p.file_name().and_then(|s| s.to_str()) else { continue };
-        if fname.ends_with("callable.bed") && (bed.is_none() || fname.contains("chrYM")) {
-            bed = Some(p);
+        let kind = if fname.ends_with("callable.bed") {
+            2 // GATK CallableLoci — most precise per-sample callability
+        } else if fname.ends_with("regions.bed") {
+            1 // BigY lifted target panel — stricter, used when no GATK recall exists
+        } else {
+            continue;
+        };
+        let rank = kind * 2 + u8::from(fname.contains("chrYM"));
+        if best.as_ref().map_or(true, |(r, _)| rank > *r) {
+            best = Some((rank, p));
         }
     }
-    bed.map(|bed| SampleBed { accession, bed })
+    best.map(|(_, bed)| SampleBed { accession, bed })
 }
 
 fn cohort_samples(cohort_dir: &Path) -> Result<Vec<SampleBed>> {

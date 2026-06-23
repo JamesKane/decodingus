@@ -1,10 +1,14 @@
-//! Callable-bp extraction from a GATK CallableLoci BED.
+//! Callable-bp extraction from a per-sample chrY BED. Two BED dialects are accepted:
 //!
-//! The BED's 4th column is the state (`CALLABLE`, `LOW_COVERAGE`,
-//! `POOR_MAPPING_QUALITY`, …); `du_bio::callable::summarize_bed` would count
-//! every interval, so we filter to `CALLABLE` here. We then intersect the
-//! merged callable intervals with the Y sequence classes from
-//! `core.genome_region` to partition into x-degenerate / ampliconic /
+//!  * **GATK CallableLoci** (4 columns): the 4th is the state (`CALLABLE`,
+//!    `LOW_COVERAGE`, `POOR_MAPPING_QUALITY`, …), so we keep only `CALLABLE` rows.
+//!  * **Plain regions BED** (3 columns): a BigY target panel lifted to chm13 — every
+//!    interval already *is* the reliably-covered (callable) region, so there is no
+//!    state to filter on. It's a stricter, high-confidence callable set; usable as the
+//!    age denominator for BigY tips that have no GATK recall.
+//!
+//! Either way we merge the callable intervals and intersect them with the Y sequence
+//! classes from `core.genome_region` to partition into x-degenerate / ampliconic /
 //! palindromic bp — the het-consistent denominator the age model wants.
 
 use std::fs;
@@ -13,7 +17,8 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use du_bio::callable::{merge, Interval};
 
-/// Merged `CALLABLE` intervals on `contig` from a GATK CallableLoci BED.
+/// Merged callable intervals on `contig`. GATK rows are filtered to `CALLABLE`; a
+/// 3-column regions BED (no state) contributes every interval.
 pub fn callable_intervals(bed_path: &Path, contig: &str) -> Result<Vec<Interval>> {
     let text = fs::read_to_string(bed_path).with_context(|| format!("read {}", bed_path.display()))?;
     let mut ivs = Vec::new();
@@ -26,8 +31,10 @@ pub fn callable_intervals(bed_path: &Path, contig: &str) -> Result<Vec<Interval>
         let c = cols.next().unwrap_or("");
         let start = cols.next().and_then(|s| s.parse::<i64>().ok());
         let end = cols.next().and_then(|s| s.parse::<i64>().ok());
-        let state = cols.next().unwrap_or("");
-        if c != contig || state != "CALLABLE" {
+        // A 4th column means GATK state → keep only CALLABLE; its absence means a plain
+        // regions BED where every interval is callable.
+        let state = cols.next();
+        if c != contig || matches!(state, Some(s) if s != "CALLABLE") {
             continue;
         }
         if let (Some(start), Some(end)) = (start, end) {
