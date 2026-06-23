@@ -96,9 +96,12 @@ pub struct LaidNode {
     pub cx: f64,
     pub cy: f64,
     /// Pre-computed text-baseline Y positions (template stays arithmetic-free).
+    /// The name/count/formed/tmrca lines are vertically centered as a block, so a
+    /// node with no ages stays centered while one with both shows four tidy rows.
     pub name_y: f64,
     pub count_y: f64,
-    pub age_y: f64,
+    pub formed_y: f64,
+    pub tmrca_y: f64,
 }
 
 /// A placed sample rendered as a minimal terminal tip hanging off its haplogroup node.
@@ -226,6 +229,23 @@ impl Builder {
         };
 
         let (cx, cy) = self.center(depth_pos, breadth_pos);
+
+        // Vertically center the text block: name + variants are always present;
+        // the formed / TMRCA age lines are added only when set. Baselines are laid
+        // out on a shared line-height and centered on `cy`, so an age-less node
+        // looks balanced and a node with both ages fills the box with four rows.
+        let formed = node.formed_ybp.map(format_ybp);
+        let tmrca = node.tmrca_ybp.map(format_ybp);
+        const LINE_H: f64 = 17.0;
+        const BASELINE_NUDGE: f64 = 4.0; // baseline → visual-center correction
+        let lines = 2 + formed.is_some() as i32 + tmrca.is_some() as i32;
+        let line_y = |row: i32| cy + (row as f64 - (lines as f64 - 1.0) / 2.0) * LINE_H + BASELINE_NUDGE;
+        let name_y = line_y(0);
+        let count_y = line_y(1);
+        // Ages take the next rows in order; an unset age's baseline is unused.
+        let formed_y = line_y(2);
+        let tmrca_y = line_y(2 + formed.is_some() as i32);
+
         self.nodes.push(LaidNode {
             name: node.name.clone(),
             variant_count: node.variant_count,
@@ -233,15 +253,16 @@ impl Builder {
             is_backbone: node.is_backbone,
             is_recent: node.is_recent,
             has_hidden: node.has_hidden,
-            formed: node.formed_ybp.map(format_ybp),
-            tmrca: node.tmrca_ybp.map(format_ybp),
+            formed,
+            tmrca,
             rect_x: cx - NODE_WIDTH / 2.0,
             rect_y: cy - NODE_HEIGHT / 2.0,
             cx,
             cy,
-            name_y: cy - 16.0,
-            count_y: cy + 6.0,
-            age_y: cy + 26.0,
+            name_y,
+            count_y,
+            formed_y,
+            tmrca_y,
         });
 
         // Connectors from this node to each child and to each sample tip.
@@ -370,6 +391,26 @@ mod tests {
         // Vertical: depth is the Y axis — children sit below the root.
         assert!(a.cy > root_node.cy);
         assert!((root_node.cx - a.cx).abs() < 200.0);
+    }
+
+    #[test]
+    fn text_block_centers_and_ages_stack() {
+        // No ages: name above center, variants below, ordered top→bottom.
+        let bare = layout(Some(&leaf("R")), Orientation::Horizontal).unwrap();
+        let n = &bare.nodes[0];
+        assert!(n.name_y < n.count_y);
+        let bare_center = (n.name_y + n.count_y) / 2.0;
+
+        // Both ages: four rows, strictly top→bottom (name < count < formed < tmrca),
+        // and the block stays centered at the same point as the age-less node.
+        let aged = InNode { formed_ybp: Some(5254), tmrca_ybp: Some(3636), ..leaf("R") };
+        let laid = layout(Some(&aged), Orientation::Horizontal).unwrap();
+        let n = &laid.nodes[0];
+        assert!(n.name_y < n.count_y && n.count_y < n.formed_y && n.formed_y < n.tmrca_y);
+        let aged_center = (n.name_y + n.tmrca_y) / 2.0;
+        assert!((bare_center - aged_center).abs() < 0.01, "blocks share a vertical center");
+        assert_eq!(n.formed.as_deref(), Some("3304 BC"));
+        assert_eq!(n.tmrca.as_deref(), Some("1686 BC"));
     }
 
     #[test]

@@ -56,6 +56,7 @@ tree.allRoots=← Todas las raíces
 tree.rootLineages=Linajes raíz
 tree.noChildren=Sin haplogrupos descendientes.
 tree.formed=formado
+tree.tmrca=TMRCA
 tree.search.placeholder=Haplogrupo o variante…
 tree.search.button=Ir
 tree.orientation=Orientación
@@ -80,6 +81,8 @@ tree.prov.title=Procedencia
 tree.prov.source=Origen
 tree.prov.aka=También conocido como
 tree.prov.updated=Actualizado
+tree.prov.ci=IC 95%
+tree.prov.samples=Muestras (n)
 
 references.title=Referencias
 references.search.placeholder=Buscar por título, revista o DOI…

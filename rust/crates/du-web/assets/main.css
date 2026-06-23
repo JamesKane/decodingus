@@ -66,6 +66,12 @@ code { color: #495057; background-color: #f8f9fa; }
   fill: var(--bs-secondary-color, #6c757d);
   pointer-events: none;
 }
+/* TMRCA is the headline age estimate — give it a touch more weight/contrast so it
+   reads at a glance instead of being lost among the other lines. */
+.tree-node-tmrca {
+  font-weight: 600;
+  fill: #1b5e20;
+}
 
 /* Legend swatches mirror the node fills. */
 .legend-swatch {

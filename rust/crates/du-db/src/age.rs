@@ -314,6 +314,61 @@ pub struct CombineStats {
     pub combined: usize,
 }
 
+/// One persisted age-estimate row for a node, for surfacing the inputs/uncertainty
+/// behind a branch's age in the UI. `sample_count` is per-method: for `SNP_POISSON`
+/// it is the number of tester samples whose private SNPs measured this node (the
+/// "population size" behind the age); for `COMBINED` it is the number of method
+/// terms folded together (see [`recompute_combined_ages`]).
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct AgeEstimate {
+    pub method: String,
+    pub estimate_ybp: Option<i32>,
+    pub ci_low_ybp: Option<i32>,
+    pub ci_high_ybp: Option<i32>,
+    pub sample_count: Option<i32>,
+}
+
+/// All persisted age-estimate rows for a node (any method), most-confident first
+/// (COMBINED, then SNP_POISSON, then the rest) for convenient display.
+pub async fn estimates_for(pool: &PgPool, haplogroup_id: i64) -> Result<Vec<AgeEstimate>, DbError> {
+    Ok(sqlx::query_as(
+        "SELECT method, estimate_ybp, ci_low_ybp, ci_high_ybp, sample_count \
+         FROM tree.haplogroup_age_estimate WHERE haplogroup_id = $1 \
+         ORDER BY CASE method WHEN 'COMBINED' THEN 0 WHEN 'SNP_POISSON' THEN 1 \
+                              WHEN 'GENEALOGICAL' THEN 2 ELSE 3 END",
+    )
+    .bind(haplogroup_id)
+    .fetch_all(pool)
+    .await?)
+}
+
+/// Count of distinct tester samples (ACTIVE Y private-variant carriers) at or below
+/// `haplogroup_id` — the "population size" behind a node's TMRCA. A node's age is
+/// measured by its own direct testers *and*, via propagation, every tester in its
+/// subtree, so this whole-subtree count (not just the node's direct testers, which
+/// are 0 for most internal backbone nodes) is what actually determined the estimate.
+pub async fn subtree_tester_count(pool: &PgPool, haplogroup_id: i64) -> Result<i64, DbError> {
+    Ok(sqlx::query_scalar(
+        "WITH RECURSIVE sub AS ( \
+            SELECT $1::bigint AS id \
+          UNION ALL \
+            SELECT c.id FROM tree.haplogroup c \
+            JOIN tree.haplogroup_relationship r \
+              ON r.child_haplogroup_id = c.id AND r.valid_until IS NULL \
+            JOIN sub ON sub.id = r.parent_haplogroup_id \
+            WHERE c.valid_until IS NULL \
+         ) \
+         SELECT count(DISTINCT pv.sample_guid) \
+         FROM tree.biosample_private_variant pv \
+         WHERE pv.terminal_haplogroup_id IN (SELECT id FROM sub) \
+           AND pv.status = 'ACTIVE' \
+           AND pv.haplogroup_type = 'Y_DNA'::core.dna_type",
+    )
+    .bind(haplogroup_id)
+    .fetch_one(pool)
+    .await?)
+}
+
 /// Recompute the SNP and genealogical age terms, then the COMBINED estimate for
 /// every branch with ≥1 term, gap-filling `tmrca_ybp`. COMBINED is the direct PDF
 /// product (Eq 1) of the SNP TMRCA PDF (propagation), the STR TMRCA PDF

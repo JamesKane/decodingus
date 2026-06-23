@@ -47,9 +47,10 @@
       <text class="tree-variant-link" x="{{ n.cx }}" y="{{ n.count_y }}"
             hx-get="{{ base_path }}/snp/{{ n.name }}" hx-target="#snpSidebar">{{ n.variant_count }} {{ t.get("tree.variants") }} ▸</text>
       {% if let Some(f) = n.formed %}
-      <text class="tree-node-age" x="{{ n.cx }}" y="{{ n.age_y }}">{{ t.get("tree.formed") }} {{ f }}</text>
-      {% else if let Some(tm) = n.tmrca %}
-      <text class="tree-node-age" x="{{ n.cx }}" y="{{ n.age_y }}">TMRCA {{ tm }}</text>
+      <text class="tree-node-age" x="{{ n.cx }}" y="{{ n.formed_y }}">{{ t.get("tree.formed") }} {{ f }}</text>
+      {% endif %}
+      {% if let Some(tm) = n.tmrca %}
+      <text class="tree-node-age tree-node-tmrca" x="{{ n.cx }}" y="{{ n.tmrca_y }}">{{ t.get("tree.tmrca") }} {{ tm }}</text>
       {% endif %}
     </g>
     {% endfor %}

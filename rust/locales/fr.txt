@@ -56,6 +56,7 @@ tree.allRoots=← Toutes les racines
 tree.rootLineages=Lignées racines
 tree.noChildren=Aucun haplogroupe descendant.
 tree.formed=formé
+tree.tmrca=TMRCA
 tree.search.placeholder=Haplogroupe ou variant…
 tree.search.button=Aller
 tree.orientation=Orientation
@@ -80,6 +81,8 @@ tree.prov.title=Provenance
 tree.prov.source=Source
 tree.prov.aka=Aussi connu sous
 tree.prov.updated=Mis à jour
+tree.prov.ci=IC 95 %
+tree.prov.samples=Échantillons (n)
 
 references.title=Références
 references.search.placeholder=Rechercher par titre, revue ou DOI…
