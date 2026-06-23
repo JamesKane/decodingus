@@ -60,22 +60,30 @@ async fn combine_str_and_genealogical_gapfills_tmrca() {
     assert!((3000..=3300).contains(&c), "combined between the two terms, got {c}");
     assert!((3100..=3200).contains(&c), "≈3153 by inverse-variance, got {c}");
 
-    // tmrca_ybp gap-filled with the combined value.
+    // tmrca_ybp refreshed with the combined value.
     let tmrca: Option<i32> = sqlx::query_scalar("SELECT tmrca_ybp FROM tree.haplogroup WHERE id=$1")
         .bind(hg)
         .fetch_one(&pool)
         .await
         .expect("tmrca");
-    assert_eq!(tmrca, Some(c), "tmrca_ybp gap-filled from COMBINED");
+    assert_eq!(tmrca, Some(c), "tmrca_ybp written from COMBINED");
 
-    // A curated tmrca_ybp must survive a recompute.
-    sqlx::query("UPDATE tree.haplogroup SET tmrca_ybp = 9999 WHERE id=$1").bind(hg).execute(&pool).await.expect("curate");
+    // A computed tmrca_ybp is REFRESHED on re-run (not frozen at the first value).
+    sqlx::query("UPDATE tree.haplogroup SET tmrca_ybp = 9999 WHERE id=$1").bind(hg).execute(&pool).await.expect("stale");
+    recompute_combined_ages(&pool).await.expect("combine refresh");
+    let refreshed: Option<i32> = sqlx::query_scalar("SELECT tmrca_ybp FROM tree.haplogroup WHERE id=$1")
+        .bind(hg).fetch_one(&pool).await.expect("refreshed");
+    assert_eq!(refreshed, Some(c), "non-curated tmrca_ybp is recomputed, not frozen");
+
+    // A curator-pinned tmrca_ybp (marked age_curated) MUST survive a recompute.
+    sqlx::query("UPDATE tree.haplogroup SET tmrca_ybp = 9999, \
+                 provenance = provenance || '{\"age_curated\": true}'::jsonb WHERE id=$1")
+        .bind(hg).execute(&pool).await.expect("curate");
     recompute_combined_ages(&pool).await.expect("combine 2");
     let tmrca2: Option<i32> = sqlx::query_scalar("SELECT tmrca_ybp FROM tree.haplogroup WHERE id=$1")
         .bind(hg)
         .fetch_one(&pool)
         .await
         .expect("tmrca2");
-    assert_eq!(tmrca2, Some(9999), "curated tmrca_ybp preserved");
-
+    assert_eq!(tmrca2, Some(9999), "curated (age_curated) tmrca_ybp preserved");
 }

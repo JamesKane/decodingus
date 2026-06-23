@@ -24,6 +24,14 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 /// the model applies — see `documents/proposals/branch-age-estimation.md`.
 pub const SNP_RATE: f64 = 8.33e-10;
 
+/// WHERE-guard gating which `tree.haplogroup` rows the recompute may refresh. The
+/// denormalized `formed_ybp`/`tmrca_ybp` are a cache of the computed age, so every
+/// recompute overwrites them — EXCEPT a value a curator deliberately pinned, marked
+/// with the `age_curated` provenance flag. (The prior `… IS NULL` gap-fill froze the
+/// first run's value, so re-runs after new data/seeds never updated the display.) A
+/// curator/UI that pins an age MUST set `provenance.age_curated = true`.
+const AGE_REFRESH_GUARD: &str = "NOT COALESCE((provenance->>'age_curated')::boolean, false)";
+
 /// Minimum callable Y bp for a sample to be used as an age tester. The Poisson age
 /// is `m / (b·µ)`, so a sample covering only a sliver of the MSY (the table mins at
 /// ~0.09 Mbp vs a healthy ~14 Mbp) divides a handful of private SNPs by a tiny `b`
@@ -502,8 +510,10 @@ pub async fn recompute_combined_ages(pool: &PgPool) -> Result<CombineStats, DbEr
         .await?;
     for (id, med, lo, hi, testers, formed) in &snp_writes {
         upsert_estimate_ci(&mut tx, *id, "SNP_POISSON", *med, *lo, *hi, *testers).await?;
-        // Node formation age — gap-fill only (never overwrite a curated value).
-        sqlx::query("UPDATE tree.haplogroup SET formed_ybp=$2 WHERE id=$1 AND formed_ybp IS NULL")
+        // Refresh the denormalized node formation age so re-runs reflect the latest
+        // computation — but never clobber a value a curator pinned (`age_curated`).
+        // (Gap-fill-on-NULL would freeze the first run's value forever; see AGE_REFRESH_GUARD.)
+        sqlx::query(&format!("UPDATE tree.haplogroup SET formed_ybp=$2 WHERE id=$1 AND {AGE_REFRESH_GUARD}"))
             .bind(id)
             .bind(formed)
             .execute(&mut *tx)
@@ -516,8 +526,8 @@ pub async fn recompute_combined_ages(pool: &PgPool) -> Result<CombineStats, DbEr
     }
     for (hg, med, lo, hi, n_terms) in &combined_writes {
         upsert_estimate_ci(&mut tx, *hg, "COMBINED", *med, *lo, *hi, *n_terms).await?;
-        // Gap-fill the authoritative tmrca_ybp (never overwrite a curated value).
-        sqlx::query("UPDATE tree.haplogroup SET tmrca_ybp = $2 WHERE id = $1 AND tmrca_ybp IS NULL")
+        // Refresh the authoritative tmrca_ybp (unless curator-pinned via age_curated).
+        sqlx::query(&format!("UPDATE tree.haplogroup SET tmrca_ybp = $2 WHERE id = $1 AND {AGE_REFRESH_GUARD}"))
             .bind(hg)
             .bind(med)
             .execute(&mut *tx)
