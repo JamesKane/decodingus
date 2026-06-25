@@ -288,6 +288,18 @@ pub struct CandidateView {
     pub status: String,
 }
 
+/// Fetch a single candidate by id (for the curator panel).
+pub async fn candidate(pool: &PgPool, id: i64) -> Result<Option<CandidateView>, DbError> {
+    let row = sqlx::query_as::<_, CandidateView>(
+        "SELECT id, sample_a, sample_b, tier, block_key, score, signals, status \
+         FROM dedup.duplicate_candidate WHERE id = $1",
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row)
+}
+
 /// List candidates (optionally filtered by status), highest suspicion first.
 pub async fn list_candidates(
     pool: &PgPool,
