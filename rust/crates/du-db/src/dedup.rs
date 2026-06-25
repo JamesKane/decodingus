@@ -307,6 +307,337 @@ pub async fn list_candidates(
     Ok(rows)
 }
 
+// ── resolution + merge ───────────────────────────────────────────────────────
+
+/// Terminal statuses a curator / Tier-2 may assign to a candidate (everything
+/// except MERGED, which only [`merge_biosamples`] sets, and CANDIDATE, the engine's).
+const RESOLVABLE: &[&str] = &[
+    "CONFIRMED_DUPLICATE",
+    "RELATIVE",
+    "DISTINCT",
+    "SUSPECTED_UNCONFIRMABLE",
+    "DISMISSED",
+];
+
+/// Record a non-merge resolution (curator decision or Tier-2 verdict) on a
+/// candidate. Refuses MERGED (that is [`merge_biosamples`]'s job) and any status
+/// not in [`RESOLVABLE`]. Returns false if the candidate doesn't exist.
+pub async fn resolve_candidate(
+    pool: &PgPool,
+    id: i64,
+    status: &str,
+    resolved_by: &str,
+    verdict: Option<&Value>,
+) -> Result<bool, DbError> {
+    if !RESOLVABLE.contains(&status) {
+        return Err(DbError::Decode(format!("status {status:?} is not a curator-resolvable status")));
+    }
+    let n = sqlx::query(
+        "UPDATE dedup.duplicate_candidate \
+         SET status = $2, resolved_by = $3, resolved_at = now(), \
+             verdict = COALESCE($4, verdict), updated_at = now() \
+         WHERE id = $1",
+    )
+    .bind(id)
+    .bind(status)
+    .bind(resolved_by)
+    .bind(verdict)
+    .execute(pool)
+    .await?
+    .rows_affected();
+    Ok(n > 0)
+}
+
+/// How a child table's rows are reconciled when their biosample is merged.
+enum Action {
+    /// No per-sample unique key — just repoint the merged rows to the survivor.
+    Simple,
+    /// Per-sample unique key: drop the merged rows that would collide with an
+    /// existing survivor row (on these other key cols), then repoint the rest.
+    KeepSurvivor(&'static [&'static str]),
+    /// Derived/regenerable rows (recomputed by the ibd job) — just delete the
+    /// merged side; repointing risks self-pairs / stale ordering for no gain.
+    DropMerged,
+}
+
+struct Repoint {
+    table: &'static str,
+    cols: &'static [&'static str],
+    action: Action,
+}
+
+/// The complete plan for every FK column referencing `core.biosample(sample_guid)`.
+/// [`merge_biosamples`] cross-checks this against the live FK set and aborts if the
+/// DB has a reference this plan doesn't cover — so a new FK can't silently orphan.
+/// `dedup.duplicate_candidate` (sample_a/sample_b) is covered separately (the
+/// merged sample's other candidates are resolved, not repointed).
+const REPOINTS: &[Repoint] = &[
+    Repoint { table: "fed.pds_submission", cols: &["biosample_guid"], action: Action::Simple },
+    Repoint { table: "genomics.biosample_callable_loci", cols: &["sample_guid"], action: Action::Simple },
+    Repoint { table: "genomics.genotype_data", cols: &["sample_guid"], action: Action::Simple },
+    Repoint { table: "genomics.reported_variant_pangenome", cols: &["sample_guid"], action: Action::Simple },
+    Repoint { table: "genomics.sequence_library", cols: &["sample_guid"], action: Action::Simple },
+    Repoint { table: "ibd.population_breakdown", cols: &["sample_guid"], action: Action::Simple },
+    Repoint { table: "tree.haplogroup_sample", cols: &["sample_guid"], action: Action::KeepSurvivor(&["dna_type"]) },
+    Repoint {
+        table: "tree.biosample_private_variant",
+        cols: &["sample_guid"],
+        action: Action::KeepSurvivor(&["variant_id", "haplogroup_type"]),
+    },
+    Repoint {
+        table: "ibd.ancestry_analysis",
+        cols: &["sample_guid"],
+        action: Action::KeepSurvivor(&["analysis_method_id", "population_id"]),
+    },
+    Repoint { table: "pubs.publication_biosample", cols: &["sample_guid"], action: Action::KeepSurvivor(&["publication_id"]) },
+    Repoint { table: "research.subject_biosample", cols: &["sample_guid"], action: Action::KeepSurvivor(&["research_subject_id"]) },
+    Repoint { table: "ibd.ibd_discovery_index", cols: &["sample_guid_1", "sample_guid_2"], action: Action::DropMerged },
+    Repoint { table: "ibd.match_suggestion", cols: &["target_sample_guid", "suggested_sample_guid"], action: Action::DropMerged },
+    Repoint { table: "ibd.population_overlap_score", cols: &["sample_guid_1", "sample_guid_2"], action: Action::DropMerged },
+    Repoint { table: "ibd.population_breakdown_cache", cols: &["sample_guid"], action: Action::DropMerged },
+];
+
+/// Outcome of [`merge_biosamples`].
+#[derive(Debug, Clone)]
+pub struct MergeReport {
+    pub survivor: Uuid,
+    pub merged: Uuid,
+    pub rows_repointed: u64,
+    pub rows_dropped: u64,
+    pub candidates_dismissed: u64,
+}
+
+#[derive(sqlx::FromRow)]
+struct BioRow {
+    sample_guid: Uuid,
+    locked: bool,
+    deleted: bool,
+    accession: Option<String>,
+    alias: Option<String>,
+    original_haplogroups: Value,
+    source_attrs: Value,
+    is_public: Option<bool>,
+}
+
+/// Verify [`REPOINTS`] (+ the dedup pair cols) covers every live FK to
+/// `core.biosample`. Aborts the merge if the schema has drifted — better a loud
+/// failure than a silent orphan.
+async fn assert_fk_coverage(tx: &mut sqlx::PgConnection) -> Result<(), DbError> {
+    let live: Vec<(String, String)> = sqlx::query_as(
+        "SELECT n.nspname || '.' || rel.relname, a.attname \
+         FROM pg_constraint c \
+         JOIN pg_class rel ON rel.oid = c.conrelid \
+         JOIN pg_namespace n ON n.oid = rel.relnamespace \
+         JOIN unnest(c.conkey) WITH ORDINALITY k(attnum, ord) ON true \
+         JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = k.attnum \
+         WHERE c.contype = 'f' AND c.confrelid = 'core.biosample'::regclass",
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    let mut known: std::collections::HashSet<(String, String)> = REPOINTS
+        .iter()
+        .flat_map(|r| r.cols.iter().map(move |c| (r.table.to_string(), c.to_string())))
+        .collect();
+    known.insert(("dedup.duplicate_candidate".into(), "sample_a".into()));
+    known.insert(("dedup.duplicate_candidate".into(), "sample_b".into()));
+    // The audit table's own back-reference is deliberately NOT repointed: a prior
+    // merge's surviving_guid is correctly that survivor, and if it is later itself
+    // merged the chain stays traceable via the tombstone's source_attrs.merged_into.
+    known.insert(("core.biosample_merge".into(), "surviving_guid".into()));
+    let missing: Vec<_> = live.iter().filter(|fk| !known.contains(*fk)).collect();
+    if !missing.is_empty() {
+        return Err(DbError::Decode(format!(
+            "biosample merge plan is stale — uncovered FK(s) to core.biosample: {missing:?}"
+        )));
+    }
+    Ok(())
+}
+
+/// Merge `merged` into `survivor`: repoint every FK, fold metadata, tombstone the
+/// merged row, resolve the dedup candidate, and write a `core.biosample_merge`
+/// audit row — all in one transaction. Refuses if either sample is missing,
+/// already deleted, or `locked`, or if the FK plan is stale.
+///
+/// This is the **only** mutation that acts on a confirmed duplicate; Tier-1 never
+/// reaches it. Pass `candidate_id` to mark that candidate MERGED (other open
+/// candidates touching the merged sample are dismissed as stale).
+pub async fn merge_biosamples(
+    pool: &PgPool,
+    survivor: Uuid,
+    merged: Uuid,
+    merged_by: &str,
+    candidate_id: Option<i64>,
+    mut evidence: Value,
+) -> Result<MergeReport, DbError> {
+    if survivor == merged {
+        return Err(DbError::Decode("cannot merge a biosample into itself".into()));
+    }
+    let mut tx = pool.begin().await?;
+    assert_fk_coverage(&mut tx).await?;
+
+    // Load + validate both rows.
+    let rows: Vec<BioRow> = sqlx::query_as(
+        "SELECT sample_guid, locked, deleted, accession, alias, \
+                COALESCE(original_haplogroups,'[]'::jsonb) AS original_haplogroups, \
+                COALESCE(source_attrs,'{}'::jsonb) AS source_attrs, is_public \
+         FROM core.biosample WHERE sample_guid = ANY($1)",
+    )
+    .bind([survivor, merged])
+    .fetch_all(&mut *tx)
+    .await?;
+    let find = |g: Uuid| rows.iter().find(|r| r.sample_guid == g);
+    let (Some(surv), Some(merg)) = (find(survivor), find(merged)) else {
+        return Err(DbError::Decode("survivor or merged biosample not found".into()));
+    };
+    for (label, r) in [("survivor", surv), ("merged", merg)] {
+        if r.deleted {
+            return Err(DbError::Decode(format!("{label} biosample is already deleted/merged")));
+        }
+        if r.locked {
+            return Err(DbError::Decode(format!("{label} biosample is locked")));
+        }
+    }
+
+    let mut rep = MergeReport { survivor, merged, rows_repointed: 0, rows_dropped: 0, candidates_dismissed: 0 };
+
+    // Repoint every child table per the plan.
+    for r in REPOINTS {
+        match &r.action {
+            Action::Simple => {
+                let col = r.cols[0];
+                let n = sqlx::query(&format!("UPDATE {} SET {col} = $1 WHERE {col} = $2", r.table))
+                    .bind(survivor)
+                    .bind(merged)
+                    .execute(&mut *tx)
+                    .await?
+                    .rows_affected();
+                rep.rows_repointed += n;
+            }
+            Action::KeepSurvivor(others) => {
+                let col = r.cols[0];
+                let on = others
+                    .iter()
+                    .map(|oc| format!("s.{oc} = m.{oc}"))
+                    .collect::<Vec<_>>()
+                    .join(" AND ");
+                let dropped = sqlx::query(&format!(
+                    "DELETE FROM {t} m WHERE m.{col} = $2 \
+                     AND EXISTS (SELECT 1 FROM {t} s WHERE s.{col} = $1 AND {on})",
+                    t = r.table
+                ))
+                .bind(survivor)
+                .bind(merged)
+                .execute(&mut *tx)
+                .await?
+                .rows_affected();
+                let n = sqlx::query(&format!("UPDATE {} SET {col} = $1 WHERE {col} = $2", r.table))
+                    .bind(survivor)
+                    .bind(merged)
+                    .execute(&mut *tx)
+                    .await?
+                    .rows_affected();
+                rep.rows_dropped += dropped;
+                rep.rows_repointed += n;
+            }
+            Action::DropMerged => {
+                for col in r.cols {
+                    let n = sqlx::query(&format!("DELETE FROM {} WHERE {col} = $1", r.table))
+                        .bind(merged)
+                        .execute(&mut *tx)
+                        .await?
+                        .rows_affected();
+                    rep.rows_dropped += n;
+                }
+            }
+        }
+    }
+
+    // Fold the merged row's metadata into the survivor (union haplogroups, fill
+    // missing alias, OR public, append merged guid/accession to source_attrs).
+    let merged_accs: Vec<String> = merg.accession.iter().cloned().collect();
+    let mut survivor_attrs = surv.source_attrs.clone();
+    let attrs_obj = survivor_attrs.as_object_mut().ok_or_else(|| DbError::Decode("source_attrs not an object".into()))?;
+    let mut guids = attrs_obj.get("merged_guids").and_then(Value::as_array).cloned().unwrap_or_default();
+    guids.push(Value::String(merged.to_string()));
+    let mut accs = attrs_obj.get("merged_accessions").and_then(Value::as_array).cloned().unwrap_or_default();
+    accs.extend(merged_accs.iter().map(|a| Value::String(a.clone())));
+    let fold = serde_json::json!({ "merged_guids": guids, "merged_accessions": accs });
+
+    sqlx::query(
+        "UPDATE core.biosample SET \
+            alias = COALESCE(alias, $2), \
+            original_haplogroups = COALESCE(original_haplogroups,'[]'::jsonb) || $3::jsonb, \
+            is_public = COALESCE(is_public, false) OR $4, \
+            source_attrs = COALESCE(source_attrs,'{}'::jsonb) || $5::jsonb, \
+            updated_at = now() \
+         WHERE sample_guid = $1",
+    )
+    .bind(survivor)
+    .bind(&merg.alias)
+    .bind(&merg.original_haplogroups)
+    .bind(merg.is_public.unwrap_or(false))
+    .bind(&fold)
+    .execute(&mut *tx)
+    .await?;
+
+    // Tombstone the merged row with a pointer to the survivor.
+    sqlx::query(
+        "UPDATE core.biosample SET deleted = true, updated_at = now(), \
+            source_attrs = COALESCE(source_attrs,'{}'::jsonb) || jsonb_build_object('merged_into', $2::text) \
+         WHERE sample_guid = $1",
+    )
+    .bind(merged)
+    .bind(survivor.to_string())
+    .execute(&mut *tx)
+    .await?;
+
+    // Resolve dedup candidates: the justifying one → MERGED; any other open
+    // candidate touching the merged sample → DISMISSED (now stale).
+    if let Some(cid) = candidate_id {
+        sqlx::query(
+            "UPDATE dedup.duplicate_candidate SET status = 'MERGED', resolved_by = $2, resolved_at = now() WHERE id = $1",
+        )
+        .bind(cid)
+        .bind(merged_by)
+        .execute(&mut *tx)
+        .await?;
+    }
+    rep.candidates_dismissed = sqlx::query(
+        "UPDATE dedup.duplicate_candidate \
+         SET status = 'DISMISSED', resolved_by = $2, resolved_at = now(), \
+             signals = signals || jsonb_build_object('dismissed_reason','sample merged into survivor') \
+         WHERE status = 'CANDIDATE' AND (sample_a = $1 OR sample_b = $1) \
+           AND id IS DISTINCT FROM $3",
+    )
+    .bind(merged)
+    .bind(merged_by)
+    .bind(candidate_id)
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
+
+    // Audit.
+    if let Some(obj) = evidence.as_object_mut() {
+        obj.insert("rows_repointed".into(), Value::from(rep.rows_repointed));
+        obj.insert("rows_dropped".into(), Value::from(rep.rows_dropped));
+        obj.insert("merged_accessions".into(), Value::from(merged_accs));
+    }
+    sqlx::query(
+        "INSERT INTO core.biosample_merge (surviving_guid, merged_guid, candidate_id, evidence, merged_by) \
+         VALUES ($1, $2, $3, $4, $5)",
+    )
+    .bind(survivor)
+    .bind(merged)
+    .bind(candidate_id)
+    .bind(&evidence)
+    .bind(merged_by)
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+    Ok(rep)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
