@@ -106,12 +106,24 @@ async fn main() -> anyhow::Result<()> {
                 let (envelopes, sessions) = du_db::exchange::expire(&pool).await?;
                 tracing::info!(envelopes, sessions, "exchange-expire complete");
             }
+            // Tier-1 biosample duplicate candidates: block by terminal Y + mt and
+            // refine with private-variant Jaccard into dedup.duplicate_candidate.
+            // Candidates only — autosomal Tier-2 confirms (never auto-merges).
+            "dedup-candidates" => {
+                let rep = du_db::dedup::recompute_candidates(&pool, &du_db::dedup::DedupConfig::default()).await?;
+                tracing::info!(
+                    males = rep.males, multi_blocks = rep.multi_blocks, pairs = rep.pairs_evaluated,
+                    written = rep.candidates_written, pruned = rep.candidates_pruned,
+                    mt_match = rep.mt_match_pairs, jaccard = rep.jaccard_pairs,
+                    "dedup-candidates complete"
+                );
+            }
             "tree-samples-recompute" => {
                 let rep = du_db::tree_sample::recompute_placements(&pool, du_domain::enums::DnaType::YDna).await?;
                 tracing::info!(placed = rep.placed, unplaced = rep.unplaced, "tree-samples-recompute complete (Y)");
             }
             other => anyhow::bail!(
-                "unknown run-once job '{other}' (known: ybrowse, reconcile, yregions, branch-age, sequencer-consensus, discovery-consensus, coverage-norms, ibd-discovery-recompute, exchange-expire, tree-samples-recompute)"
+                "unknown run-once job '{other}' (known: ybrowse, reconcile, yregions, branch-age, sequencer-consensus, discovery-consensus, coverage-norms, ibd-discovery-recompute, exchange-expire, tree-samples-recompute, dedup-candidates)"
             ),
         }
         return Ok(());
@@ -286,6 +298,26 @@ async fn main() -> anyhow::Result<()> {
             }
         }));
         tracing::info!("ibd-discovery-recompute registered");
+    }
+
+    // Biosample duplicate candidates (Tier 1): block by terminal Y + mt, refine by
+    // private-variant Jaccard into dedup.duplicate_candidate. Candidates only —
+    // autosomal Tier-2 confirms (and is what separates duplicates from siblings). Daily.
+    {
+        let pool = pool.clone();
+        sched.register(Job::new("dedup-candidates", Duration::from_secs(86_400), move || {
+            let pool = pool.clone();
+            async move {
+                let rep = du_db::dedup::recompute_candidates(&pool, &du_db::dedup::DedupConfig::default()).await?;
+                tracing::info!(
+                    males = rep.males, multi_blocks = rep.multi_blocks,
+                    written = rep.candidates_written, pruned = rep.candidates_pruned,
+                    "dedup-candidates done"
+                );
+                Ok(())
+            }
+        }));
+        tracing::info!("dedup-candidates registered");
     }
 
     // YFull-style leaf placement: resolve each non-D2C biosample's published Y call to a tree

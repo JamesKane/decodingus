@@ -24,6 +24,7 @@ pub mod curator;
 pub mod curator_inbox;
 pub mod curator_regions;
 pub mod curator_variants;
+pub mod dedup;
 pub mod maps;
 pub mod naming;
 pub mod denovo_conflicts;
@@ -69,6 +70,7 @@ pub fn app(state: AppState) -> Router {
         .merge(curator_inbox::router())
         .merge(curator_variants::router())
         .merge(curator_regions::router())
+        .merge(dedup::router())
         .merge(curation::router())
         .merge(publications::router())
         .merge(naming::router())

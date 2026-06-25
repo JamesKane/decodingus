@@ -1,0 +1,49 @@
+{# Fragment: duplicate-candidate resolve panel. Target of #dedup-detail. #}
+<div class="card">
+  <div class="card-header">
+    <strong>{% if f.resolved %}{{ t.get("dedup.status") }}: {{ f.status }}{% else %}{{ f.label_a }} / {{ f.label_b }}{% endif %}</strong>
+  </div>
+  <div class="card-body">
+    {% if let Some(n) = f.notice %}<div class="alert alert-success py-2 px-3 small mb-3">{{ n }}</div>{% endif %}
+
+    {% if f.resolved %}
+    <p class="detail-empty mb-0">{{ t.get("dedup.resolved.note") }}</p>
+    {% else %}
+    <p class="small mb-2">{{ t.get("dedup.caveat") }}</p>
+    <ul class="small text-muted mb-3">
+      <li>{{ t.get("dedup.block") }}: <code>{{ f.block_key }}</code> ({{ t.get("dedup.col.score") }} {{ f.score }}%)</li>
+      <li>{{ t.get("dedup.mt_match") }}: {% if f.mt_match %}✓{% else %}—{% endif %} · {{ t.get("dedup.shared_private") }}: {{ f.shared_private }}</li>
+      <li>{{ t.get("dedup.tier2") }}:
+        {% if f.both_public %}<span class="badge text-bg-info">{{ t.get("dedup.tier2.public") }}</span>
+        {% else %}<span class="badge text-bg-warning">{{ t.get("dedup.tier2.edge") }}</span>{% endif %}
+        <span class="text-muted">({{ f.route }})</span>
+      </li>
+    </ul>
+
+    {# Merge — choose the survivor; the other is merged into it. #}
+    <form hx-post="/curator/dedup/{{ f.id }}/merge" hx-target="#dedup-detail" hx-swap="innerHTML"
+          hx-confirm="{{ t.get("dedup.merge.confirm") }}" class="mb-3">
+      <p class="small mb-1"><strong>{{ t.get("dedup.merge.keep") }}</strong></p>
+      <div class="form-check">
+        <input class="form-check-input" type="radio" name="survivor" id="surv-a" value="{{ f.sample_a }}" checked required>
+        <label class="form-check-label" for="surv-a">{{ f.label_a }}</label>
+      </div>
+      <div class="form-check mb-2">
+        <input class="form-check-input" type="radio" name="survivor" id="surv-b" value="{{ f.sample_b }}">
+        <label class="form-check-label" for="surv-b">{{ f.label_b }}</label>
+      </div>
+      <button class="btn btn-sm btn-danger">{{ t.get("dedup.merge") }}</button>
+      <span class="small text-muted ms-2">{{ t.get("dedup.merge.hint") }}</span>
+    </form>
+
+    <div class="d-flex gap-2">
+      <form hx-post="/curator/dedup/{{ f.id }}/relative" hx-target="#dedup-detail" hx-swap="innerHTML">
+        <button class="btn btn-sm btn-outline-secondary">{{ t.get("dedup.relative") }}</button>
+      </form>
+      <form hx-post="/curator/dedup/{{ f.id }}/dismiss" hx-target="#dedup-detail" hx-swap="innerHTML">
+        <button class="btn btn-sm btn-outline-secondary">{{ t.get("dedup.dismiss") }}</button>
+      </form>
+    </div>
+    {% endif %}
+  </div>
+</div>

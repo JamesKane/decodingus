@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}{{ t.get("dedup.title") }} — {{ t.get("app.name") }}{% endblock %}
+{% block content %}
+<h1 class="h3 mb-1">{{ t.get("dedup.title") }}</h1>
+<p class="text-muted small mb-3">{{ t.get("dedup.intro") }}</p>
+<div class="row">
+  <div class="col-lg-5">
+    <div id="dedup-table"
+         hx-get="/curator/dedup/fragment"
+         hx-trigger="load, dedup-changed from:body">
+      {% include "curator/dedup/list.html" %}
+    </div>
+  </div>
+  <div class="col-lg-7">
+    <div id="dedup-detail"><p class="detail-empty">{{ t.get("dedup.select") }}</p></div>
+  </div>
+</div>
+{% endblock %}
