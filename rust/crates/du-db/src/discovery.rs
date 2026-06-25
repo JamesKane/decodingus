@@ -387,14 +387,19 @@ fn cluster_bucket(mut sets: Vec<SampleSet>, th: &DnaThresholds) -> Vec<Cluster> 
 /// Pool ACTIVE private variants into proposed branches; returns proposal ids eligible
 /// for auto-promotion (when `cfg.auto_promote`).
 async fn pool_and_propose(pool: &PgPool, cfg: &DiscoveryConfig, rep: &mut DiscoveryReport) -> Result<Vec<i64>, DbError> {
-    // Per-sample variant sets under a resolved terminal.
-    let raw: Vec<(Uuid, i64, String, Vec<i64>)> = sqlx::query_as(
-        "SELECT sample_guid, terminal_haplogroup_id, haplogroup_type::text AS dna, \
-                array_agg(variant_id ORDER BY variant_id) AS vset \
-         FROM tree.biosample_private_variant \
-         WHERE status = 'ACTIVE' AND terminal_haplogroup_id IS NOT NULL \
-         GROUP BY sample_guid, terminal_haplogroup_id, haplogroup_type",
-    )
+    // Per-sample variant sets under a resolved terminal. Variants in recurrent /
+    // FP-prone sequence (heterochromatin, inverted repeats — the mask shared with the
+    // SNP-age model) are excised here so they can neither join nor define a branch: a
+    // recurrent miscall shared across samples must not manufacture a phantom clade.
+    let mask = crate::variant::recurrent_region_mask_sql("v");
+    let raw: Vec<(Uuid, i64, String, Vec<i64>)> = sqlx::query_as(&format!(
+        "SELECT bpv.sample_guid, bpv.terminal_haplogroup_id, bpv.haplogroup_type::text AS dna, \
+                array_agg(bpv.variant_id ORDER BY bpv.variant_id) AS vset \
+         FROM tree.biosample_private_variant bpv \
+         JOIN core.variant v ON v.id = bpv.variant_id \
+         WHERE bpv.status = 'ACTIVE' AND bpv.terminal_haplogroup_id IS NOT NULL AND {mask} \
+         GROUP BY bpv.sample_guid, bpv.terminal_haplogroup_id, bpv.haplogroup_type"
+    ))
     .fetch_all(pool)
     .await?;
 

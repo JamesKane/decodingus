@@ -34,6 +34,34 @@ impl VariantRow {
     }
 }
 
+/// Region-overlap kinds masked from age counting **and** discovery branch-formation
+/// as recurrent / false-positive-prone sequence. Both sit outside the SNP-age callable
+/// denominator (`y_xdegen+y_ampliconic+y_palindromic`), so excising their SNPs keeps the
+/// numerator on the same footprint as the denominator; both are classic recurrent-miscall
+/// sources (satellite/DYZ heterochromatin, palindrome-arm inverted repeats) that otherwise
+/// inflate per-sample private counts and can manufacture phantom branches. Ampliconic and
+/// palindromic are deliberately **kept** (in the denominator, Hallast 2026-validated).
+/// Extend this list (e.g. `par`, `telomere`, `low_complexity`) once those region BEDs are
+/// ingested into `core.genome_region` → `region_overlaps`.
+pub const RECURRENT_REGION_KINDS: &[&str] = &["heterochromatin", "inverted_repeat"];
+
+/// SQL boolean fragment that is true when `core.variant` row `<alias>` does **not** overlap
+/// any [`RECURRENT_REGION_KINDS`] region. `alias` must name a `core.variant` row in scope
+/// (its `annotations->'region_overlaps'` is a JSONB array of `"<kind>:<feature>"` strings).
+/// Single source of truth shared by the SNP-age model and the discovery consensus engine.
+pub fn recurrent_region_mask_sql(alias: &str) -> String {
+    let likes = RECURRENT_REGION_KINDS
+        .iter()
+        .map(|k| format!("e LIKE '{k}:%'"))
+        .collect::<Vec<_>>()
+        .join(" OR ");
+    format!(
+        "NOT EXISTS (SELECT 1 FROM \
+         jsonb_array_elements_text(COALESCE({alias}.annotations->'region_overlaps','[]'::jsonb)) e \
+         WHERE {likes})"
+    )
+}
+
 const SELECT: &str = "SELECT id, canonical_name, mutation_type::text AS mutation_type, \
     naming_status::text AS naming_status, aliases, coordinates, annotations FROM core.variant";
 

@@ -191,14 +191,16 @@ pub fn propagate(clades: &[Clade], mu: f64, res: f64, max_age: f64) -> Vec<Optio
         .collect()
 }
 
-/// SNPs in heterochromatic sequence are masked from age counting — they sit
-/// outside the callable denominator (`y_xdegen+y_ampliconic+y_palindromic`) and
-/// the paper excises recurrent regions self-consistently (Appendix A.2/A.3).
-/// Ampliconic and palindromic SNPs are kept (same rate as X-degenerate). This is
-/// a SQL fragment testing `core.variant v` for any `heterochromatin:` overlap.
-const HET_MASK: &str = "NOT EXISTS (SELECT 1 FROM \
-    jsonb_array_elements_text(COALESCE(v.annotations->'region_overlaps','[]'::jsonb)) e \
-    WHERE e LIKE 'heterochromatin:%')";
+/// SNPs in recurrent / FP-prone sequence are masked from age counting — they sit
+/// outside the callable denominator (`y_xdegen+y_ampliconic+y_palindromic`) and the
+/// paper excises recurrent regions self-consistently (Appendix A.2/A.3). Ampliconic
+/// and palindromic SNPs are kept (same rate as X-degenerate). The masked set
+/// ([`crate::variant::RECURRENT_REGION_KINDS`]: heterochromatin + inverted_repeat) is
+/// shared with the discovery consensus engine so age and branch-formation excise the
+/// same FP-prone sequence. SQL fragment testing `core.variant v`'s `region_overlaps`.
+fn recurrent_mask() -> String {
+    crate::variant::recurrent_region_mask_sql("v")
+}
 
 /// Build the propagation input from the current Y tree: nodes, parent→child
 /// edges, het-masked branch (defining) SNP counts, and per-node tester data
@@ -231,11 +233,12 @@ async fn build_clades(pool: &PgPool) -> Result<(Vec<Clade>, Vec<i64>), DbError> 
         }
     }
 
-    // Branch defining-SNP counts (het-masked).
+    // Branch defining-SNP counts (recurrent-region-masked).
+    let mask = recurrent_mask();
     let branch: Vec<(i64, i64)> = sqlx::query_as(&format!(
         "SELECT hv.haplogroup_id, count(*)::bigint FROM tree.haplogroup_variant hv \
          JOIN core.variant v ON v.id=hv.variant_id \
-         WHERE hv.valid_until IS NULL AND {HET_MASK} GROUP BY hv.haplogroup_id"
+         WHERE hv.valid_until IS NULL AND {mask} GROUP BY hv.haplogroup_id"
     ))
     .fetch_all(pool)
     .await?;
@@ -256,7 +259,7 @@ async fn build_clades(pool: &PgPool) -> Result<(Vec<Clade>, Vec<i64>), DbError> 
          LEFT JOIN genomics.biosample_callable_loci cl \
             ON cl.sample_guid=pv.sample_guid AND cl.chromosome IN ('chrY','Y') \
          WHERE pv.status='ACTIVE' AND pv.haplogroup_type='Y_DNA'::core.dna_type \
-            AND pv.terminal_haplogroup_id IS NOT NULL AND {HET_MASK} \
+            AND pv.terminal_haplogroup_id IS NOT NULL AND {mask} \
          GROUP BY pv.terminal_haplogroup_id, pv.sample_guid"
     ))
     .fetch_all(pool)
