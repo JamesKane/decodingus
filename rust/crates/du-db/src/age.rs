@@ -24,6 +24,23 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 /// the model applies — see `documents/proposals/branch-age-estimation.md`.
 pub const SNP_RATE: f64 = 8.33e-10;
 
+/// WHERE-guard gating which `tree.haplogroup` rows the recompute may refresh. The
+/// denormalized `formed_ybp`/`tmrca_ybp` are a cache of the computed age, so every
+/// recompute overwrites them — EXCEPT a value a curator deliberately pinned, marked
+/// with the `age_curated` provenance flag. (The prior `… IS NULL` gap-fill froze the
+/// first run's value, so re-runs after new data/seeds never updated the display.) A
+/// curator/UI that pins an age MUST set `provenance.age_curated = true`.
+const AGE_REFRESH_GUARD: &str = "NOT COALESCE((provenance->>'age_curated')::boolean, false)";
+
+/// Minimum callable Y bp for a sample to be used as an age tester. The Poisson age
+/// is `m / (b·µ)`, so a sample covering only a sliver of the MSY (the table mins at
+/// ~0.09 Mbp vs a healthy ~14 Mbp) divides a handful of private SNPs by a tiny `b`
+/// and computes an age in the hundreds of ky — which then floors its whole backbone.
+/// Such samples can't reliably date a branch; they're excluded from aging (and worth
+/// flagging for coverage QC). All legitimate WGS testers here clear ~13 Mbp, so a
+/// 5 Mbp (~35% of callable MSY) floor drops only the broken ones.
+pub const MIN_TESTER_CALLABLE_BP: f64 = 5_000_000.0;
+
 /// Independent cross-check clock from Hallast et al. 2026 (142 population-scale Y
 /// assemblies, BEAST v1.10.4 strict molecular clock on the X-degenerate mask):
 /// **0.76 × 10⁻⁹ sub/site/yr (95% CI 0.67–0.86 × 10⁻⁹)** — ~9% slower than
@@ -82,7 +99,11 @@ pub struct CladeAge {
 /// TMRCAs run from recent surname clades to ~300 ky (A00), so 50-yr bins over
 /// 350 ky keep convolution affordable while spanning the deepest nodes.
 pub const TREE_RESOLUTION_YEARS: f64 = 50.0;
-pub const TREE_MAX_AGE_YEARS: f64 = 350_000.0;
+// Headroom above the human Y-MRCA (~250–300 ky): real deep backbone branches carry
+// hundreds–thousands of SNPs (validated; ~80 yr/SNP), so the oldest nodes legitimately
+// approach the MRCA. The grid must clear that plus Poisson tail, or those nodes peg at
+// the ceiling. (Genuinely unresolved mega-branches are flagged, not clamped — see below.)
+pub const TREE_MAX_AGE_YEARS: f64 = 500_000.0;
 
 /// Branch-time PDF for clade `x`: `P(t | m_branch)` over its callable bp.
 fn branch_time(clades: &[Clade], x: usize, mu: f64, res: f64, max_age: f64) -> Pdf {
@@ -101,18 +122,54 @@ fn compute_tmrca(
         return;
     }
     memo[i] = Some(None); // guard against accidental cycles
-    let mut factors: Vec<Pdf> = Vec::new();
-    for &ch in &clades[i].children {
-        compute_tmrca(ch, clades, mu, res, max_age, memo);
-        if let Some(Some(ct)) = &memo[ch] {
-            factors.push(ct.convolve(&branch_time(clades, ch, mu, res, max_age)));
-        }
+
+    // Each scored input is an estimate of THIS node's age. Sub-clades: the node is
+    // (child TMRCA ⊛ parent→child branch). Direct testers: each tester's private SNPs
+    // since the node are an independent Poisson measurement of the node's own age.
+    // These all estimate the same quantity, so combine by product (Eq 1 / Eq 5–8) —
+    // which sharpens as evidence accrues and gives well-calibrated magnitudes.
+    let child_factors: Vec<Pdf> = clades[i]
+        .children
+        .iter()
+        .filter_map(|&ch| {
+            compute_tmrca(ch, clades, mu, res, max_age, memo);
+            match &memo[ch] {
+                Some(Some(ct)) => Some(ct.convolve(&branch_time(clades, ch, mu, res, max_age))),
+                _ => None,
+            }
+        })
+        .collect();
+    let mut factors: Vec<Pdf> = child_factors.clone();
+    let tester_pdfs: Vec<Pdf> = clades[i]
+        .tester_snps
+        .iter()
+        .map(|&s| Pdf::poisson_on(s, clades[i].callable_bp, mu, res, max_age))
+        .collect();
+    if let Some((first, rest)) = tester_pdfs.split_first() {
+        factors.push(rest.iter().fold(first.clone(), |acc, f| acc.multiply(f)));
     }
-    for &s in &clades[i].tester_snps {
-        factors.push(Pdf::poisson_on(s, clades[i].callable_bp, mu, res, max_age));
-    }
+
     let result = factors.split_first().map(|(first, rest)| {
-        rest.iter().fold(first.clone(), |acc, f| acc.multiply(f))
+        let product = rest.iter().fold(first.clone(), |acc, f| acc.multiply(f));
+        // Coalescent causality floor: an ancestor is older than its oldest sub-clade.
+        // For consistent sub-clades the product is well-calibrated and already above
+        // this floor (no-op). When an under-sampled young sibling collapses the product
+        // below it, truncate to the floor; if nothing survives, take the oldest
+        // sub-clade's estimate. (Deep backbone nodes whose sub-clades peg at the grid
+        // ceiling can still go degenerate — those are flagged as a data issue, not
+        // fixable in the combiner.)
+        let floor = child_factors.iter().map(Pdf::median).fold(f64::NEG_INFINITY, f64::max);
+        if product.median().is_finite() && product.median() >= floor {
+            product
+        } else {
+            product.truncate_below(floor).unwrap_or_else(|| {
+                child_factors
+                    .iter()
+                    .max_by(|a, b| a.median().total_cmp(&b.median()))
+                    .cloned()
+                    .unwrap_or(product)
+            })
+        }
     });
     memo[i] = Some(result);
 }
@@ -206,7 +263,9 @@ async fn build_clades(pool: &PgPool) -> Result<(Vec<Clade>, Vec<i64>), DbError> 
     .await?;
     let (mut bp_sum, mut bp_cnt) = (vec![0.0f64; ids.len()], vec![0u32; ids.len()]);
     for (hg, snps, b) in testers {
-        if let (Some(&i), true) = (idx.get(&hg), b > 0.0) {
+        // Skip sliver-coverage samples: they divide their SNPs by a tiny callable
+        // denominator and produce impossible (hundreds-of-ky) ages that floor the spine.
+        if let (Some(&i), true) = (idx.get(&hg), b >= MIN_TESTER_CALLABLE_BP) {
             clades[i].tester_snps.push(snps);
             bp_sum[i] += b;
             bp_cnt[i] += 1;
@@ -263,6 +322,61 @@ pub struct CombineStats {
     pub combined: usize,
 }
 
+/// One persisted age-estimate row for a node, for surfacing the inputs/uncertainty
+/// behind a branch's age in the UI. `sample_count` is per-method: for `SNP_POISSON`
+/// it is the number of tester samples whose private SNPs measured this node (the
+/// "population size" behind the age); for `COMBINED` it is the number of method
+/// terms folded together (see [`recompute_combined_ages`]).
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct AgeEstimate {
+    pub method: String,
+    pub estimate_ybp: Option<i32>,
+    pub ci_low_ybp: Option<i32>,
+    pub ci_high_ybp: Option<i32>,
+    pub sample_count: Option<i32>,
+}
+
+/// All persisted age-estimate rows for a node (any method), most-confident first
+/// (COMBINED, then SNP_POISSON, then the rest) for convenient display.
+pub async fn estimates_for(pool: &PgPool, haplogroup_id: i64) -> Result<Vec<AgeEstimate>, DbError> {
+    Ok(sqlx::query_as(
+        "SELECT method, estimate_ybp, ci_low_ybp, ci_high_ybp, sample_count \
+         FROM tree.haplogroup_age_estimate WHERE haplogroup_id = $1 \
+         ORDER BY CASE method WHEN 'COMBINED' THEN 0 WHEN 'SNP_POISSON' THEN 1 \
+                              WHEN 'GENEALOGICAL' THEN 2 ELSE 3 END",
+    )
+    .bind(haplogroup_id)
+    .fetch_all(pool)
+    .await?)
+}
+
+/// Count of distinct tester samples (ACTIVE Y private-variant carriers) at or below
+/// `haplogroup_id` — the "population size" behind a node's TMRCA. A node's age is
+/// measured by its own direct testers *and*, via propagation, every tester in its
+/// subtree, so this whole-subtree count (not just the node's direct testers, which
+/// are 0 for most internal backbone nodes) is what actually determined the estimate.
+pub async fn subtree_tester_count(pool: &PgPool, haplogroup_id: i64) -> Result<i64, DbError> {
+    Ok(sqlx::query_scalar(
+        "WITH RECURSIVE sub AS ( \
+            SELECT $1::bigint AS id \
+          UNION ALL \
+            SELECT c.id FROM tree.haplogroup c \
+            JOIN tree.haplogroup_relationship r \
+              ON r.child_haplogroup_id = c.id AND r.valid_until IS NULL \
+            JOIN sub ON sub.id = r.parent_haplogroup_id \
+            WHERE c.valid_until IS NULL \
+         ) \
+         SELECT count(DISTINCT pv.sample_guid) \
+         FROM tree.biosample_private_variant pv \
+         WHERE pv.terminal_haplogroup_id IN (SELECT id FROM sub) \
+           AND pv.status = 'ACTIVE' \
+           AND pv.haplogroup_type = 'Y_DNA'::core.dna_type",
+    )
+    .bind(haplogroup_id)
+    .fetch_one(pool)
+    .await?)
+}
+
 /// Recompute the SNP and genealogical age terms, then the COMBINED estimate for
 /// every branch with ≥1 term, gap-filling `tmrca_ybp`. COMBINED is the direct PDF
 /// product (Eq 1) of the SNP TMRCA PDF (propagation), the STR TMRCA PDF
@@ -271,53 +385,44 @@ pub struct CombineStats {
 /// `GENEALOGICAL`, `COMBINED`); `STR_VARIANCE` (from `ystr`) and curated values are
 /// left intact.
 pub async fn recompute_combined_ages(pool: &PgPool) -> Result<CombineStats, DbError> {
-    let mut tx = pool.begin().await?;
     let mut stats = CombineStats::default();
 
-    sqlx::query("DELETE FROM tree.haplogroup_age_estimate WHERE method IN ('SNP_POISSON','GENEALOGICAL','COMBINED')")
-        .execute(&mut *tx)
-        .await?;
+    // ── PHASE 1: read inputs + run all CPU-bound PDF math holding NO transaction.
+    // The dev proxy severs any connection idle > ~5s; the convolutions below take
+    // seconds, so a tx held across them would be reaped mid-compute. Pool reads here
+    // are each short, and a reaped idle pool connection is transparently replaced on
+    // the next acquire (test_before_acquire). All writes are deferred to phase 2.
 
-    // ── SNP-Poisson term: tree propagation (McDonald Eq 5–8) ──────────────────
-    // Build the clade tree, propagate TMRCA/formed PDFs bottom-up, then store a
-    // SNP_POISSON term per scored node (median + 95% CI of its TMRCA) and gap-fill
-    // `formed_ybp`. The COMBINED step below fills `tmrca_ybp`. Heterochromatic SNPs
-    // are masked from both `m` and (already) the callable denominator (`HET_MASK`).
+    // SNP-Poisson term: build the clade tree, propagate TMRCA/formed PDFs bottom-up
+    // (McDonald Eq 5–8). Heterochromatic SNPs are masked from both `m` and the
+    // callable denominator (`HET_MASK`).
     let (clades, ids) = build_clades(pool).await?;
     let ages = propagate(&clades, SNP_RATE, TREE_RESOLUTION_YEARS, TREE_MAX_AGE_YEARS);
     // Keep each term's actual PDF (on the shared TREE grid) for the Eq-1 product below.
     let mut snp_pdf: HashMap<i64, Pdf> = HashMap::new();
+    // (id, med, lo, hi, tester_count, formed) — written in phase 2.
+    let mut snp_writes: Vec<(i64, i32, i32, i32, i32, i32)> = Vec::new();
     for (i, age) in ages.iter().enumerate() {
         let Some(age) = age else { continue };
         let (med, lo, hi) = age.tmrca.ci95();
         snp_pdf.insert(ids[i], age.tmrca.clone());
-        upsert_estimate_ci(
-            &mut tx,
+        snp_writes.push((
             ids[i],
-            "SNP_POISSON",
             med.round() as i32,
             lo.round() as i32,
             hi.round() as i32,
             clades[i].tester_snps.len() as i32,
-        )
-        .await?;
-        // Node formation age — gap-fill only (never overwrite a curated value).
-        sqlx::query("UPDATE tree.haplogroup SET formed_ybp=$2 WHERE id=$1 AND formed_ybp IS NULL")
-            .bind(ids[i])
-            .bind(age.formed.median().round() as i32)
-            .execute(&mut *tx)
-            .await?;
-        stats.snp += 1;
+            age.formed.median().round() as i32,
+        ));
     }
 
-    // ── Genealogical / aDNA anchors ───────────────────────────────────────────
-    // Per branch, combine its anchors into one GENEALOGICAL term.
+    // Genealogical / aDNA anchors: per branch, combine its anchors into one term.
     let anchors: Vec<AnchorRow> = sqlx::query_as(
         "SELECT haplogroup_id, date_ce, carbon_date_bp, \
                 details->>'uncertainty_years' AS uncertainty_years \
          FROM tree.genealogical_anchor",
     )
-    .fetch_all(&mut *tx)
+    .fetch_all(pool)
     .await?;
     let mut by_hg: BTreeMap<i64, Vec<(f64, f64)>> = BTreeMap::new();
     for a in anchors {
@@ -338,12 +443,12 @@ pub async fn recompute_combined_ages(pool: &PgPool) -> Result<CombineStats, DbEr
         by_hg.entry(a.haplogroup_id).or_default().push((ybp, sigma));
     }
     let mut gen_pdf: HashMap<i64, Pdf> = HashMap::new();
+    let mut gen_writes: Vec<(i64, f64, f64)> = Vec::new(); // (hg, mean, rel)
     for (hg, ests) in &by_hg {
         if let Some((mean, sigma)) = combine(ests) {
             let rel = if mean > 0.0 { sigma / mean } else { 0.0 };
             gen_pdf.insert(*hg, Pdf::gaussian_on(mean, sigma, TREE_RESOLUTION_YEARS, TREE_MAX_AGE_YEARS));
-            upsert_estimate(&mut tx, *hg, "GENEALOGICAL", mean, rel, None, None).await?;
-            stats.genealogical += 1;
+            gen_writes.push((*hg, mean, rel));
         }
     }
 
@@ -356,7 +461,7 @@ pub async fn recompute_combined_ages(pool: &PgPool) -> Result<CombineStats, DbEr
         "SELECT haplogroup_id, estimate_ybp, ci_low_ybp, ci_high_ybp \
          FROM tree.haplogroup_age_estimate WHERE method='STR_VARIANCE' AND estimate_ybp IS NOT NULL",
     )
-    .fetch_all(&mut *tx)
+    .fetch_all(pool)
     .await?;
     for (hg, est, lo, hi) in str_rows {
         if str_pdf.contains_key(&hg) {
@@ -370,14 +475,15 @@ pub async fn recompute_combined_ages(pool: &PgPool) -> Result<CombineStats, DbEr
         str_pdf.insert(hg, Pdf::gaussian_on(mean, sigma, TREE_RESOLUTION_YEARS, TREE_MAX_AGE_YEARS));
     }
 
-    // ── Combine all method terms per branch (McDonald Eq 1: P(t|all)=k·∏P(t|eᵢ)) ──
+    // Combine all method terms per branch (McDonald Eq 1: P(t|all)=k·∏P(t|eᵢ)).
     // Multiply the actual term PDFs rather than inverse-variance-averaging their
     // medians, so non-Gaussian shape (Poisson skew, STR convergent-mutation tails)
     // is preserved. If the terms are disjoint (product underflows to zero mass) the
     // node falls back to the inverse-variance Gaussian combine, which can't annihilate.
-    let mut nodes: BTreeSet<i64> = BTreeSet::new();
-    nodes.extend(snp_pdf.keys().chain(gen_pdf.keys()).chain(str_pdf.keys()).copied());
-    for hg in nodes {
+    let mut node_set: BTreeSet<i64> = BTreeSet::new();
+    node_set.extend(snp_pdf.keys().chain(gen_pdf.keys()).chain(str_pdf.keys()).copied());
+    let mut combined_writes: Vec<(i64, i32, i32, i32, i32)> = Vec::new(); // (hg, med, lo, hi, n_terms)
+    for hg in node_set {
         let factors: Vec<&Pdf> =
             [snp_pdf.get(&hg), gen_pdf.get(&hg), str_pdf.get(&hg)].into_iter().flatten().collect();
         let Some((first, rest)) = factors.split_first() else { continue };
@@ -392,25 +498,42 @@ pub async fn recompute_combined_ages(pool: &PgPool) -> Result<CombineStats, DbEr
             }
         };
         let (med, lo, hi) = combined.ci95();
-        upsert_estimate_ci(
-            &mut tx,
-            hg,
-            "COMBINED",
-            med.round() as i32,
-            lo.round() as i32,
-            hi.round() as i32,
-            factors.len() as i32,
-        )
+        combined_writes.push((hg, med.round() as i32, lo.round() as i32, hi.round() as i32, factors.len() as i32));
+    }
+
+    // ── PHASE 2: write everything in one short transaction. The writes are tiny and
+    // back-to-back, so the connection never idles long enough to be reaped (no CPU
+    // work happens between them).
+    let mut tx = pool.begin().await?;
+    sqlx::query("DELETE FROM tree.haplogroup_age_estimate WHERE method IN ('SNP_POISSON','GENEALOGICAL','COMBINED')")
+        .execute(&mut *tx)
         .await?;
-        // Gap-fill the authoritative tmrca_ybp (never overwrite a curated value).
-        sqlx::query("UPDATE tree.haplogroup SET tmrca_ybp = $2 WHERE id = $1 AND tmrca_ybp IS NULL")
+    for (id, med, lo, hi, testers, formed) in &snp_writes {
+        upsert_estimate_ci(&mut tx, *id, "SNP_POISSON", *med, *lo, *hi, *testers).await?;
+        // Refresh the denormalized node formation age so re-runs reflect the latest
+        // computation — but never clobber a value a curator pinned (`age_curated`).
+        // (Gap-fill-on-NULL would freeze the first run's value forever; see AGE_REFRESH_GUARD.)
+        sqlx::query(&format!("UPDATE tree.haplogroup SET formed_ybp=$2 WHERE id=$1 AND {AGE_REFRESH_GUARD}"))
+            .bind(id)
+            .bind(formed)
+            .execute(&mut *tx)
+            .await?;
+        stats.snp += 1;
+    }
+    for (hg, mean, rel) in &gen_writes {
+        upsert_estimate(&mut tx, *hg, "GENEALOGICAL", *mean, *rel, None, None).await?;
+        stats.genealogical += 1;
+    }
+    for (hg, med, lo, hi, n_terms) in &combined_writes {
+        upsert_estimate_ci(&mut tx, *hg, "COMBINED", *med, *lo, *hi, *n_terms).await?;
+        // Refresh the authoritative tmrca_ybp (unless curator-pinned via age_curated).
+        sqlx::query(&format!("UPDATE tree.haplogroup SET tmrca_ybp = $2 WHERE id = $1 AND {AGE_REFRESH_GUARD}"))
             .bind(hg)
-            .bind(med.round() as i32)
+            .bind(med)
             .execute(&mut *tx)
             .await?;
         stats.combined += 1;
     }
-
     tx.commit().await?;
     Ok(stats)
 }
@@ -551,6 +674,25 @@ mod tests {
             width(&propagate(&two, MU, RES, MAXA)) < width(&propagate(&one, MU, RES, MAXA)),
             "two independent sub-clades give a tighter parent TMRCA than one"
         );
+    }
+
+    #[test]
+    fn parent_older_than_all_children_when_inconsistent() {
+        // Parent with an OLD sub-clade (50 private SNPs ≈ 5000 yr) and a YOUNG one
+        // (1 private SNP ≈ 100 yr) — the real-tree case of an unevenly-sampled split.
+        // A common ancestor must be at least as old as its oldest descendant.
+        let clades = vec![
+            Clade { branch_snps: 0, callable_bp: B, children: vec![1, 2], tester_snps: vec![] },
+            Clade { branch_snps: 1, callable_bp: B, children: vec![], tester_snps: vec![50] },
+            Clade { branch_snps: 1, callable_bp: B, children: vec![], tester_snps: vec![1] },
+        ];
+        let ages = propagate(&clades, MU, RES, MAXA);
+        let parent = ages[0].as_ref().unwrap().tmrca.median();
+        let c1 = ages[1].as_ref().unwrap().tmrca.median();
+        let c2 = ages[2].as_ref().unwrap().tmrca.median();
+        eprintln!("parent={parent} old_child={c1} young_child={c2}");
+        assert!(parent >= c1, "parent {parent} must be >= oldest child {c1}");
+        assert!(parent >= c2, "parent {parent} must be >= youngest child {c2}");
     }
 
     // ── DB-gated: full path over a seeded root→mid→leaf tree ──────────────────

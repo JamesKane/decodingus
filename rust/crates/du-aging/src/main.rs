@@ -1,0 +1,172 @@
+//! decodingus-aging-preload — seeds the per-sample callable-bp denominator for
+//! the SNP-Poisson branch-age model.
+//!
+//! The tree producer already extracts each sample's terminal private branch
+//! (seeded into tree.biosample_private_variant by the de-novo loader), so the
+//! only missing age-model input is the per-sample Y-callable bp. This reads the
+//! academic cohorts' GATK CallableLoci BEDs, partitions callable bp against the
+//! Y sequence classes in core.genome_region, and writes
+//! genomics.biosample_callable_loci, matched to the already-loaded samples by
+//! accession (= the per-sample directory name).
+
+mod callable;
+mod db;
+
+use std::fs;
+use std::path::{Path, PathBuf};
+
+use anyhow::{Context, Result};
+use clap::Parser;
+use sqlx::postgres::PgPoolOptions;
+
+#[derive(Parser, Debug)]
+#[command(name = "decodingus-aging-preload")]
+struct Cli {
+    /// Sample source (repeatable). Each path is EITHER a cohort directory of
+    /// per-sample subdirs (academic `/Volumes/nas/Genomics/PRJEB31736`, the D2C pool
+    /// `/Volumes/nas/Genomics/d2c/flat`) OR a single sample directory that directly
+    /// holds a callable BED (`/Volumes/nas/Genomics/mine/WGS229`) — auto-detected.
+    /// Pass several to seed PRJEB* + D2C + own genomes in one full-scale run.
+    #[arg(long = "cohort-dir", required = true)]
+    cohort_dir: Vec<PathBuf>,
+    /// Contig in the callable BED (hs1/CHM13 frame). One value covers all sources:
+    /// D2C ships `chrY` BEDs, the academic/own `chrYM` BEDs still label their Y rows
+    /// `chrY`, so the same filter applies.
+    #[arg(long, default_value = "chrY")]
+    contig: String,
+    /// Process at most N samples (0 = all).
+    #[arg(long, default_value_t = 0)]
+    limit: usize,
+    /// Commit writes (otherwise a connected run previews counts and rolls back).
+    #[arg(long)]
+    apply: bool,
+}
+
+/// A cohort sample's callable BED + its accession (= directory name).
+struct SampleBed {
+    accession: String,
+    bed: PathBuf,
+}
+
+/// Locate a sample's chrY callable BED within its subdir, accession = dir name.
+/// Accepts a GATK `*callable.bed` (per-sample, state-annotated) or a BigY lifted
+/// `*regions.bed` (3-column panel). When several match, the highest-ranked wins:
+/// GATK callable over BigY regions, and a chrYM (Y+M) file over a chrY-only one.
+fn discover(dir: &Path) -> Option<SampleBed> {
+    let accession = dir.file_name()?.to_str()?.to_string();
+    let mut best: Option<(u8, PathBuf)> = None;
+    for entry in fs::read_dir(dir).ok()?.flatten() {
+        let p = entry.path();
+        let Some(fname) = p.file_name().and_then(|s| s.to_str()) else { continue };
+        let kind = if fname.ends_with("callable.bed") {
+            2 // GATK CallableLoci — most precise per-sample callability
+        } else if fname.ends_with("regions.bed") {
+            1 // BigY lifted target panel — stricter, used when no GATK recall exists
+        } else {
+            continue;
+        };
+        let rank = kind * 2 + u8::from(fname.contains("chrYM"));
+        if best.as_ref().map_or(true, |(r, _)| rank > *r) {
+            best = Some((rank, p));
+        }
+    }
+    best.map(|(_, bed)| SampleBed { accession, bed })
+}
+
+fn cohort_samples(cohort_dir: &Path) -> Result<Vec<SampleBed>> {
+    let mut out = Vec::new();
+    for entry in fs::read_dir(cohort_dir).with_context(|| format!("read {}", cohort_dir.display()))? {
+        let p = entry?.path();
+        if p.is_dir() {
+            if let Some(s) = discover(&p) {
+                out.push(s);
+            }
+        }
+    }
+    out.sort_by(|a, b| a.accession.cmp(&b.accession));
+    Ok(out)
+}
+
+/// Samples under one input path. If a callable BED sits *directly* in `path`, it is a
+/// single-sample directory (e.g. `mine/WGS229`, accession = `WGS229`); otherwise it is
+/// a cohort of per-sample subdirs (PRJEB*, `d2c/flat`). Auto-detected so all three
+/// layouts share one `--cohort-dir` flag.
+fn gather_samples(path: &Path) -> Result<Vec<SampleBed>> {
+    if let Some(single) = discover(path) {
+        Ok(vec![single])
+    } else {
+        cohort_samples(path)
+    }
+}
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .init();
+    let cli = Cli::parse();
+
+    // Aggregate every input, then dedup by accession (a sample present in two inputs is
+    // seeded once; seed_callable is idempotent regardless). Sorted for stable previews.
+    let mut samples = Vec::new();
+    for dir in &cli.cohort_dir {
+        samples.extend(gather_samples(dir)?);
+    }
+    samples.sort_by(|a, b| a.accession.cmp(&b.accession));
+    samples.dedup_by(|a, b| a.accession == b.accession);
+    if cli.limit > 0 {
+        samples.truncate(cli.limit);
+    }
+
+    let url = std::env::var("DATABASE_URL").context("DATABASE_URL not set")?;
+    let pool = PgPoolOptions::new().max_connections(4).connect(&url).await?;
+    let regions = db::load_y_regions(&pool).await?;
+    tracing::info!(
+        inputs = cli.cohort_dir.len(),
+        samples = samples.len(),
+        xdegen_bp = callable::total_bp(&regions.xdegen),
+        ampliconic_bp = callable::total_bp(&regions.ampliconic),
+        palindromic_bp = callable::total_bp(&regions.palindromic),
+        apply = cli.apply,
+        "callable-loci preload"
+    );
+
+    let (mut seeded, mut unmatched, mut empty) = (0usize, 0usize, 0usize);
+    for s in &samples {
+        let Some(guid) = db::guid_by_accession(&pool, &s.accession).await? else {
+            unmatched += 1;
+            continue; // sample not loaded into this tree
+        };
+        let ivs = callable::callable_intervals(&s.bed, &cli.contig)?;
+        if ivs.is_empty() {
+            empty += 1; // female / no chrY callable
+            continue;
+        }
+        let cbp = callable::partition(&ivs, &regions.xdegen, &regions.ampliconic, &regions.palindromic);
+        let bed_hash = fs::metadata(&s.bed).map(|m| format!("len:{}", m.len())).unwrap_or_default();
+
+        let mut tx = pool.begin().await?;
+        db::seed_callable(&mut tx, guid, &cbp, ivs.len() as i64, &bed_hash).await?;
+        if cli.apply {
+            tx.commit().await?;
+        } else {
+            tx.rollback().await?;
+        }
+        seeded += 1;
+        if seeded <= 8 || seeded % 250 == 0 {
+            println!(
+                "{:<16} total={:<10} x/a/p={}/{}/{}",
+                s.accession, cbp.total, cbp.xdegen, cbp.ampliconic, cbp.palindromic
+            );
+        }
+    }
+
+    println!(
+        "\n{} seeded | {} not in tree | {} no-chrY | {}",
+        seeded,
+        unmatched,
+        empty,
+        if cli.apply { "COMMITTED" } else { "preview (rolled back) — pass --apply to write" }
+    );
+    Ok(())
+}

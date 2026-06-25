@@ -104,6 +104,7 @@ tree.allRoots=← All roots
 tree.rootLineages=Root lineages
 tree.noChildren=No child haplogroups.
 tree.formed=formed
+tree.tmrca=TMRCA
 tree.search.placeholder=Haplogroup or variant…
 tree.search.button=Go
 tree.orientation=Orientation
@@ -128,6 +129,8 @@ tree.prov.title=Provenance
 tree.prov.source=Source
 tree.prov.aka=Also known as
 tree.prov.updated=Updated
+tree.prov.ci=95% CI
+tree.prov.samples=Samples (n)
 
 references.title=References
 references.search.placeholder=Search by title, journal, or DOI…

@@ -31,7 +31,11 @@
       {% endif %}
       {% if let Some(tm) = p.tmrca_ybp %}
       <dt class="col-5 text-muted fw-normal">{{ t.get("hg.field.tmrca") }}</dt>
-      <dd class="col-7 mb-0">{{ tm }}</dd>
+      <dd class="col-7 mb-0">{{ tm }}{% if let Some(ci) = p.tmrca_ci %} <span class="text-muted">({{ t.get("tree.prov.ci") }} {{ ci.0 }}–{{ ci.1 }})</span>{% endif %}</dd>
+      {% endif %}
+      {% if let Some(n) = p.sample_count %}
+      <dt class="col-5 text-muted fw-normal">{{ t.get("tree.prov.samples") }}</dt>
+      <dd class="col-7 mb-0">{{ n }}</dd>
       {% endif %}
     </dl>
   </div>

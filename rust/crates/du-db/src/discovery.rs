@@ -239,8 +239,10 @@ async fn materialize(pool: &PgPool, rep: &mut DiscoveryReport) -> Result<(), DbE
     // Prune ACTIVE rows no longer backed by a current fed record (paired arrays as
     // the keep-set; an empty set prunes all ACTIVE, which is correct when fed empties).
     rep.bpv_pruned = sqlx::query(
+        // origin='FED' only: de-novo-seeded ('DENOVO') privates have no fed record
+        // backing them and must survive the prune.
         "DELETE FROM tree.biosample_private_variant bpv \
-         WHERE bpv.status = 'ACTIVE' AND NOT EXISTS ( \
+         WHERE bpv.status = 'ACTIVE' AND bpv.origin = 'FED' AND NOT EXISTS ( \
             SELECT 1 FROM unnest($1::uuid[], $2::bigint[]) AS k(sg, vid) \
             WHERE k.sg = bpv.sample_guid AND k.vid = bpv.variant_id)",
     )
@@ -457,6 +459,13 @@ async fn pool_and_propose(pool: &PgPool, cfg: &DiscoveryConfig, rep: &mut Discov
         }
         for c in cluster_bucket(sets, th) {
             let count = c.members.len() as i64;
+            // No consensus below the threshold: a single (or sparse) sample set is not
+            // a branch candidate, so it does not get a proposal — it stays as ACTIVE
+            // privates in the substrate until ≥ consensus_threshold samples corroborate.
+            // (Without this, a bulk de-novo seed spawns one placeholder per sample.)
+            if count < th.consensus_threshold {
+                continue;
+            }
             let submitters = c
                 .members
                 .iter()
@@ -493,6 +502,10 @@ async fn pool_and_propose(pool: &PgPool, cfg: &DiscoveryConfig, rep: &mut Discov
             } else {
                 "PROPOSED"
             };
+            // Identity = the sorted union variant-id set, but stored md5-digested:
+            // a large shared cluster's raw key (dozens of bigint ids) overflows the
+            // btree row limit (2704 B). md5 is a fixed 32-char stable digest, and the
+            // key is only an upsert arbiter — the real set lives in proposed_branch_variant.
             let cluster_key: String = c.union.iter().map(|v| v.to_string()).collect::<Vec<_>>().join(",");
             let guids: Vec<Uuid> = c.members.clone();
 
@@ -500,7 +513,7 @@ async fn pool_and_propose(pool: &PgPool, cfg: &DiscoveryConfig, rep: &mut Discov
                 "INSERT INTO tree.proposed_branch \
                     (parent_haplogroup_id, haplogroup_type, cluster_key, discovery_sample_guids, \
                      evidence_count, confidence, proposed_by, status) \
-                 VALUES ($1, $2::core.dna_type, $3, $4, $5, $6::float8::numeric, 'discovery-engine', $7) \
+                 VALUES ($1, $2::core.dna_type, md5($3), $4, $5, $6::float8::numeric, 'discovery-engine', $7) \
                  ON CONFLICT (parent_haplogroup_id, haplogroup_type, cluster_key) \
                    WHERE status IN ('PROPOSED','UNDER_REVIEW','READY_FOR_REVIEW','SPLIT_CANDIDATE') AND cluster_key IS NOT NULL \
                  DO UPDATE SET discovery_sample_guids = EXCLUDED.discovery_sample_guids, \

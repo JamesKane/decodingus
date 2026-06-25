@@ -8,6 +8,7 @@ members = [
     "crates/du-web",
     "crates/du-jobs",
     "crates/du-migrate",
+    "crates/du-aging",
 ]
 # du-domain, du-atproto, du-bio live in the sibling `decodingus-shared` repo
 # (shared with Navigator) and are pulled in via the path deps below.

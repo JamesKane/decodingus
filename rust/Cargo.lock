@@ -1343,6 +1343,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1aaf95b3e5c8f23aa320147307562d361db0ae0d51242340f558153b4eb2439b"
 
 [[package]]
+name = "du-aging"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "du-bio",
+ "du-db",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "du-atproto"
 version = "0.1.0"
 source = "git+https://github.com/JamesKane/decodingus-shared.git?rev=f975a0835fe67b1e86d919fcb085fca4db1cb1f4#f975a0835fe67b1e86d919fcb085fca4db1cb1f4"

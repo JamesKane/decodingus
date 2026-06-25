@@ -191,6 +191,11 @@ struct Provenance {
     backbone: bool,
     formed_ybp: Option<i32>,
     tmrca_ybp: Option<i32>,
+    /// 95% CI (low, high ybp) of the combined TMRCA, when an estimate exists.
+    tmrca_ci: Option<(i32, i32)>,
+    /// Number of tester samples whose private SNPs measured this node's age (the
+    /// SNP-Poisson "population size"). `None`/0 for nodes dated only by propagation.
+    sample_count: Option<i32>,
 }
 
 // ── Handlers ────────────────────────────────────────────────────────────────
@@ -339,22 +344,44 @@ async fn snp_sidebar(
         .collect();
 
     // Branch provenance: source, cross-source aliases, last-updated, backbone, age.
-    let provenance = du_db::haplogroup::get_by_name(&st.pool, &name, dna_type).await?.map(|h| {
-        let p = &h.provenance;
-        Provenance {
-            source: h.source.unwrap_or_else(|| "—".into()),
-            aliases: p
-                .get("aliases")
-                .and_then(serde_json::Value::as_array)
-                .map(|a| a.iter().filter_map(|s| s.as_str().map(str::to_string)).collect())
-                .unwrap_or_default(),
-            // Stored like "2025-05-24T13:58:48…[Etc/UTC]" — keep the date.
-            updated: p.get("source_updated").and_then(|v| v.as_str()).and_then(|s| s.split('T').next()).map(str::to_string),
-            backbone: p.get("backbone_source").is_some(),
-            formed_ybp: h.formed_ybp,
-            tmrca_ybp: h.tmrca_ybp,
+    let hg = du_db::haplogroup::get_by_name(&st.pool, &name, dna_type).await?;
+    let provenance = match hg {
+        Some(h) => {
+            // Age-estimate inputs behind the displayed TMRCA: the combined 95% CI and
+            // the SNP-Poisson tester count ("population size").
+            let estimates = du_db::age::estimates_for(&st.pool, h.id.0).await?;
+            let tmrca_ci = estimates
+                .iter()
+                .find(|e| e.method == "COMBINED")
+                .and_then(|e| e.ci_low_ybp.zip(e.ci_high_ybp));
+            // Population behind the age = tester samples in the whole subtree (direct
+            // + propagated), not just this node's direct testers. Only meaningful when
+            // an age was actually computed from SNP data.
+            let sample_count = if estimates.iter().any(|e| e.method == "SNP_POISSON") {
+                let n = du_db::age::subtree_tester_count(&st.pool, h.id.0).await?;
+                (n > 0).then_some(n as i32)
+            } else {
+                None
+            };
+            let p = &h.provenance;
+            Some(Provenance {
+                source: h.source.unwrap_or_else(|| "—".into()),
+                aliases: p
+                    .get("aliases")
+                    .and_then(serde_json::Value::as_array)
+                    .map(|a| a.iter().filter_map(|s| s.as_str().map(str::to_string)).collect())
+                    .unwrap_or_default(),
+                // Stored like "2025-05-24T13:58:48…[Etc/UTC]" — keep the date.
+                updated: p.get("source_updated").and_then(|v| v.as_str()).and_then(|s| s.split('T').next()).map(str::to_string),
+                backbone: p.get("backbone_source").is_some(),
+                formed_ybp: h.formed_ybp,
+                tmrca_ybp: h.tmrca_ybp,
+                tmrca_ci,
+                sample_count,
+            })
         }
-    });
+        None => None,
+    };
 
     // Placed non-D2C sample leaves at or below this node (capped for the sidebar).
     let mut leaves = du_db::tree_sample::samples_under(&st.pool, &name, dna_type).await?;
