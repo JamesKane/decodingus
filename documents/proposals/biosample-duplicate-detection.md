@@ -341,7 +341,13 @@ This is the design's central claim, demonstrated end-to-end on real data:
 2. **Tier 2a — public autosomal fingerprint**: ingest-time sketch +
    IBS0/IBD2 confirmation for IGSR/academic. Closes the most common source.
 3. **Resolution surface + merge op**: curator review, provenance-preserving
-   `core.biosample` merge, audit.
+   `core.biosample` merge, audit. **BUILT** (mig `0050_biosample_merge.sql`;
+   `du_db::dedup::{resolve_candidate,merge_biosamples}` — the merge repoints all
+   20 FK columns via a static plan with a live-FK-set coverage guard, folds
+   metadata, tombstones, audits to `core.biosample_merge`; ephemeral-DB
+   integration test in `tests/dedup_merge.rs`). Curator HTMX surface at
+   `/curator/dedup` (`du-web routes/dedup.rs` + templates + en/es/fr i18n):
+   queue → resolve panel with merge / mark-relative / dismiss.
 4. **Tier 2b — private Edge-mediated** confirmation over D1 `IBD_AUTOSOMAL`
    (gates on Navigator Edge + consent; depends on D1 being live).
 
