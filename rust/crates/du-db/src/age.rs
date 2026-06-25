@@ -202,6 +202,29 @@ fn recurrent_mask() -> String {
     crate::variant::recurrent_region_mask_sql("v")
 }
 
+/// Replace the per-build Y callable-mask intervals (`genomics.y_callable_interval`)
+/// with `intervals` — half-open `[start, end)` hs1 (CHM13v2.0) spans parsed from the
+/// pipeline's `chrY.callable_mask.chm13v2.bed`. Loaded by `decodingus-tree-init`
+/// alongside the de-novo tree; consumed by [`build_clades`]. Returns the row count.
+pub async fn load_callable_mask(pool: &PgPool, intervals: &[(i64, i64)]) -> Result<u64, DbError> {
+    let los: Vec<i64> = intervals.iter().map(|&(a, _)| a).collect();
+    let his: Vec<i64> = intervals.iter().map(|&(_, b)| b).collect();
+    let mut tx = pool.begin().await?;
+    sqlx::query("TRUNCATE genomics.y_callable_interval").execute(&mut *tx).await?;
+    let n = sqlx::query(
+        "INSERT INTO genomics.y_callable_interval (span) \
+         SELECT int8range(lo, hi, '[)') FROM unnest($1::bigint[], $2::bigint[]) AS t(lo, hi) \
+         WHERE hi > lo",
+    )
+    .bind(&los)
+    .bind(&his)
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
+    tx.commit().await?;
+    Ok(n)
+}
+
 /// Build the propagation input from the current Y tree: nodes, parent→child
 /// edges, het-masked branch (defining) SNP counts, and per-node tester data
 /// (active private-SNP counts + callable bp). Returns `(clades, haplogroup_ids)`
@@ -233,12 +256,31 @@ async fn build_clades(pool: &PgPool) -> Result<(Vec<Clade>, Vec<i64>), DbError> 
         }
     }
 
-    // Branch defining-SNP counts (recurrent-region-masked).
+    // Per-build joint-call callable mask (genomics.y_callable_interval), if loaded.
+    // When present it makes the numerator and denominator region-consistent:
+    //   • denominator — the UNIFORM mask size (the region ASR branch counts were
+    //     ascertained over), replacing the per-sample coverage average; and
+    //   • numerator — a POSITIVE filter so only SNPs INSIDE the mask are counted
+    //     (the recurrent mask is negative-only and lets non-callable SNPs through).
+    // Absent (empty table) → falls back to the prior per-sample behaviour.
+    let mask_bp: Option<f64> = sqlx::query_scalar(
+        "SELECT sum(upper(span) - lower(span))::float8 FROM genomics.y_callable_interval",
+    )
+    .fetch_one(pool)
+    .await?;
+    let callable_filter = if mask_bp.is_some() {
+        "AND EXISTS (SELECT 1 FROM genomics.y_callable_interval ci \
+            WHERE ci.span @> (v.coordinates->'hs1'->>'position')::bigint)"
+    } else {
+        ""
+    };
+
+    // Branch defining-SNP counts (recurrent-region-masked, callable-mask-intersected).
     let mask = recurrent_mask();
     let branch: Vec<(i64, i64)> = sqlx::query_as(&format!(
         "SELECT hv.haplogroup_id, count(*)::bigint FROM tree.haplogroup_variant hv \
          JOIN core.variant v ON v.id=hv.variant_id \
-         WHERE hv.valid_until IS NULL AND {mask} GROUP BY hv.haplogroup_id"
+         WHERE hv.valid_until IS NULL AND {mask} {callable_filter} GROUP BY hv.haplogroup_id"
     ))
     .fetch_all(pool)
     .await?;
@@ -259,7 +301,7 @@ async fn build_clades(pool: &PgPool) -> Result<(Vec<Clade>, Vec<i64>), DbError> 
          LEFT JOIN genomics.biosample_callable_loci cl \
             ON cl.sample_guid=pv.sample_guid AND cl.chromosome IN ('chrY','Y') \
          WHERE pv.status='ACTIVE' AND pv.haplogroup_type='Y_DNA'::core.dna_type \
-            AND pv.terminal_haplogroup_id IS NOT NULL AND {mask} \
+            AND pv.terminal_haplogroup_id IS NOT NULL AND {mask} {callable_filter} \
          GROUP BY pv.terminal_haplogroup_id, pv.sample_guid"
     ))
     .fetch_all(pool)
@@ -285,7 +327,13 @@ async fn build_clades(pool: &PgPool) -> Result<(Vec<Clade>, Vec<i64>), DbError> 
     .filter(|b| *b > 0.0)
     .unwrap_or(15_000_000.0);
     for i in 0..ids.len() {
-        clades[i].callable_bp = if bp_cnt[i] > 0 { bp_sum[i] / bp_cnt[i] as f64 } else { default_b };
+        // Uniform joint-call mask size when loaded (ASR branch counts are ascertained
+        // over that fixed region); else the prior per-sample mean (or catalog default).
+        clades[i].callable_bp = match mask_bp {
+            Some(b) if b > 0.0 => b,
+            _ if bp_cnt[i] > 0 => bp_sum[i] / bp_cnt[i] as f64,
+            _ => default_b,
+        };
     }
 
     Ok((clades, ids))

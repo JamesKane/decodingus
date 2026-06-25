@@ -30,9 +30,31 @@ struct Args {
     /// loads it. Greenfield; leaves the Y tree intact. Requires `--apply`.
     #[arg(long)]
     denovo_mt: Option<String>,
-    /// Apply the load (the de-novo path mutates the tree; required).
+    /// Load the per-build Y callable mask (`chrY.callable_mask.chm13v2.bed`) into
+    /// `genomics.y_callable_interval` — the SNP-age denominator + numerator filter.
+    /// Independent of the tree load; can run alone. Requires `--apply`.
+    #[arg(long)]
+    callable_mask: Option<String>,
+    /// Apply the load (mutates the tree / mask; required).
     #[arg(long)]
     apply: bool,
+}
+
+/// Parse a BED (`chrom\tstart\tend`, half-open) into `(start, end)` spans, keeping
+/// only chrY rows. Comments / `track` lines are skipped.
+fn parse_bed(path: &str) -> anyhow::Result<Vec<(i64, i64)>> {
+    let mut spans = Vec::new();
+    for line in std::fs::read_to_string(path)?.lines() {
+        if line.is_empty() || line.starts_with('#') || line.starts_with("track") {
+            continue;
+        }
+        let mut f = line.split('\t');
+        let (Some(c), Some(s), Some(e)) = (f.next(), f.next(), f.next()) else { continue };
+        if c == "chrY" || c == "Y" {
+            spans.push((s.parse()?, e.parse()?));
+        }
+    }
+    Ok(spans)
 }
 
 /// Clear one lineage and load its de-novo ingest JSON. `expect` is the document's
@@ -75,7 +97,18 @@ async fn main() -> anyhow::Result<()> {
     match (&args.denovo_y, &args.denovo_mt) {
         (Some(path), _) => load_denovo(&pool, path, DnaType::YDna, "Y_DNA", args.apply).await?,
         (None, Some(path)) => load_denovo(&pool, path, DnaType::MtDna, "MT_DNA", args.apply).await?,
-        (None, None) => anyhow::bail!("pass --denovo-y <chrY.ingest.json> or --denovo-mt <chrM.ingest.json>"),
+        (None, None) if args.callable_mask.is_none() => {
+            anyhow::bail!("pass --denovo-y <chrY.ingest.json>, --denovo-mt <chrM.ingest.json>, or --callable-mask <bed>")
+        }
+        (None, None) => {}
+    }
+
+    if let Some(bed) = &args.callable_mask {
+        anyhow::ensure!(args.apply, "--callable-mask mutates the mask table; pass --apply");
+        let spans = parse_bed(bed)?;
+        let bp: i64 = spans.iter().map(|(s, e)| e - s).sum();
+        let n = du_db::age::load_callable_mask(&pool, &spans).await?;
+        tracing::info!(%bed, intervals = n, callable_bp = bp, "callable mask loaded");
     }
     Ok(())
 }
