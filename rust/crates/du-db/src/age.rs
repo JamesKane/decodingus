@@ -41,20 +41,13 @@ const AGE_REFRESH_GUARD: &str = "NOT COALESCE((provenance->>'age_curated')::bool
 /// 5 Mbp (~35% of callable MSY) floor drops only the broken ones.
 pub const MIN_TESTER_CALLABLE_BP: f64 = 5_000_000.0;
 
-/// Robustness against the FTDNA AEngine private-SNP over-call tail. A minority of
-/// D2C/BigY samples carry implausibly many private SNPs (callable counts to ~110 vs
-/// a clade median of ~3), so the de-novo build places them on false-deep terminal
-/// branches; the coalescent floor then propagates that depth up the spine and ages
-/// whole ancestral clades ~2× (e.g. R-U106 read ~12.5 ky vs a true ~4.9 ky).
-///
-/// Two MAD-based guards damp this without touching clean lineages:
-///   • [`TESTER_OUTLIER_K`] caps a tester's private count at `median + K·MAD` of the
-///     global tester distribution, so one over-called sample can't define a deep node;
-///   • [`CHILD_OUTLIER_K`] drops a child whose age sits `K·MAD` above its siblings as
-///     bad evidence for the parent's age (only where there are ≥
-///     [`MIN_CHILDREN_FOR_OUTLIER_REJECTION`] siblings to judge against) — a genuinely
-///     deep branch corroborated by its peers is kept; a lone over-called one is not.
-pub const TESTER_OUTLIER_K: f64 = 6.0;
+/// Reject a child whose age sits more than [`CHILD_OUTLIER_K`] MADs above its
+/// siblings as bad evidence for the parent's age — but only where there are ≥
+/// [`MIN_CHILDREN_FOR_OUTLIER_REJECTION`] siblings to judge against, so a genuinely
+/// deep branch corroborated by its peers is kept and a lone false-deep one is not.
+/// (A per-tester private-SNP cap was tried and reverted: high private counts are
+/// dominated by genuine deep/rare singleton lineages, not caller over-calls, so a
+/// clade-blind cap youthens real biology. See `branch_snp_qc_report.md`.)
 pub const CHILD_OUTLIER_K: f64 = 5.0;
 pub const MIN_CHILDREN_FOR_OUTLIER_REJECTION: usize = 4;
 
@@ -372,34 +365,18 @@ async fn build_clades(pool: &PgPool) -> Result<(Vec<Clade>, Vec<i64>), DbError> 
     ))
     .fetch_all(pool)
     .await?;
-    // Eligible testers (those clearing the sliver-coverage floor: such samples divide
-    // their SNPs by a tiny callable denominator and compute impossible ages).
-    let eligible: Vec<(usize, i64, f64)> = testers
-        .into_iter()
-        .filter_map(|(hg, snps, b)| match (idx.get(&hg), b >= MIN_TESTER_CALLABLE_BP) {
-            (Some(&i), true) => Some((i, snps, b)),
-            _ => None,
-        })
-        .collect();
-    // Cap each tester's private count at the global median + K·MAD: the AEngine
-    // over-call tail (a few samples with ~100 vs a typical ~3 private SNPs) otherwise
-    // places nodes on false-deep terminal branches that floor whole clades up.
-    let cap = upper_threshold(&eligible.iter().map(|&(_, s, _)| s as f64).collect::<Vec<_>>(), TESTER_OUTLIER_K);
     let (mut bp_sum, mut bp_cnt) = (vec![0.0f64; ids.len()], vec![0u32; ids.len()]);
-    let mut capped = 0u64;
-    for (i, snps, b) in eligible {
-        let s = if (snps as f64) > cap {
-            capped += 1;
-            cap.floor() as i64
-        } else {
-            snps
-        };
-        clades[i].tester_snps.push(s);
-        bp_sum[i] += b;
-        bp_cnt[i] += 1;
-    }
-    if capped > 0 {
-        tracing::info!(capped_testers = capped, cap = cap.floor(), "age: capped over-called tester private-SNP counts");
+    for (hg, snps, b) in testers {
+        // Skip sliver-coverage samples: they divide their SNPs by a tiny callable
+        // denominator and produce impossible (hundreds-of-ky) ages that floor the spine.
+        // (No outlier cap on the private count: high counts are dominated by genuine
+        // deep/rare singleton lineages — A/B/Q/N — not caller over-calls, so a
+        // clade-blind cap would wrongly youthen them. See branch_snp_qc_report.md.)
+        if let (Some(&i), true) = (idx.get(&hg), b >= MIN_TESTER_CALLABLE_BP) {
+            clades[i].tester_snps.push(snps);
+            bp_sum[i] += b;
+            bp_cnt[i] += 1;
+        }
     }
 
     // Representative b̄ per node: mean of its testers' callable bp, else the
