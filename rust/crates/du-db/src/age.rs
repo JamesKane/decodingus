@@ -339,7 +339,7 @@ async fn build_clades(pool: &PgPool) -> Result<(Vec<Clade>, Vec<i64>), DbError> 
     let branch: Vec<(i64, i64)> = sqlx::query_as(&format!(
         "SELECT hv.haplogroup_id, count(*)::bigint FROM tree.haplogroup_variant hv \
          JOIN core.variant v ON v.id=hv.variant_id \
-         WHERE hv.valid_until IS NULL AND {mask} {callable_filter} GROUP BY hv.haplogroup_id"
+         WHERE hv.valid_until IS NULL AND NOT hv.low_confidence AND {mask} {callable_filter} GROUP BY hv.haplogroup_id"
     ))
     .fetch_all(pool)
     .await?;

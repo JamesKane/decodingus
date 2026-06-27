@@ -107,6 +107,19 @@ pub struct DenovoVariant {
     #[serde(default)]
     pub reversion: bool,
     pub polarity: Option<String>,
+    /// Fitch v2 confidence (bin/86_flag_confidence.py). Absent → treated as confident.
+    #[serde(default, rename = "jointConfirmed")]
+    pub joint_confirmed: Option<bool>,
+    #[serde(default)]
+    pub monophyletic: Option<bool>,
+}
+
+impl DenovoVariant {
+    /// A defining call is low-confidence if it is not joint-confirmed (AEngine
+    /// positive-only) or not monophyletic (homoplasic). Missing flags → confident.
+    fn low_confidence(&self) -> bool {
+        !self.joint_confirmed.unwrap_or(true) || !self.monophyletic.unwrap_or(true)
+    }
 }
 
 #[derive(Debug, Default)]
@@ -162,7 +175,7 @@ pub async fn load(pool: &PgPool, doc: &DenovoTree) -> Result<LoadReport, DbError
     type ResolvedVariant = (i64, Option<String>);
     let mut vcache: HashMap<VariantKey, ResolvedVariant> = HashMap::new();
     // node id -> Vec<(variant_id, ancestral, derived)>
-    let mut node_links: HashMap<&str, Vec<(i64, &str, &str)>> = HashMap::new();
+    let mut node_links: HashMap<&str, Vec<(i64, &str, &str, bool)>> = HashMap::new();
     // node id -> first catalog SNP name (by position order) for naming fallback
     let mut node_snp_name: HashMap<&str, String> = HashMap::new();
 
@@ -233,7 +246,7 @@ pub async fn load(pool: &PgPool, doc: &DenovoTree) -> Result<LoadReport, DbError
             if let Some(n) = &name {
                 node_snp_name.entry(node.id.as_str()).or_insert_with(|| n.clone());
             }
-            links.push((vid, v.ancestral.as_str(), v.derived.as_str()));
+            links.push((vid, v.ancestral.as_str(), v.derived.as_str(), v.low_confidence()));
         }
         node_links.insert(node.id.as_str(), links);
     }
@@ -339,27 +352,30 @@ pub async fn load(pool: &PgPool, doc: &DenovoTree) -> Result<LoadReport, DbError
         let mut var_ids: Vec<i64> = Vec::new();
         let mut ancs: Vec<String> = Vec::new();
         let mut ders: Vec<String> = Vec::new();
+        let mut low_confs: Vec<bool> = Vec::new();
         for node in &doc.nodes {
             if private.contains(node.id.as_str()) {
                 continue; // private SNPs go to the discovery substrate, not links
             }
             let hg_id = idmap[node.id.as_str()];
-            for (vid, anc, der) in &node_links[node.id.as_str()] {
+            for (vid, anc, der, low_conf) in &node_links[node.id.as_str()] {
                 hg_ids.push(hg_id);
                 var_ids.push(*vid);
                 ancs.push((*anc).to_string());
                 ders.push((*der).to_string());
+                low_confs.push(*low_conf);
             }
         }
         for chunk in (0..hg_ids.len()).step_by(LINK_CHUNK).map(|s| s..(s + LINK_CHUNK).min(hg_ids.len())) {
             sqlx::query(
-                "INSERT INTO tree.haplogroup_variant (haplogroup_id, variant_id, ancestral_allele, derived_allele) \
-                 SELECT * FROM unnest($1::bigint[], $2::bigint[], $3::text[], $4::text[])",
+                "INSERT INTO tree.haplogroup_variant (haplogroup_id, variant_id, ancestral_allele, derived_allele, low_confidence) \
+                 SELECT * FROM unnest($1::bigint[], $2::bigint[], $3::text[], $4::text[], $5::bool[])",
             )
             .bind(&hg_ids[chunk.clone()])
             .bind(&var_ids[chunk.clone()])
             .bind(&ancs[chunk.clone()])
-            .bind(&ders[chunk])
+            .bind(&ders[chunk.clone()])
+            .bind(&low_confs[chunk])
             .execute(&mut *tx)
             .await?;
         }
@@ -436,7 +452,7 @@ pub async fn load(pool: &PgPool, doc: &DenovoTree) -> Result<LoadReport, DbError
         if is_private {
             // The collapsed node's defining SNPs become this sample's privates,
             // anchored at its surviving (public) terminal `hg_id`.
-            for (vid, _, _) in &node_links[tip.parent_node.as_str()] {
+            for (vid, _, _, _) in &node_links[tip.parent_node.as_str()] {
                 bpv_guids.push(guid);
                 bpv_vids.push(*vid);
                 bpv_terms.push(hg_id);
