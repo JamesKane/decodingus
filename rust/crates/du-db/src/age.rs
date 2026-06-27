@@ -41,42 +41,45 @@ const AGE_REFRESH_GUARD: &str = "NOT COALESCE((provenance->>'age_curated')::bool
 /// 5 Mbp (~35% of callable MSY) floor drops only the broken ones.
 pub const MIN_TESTER_CALLABLE_BP: f64 = 5_000_000.0;
 
-/// Reject a child whose age sits more than [`CHILD_OUTLIER_K`] MADs above its
-/// siblings as bad evidence for the parent's age — but only where there are ≥
-/// [`MIN_CHILDREN_FOR_OUTLIER_REJECTION`] siblings to judge against, so a genuinely
-/// deep branch corroborated by its peers is kept and a lone false-deep one is not.
-/// (A per-tester private-SNP cap was tried and reverted: high private counts are
-/// dominated by genuine deep/rare singleton lineages, not caller over-calls, so a
-/// clade-blind cap youthens real biology. See `branch_snp_qc_report.md`.)
-pub const CHILD_OUTLIER_K: f64 = 5.0;
-pub const MIN_CHILDREN_FOR_OUTLIER_REJECTION: usize = 4;
+/// A node's TMRCA is the [`TMRCA_DEEP_QUANTILE`] of the SNP depths of its descendant
+/// tips (root-to-tip path length, in callable defining + private SNPs). The raw
+/// *maximum* descendant depth — the old coalescent floor's deepest-lineage rule — is a
+/// max order-statistic over N tips: it grows ~log N with sample size and latches onto a
+/// single overdispersed / over-called lineage (U106's deepest tip is a ~6σ academic
+/// outlier), so the large R clades read ~1.65× canonical. A high quantile is
+/// sample-size-robust and also recovers the central depth the confidence filter pulls
+/// down (q90-on-filtered ≈ median-on-unfiltered): on the filtered counts it reproduces
+/// YFull within ~10% for U106/P312/L21/M222. See
+/// `~/Genomics/ytree/results/deep_clade_age_residual.md`.
+pub const TMRCA_DEEP_QUANTILE: f64 = 0.90;
 
-/// Median of a slice (sorts in place). NaN-free callers only; empty → 0.
-fn median_in_place(v: &mut [f64]) -> f64 {
-    if v.is_empty() {
-        return 0.0;
+/// Deep-ladder gate. A caller over-call adds a roughly *fixed* number of excess SNPs to
+/// a lineage (tens), so it inflates a shallow young clade by a large fraction but a deep
+/// backbone lineage (hundreds of SNPs of real coalescence) only negligibly. Where a
+/// substantial fraction of a node's tips ([`DEEP_GATE_QUANTILE`]) is itself deeper than
+/// [`DEEP_LADDER_SNPS`], the deep tail is real signal corroborated by many independent
+/// lineages (the unary-ladder backbone, e.g. CT-M168), not a lone over-call — so the
+/// node is floored to its deepest descendant (max), restoring the validated deep-backbone
+/// ages where a spurious tip is a negligible fraction. The gate *condition* uses a high
+/// quantile so a lone mis-placed deep tip in an otherwise-shallow clade cannot trip it;
+/// the threshold sits at the empirical young/deep crossover (~R-L23 / R-M343): a young
+/// clade's q97 depth (≤ ~110 SNPs) never reaches it, the backbone's always does.
+pub const DEEP_LADDER_SNPS: f64 = 150.0;
+pub const DEEP_GATE_QUANTILE: f64 = 0.97;
+
+/// Linear-interpolated quantile of an already-ascending slice. Empty → 0; singleton →
+/// itself; `q` in [0,1].
+fn quantile_sorted(sorted: &[f64], q: f64) -> f64 {
+    match sorted.len() {
+        0 => 0.0,
+        1 => sorted[0],
+        n => {
+            let pos = q * (n as f64 - 1.0);
+            let lo = pos.floor() as usize;
+            let hi = pos.ceil() as usize;
+            sorted[lo] + (pos - lo as f64) * (sorted[hi] - sorted[lo])
+        }
     }
-    v.sort_by(f64::total_cmp);
-    let n = v.len();
-    if n % 2 == 1 { v[n / 2] } else { (v[n / 2 - 1] + v[n / 2]) / 2.0 }
-}
-
-/// Scaled median absolute deviation (×1.4826 → ≈σ for normal data).
-fn mad_scaled(v: &[f64], med: f64) -> f64 {
-    let mut dev: Vec<f64> = v.iter().map(|x| (x - med).abs()).collect();
-    1.4826 * median_in_place(&mut dev)
-}
-
-/// Upper outlier threshold `median + k·MAD` over `v` (MAD floored to 1 so a
-/// zero-spread set still admits its own values). Returns +∞ when `v` is too small
-/// to judge, i.e. no capping.
-fn upper_threshold(v: &[f64], k: f64) -> f64 {
-    if v.len() < 4 {
-        return f64::INFINITY;
-    }
-    let mut tmp = v.to_vec();
-    let med = median_in_place(&mut tmp);
-    med + k * mad_scaled(v, med).max(1.0)
 }
 
 /// Independent cross-check clock from Hallast et al. 2026 (142 population-scale Y
@@ -148,102 +151,142 @@ fn branch_time(clades: &[Clade], x: usize, mu: f64, res: f64, max_age: f64) -> P
     Pdf::poisson_on(clades[x].branch_snps, clades[x].callable_bp, mu, res, max_age)
 }
 
-/// Drop children whose age (median) sits more than `CHILD_OUTLIER_K` MADs above the
-/// sibling consensus — an over-called / mis-placed subtree is bad evidence for its
-/// parent's age and must not floor it up. Acts only with enough siblings to judge
-/// ([`MIN_CHILDREN_FOR_OUTLIER_REJECTION`]); never returns empty.
-fn reject_age_outliers(children: Vec<Pdf>) -> Vec<Pdf> {
-    if children.len() < MIN_CHILDREN_FOR_OUTLIER_REJECTION {
-        return children;
-    }
-    let meds: Vec<f64> = children.iter().map(Pdf::median).filter(|m| m.is_finite()).collect();
-    let thr = upper_threshold(&meds, CHILD_OUTLIER_K);
-    let kept: Vec<Pdf> = children.iter().filter(|c| c.median() <= thr).cloned().collect();
-    if kept.is_empty() {
-        children
-    } else {
-        kept
-    }
-}
-
-fn compute_tmrca(
-    i: usize,
-    clades: &[Clade],
-    mu: f64,
-    res: f64,
-    max_age: f64,
-    memo: &mut [Option<Option<Pdf>>],
-) {
-    if memo[i].is_some() {
-        return;
-    }
-    memo[i] = Some(None); // guard against accidental cycles
-
-    // Each scored input is an estimate of THIS node's age. Sub-clades: the node is
-    // (child TMRCA ⊛ parent→child branch). Direct testers: each tester's private SNPs
-    // since the node are an independent Poisson measurement of the node's own age.
-    // These all estimate the same quantity, so combine by product (Eq 1 / Eq 5–8) —
-    // which sharpens as evidence accrues and gives well-calibrated magnitudes.
-    let child_factors: Vec<Pdf> = clades[i]
-        .children
-        .iter()
-        .filter_map(|&ch| {
-            compute_tmrca(ch, clades, mu, res, max_age, memo);
-            match &memo[ch] {
-                Some(Some(ct)) => Some(ct.convolve(&branch_time(clades, ch, mu, res, max_age))),
-                _ => None,
-            }
-        })
-        .collect();
-    // Damp the AEngine over-call: a lone wildly-old sibling (false-deep subtree) is
-    // dropped so it can't drag this node up via the product/floor/fallback below.
-    let child_factors = reject_age_outliers(child_factors);
-    let mut factors: Vec<Pdf> = child_factors.clone();
-    let tester_pdfs: Vec<Pdf> = clades[i]
-        .tester_snps
-        .iter()
-        .map(|&s| Pdf::poisson_on(s, clades[i].callable_bp, mu, res, max_age))
-        .collect();
-    if let Some((first, rest)) = tester_pdfs.split_first() {
-        factors.push(rest.iter().fold(first.clone(), |acc, f| acc.multiply(f)));
-    }
-
-    let result = factors.split_first().map(|(first, rest)| {
-        let product = rest.iter().fold(first.clone(), |acc, f| acc.multiply(f));
-        // Coalescent causality floor: an ancestor is older than its oldest sub-clade.
-        // For consistent sub-clades the product is well-calibrated and already above
-        // this floor (no-op). When an under-sampled young sibling collapses the product
-        // below it, truncate to the floor; if nothing survives, take the oldest
-        // sub-clade's estimate. (Deep backbone nodes whose sub-clades peg at the grid
-        // ceiling can still go degenerate — those are flagged as a data issue, not
-        // fixable in the combiner.)
-        let floor = child_factors.iter().map(Pdf::median).fold(f64::NEG_INFINITY, f64::max);
-        if product.median().is_finite() && product.median() >= floor {
-            product
-        } else {
-            product.truncate_below(floor).unwrap_or_else(|| {
-                child_factors
-                    .iter()
-                    .max_by(|a, b| a.median().total_cmp(&b.median()))
-                    .cloned()
-                    .unwrap_or(product)
-            })
+/// Post-order over the clade forest (every child precedes its parent). Iterative to
+/// survive long unary chains without blowing the stack. Roots are the nodes that no
+/// node lists as a child.
+fn post_order(clades: &[Clade]) -> Vec<usize> {
+    let n = clades.len();
+    let mut is_child = vec![false; n];
+    for c in clades {
+        for &ch in &c.children {
+            is_child[ch] = true;
         }
-    });
-    memo[i] = Some(result);
+    }
+    let mut state = vec![0u8; n]; // 0 = unseen, 1 = entered, 2 = emitted
+    let mut order = Vec::with_capacity(n);
+    let mut stack: Vec<(usize, bool)> =
+        (0..n).filter(|&i| !is_child[i]).map(|i| (i, false)).collect();
+    while let Some((i, ready)) = stack.pop() {
+        if ready {
+            if state[i] != 2 {
+                state[i] = 2;
+                order.push(i);
+            }
+            continue;
+        }
+        if state[i] != 0 {
+            continue;
+        }
+        state[i] = 1;
+        stack.push((i, true));
+        for &ch in &clades[i].children {
+            if state[ch] == 0 {
+                stack.push((ch, false));
+            }
+        }
+    }
+    order
 }
 
-/// Compute every clade's TMRCA + formed-age PDFs bottom-up (Eq 8) on a
-/// `res`-year grid spanning `[0, max_age]`. A clade with no evidence (no children
-/// with ages, no testers) yields `None`.
+/// Root-to-node cumulative branch SNPs (`gd[i]` = Σ branch_snps from a root down to
+/// `i`), filled parents-before-children by walking `post` in reverse.
+fn global_depths(clades: &[Clade], post: &[usize]) -> Vec<f64> {
+    let mut gd = vec![0.0f64; clades.len()];
+    for &i in post.iter().rev() {
+        for &ch in &clades[i].children {
+            gd[ch] = gd[i] + clades[ch].branch_snps as f64;
+        }
+    }
+    gd
+}
+
+/// Compute every clade's TMRCA + formed-age PDFs. A node's TMRCA (in SNPs, relative to
+/// the node) is the larger of two terms:
+///   • its own [`TMRCA_DEEP_QUANTILE`] over the pooled SNP depths of all descendant
+///     tips (each tip's root-to-tip path length minus the node's own depth); and
+///   • a **corroboration floor**: the *second*-deepest of its children's
+///     (q90-robustified) ages. ≥2 independent deep sub-clades — a real early split, as
+///     on the deep backbone — floor the node deep; a *single* deep child does NOT (it's
+///     a lone over-deep lineage the q90 already discounts). Because each child's age is
+///     itself robustified, a lone deep tip is discounted at every level before it can
+///     spuriously corroborate.
+/// The result is wrapped in a Poisson age PDF over the callable denominator; the formed
+/// age is that TMRCA convolved with the node's own branch time. A node with no
+/// descendant tip yields `None`.
+///
+/// This replaces the bottom-up product + coalescent-floor propagation, whose
+/// max-descendant floor grew ~log N with sample size and whose `truncate_below`
+/// renormalisation compounded that inflation up each spine node (see
+/// [`TMRCA_DEEP_QUANTILE`]).
 pub fn propagate(clades: &[Clade], mu: f64, res: f64, max_age: f64) -> Vec<Option<CladeAge>> {
-    let mut memo: Vec<Option<Option<Pdf>>> = vec![None; clades.len()];
-    for i in 0..clades.len() {
-        compute_tmrca(i, clades, mu, res, max_age, &mut memo);
+    let post = post_order(clades);
+    let gd = global_depths(clades, &post);
+    // Per node, the ascending multiset of descendant-tip absolute depths (gd + the tip's
+    // private SNPs). Built bottom-up: each node drains its children's lists and appends
+    // its own direct testers, keeping the merged list for its parent (each list moves up
+    // exactly once).
+    let mut tip_depths: Vec<Vec<f64>> = vec![Vec::new(); clades.len()];
+    let mut tmrca_snps: Vec<Option<f64>> = vec![None; clades.len()];
+    for &i in &post {
+        let mut depths = Vec::new();
+        for &ch in &clades[i].children {
+            depths.append(&mut tip_depths[ch]);
+        }
+        for &s in &clades[i].tester_snps {
+            depths.push(gd[i] + s as f64);
+        }
+        if depths.is_empty() {
+            continue;
+        }
+        depths.sort_by(f64::total_cmp);
+        let local = (quantile_sorted(&depths, TMRCA_DEEP_QUANTILE) - gd[i]).max(0.0);
+        // Children's q90-robustified ages, lifted to this node's frame (+ branch).
+        let mut child_ages: Vec<f64> = clades[i]
+            .children
+            .iter()
+            .filter_map(|&ch| tmrca_snps[ch].map(|t| t + clades[ch].branch_snps as f64))
+            .collect();
+        // Corroboration floor = the 2nd-deepest child (depth reached by ≥2 independent
+        // sub-clades); a single deep child is not enough.
+        let corroborated = if child_ages.len() >= 2 {
+            child_ages.sort_by(|a, b| b.total_cmp(a));
+            child_ages[1]
+        } else {
+            0.0
+        };
+        // Deep-ladder gate (see [`DEEP_LADDER_SNPS`]): where a substantial fraction of
+        // tips is itself deep — real backbone, not a lone over-call — floor to the deepest
+        // descendant. Condition on q97 (robust to a single mis-placed deep tip), value =
+        // max depth (the validated deep-backbone estimate).
+        let gate_q = (quantile_sorted(&depths, DEEP_GATE_QUANTILE) - gd[i]).max(0.0);
+        let deep = if gate_q >= DEEP_LADDER_SNPS {
+            (depths[depths.len() - 1] - gd[i]).max(0.0)
+        } else {
+            0.0
+        };
+        tmrca_snps[i] = Some(local.max(corroborated).max(deep));
+        tip_depths[i] = depths;
+    }
+    // Top-down monotonicity: a child's TMRCA cannot exceed its parent's (its MRCA is more
+    // recent than the parent's). Where the robust estimate left an over-deep child under a
+    // corrected younger parent — an over-called subclade the parent's pooled q90 already
+    // discounted — clamp it to the parent, propagating the de-inflation down the subtree
+    // and removing the parent/child age inversions. Backbone order (deep parent > deep
+    // child) is untouched. Reverse post-order visits parents before children.
+    for &i in post.iter().rev() {
+        let Some(pt) = tmrca_snps[i] else { continue };
+        for &ch in &clades[i].children {
+            if let Some(ct) = tmrca_snps[ch] {
+                if ct > pt {
+                    tmrca_snps[ch] = Some(pt);
+                }
+            }
+        }
     }
     (0..clades.len())
         .map(|i| {
-            let Some(Some(tmrca)) = memo[i].take() else { return None };
+            let snps = tmrca_snps[i]?;
+            let tmrca = Pdf::poisson_on(snps.round() as i64, clades[i].callable_bp, mu, res, max_age);
             let formed = tmrca.convolve(&branch_time(clades, i, mu, res, max_age));
             Some(CladeAge { tmrca, formed })
         })
@@ -768,44 +811,37 @@ mod tests {
     }
 
     #[test]
-    fn more_children_tighten_the_parent_ci() {
-        let leaf = |b| Clade { branch_snps: 1, callable_bp: b, children: vec![], tester_snps: vec![2] };
-        let one = vec![
-            Clade { branch_snps: 0, callable_bp: B, children: vec![1], tester_snps: vec![] },
-            leaf(B),
-        ];
-        let two = vec![
-            Clade { branch_snps: 0, callable_bp: B, children: vec![1, 2], tester_snps: vec![] },
-            leaf(B),
-            leaf(B),
-        ];
-        let width = |ages: &[Option<CladeAge>]| {
-            let (_, lo, hi) = ages[0].as_ref().unwrap().tmrca.ci95();
-            hi - lo
-        };
-        assert!(
-            width(&propagate(&two, MU, RES, MAXA)) < width(&propagate(&one, MU, RES, MAXA)),
-            "two independent sub-clades give a tighter parent TMRCA than one"
-        );
+    fn consistent_deep_clade_stays_deep() {
+        // All five sub-clades genuinely deep (50 private SNPs ≈ 5000 yr): the deep age
+        // is corroborated by every tip, so the q90 keeps the parent deep (not discounted).
+        let mut clades =
+            vec![Clade { branch_snps: 0, callable_bp: B, children: (1..=5).collect(), tester_snps: vec![] }];
+        for _ in 0..5 {
+            clades.push(Clade { branch_snps: 1, callable_bp: B, children: vec![], tester_snps: vec![50] });
+        }
+        let parent = propagate(&clades, MU, RES, MAXA)[0].as_ref().unwrap().tmrca.median();
+        assert!(parent > 4500.0, "consistent deep clade parent {parent} stays deep");
     }
 
     #[test]
-    fn parent_older_than_all_children_when_inconsistent() {
-        // Parent with an OLD sub-clade (50 private SNPs ≈ 5000 yr) and a YOUNG one
-        // (1 private SNP ≈ 100 yr) — the real-tree case of an unevenly-sampled split.
-        // A common ancestor must be at least as old as its oldest descendant.
-        let clades = vec![
-            Clade { branch_snps: 0, callable_bp: B, children: vec![1, 2], tester_snps: vec![] },
-            Clade { branch_snps: 1, callable_bp: B, children: vec![], tester_snps: vec![50] },
-            Clade { branch_snps: 1, callable_bp: B, children: vec![], tester_snps: vec![1] },
-        ];
-        let ages = propagate(&clades, MU, RES, MAXA);
-        let parent = ages[0].as_ref().unwrap().tmrca.median();
-        let c1 = ages[1].as_ref().unwrap().tmrca.median();
-        let c2 = ages[2].as_ref().unwrap().tmrca.median();
-        eprintln!("parent={parent} old_child={c1} young_child={c2}");
-        assert!(parent >= c1, "parent {parent} must be >= oldest child {c1}");
-        assert!(parent >= c2, "parent {parent} must be >= youngest child {c2}");
+    fn lone_deep_outlier_does_not_floor_parent() {
+        // Nine shallow tips (2 private SNPs ≈ 200 yr) + one lone deep tip (60 ≈ 6000 yr),
+        // all one SNP below the parent. The old max-descendant floor would drag the parent
+        // to ~6100; the robust q90 keeps it near the shallow consensus — the U106 case in
+        // miniature (a single overdispersed/over-called lineage must not set the age).
+        let mut clades = vec![Clade {
+            branch_snps: 0,
+            callable_bp: B,
+            children: (1..=10).collect(),
+            tester_snps: vec![],
+        }];
+        for _ in 0..9 {
+            clades.push(Clade { branch_snps: 1, callable_bp: B, children: vec![], tester_snps: vec![2] });
+        }
+        clades.push(Clade { branch_snps: 1, callable_bp: B, children: vec![], tester_snps: vec![60] });
+        let parent = propagate(&clades, MU, RES, MAXA)[0].as_ref().unwrap().tmrca.median();
+        assert!(parent < 3000.0, "robust parent {parent} not floored to the lone deep outlier");
+        assert!(parent > 200.0, "parent {parent} still older than the shallow tips");
     }
 
     // ── DB-gated: full path over a seeded root→mid→leaf tree ──────────────────
