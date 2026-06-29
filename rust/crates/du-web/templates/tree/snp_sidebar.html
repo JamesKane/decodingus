@@ -69,6 +69,26 @@
   </div>
   {% endif %}
 
+  {# Reconstructed ancestral Y-STR motif (phylogenetic ASR): the markers that
+     mutated on the branch into this node — the STR analogue of the SNP transitions. #}
+  {% if str_motif_markers > 0 %}
+  <div class="card-body py-2 border-top small">
+    <div class="text-uppercase text-muted fw-semibold mb-1" style="font-size:.7rem;letter-spacing:.04em;">
+      {{ t.get("tree.strasr.title") }}
+    </div>
+    {% if str_changes.is_empty() %}
+    <p class="text-muted mb-0">{{ t.get("tree.strasr.nochange") }}</p>
+    {% else %}
+    <div>
+      {% for c in str_changes %}
+      <span class="font-monospace badge text-bg-light border me-1 mb-1" title="{{ t.get("tree.strasr.help") }}">{{ c.marker }} {{ c.from }}&rarr;{{ c.to }}</span>
+      {% endfor %}
+    </div>
+    {% endif %}
+    <div class="text-muted mt-1">{{ str_motif_markers }} {{ t.get("tree.strasr.markers") }}</div>
+  </div>
+  {% endif %}
+
   {# Placed non-D2C sample leaves at or below this node (YFull-style). #}
   {% if !samples.is_empty() %}
   <div class="card-body py-2 border-top">

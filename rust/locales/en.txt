@@ -131,6 +131,10 @@ tree.prov.aka=Also known as
 tree.prov.updated=Updated
 tree.prov.ci=95% CI
 tree.prov.samples=Samples (n)
+tree.strasr.title=Y-STR ancestral motif (ASR)
+tree.strasr.help=Reconstructed Y-STR mutation on the branch into this node (parent→node)
+tree.strasr.nochange=No Y-STR change reconstructed on this branch.
+tree.strasr.markers=markers reconstructed
 
 references.title=References
 references.search.placeholder=Search by title, journal, or DOI…

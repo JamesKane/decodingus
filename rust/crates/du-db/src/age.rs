@@ -613,14 +613,21 @@ pub async fn recompute_combined_ages(pool: &PgPool) -> Result<CombineStats, DbEr
     // computation). Any stored STR_VARIANCE row with no fresh PDF — a curated value,
     // or one predating profile data — still contributes, reconstructed as a Gaussian.
     let mut str_pdf = crate::ystr::str_tmrca_pdfs(pool, TREE_RESOLUTION_YEARS, TREE_MAX_AGE_YEARS).await?;
-    let str_rows: Vec<(i64, i32, Option<i32>, Option<i32>)> = sqlx::query_as(
-        "SELECT haplogroup_id, estimate_ybp, ci_low_ybp, ci_high_ybp \
+    // Reconstruct a Gaussian for any STR_VARIANCE row with no fresh PDF (a curated
+    // value, or one predating profile data). Gated on the same within-clade
+    // diversity floor as the propagated PDFs (sample_count ≥ MIN_STR_TESTERS_FOR_COMBINE)
+    // so the fallback can't re-admit the reconstruction-collapsed nodes the
+    // propagation path excluded — see ystr::MIN_STR_TESTERS_FOR_COMBINE.
+    let str_rows: Vec<(i64, i32, Option<i32>, Option<i32>, Option<i32>)> = sqlx::query_as(
+        "SELECT haplogroup_id, estimate_ybp, ci_low_ybp, ci_high_ybp, sample_count \
          FROM tree.haplogroup_age_estimate WHERE method='STR_VARIANCE' AND estimate_ybp IS NOT NULL",
     )
     .fetch_all(pool)
     .await?;
-    for (hg, est, lo, hi) in str_rows {
-        if str_pdf.contains_key(&hg) {
+    for (hg, est, lo, hi, n) in str_rows {
+        if str_pdf.contains_key(&hg)
+            || (n.unwrap_or(0) as usize) < crate::ystr::MIN_STR_TESTERS_FOR_COMBINE
+        {
             continue;
         }
         let mean = est as f64;
@@ -657,6 +664,45 @@ pub async fn recompute_combined_ages(pool: &PgPool) -> Result<CombineStats, DbEr
         combined_writes.push((hg, med.round() as i32, lo.round() as i32, hi.round() as i32, factors.len() as i32));
     }
 
+    // ── Causality back-correction (McDonald §2.3): a parent's TMRCA must be older
+    // than every child's, because the parent's MRCA is ancestral to each child's.
+    // The per-node Eq-1 product above combines terms independently, so a term that
+    // pulls one node young (a sparse STR estimate, a tight genealogical anchor) can
+    // leave a parent younger than a child it contains. Project the combined medians
+    // onto the causal constraint bottom-up over the tree (post-order ⇒ children are
+    // final before their parent): raise each parent to its oldest child, shifting
+    // that node's CI by the same correction. Raising the parent (vs. McDonald's
+    // lowering the child, Eq 9/10) is the safe direction here — a parent is provably
+    // at least as old as any clade beneath it, whereas our inversions come from
+    // *parents* being under-aged, not children over-aged. `ids[i]` ↔ clade index.
+    {
+        let mut by_id: HashMap<i64, usize> = HashMap::with_capacity(combined_writes.len());
+        for (idx, w) in combined_writes.iter().enumerate() {
+            by_id.insert(w.0, idx);
+        }
+        let mut corrected = 0usize;
+        for &i in post_order(&clades).iter() {
+            let Some(&pw) = by_id.get(&ids[i]) else { continue };
+            let parent_med = combined_writes[pw].1;
+            let mut target = parent_med;
+            for &c in &clades[i].children {
+                if let Some(&cw) = by_id.get(&ids[c]) {
+                    target = target.max(combined_writes[cw].1);
+                }
+            }
+            if target > parent_med {
+                let delta = target - parent_med;
+                combined_writes[pw].1 = target; // median
+                combined_writes[pw].2 += delta; // ci low
+                combined_writes[pw].3 += delta; // ci high
+                corrected += 1;
+            }
+        }
+        if corrected > 0 {
+            tracing::info!(corrected, "combined-age causality back-correction (parent ≥ child)");
+        }
+    }
+
     // ── PHASE 2: write everything in one short transaction. The writes are tiny and
     // back-to-back, so the connection never idles long enough to be reaped (no CPU
     // work happens between them).
@@ -690,6 +736,22 @@ pub async fn recompute_combined_ages(pool: &PgPool) -> Result<CombineStats, DbEr
             .await?;
         stats.combined += 1;
     }
+    // Clear the denormalized age of Y nodes left undatable this run — no SNP, STR
+    // or genealogical evidence, hence no COMBINED estimate (every SNP-dated node
+    // gets one). Their `tmrca_ybp`/`formed_ybp` would otherwise linger from an
+    // earlier run (e.g. a now-gated collapsed STR value), showing a stale — and
+    // possibly causality-violating — age the projection can't reach. Curated
+    // values are preserved. Runs after the COMBINED upserts so the NOT EXISTS sees
+    // this run's rows.
+    sqlx::query(&format!(
+        "UPDATE tree.haplogroup h SET tmrca_ybp = NULL, formed_ybp = NULL \
+         WHERE h.haplogroup_type = 'Y_DNA'::core.dna_type AND h.valid_until IS NULL \
+           AND (h.tmrca_ybp IS NOT NULL OR h.formed_ybp IS NOT NULL) AND {AGE_REFRESH_GUARD} \
+           AND NOT EXISTS (SELECT 1 FROM tree.haplogroup_age_estimate e \
+                           WHERE e.haplogroup_id = h.id AND e.method = 'COMBINED')"
+    ))
+    .execute(&mut *tx)
+    .await?;
     tx.commit().await?;
     Ok(stats)
 }

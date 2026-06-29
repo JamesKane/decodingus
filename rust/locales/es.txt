@@ -83,6 +83,10 @@ tree.prov.aka=También conocido como
 tree.prov.updated=Actualizado
 tree.prov.ci=IC 95%
 tree.prov.samples=Muestras (n)
+tree.strasr.title=Motivo Y-STR ancestral (ASR)
+tree.strasr.help=Mutación Y-STR reconstruida en la rama hacia este nodo (ancestro→nodo)
+tree.strasr.nochange=No se reconstruyó ningún cambio Y-STR en esta rama.
+tree.strasr.markers=marcadores reconstruidos
 
 references.title=Referencias
 references.search.placeholder=Buscar por título, revista o DOI…

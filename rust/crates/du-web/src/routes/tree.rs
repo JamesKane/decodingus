@@ -148,10 +148,23 @@ struct SnpSidebar {
     name: String,
     provenance: Option<Provenance>,
     variants: Vec<VariantRow>,
+    /// Reconstructed ancestral Y-STR motif (phylogenetic ASR): the markers that
+    /// mutated on the branch leading into this node (parent→node), headlined.
+    str_changes: Vec<StrChangeRow>,
+    /// Total markers in the node's reconstructed ancestral haplotype (context for
+    /// the change count; 0 ⇒ no STR evidence in the subtree).
+    str_motif_markers: usize,
     /// Placed non-D2C sample leaves at or below this node (capped for the sidebar).
     samples: Vec<LeafRow>,
     /// How many more placed samples exist beyond the shown `samples` (0 ⇒ all shown).
     samples_more: i64,
+}
+
+/// One Y-STR mutation along the branch leading into this node, e.g. DYS393 12→13.
+struct StrChangeRow {
+    marker: String,
+    from: i32,
+    to: i32,
 }
 
 /// One placed sample row in the sidebar (label + optional paper citation).
@@ -383,6 +396,24 @@ async fn snp_sidebar(
         None => None,
     };
 
+    // Reconstructed ancestral Y-STR motif (Y only) — the per-marker mutations on
+    // the branch leading into this node (parent→node), plus the motif size.
+    let (str_changes, str_motif_markers) = if matches!(dna_type, DnaType::YDna) {
+        let asr = du_db::ystr::branch_str_asr(&st.pool, &name).await?;
+        let changes = asr
+            .iter()
+            .filter(|m| m.changed())
+            .map(|m| StrChangeRow {
+                marker: m.marker_name.clone(),
+                from: m.parent_value.unwrap_or(m.ancestral_value),
+                to: m.ancestral_value,
+            })
+            .collect();
+        (changes, asr.len())
+    } else {
+        (Vec::new(), 0)
+    };
+
     // Placed non-D2C sample leaves at or below this node (capped for the sidebar).
     let mut leaves = du_db::tree_sample::samples_under(&st.pool, &name, dna_type).await?;
     let samples_more = (leaves.len() as i64 - SIDEBAR_SAMPLE_CAP as i64).max(0);
@@ -399,7 +430,16 @@ async fn snp_sidebar(
         })
         .collect();
 
-    Ok(html(&SnpSidebar { t: locale.t, name, provenance, variants, samples, samples_more }))
+    Ok(html(&SnpSidebar {
+        t: locale.t,
+        name,
+        provenance,
+        variants,
+        str_changes,
+        str_motif_markers,
+        samples,
+        samples_more,
+    }))
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
