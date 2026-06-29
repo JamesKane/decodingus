@@ -174,6 +174,17 @@ pub const GENERATION_YEARS: f64 = 33.0;
 /// TMRCAs is negligible.
 const STR_M_MAX: i64 = 30;
 
+/// Maximum TMRCA (years) at which a Y-STR estimate is trusted in the combined age
+/// (McDonald Appendix A.5.2: "a maximum time limit should be associated with the
+/// inclusion of Y-STRs"). Beyond a few thousand years a single marker's observed
+/// distance saturates (back/parallel/multi-step mutations), and reconstructed
+/// ancestral motifs miss events, so STR systematically *underestimates* deep
+/// clades (Example 3: 2560 vs 4000 yr). Rather than the paper's harder-to-calibrate
+/// Gaussian taper on `P(g|m)`, we apply the simpler stated option: a node whose STR
+/// median exceeds this limit does not contribute its STR term to the Eq-1 product
+/// (the SNP clock dates it); STR informs the recent clades where it is most useful.
+pub const STR_MAX_RELIABLE_YBP: f64 = 10_000.0;
+
 // ── Multi-step P(g|m): McDonald 2021 §2.5.3–2.5.4 (Eq 14–23, Table 1) ──────────
 //
 // A Y-STR's observed genetic distance g (|obs − ancestral|) underdetermines the
@@ -725,15 +736,12 @@ async fn build_str_inputs(pool: &PgPool) -> Result<StrInputs, DbError> {
 }
 
 /// Minimum direct STR testers on a node for its propagated TMRCA to enter the
-/// combined-age product. STR ages are only trustworthy where there is genuine
-/// within-clade genetic *diversity*: with 0 testers a node's age is pure motif
-/// reconstruction, and with 1 the reconstructed ancestral motif equals that lone
-/// tester — both make the genetic distance ≈0, so the STR PDF collapses to a
-/// spuriously young, spuriously narrow estimate (McDonald §2.5.2: "TMRCAs become
-/// underestimated if mutations are missed") that then dominates the sharp SNP
-/// term. Requiring ≥2 testers keeps STR where the paper says it is most useful
-/// (well-populated clades) and lets SNP date the rest; the COMBINED causality
-/// pass ([`crate::age`]) is the hard backstop.
+/// combined-age product. STR ages need genuine within-clade genetic *diversity*:
+/// with 0–1 testers the reconstructed ancestral motif ≈ the tester(s), the genetic
+/// distance ≈0, and the STR PDF collapses to a spuriously young, narrow estimate
+/// (McDonald §2.5.2) that would dominate the sharp SNP term. ≥2 keeps STR where the
+/// paper says it is most useful; [`STR_MAX_RELIABLE_YBP`] additionally caps it to
+/// recent time, and the Eq 9 causality pass is the hard backstop.
 pub const MIN_STR_TESTERS_FOR_COMBINE: usize = 2;
 
 /// Per-node tree-propagated STR TMRCA PDFs (keyed by haplogroup id) on the given
@@ -748,6 +756,9 @@ pub async fn str_tmrca_pdfs(pool: &PgPool, res: f64, max_age: f64) -> Result<Has
     Ok((0..inp.ids.len())
         .filter(|&i| inp.testers[i].len() >= MIN_STR_TESTERS_FOR_COMBINE)
         .filter_map(|i| ages[i].clone().map(|p| (inp.ids[i], p)))
+        // Max-reliable-age cap (A.5.2): drop STR where it saturates and would
+        // underestimate; the SNP clock dates the deep clades.
+        .filter(|(_, p)| p.median() <= STR_MAX_RELIABLE_YBP)
         .collect())
 }
 
