@@ -120,14 +120,17 @@ pub struct Clade {
     /// the branch time when this node feeds its parent, and its own "formed" age.
     /// 0 for a root.
     pub branch_snps: i64,
-    /// Effective callable bp (`b̄`) over which this clade's SNPs are counted.
+    /// Callable bp (`b̄`) for this clade's **defining (branch) SNPs** — the joint-call
+    /// mask region those SNPs were ascertained over. Testers carry their own bp (below).
     pub callable_bp: f64,
     /// Child clade indices.
     pub children: Vec<usize>,
-    /// Private-SNP counts of testers sitting directly on this node (terminal tips);
-    /// each contributes a Poisson age factor (tester birth ≈ present is omitted as
-    /// a negligible offset).
-    pub tester_snps: Vec<i64>,
+    /// Testers sitting directly on this node (terminal tips), each as
+    /// `(private_SNP_count, that sample's callable bp)`. Per McDonald §2.2.3
+    /// region-consistency, each contributes a Poisson age over its **own** coverage
+    /// — its private SNPs are its own calls, so they lie in its own mask — rather
+    /// than a shared clade/joint denominator (tester birth handled in `propagate`).
+    pub tester_snps: Vec<(i64, f64)>,
 }
 
 /// A clade's computed age PDFs.
@@ -228,10 +231,11 @@ pub fn propagate(clades: &[Clade], mu: f64, res: f64, max_age: f64) -> Vec<Optio
                 factors.push(ct.convolve(&branch(ch))); // child TMRCA ⊛ branch (Eq 7)
             }
         }
-        for &m in &clades[i].tester_snps {
-            // Tester age (Eq 3) referenced to the tester's birth (Eq 8 single-tester
-            // case p_k = P(t_c|m_c) ⊛ P(t_b); A.1 birth PDF).
-            factors.push(Pdf::poisson_on(m, clades[i].callable_bp, mu, res, max_age).convolve(&birth));
+        for &(m, cbp) in &clades[i].tester_snps {
+            // Per-sample tester age (Eq 3) over the tester's OWN callable bp — its
+            // private SNPs are its own calls, hence in its own mask — referenced to
+            // the tester's birth (Eq 8 single-tester p_k = P(t_c|m_c) ⊛ P(t_b)).
+            factors.push(Pdf::poisson_on(m, cbp, mu, res, max_age).convolve(&birth));
         }
         tmrca[i] = pdf_product(&factors);
     }
@@ -345,12 +349,10 @@ async fn build_clades(pool: &PgPool) -> Result<(Vec<Clade>, Vec<i64>), DbError> 
     }
 
     // Per-build joint-call callable mask (genomics.y_callable_interval), if loaded.
-    // When present it makes the numerator and denominator region-consistent:
-    //   • denominator — the UNIFORM mask size (the region ASR branch counts were
-    //     ascertained over), replacing the per-sample coverage average; and
-    //   • numerator — a POSITIVE filter so only SNPs INSIDE the mask are counted
-    //     (the recurrent mask is negative-only and lets non-callable SNPs through).
-    // Absent (empty table) → falls back to the prior per-sample behaviour.
+    // Used here as the NUMERATOR's SNP-region positive filter — only SNPs INSIDE the
+    // mask are counted (the recurrent mask is negative-only and lets non-callable
+    // SNPs through). The DENOMINATOR (b̄) is the per-clade Eq-4 coverage computed
+    // below, not the uniform mask size. Absent (empty table) → no positive filter.
     let mask_bp: Option<f64> = sqlx::query_scalar(
         "SELECT sum(upper(span) - lower(span))::float8 FROM genomics.y_callable_interval",
     )
@@ -394,7 +396,6 @@ async fn build_clades(pool: &PgPool) -> Result<(Vec<Clade>, Vec<i64>), DbError> 
     ))
     .fetch_all(pool)
     .await?;
-    let (mut bp_sum, mut bp_cnt) = (vec![0.0f64; ids.len()], vec![0u32; ids.len()]);
     for (hg, snps, b) in testers {
         // Skip sliver-coverage samples: they divide their SNPs by a tiny callable
         // denominator and produce impossible (hundreds-of-ky) ages that floor the spine.
@@ -402,14 +403,13 @@ async fn build_clades(pool: &PgPool) -> Result<(Vec<Clade>, Vec<i64>), DbError> 
         // deep/rare singleton lineages — A/B/Q/N — not caller over-calls, so a
         // clade-blind cap would wrongly youthen them. See branch_snp_qc_report.md.)
         if let (Some(&i), true) = (idx.get(&hg), b >= MIN_TESTER_CALLABLE_BP) {
-            clades[i].tester_snps.push(snps);
-            bp_sum[i] += b;
-            bp_cnt[i] += 1;
+            // Per-sample: keep the tester's own callable bp for its Poisson denominator.
+            clades[i].tester_snps.push((snps, b));
         }
     }
 
-    // Representative b̄ per node: mean of its testers' callable bp, else the
-    // catalog-wide mean (so SNP-less internal branches still get a branch time).
+    // Catalog-wide mean coverage — fallback denominator for a defining-SNP branch
+    // with no joint mask loaded.
     let default_b: f64 = sqlx::query_scalar::<_, Option<f64>>(&format!(
         "SELECT avg({cbp})::float8 FROM genomics.biosample_callable_loci cl WHERE cl.chromosome IN ('chrY','Y')"
     ))
@@ -417,14 +417,12 @@ async fn build_clades(pool: &PgPool) -> Result<(Vec<Clade>, Vec<i64>), DbError> 
     .await?
     .filter(|b| *b > 0.0)
     .unwrap_or(15_000_000.0);
+
+    // Branch (defining-SNP) denominator: the joint-call mask the ASR branch counts
+    // were ascertained over (uniform region, region-consistent with the SNP-region
+    // positive filter above). Testers do NOT use this — each carries its own bp.
     for i in 0..ids.len() {
-        // Uniform joint-call mask size when loaded (ASR branch counts are ascertained
-        // over that fixed region); else the prior per-sample mean (or catalog default).
-        clades[i].callable_bp = match mask_bp {
-            Some(b) if b > 0.0 => b,
-            _ if bp_cnt[i] > 0 => bp_sum[i] / bp_cnt[i] as f64,
-            _ => default_b,
-        };
+        clades[i].callable_bp = mask_bp.filter(|b| *b > 0.0).unwrap_or(default_b);
     }
 
     Ok((clades, ids))
@@ -846,7 +844,7 @@ mod tests {
 
     #[test]
     fn tmrca_of_single_tester_is_poisson_mode() {
-        let clades = vec![Clade { branch_snps: 0, callable_bp: B, children: vec![], tester_snps: vec![3] }];
+        let clades = vec![Clade { branch_snps: 0, callable_bp: B, children: vec![], tester_snps: vec![(3, B)] }];
         let ages = propagate(&clades, MU, RES, MAXA);
         let tmrca = &ages[0].as_ref().unwrap().tmrca;
         // Poisson mode m/(b·µ) = 300 yr, shifted by the tester-birth offset (A.1).
@@ -859,7 +857,7 @@ mod tests {
         // parent(0) → child(1); child has 2 private SNPs and is 1 SNP below parent.
         let clades = vec![
             Clade { branch_snps: 0, callable_bp: B, children: vec![1], tester_snps: vec![] },
-            Clade { branch_snps: 1, callable_bp: B, children: vec![], tester_snps: vec![2] },
+            Clade { branch_snps: 1, callable_bp: B, children: vec![], tester_snps: vec![(2, B)] },
         ];
         let ages = propagate(&clades, MU, RES, MAXA);
         let parent = ages[0].as_ref().unwrap();
@@ -877,7 +875,7 @@ mod tests {
         let mut clades =
             vec![Clade { branch_snps: 0, callable_bp: B, children: (1..=5).collect(), tester_snps: vec![] }];
         for _ in 0..5 {
-            clades.push(Clade { branch_snps: 1, callable_bp: B, children: vec![], tester_snps: vec![50] });
+            clades.push(Clade { branch_snps: 1, callable_bp: B, children: vec![], tester_snps: vec![(50, B)] });
         }
         let parent = propagate(&clades, MU, RES, MAXA)[0].as_ref().unwrap().tmrca.median();
         assert!(parent > 4500.0, "consistent deep clade parent {parent} stays deep");
@@ -896,9 +894,9 @@ mod tests {
             tester_snps: vec![],
         }];
         for _ in 0..9 {
-            clades.push(Clade { branch_snps: 1, callable_bp: B, children: vec![], tester_snps: vec![2] });
+            clades.push(Clade { branch_snps: 1, callable_bp: B, children: vec![], tester_snps: vec![(2, B)] });
         }
-        clades.push(Clade { branch_snps: 1, callable_bp: B, children: vec![], tester_snps: vec![60] });
+        clades.push(Clade { branch_snps: 1, callable_bp: B, children: vec![], tester_snps: vec![(60, B)] });
         let parent = propagate(&clades, MU, RES, MAXA)[0].as_ref().unwrap().tmrca.median();
         assert!(parent < 3000.0, "robust parent {parent} not floored to the lone deep outlier");
         assert!(parent > 200.0, "parent {parent} still older than the shallow tips");
@@ -979,7 +977,7 @@ mod tests {
         // (a) build_clades: het-masking + structure.
         let (clades, ids) = build_clades(&pool).await.unwrap();
         let at = |id: i64| ids.iter().position(|&x| x == id).unwrap();
-        assert_eq!(clades[at(leaf)].tester_snps, vec![5], "het private SNP masked → 5 counted");
+        assert_eq!(clades[at(leaf)].tester_snps, vec![(5, 12_500_000.0)], "het private SNP masked → 5 counted, with its callable bp");
         assert_eq!(clades[at(leaf)].branch_snps, 3, "het defining SNP masked → 3");
         assert!(clades[at(mid)].children.contains(&at(leaf)));
         assert!(clades[at(root)].children.contains(&at(mid)));
