@@ -117,8 +117,19 @@ pub struct DenovoVariant {
 impl DenovoVariant {
     /// A defining call is low-confidence if it is not joint-confirmed (AEngine
     /// positive-only) or not monophyletic (homoplasic). Missing flags → confident.
+    ///
+    /// EXCEPTION: the `monophyletic` flag is unreliable for **reverse-polarity** SNPs
+    /// and must not gate them. The reference (CHM13/HG002) is haplogroup J, which sits
+    /// deep inside CT, so every backbone SNP above J (BT/CT/F/CF) carries the *derived*
+    /// allele as the reference. Their derived carriers are therefore reference-matching
+    /// (invisible to variant calling) while the ancestral A/B outgroup shows as the
+    /// variant — a paraphyletic set the monophyly test (computed from variant calls)
+    /// falsely flags non-monophyletic. Gating on it zeroes the entire deep backbone
+    /// (M168/M89/M42 themselves) and collapses the tree. See
+    /// documents/proposals/denovo-ingest-confidence-flags.md.
     fn low_confidence(&self) -> bool {
-        !self.joint_confirmed.unwrap_or(true) || !self.monophyletic.unwrap_or(true)
+        let reverse = self.polarity.as_deref() == Some("reverse");
+        !self.joint_confirmed.unwrap_or(true) || (!reverse && !self.monophyletic.unwrap_or(true))
     }
 }
 
@@ -725,4 +736,45 @@ pub async fn list_conflicts(
     .fetch_all(pool)
     .await?;
     Ok(Page { items, total, page: page.max(1), page_size: limit })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn var(polarity: &str, joint: Option<bool>, mono: Option<bool>) -> DenovoVariant {
+        DenovoVariant {
+            chrom: "chrY".into(),
+            pos: 1,
+            ref_: "A".into(),
+            alt: "C".into(),
+            ancestral: "A".into(),
+            derived: "C".into(),
+            reversion: false,
+            polarity: Some(polarity.into()),
+            joint_confirmed: joint,
+            monophyletic: mono,
+        }
+    }
+
+    #[test]
+    fn reverse_polarity_is_exempt_from_monophyletic_gate() {
+        // The deep backbone (BT/CT/F) above the J reference is all reverse-polarity and
+        // falsely flagged monophyletic=false; it must still COUNT.
+        assert!(
+            !var("reverse", Some(true), Some(false)).low_confidence(),
+            "reverse-polarity monophyletic=false must NOT be low-confidence (CHM13=J inversion)"
+        );
+        // Forward-polarity homoplasy is genuine → still excluded.
+        assert!(
+            var("forward", Some(true), Some(false)).low_confidence(),
+            "forward-polarity monophyletic=false stays low-confidence (real homoplasy)"
+        );
+        // jointConfirmed still gates regardless of polarity.
+        assert!(var("reverse", Some(false), Some(true)).low_confidence(), "reverse !jointConfirmed");
+        assert!(var("forward", Some(false), Some(true)).low_confidence(), "forward !jointConfirmed");
+        // Clean calls (and missing flags → confident) count.
+        assert!(!var("forward", Some(true), Some(true)).low_confidence());
+        assert!(!var("forward", None, None).low_confidence(), "missing flags → confident");
+    }
 }
