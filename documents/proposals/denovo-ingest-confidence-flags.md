@@ -66,13 +66,25 @@ and excluded from counting. This is **kept** for now — it plausibly reflects r
 the deep-backbone over-counting seen earlier. Flagging here only so the tree team is aware of
 the magnitude; if ages come out systematically young, this gate is the first suspect.
 
-## Issue 3 — the INDEL artifact is unverified
+## Issue 3 — the INDEL artifact is unverified (extraction has placement-collapsing issues)
 
 `chrY.ftdna.refined.indel.ingest.json` (ASR + indels + flags) has **not** been confirmed to
-be generated correctly. Loading it surfaced the same confidence-flag behavior as the SNP
-artifact (the indels themselves load fine: +10,576 indel variants), but until the indel
-build is validated we are **staying on the SNP artifact** (`chrY.ftdna.refined.ingest.json`).
-The SNP artifact should track the latest export format (it does — same flag schema).
+be generated correctly. The **indel extraction itself has a known problem**, observed
+tree-side as **placement collapsing** — samples/branches collapsing in the topology (the
+indel path is currently used to debug sample placements visually in the local web view, and
+that is where the collapsing shows up).
+
+Important: this is an **upstream extraction** problem, **not** an AppView loader or age-engine
+problem. Mechanically the indel artifact loads cleanly now — with the reverse-polarity
+monophyletic fix (Issue 1) the deep backbone counts (CT 286/293, F 162/163, BT 8/8) and the
++10,560 indel variant-links load without error. So once the extraction is corrected the indel
+tree should drop in without further loader work.
+
+Until the extraction is validated we are **staying on the SNP artifact**
+(`chrY.ftdna.refined.ingest.json`). The SNP artifact tracks the latest export format (same
+flag schema). Workflow when iterating on the indel build: load the indel artifact only to
+eyeball placements in the local web view; revert to the SNP artifact (reload + branch-age
+recompute) before trusting any ages.
 
 ## Provenance
 
