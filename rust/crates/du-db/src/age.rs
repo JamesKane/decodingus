@@ -116,9 +116,12 @@ fn with_rate_uncertainty(med: i32, lo: i32, hi: i32) -> (i32, i32, i32) {
 /// One clade (haplogroup node) of the propagation input.
 #[derive(Debug, Clone, Default)]
 pub struct Clade {
-    /// SNPs on the edge from this node's parent down to it (`m_{parent→node}`):
-    /// the branch time when this node feeds its parent, and its own "formed" age.
-    /// 0 for a root.
+    /// **Age-countable** SNPs on the edge from this node's parent down to it
+    /// (`m_{parent→node}`): the branch time when this node feeds its parent, and its
+    /// own "formed" age. 0 for a root — and 0 for any node defined only by markers the
+    /// clock can't count (palindromic/recurrent/non-callable, valid for placement but
+    /// excluded from counting), which [`branch_time`] treats as a zero-length,
+    /// age-transparent edge rather than a short branch.
     pub branch_snps: i64,
     /// Callable bp (`b̄`) for this clade's **defining (branch) SNPs** — the joint-call
     /// mask region those SNPs were ascertained over. Testers carry their own bp (below).
@@ -153,7 +156,24 @@ pub const TREE_RESOLUTION_YEARS: f64 = 50.0;
 pub const TREE_MAX_AGE_YEARS: f64 = 500_000.0;
 
 /// Branch-time PDF for clade `x`: `P(t | m_branch)` over its callable bp.
+///
+/// A node with **zero age-countable SNPs** (`branch_snps == 0`) is age-transparent,
+/// NOT a short branch. Such a node is real and validly defined for *placement* — but
+/// by a marker the SNP clock can't count: a palindromic SNP that gene-converts onto
+/// both arms (e.g. ZZ11), or a recurrent/non-callable site the masks exclude. We have
+/// no clock information about that edge, so its branch time is a point mass at t=0 (a
+/// zero-length edge), making the node coincident with its parent for age propagation.
+/// Its descendants' ages then flow straight through to the parent.
+///
+/// The alternative — `poisson_on(0, …)` — is an *exponential* `exp(−t·b·µ)` with a
+/// ~`1/(b·µ)` ≈ 90 yr mean (only the t=0 bin gets `ln 1`; every later bin keeps the
+/// decaying tail), so each stacked clock-unstable generation (Z46516 → ZZ11 → …)
+/// silently pads ~90 yr onto every ancestor above it. That is the "missing SNP
+/// collapses the algorithm" smell: treat `m=0` as "no information," not "short."
 fn branch_time(clades: &[Clade], x: usize, mu: f64, res: f64, max_age: f64) -> Pdf {
+    if clades[x].branch_snps <= 0 {
+        return Pdf::from_weights(res, vec![1.0]); // δ(t=0): zero-length, age-transparent
+    }
     Pdf::poisson_on(clades[x].branch_snps, clades[x].callable_bp, mu, res, max_age)
 }
 
@@ -866,6 +886,35 @@ mod tests {
         assert!(parent.tmrca.median() > child.tmrca.median(), "causality");
         // A node's formed age (split from parent) is older than its own TMRCA.
         assert!(child.formed.median() > child.tmrca.median(), "formed > tmrca");
+    }
+
+    #[test]
+    fn zero_snp_node_is_age_transparent_not_padding() {
+        // A node defined only by a clock-unstable marker (a palindromic SNP like ZZ11,
+        // valid for placement but not age-countable) has branch_snps = 0. It must be a
+        // zero-length, age-transparent edge — coincident with its parent — NOT an
+        // exponential ~1/(b·µ) branch that pads ~90 yr onto every ancestor above it.
+        // root(0) → mid(branch) → tip(1, deep 50-SNP tester).
+        let chain = |mid_branch: i64| {
+            let clades = vec![
+                Clade { branch_snps: 0, callable_bp: B, children: vec![1], tester_snps: vec![] },
+                Clade { branch_snps: mid_branch, callable_bp: B, children: vec![2], tester_snps: vec![] },
+                Clade { branch_snps: 1, callable_bp: B, children: vec![], tester_snps: vec![(50, B)] },
+            ];
+            propagate(&clades, MU, RES, MAXA)
+        };
+        let transp = chain(0);
+        let (root_t, mid_t) =
+            (transp[0].as_ref().unwrap().tmrca.median(), transp[1].as_ref().unwrap().tmrca.median());
+        // 0-SNP mid carries no branch time: root is coincident with mid (no padding).
+        assert!((root_t - mid_t).abs() <= RES, "0-SNP mid age-transparent: root {root_t} ≈ mid {mid_t}");
+        // Give mid a real countable branch → the parent is now strictly older than mid…
+        let real = chain(5);
+        let (root_r, mid_r) =
+            (real[0].as_ref().unwrap().tmrca.median(), real[1].as_ref().unwrap().tmrca.median());
+        assert!(root_r > mid_r + RES, "real branch ages the parent: root {root_r} > mid {mid_r}");
+        // …and the transparent parent is younger than the padded one (no spurious age).
+        assert!(root_t < root_r, "transparent root {root_t} younger than real-branch root {root_r}");
     }
 
     #[test]
