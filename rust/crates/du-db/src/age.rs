@@ -560,19 +560,26 @@ pub async fn recompute_combined_ages(pool: &PgPool) -> Result<CombineStats, DbEr
     let ages = propagate(&clades, SNP_RATE, TREE_RESOLUTION_YEARS, TREE_MAX_AGE_YEARS);
     // Keep each term's actual PDF (on the shared TREE grid) for the Eq-1 product below.
     let mut snp_pdf: HashMap<i64, Pdf> = HashMap::new();
-    // (id, med, lo, hi, tester_count, formed) — written in phase 2.
-    let mut snp_writes: Vec<(i64, i32, i32, i32, i32, i32)> = Vec::new();
+    // (id, med, lo, hi, tester_count) — written in phase 2.
+    let mut snp_writes: Vec<(i64, i32, i32, i32, i32)> = Vec::new();
+    // The node's own branch time in years (`formed − tmrca`, ≥0 — convolution only adds
+    // age; 0 for an age-transparent zero-SNP node). `formed_ybp` is derived from the
+    // *combined* tmrca plus this offset (phase 2) so it stays ≥ tmrca even when the STR
+    // term or the causality back-correction raises the combined tmrca above the SNP-only
+    // formed. Keying the offset off the SNP propagation is correct: a node's branch time
+    // is a SNP-count property, independent of the STR/genealogical TMRCA evidence.
+    let mut branch_offset: HashMap<i64, i32> = HashMap::new();
     for (i, age) in ages.iter().enumerate() {
         let Some(age) = age else { continue };
         let (med, lo, hi) = age.tmrca.ci95();
         snp_pdf.insert(ids[i], age.tmrca.clone());
+        branch_offset.insert(ids[i], (age.formed.median() - age.tmrca.median()).max(0.0).round() as i32);
         snp_writes.push((
             ids[i],
             med.round() as i32,
             lo.round() as i32,
             hi.round() as i32,
             clades[i].tester_snps.len() as i32,
-            age.formed.median().round() as i32,
         ));
     }
 
@@ -722,17 +729,9 @@ pub async fn recompute_combined_ages(pool: &PgPool) -> Result<CombineStats, DbEr
     sqlx::query("DELETE FROM tree.haplogroup_age_estimate WHERE method IN ('SNP_POISSON','GENEALOGICAL','COMBINED')")
         .execute(&mut *tx)
         .await?;
-    for (id, med, lo, hi, testers, formed) in &snp_writes {
+    for (id, med, lo, hi, testers) in &snp_writes {
         let (med, lo, hi) = with_rate_uncertainty(*med, *lo, *hi);
         upsert_estimate_ci(&mut tx, *id, "SNP_POISSON", med, lo, hi, *testers).await?;
-        // Refresh the denormalized node formation age so re-runs reflect the latest
-        // computation — but never clobber a value a curator pinned (`age_curated`).
-        // (Gap-fill-on-NULL would freeze the first run's value forever; see AGE_REFRESH_GUARD.)
-        sqlx::query(&format!("UPDATE tree.haplogroup SET formed_ybp=$2 WHERE id=$1 AND {AGE_REFRESH_GUARD}"))
-            .bind(id)
-            .bind(formed)
-            .execute(&mut *tx)
-            .await?;
         stats.snp += 1;
     }
     for (hg, mean, rel) in &gen_writes {
@@ -742,12 +741,20 @@ pub async fn recompute_combined_ages(pool: &PgPool) -> Result<CombineStats, DbEr
     for (hg, med, lo, hi, n_terms) in &combined_writes {
         let (med_ci, lo_ci, hi_ci) = with_rate_uncertainty(*med, *lo, *hi);
         upsert_estimate_ci(&mut tx, *hg, "COMBINED", med_ci, lo_ci, hi_ci, *n_terms).await?;
-        // Refresh the authoritative tmrca_ybp (unless curator-pinned via age_curated).
-        sqlx::query(&format!("UPDATE tree.haplogroup SET tmrca_ybp = $2 WHERE id = $1 AND {AGE_REFRESH_GUARD}"))
-            .bind(hg)
-            .bind(med)
-            .execute(&mut *tx)
-            .await?;
+        // Refresh the authoritative tmrca_ybp AND the derived formed_ybp together (unless
+        // curator-pinned via age_curated). formed = tmrca + the node's own branch time, off
+        // the SAME combined, causality-corrected tmrca — so formed ≥ tmrca always, even where
+        // the STR term or the causality lift raised the combined tmrca above the SNP-only
+        // formed (the prior split-source write produced formed < tmrca at e.g. R-L21/R-DF13).
+        let formed = med + branch_offset.get(hg).copied().unwrap_or(0);
+        sqlx::query(&format!(
+            "UPDATE tree.haplogroup SET tmrca_ybp = $2, formed_ybp = $3 WHERE id = $1 AND {AGE_REFRESH_GUARD}"
+        ))
+        .bind(hg)
+        .bind(med)
+        .bind(formed)
+        .execute(&mut *tx)
+        .await?;
         stats.combined += 1;
     }
     // Clear the denormalized age of Y nodes left undatable this run — no SNP, STR
