@@ -335,9 +335,14 @@ async fn snp_sidebar(
                 (Some(a), Some(d)) => Some(format!("{a}>{d}")),
                 _ => None,
             };
-            // Back-mutation: this branch's derived state is the SNP's ancestral allele.
-            let back_mutation =
-                matches!((&v.link_derived, coord_ancestral(&v.coordinates)), (Some(d), Some(a)) if *d == a);
+            // Back-mutation: this branch's derived state is the SNP's ancestral allele —
+            // but only meaningful for a RECURRENT SNP (one that occurs on another branch,
+            // so there is something to revert). A single-origin SNP has nothing to back-
+            // mutate from, so a derived==ancestral coincidence there is a catalog strand
+            // artifact (e.g. Y18975, stored reverse-complemented by the inverted-block
+            // liftover: link T>A vs catalog A>T), not biology. Gate on `recurrent`.
+            let back_mutation = v.recurrent
+                && matches!((&v.link_derived, coord_ancestral(&v.coordinates)), (Some(d), Some(a)) if *d == a);
             let aliases = json_str_list(&v.aliases);
             // UNNAMED variants (homoplasy collisions) fall back to an alias.
             let name = v
