@@ -69,7 +69,6 @@ tree.legend.default=Otro
 tree.variants=variantes
 tree.samples=muestras
 tree.samples.title=Muestras ubicadas
-tree.samples.more=más
 tree.snp.none=No hay variantes definitorias registradas.
 tree.snp.aliases=alias
 tree.snp.recurrent=recurrente

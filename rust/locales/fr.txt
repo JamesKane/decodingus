@@ -69,7 +69,6 @@ tree.legend.default=Autre
 tree.variants=variants
 tree.samples=échantillons
 tree.samples.title=Échantillons placés
-tree.samples.more=de plus
 tree.snp.none=Aucun variant déterminant enregistré.
 tree.snp.aliases=alias
 tree.snp.recurrent=récurrent

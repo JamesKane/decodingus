@@ -304,3 +304,26 @@ pub async fn samples_under(pool: &PgPool, node_name: &str, dna_type: DnaType) ->
     .fetch_all(pool)
     .await?)
 }
+
+/// Count of placed samples at-or-below a node — the same subtree/filters as [`samples_under`]
+/// but without materializing the rows or their publications (the sidebar shows just the count).
+pub async fn count_under(pool: &PgPool, node_name: &str, dna_type: DnaType) -> Result<i64, DbError> {
+    Ok(sqlx::query_scalar(
+        "WITH RECURSIVE sub AS ( \
+            SELECT id FROM tree.haplogroup \
+            WHERE name = $1 AND haplogroup_type::text = $2 AND valid_until IS NULL \
+            UNION ALL \
+            SELECT r.child_haplogroup_id FROM tree.haplogroup_relationship r \
+            JOIN sub ON r.parent_haplogroup_id = sub.id \
+            WHERE r.valid_until IS NULL \
+         ) \
+         SELECT count(*)::bigint FROM tree.haplogroup_sample hs \
+         JOIN sub ON sub.id = hs.haplogroup_id \
+         JOIN core.biosample b ON b.sample_guid = hs.sample_guid \
+         WHERE hs.dna_type::text = $2 AND hs.status IN ('PLACED','CURATED') AND b.deleted = false",
+    )
+    .bind(node_name)
+    .bind(pg_enum_label(&dna_type)?)
+    .fetch_one(pool)
+    .await?)
+}

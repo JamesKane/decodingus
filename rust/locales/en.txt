@@ -117,7 +117,6 @@ tree.legend.default=Other
 tree.variants=variants
 tree.samples=samples
 tree.samples.title=Placed samples
-tree.samples.more=more
 tree.snp.none=No defining variants recorded.
 tree.snp.aliases=aka
 tree.snp.recurrent=recurrent

@@ -154,10 +154,8 @@ struct SnpSidebar {
     /// Total markers in the node's reconstructed ancestral haplotype (context for
     /// the change count; 0 ⇒ no STR evidence in the subtree).
     str_motif_markers: usize,
-    /// Placed non-D2C sample leaves at or below this node (capped for the sidebar).
-    samples: Vec<LeafRow>,
-    /// How many more placed samples exist beyond the shown `samples` (0 ⇒ all shown).
-    samples_more: i64,
+    /// Count of placed non-D2C sample leaves at or below this node (shown instead of the list).
+    sample_count: i64,
 }
 
 /// One Y-STR mutation along the branch leading into this node, e.g. DYS393 12→13.
@@ -166,16 +164,6 @@ struct StrChangeRow {
     from: i32,
     to: i32,
 }
-
-/// One placed sample row in the sidebar (label + optional paper citation).
-struct LeafRow {
-    label: String,
-    source: String,
-    citation: Option<String>,
-}
-
-/// Max leaf rows rendered in the sidebar before collapsing to an "+N more" note.
-const SIDEBAR_SAMPLE_CAP: usize = 50;
 
 struct VariantRow {
     name: String,
@@ -419,21 +407,8 @@ async fn snp_sidebar(
         (Vec::new(), 0)
     };
 
-    // Placed non-D2C sample leaves at or below this node (capped for the sidebar).
-    let mut leaves = du_db::tree_sample::samples_under(&st.pool, &name, dna_type).await?;
-    let samples_more = (leaves.len() as i64 - SIDEBAR_SAMPLE_CAP as i64).max(0);
-    leaves.truncate(SIDEBAR_SAMPLE_CAP);
-    let samples: Vec<LeafRow> = leaves
-        .into_iter()
-        .map(|s| {
-            let label = s.accession.or(s.alias).unwrap_or_else(|| s.sample_guid.to_string());
-            let citation = s.pub_title.map(|t| match s.pub_doi {
-                Some(doi) => format!("{t} ({doi})"),
-                None => t,
-            });
-            LeafRow { label, source: s.source, citation }
-        })
-        .collect();
+    // Count of placed non-D2C sample leaves at or below this node (shown instead of the list).
+    let sample_count = du_db::tree_sample::count_under(&st.pool, &name, dna_type).await?;
 
     Ok(html(&SnpSidebar {
         t: locale.t,
@@ -442,8 +417,7 @@ async fn snp_sidebar(
         variants,
         str_changes,
         str_motif_markers,
-        samples,
-        samples_more,
+        sample_count,
     }))
 }
 
