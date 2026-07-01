@@ -81,10 +81,19 @@ monophyletic fix (Issue 1) the deep backbone counts (CT 286/293, F 162/163, BT 8
 tree should drop in without further loader work.
 
 Until the extraction is validated we are **staying on the SNP artifact**
-(`chrY.ftdna.refined.ingest.json`). The SNP artifact tracks the latest export format (same
-flag schema). Workflow when iterating on the indel build: load the indel artifact only to
-eyeball placements in the local web view; revert to the SNP artifact (reload + branch-age
-recompute) before trusting any ages.
+(`chrY.ftdna.refined.ingest.json`) for published ages. The SNP artifact tracks the latest
+export format (same flag schema).
+
+**Engine vs extraction are now cleanly separated.** The age engine no longer counts indels
+into the SNP clock (`build_clades` filters `mutation_type = 'SNP'`; McDonald §2.2.1 — indels
+need their own rate, as a separate Eq-1 term, never folded into the SNP `m`). Nodes defined
+only by indels get 0 age-countable SNPs and go age-transparent (zero-length branch), like the
+palindromic/empty backbone nodes. Consequence: a branch-age recompute on the **indel tree now
+yields ages identical to the SNP tree** (BT 95712, CT 63255, A-M31 11584, P312 4405 — matching
+to the year), while retaining the indel-resolved topology (+46 branches that break SNP-only
+polytomies). So the indel artifact can be loaded and aged safely; any remaining oddities in the
+indel view are the **extraction/placement** problem above, not the clock. A dedicated indel
+clock (µ_indel + its own callable denominator) remains future work.
 
 ## Provenance
 
