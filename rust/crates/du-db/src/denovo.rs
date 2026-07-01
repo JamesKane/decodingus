@@ -168,7 +168,7 @@ fn confidence(support: Option<i32>) -> &'static str {
 /// Load a de-novo tree document as the tree foundation. Assumes `tree.*` is
 /// already cleared (greenfield). Commits the topology, then recomputes backbone
 /// and bumps the tree revision.
-pub async fn load(pool: &PgPool, doc: &DenovoTree) -> Result<LoadReport, DbError> {
+pub async fn load(pool: &PgPool, doc: &DenovoTree, keep_private: bool) -> Result<LoadReport, DbError> {
     let dna: DnaType = match doc.haplogroup_type.as_str() {
         "Y_DNA" => DnaType::YDna,
         "MT_DNA" => DnaType::MtDna,
@@ -210,12 +210,22 @@ pub async fn load(pool: &PgPool, doc: &DenovoTree) -> Result<LoadReport, DbError
         prefill_vcache(&mut tx, &keys, &mut vcache, &mut rep).await?;
     }
 
-    // Identify private singleton terminals: an unlabeled leaf node whose only member
-    // is a single tip. Its defining SNPs are that one sample's privates, not a shared
-    // clade — so instead of publishing it as a public node (step 3), it is collapsed:
-    // the sample hangs on its (public) parent and the SNPs are seeded into the
-    // discovery substrate (step 6). Surviving unlabeled nodes — internal splits and
-    // ≥2-tip terminals — stay as real (if unnamed) branches.
+    // Identify private singleton terminals: a leaf node whose only member is a single
+    // tip AND which has no *public* name. Its defining SNPs are that one sample's
+    // privates, not a shared clade — so instead of publishing it as a public node
+    // (step 3) it is collapsed: the sample hangs on its (public) parent and the SNPs are
+    // seeded into the discovery substrate (step 6b) to prime branch discovery.
+    //
+    // "No public name" = the de-novo pipeline either left the node unlabeled (`label`
+    // null) or labeled it with its single sample's own (private) id — both mean the
+    // branch is named after the individual, not a catalogued SNP. An SNP-named
+    // single-sample terminal (e.g. `R-FT49699`) is a real public haplogroup that
+    // happens to have one sample so far, and is NOT collapsed.
+    //
+    // `keep_private` (preprod `--keep-private`) disables the collapse entirely so these
+    // branches render as nodes for visual placement debugging. Production keeps the
+    // default (collapse) — a forgotten flag there is safe (it collapses), and a forgotten
+    // flag in dev merely shows more.
     let mut child_count: HashMap<&str, usize> = HashMap::new();
     let mut parent_of: HashMap<&str, &str> = HashMap::new();
     for node in &doc.nodes {
@@ -225,19 +235,25 @@ pub async fn load(pool: &PgPool, doc: &DenovoTree) -> Result<LoadReport, DbError
         }
     }
     let mut tip_count: HashMap<&str, usize> = HashMap::new();
+    let mut tip_sample: HashMap<&str, &str> = HashMap::new();
     for tip in &doc.tips {
         *tip_count.entry(tip.parent_node.as_str()).or_default() += 1;
+        tip_sample.entry(tip.parent_node.as_str()).or_insert(tip.sample.as_str());
     }
-    let private: HashSet<&str> = doc
-        .nodes
-        .iter()
-        .filter(|n| {
-            n.label.is_none()
-                && child_count.get(n.id.as_str()).copied().unwrap_or(0) == 0
-                && tip_count.get(n.id.as_str()).copied().unwrap_or(0) == 1
-        })
-        .map(|n| n.id.as_str())
-        .collect();
+    let private: HashSet<&str> = if keep_private {
+        HashSet::new()
+    } else {
+        doc.nodes
+            .iter()
+            .filter(|n| {
+                child_count.get(n.id.as_str()).copied().unwrap_or(0) == 0
+                    && tip_count.get(n.id.as_str()).copied().unwrap_or(0) == 1
+                    && (n.label.is_none()
+                        || n.label.as_deref() == tip_sample.get(n.id.as_str()).copied())
+            })
+            .map(|n| n.id.as_str())
+            .collect()
+    };
     rep.private_collapsed = private.len();
 
     for node in &doc.nodes {

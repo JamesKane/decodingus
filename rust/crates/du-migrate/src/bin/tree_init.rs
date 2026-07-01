@@ -38,6 +38,13 @@ struct Args {
     /// Apply the load (mutates the tree / mask; required).
     #[arg(long)]
     apply: bool,
+    /// Keep private singleton branches as visible nodes instead of collapsing them.
+    /// For PREPROD only (visual placement debugging). Production omits this: private
+    /// terminals (a leaf with one sample and no public SNP name) collapse onto their
+    /// public parent, and their SNPs are seeded into the discovery substrate to prime
+    /// branch discovery. Applies to `--denovo-y` / `--denovo-mt`.
+    #[arg(long)]
+    keep_private: bool,
 }
 
 /// Parse a BED (`chrom\tstart\tend`, half-open) into `(start, end)` spans, keeping
@@ -59,14 +66,14 @@ fn parse_bed(path: &str) -> anyhow::Result<Vec<(i64, i64)>> {
 
 /// Clear one lineage and load its de-novo ingest JSON. `expect` is the document's
 /// declared `haplogroup_type` (`Y_DNA`/`MT_DNA`) — a mismatch aborts before any write.
-async fn load_denovo(pool: &PgPool, path: &str, dna: DnaType, expect: &str, apply: bool) -> anyhow::Result<()> {
+async fn load_denovo(pool: &PgPool, path: &str, dna: DnaType, expect: &str, apply: bool, keep_private: bool) -> anyhow::Result<()> {
     anyhow::ensure!(apply, "--denovo-* mutates the tree; pass --apply");
     let doc: du_db::denovo::DenovoTree = serde_json::from_str(&std::fs::read_to_string(path)?)?;
     anyhow::ensure!(doc.haplogroup_type == expect, "expected a {expect} document, got {}", doc.haplogroup_type);
-    tracing::info!(%path, hgtype = expect, nodes = doc.nodes.len(), tips = doc.tips.len(), root = %doc.root, "de-novo: loading foundation");
+    tracing::info!(%path, hgtype = expect, nodes = doc.nodes.len(), tips = doc.tips.len(), root = %doc.root, keep_private, "de-novo: loading foundation");
     let cleared = du_db::haplogroup::clear_dna(pool, dna).await?;
     tracing::info!(cleared_haplogroups = cleared, hgtype = expect, "de-novo: cleared lineage");
-    let rep = du_db::denovo::load(pool, &doc).await?;
+    let rep = du_db::denovo::load(pool, &doc, keep_private).await?;
     tracing::info!(
         hgtype = expect, nodes = rep.nodes, edges = rep.edges, variant_links = rep.variant_links,
         variants_reused = rep.variants_reused, variants_created = rep.variants_created,
@@ -95,8 +102,8 @@ async fn main() -> anyhow::Result<()> {
     du_db::run_migrations(&pool).await?;
 
     match (&args.denovo_y, &args.denovo_mt) {
-        (Some(path), _) => load_denovo(&pool, path, DnaType::YDna, "Y_DNA", args.apply).await?,
-        (None, Some(path)) => load_denovo(&pool, path, DnaType::MtDna, "MT_DNA", args.apply).await?,
+        (Some(path), _) => load_denovo(&pool, path, DnaType::YDna, "Y_DNA", args.apply, args.keep_private).await?,
+        (None, Some(path)) => load_denovo(&pool, path, DnaType::MtDna, "MT_DNA", args.apply, args.keep_private).await?,
         (None, None) if args.callable_mask.is_none() => {
             anyhow::bail!("pass --denovo-y <chrY.ingest.json>, --denovo-mt <chrM.ingest.json>, or --callable-mask <bed>")
         }
