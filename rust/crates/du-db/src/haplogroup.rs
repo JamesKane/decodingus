@@ -704,8 +704,16 @@ pub async fn variants_of(
         link_derived: Option<String>,
         recurrent: bool,
     }
+    // A defining SNP the de-novo loader minted a coordinate name for (`chrY:pos…>…`)
+    // because the inverted-block liftover left the catalog's copy reverse-complemented,
+    // so the exact-allele match at load missed the real named entry. Recover the real
+    // name for display by finding a real-named catalog SNP at the same hs1 position whose
+    // alleles equal this link's set OR its reverse-complement. (GIN-indexed containment
+    // on the position keeps the per-row lookup cheap; it runs only for coordinate-named /
+    // unnamed links.) See documents/proposals/denovo-ingest-confidence-flags.md.
     let rows: Vec<Row> = sqlx::query_as(
-        "SELECT v.canonical_name, v.mutation_type::text AS mutation_type, v.aliases, v.coordinates, \
+        "SELECT COALESCE(named.nm, v.canonical_name) AS canonical_name, \
+                v.mutation_type::text AS mutation_type, v.aliases, v.coordinates, \
                 hv.ancestral_allele AS link_ancestral, hv.derived_allele AS link_derived, \
                 EXISTS (SELECT 1 FROM tree.haplogroup_variant hv2 \
                         WHERE hv2.variant_id = v.id AND hv2.valid_until IS NULL \
@@ -713,8 +721,21 @@ pub async fn variants_of(
          FROM core.variant v \
          JOIN tree.haplogroup_variant hv ON hv.variant_id = v.id AND hv.valid_until IS NULL \
          JOIN tree.haplogroup h ON h.id = hv.haplogroup_id \
+         LEFT JOIN LATERAL ( \
+            SELECT v2.canonical_name AS nm FROM core.variant v2 \
+            WHERE v2.id <> v.id AND v2.mutation_type = v.mutation_type \
+              AND v2.canonical_name IS NOT NULL AND v2.canonical_name !~ '^chr' \
+              AND v2.coordinates @> jsonb_build_object('hs1', jsonb_build_object('position', v.coordinates->'hs1'->'position')) \
+              AND least(v2.coordinates->'hs1'->>'ancestral', v2.coordinates->'hs1'->>'derived') \
+                  || greatest(v2.coordinates->'hs1'->>'ancestral', v2.coordinates->'hs1'->>'derived') IN ( \
+                    least(v.coordinates->'hs1'->>'ancestral', v.coordinates->'hs1'->>'derived') \
+                      || greatest(v.coordinates->'hs1'->>'ancestral', v.coordinates->'hs1'->>'derived'), \
+                    least(translate(v.coordinates->'hs1'->>'ancestral','ACGT','TGCA'), translate(v.coordinates->'hs1'->>'derived','ACGT','TGCA')) \
+                      || greatest(translate(v.coordinates->'hs1'->>'ancestral','ACGT','TGCA'), translate(v.coordinates->'hs1'->>'derived','ACGT','TGCA')) ) \
+            ORDER BY core.ysnp_name_rank(v2.canonical_name), v2.canonical_name LIMIT 1 \
+         ) named ON v.canonical_name IS NULL OR v.canonical_name ~ '^chr[0-9A-Za-z]*:' \
          WHERE h.name = $1 AND h.haplogroup_type::text = $2 AND h.valid_until IS NULL \
-         ORDER BY v.canonical_name",
+         ORDER BY COALESCE(named.nm, v.canonical_name)",
     )
     .bind(name)
     .bind(pg_enum_label(&dna_type)?)

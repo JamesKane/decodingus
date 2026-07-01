@@ -118,8 +118,8 @@ async fn denovo_lineages_coexist_and_clear_independently() {
     let db = du_db::testing::ephemeral_db(&url).await.expect("ephemeral db");
     let pool = db.pool().clone();
 
-    denovo::load(&pool, &doc()).await.expect("load Y"); // Y_DNA: 4 nodes, Node4 collapses → 3
-    denovo::load(&pool, &mt_doc()).await.expect("load mt"); // MT_DNA, 2 nodes
+    denovo::load(&pool, &doc(), false).await.expect("load Y"); // Y_DNA: 4 nodes, Node4 collapses → 3
+    denovo::load(&pool, &mt_doc(), false).await.expect("load mt"); // MT_DNA, 2 nodes
     assert_eq!(count_dna(&pool, "Y_DNA").await, 3);
     assert_eq!(count_dna(&pool, "MT_DNA").await, 2);
 
@@ -145,7 +145,7 @@ async fn clear_dna_neutralizes_private_variant_refs_for_repeatable_reload() {
 
     seed_catalog_snp(&pool, "M269", 21452686, "T", "C").await;
     seed_catalog_snp(&pool, "L21", 13500000, "G", "A").await;
-    denovo::load(&pool, &doc()).await.expect("load Y");
+    denovo::load(&pool, &doc(), false).await.expect("load Y");
 
     // Seed one DENOVO + one FED private-variant row referencing a loaded node.
     let sample: uuid::Uuid =
@@ -184,7 +184,7 @@ async fn clear_dna_neutralizes_private_variant_refs_for_repeatable_reload() {
     assert_eq!(fed_terminal, None, "FED row's stale node link nulled");
 
     // The actual goal: a fresh load now succeeds end-to-end over the cleared lineage.
-    denovo::load(&pool, &doc()).await.expect("reload Y");
+    denovo::load(&pool, &doc(), false).await.expect("reload Y");
     assert_eq!(count_dna(&pool, "Y_DNA").await, 3, "reloaded cleanly");
 }
 
@@ -201,7 +201,7 @@ async fn loads_denovo_tree_with_catalog_reuse_and_mint() {
     seed_catalog_snp(&pool, "M269", 21452686, "T", "C").await;
     seed_catalog_snp(&pool, "L21", 13500000, "G", "A").await;
 
-    let rep = denovo::load(&pool, &doc()).await.expect("load");
+    let rep = denovo::load(&pool, &doc(), false).await.expect("load");
 
     // Node4 is an unlabeled single-tip leaf → collapsed as a private singleton: it is
     // not published as a node, its tip hangs on Node4's public parent (Node3), and its

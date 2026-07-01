@@ -117,8 +117,19 @@ pub struct DenovoVariant {
 impl DenovoVariant {
     /// A defining call is low-confidence if it is not joint-confirmed (AEngine
     /// positive-only) or not monophyletic (homoplasic). Missing flags → confident.
+    ///
+    /// EXCEPTION: the `monophyletic` flag is unreliable for **reverse-polarity** SNPs
+    /// and must not gate them. The reference (CHM13/HG002) is haplogroup J, which sits
+    /// deep inside CT, so every backbone SNP above J (BT/CT/F/CF) carries the *derived*
+    /// allele as the reference. Their derived carriers are therefore reference-matching
+    /// (invisible to variant calling) while the ancestral A/B outgroup shows as the
+    /// variant — a paraphyletic set the monophyly test (computed from variant calls)
+    /// falsely flags non-monophyletic. Gating on it zeroes the entire deep backbone
+    /// (M168/M89/M42 themselves) and collapses the tree. See
+    /// documents/proposals/denovo-ingest-confidence-flags.md.
     fn low_confidence(&self) -> bool {
-        !self.joint_confirmed.unwrap_or(true) || !self.monophyletic.unwrap_or(true)
+        let reverse = self.polarity.as_deref() == Some("reverse");
+        !self.joint_confirmed.unwrap_or(true) || (!reverse && !self.monophyletic.unwrap_or(true))
     }
 }
 
@@ -157,7 +168,7 @@ fn confidence(support: Option<i32>) -> &'static str {
 /// Load a de-novo tree document as the tree foundation. Assumes `tree.*` is
 /// already cleared (greenfield). Commits the topology, then recomputes backbone
 /// and bumps the tree revision.
-pub async fn load(pool: &PgPool, doc: &DenovoTree) -> Result<LoadReport, DbError> {
+pub async fn load(pool: &PgPool, doc: &DenovoTree, keep_private: bool) -> Result<LoadReport, DbError> {
     let dna: DnaType = match doc.haplogroup_type.as_str() {
         "Y_DNA" => DnaType::YDna,
         "MT_DNA" => DnaType::MtDna,
@@ -199,12 +210,22 @@ pub async fn load(pool: &PgPool, doc: &DenovoTree) -> Result<LoadReport, DbError
         prefill_vcache(&mut tx, &keys, &mut vcache, &mut rep).await?;
     }
 
-    // Identify private singleton terminals: an unlabeled leaf node whose only member
-    // is a single tip. Its defining SNPs are that one sample's privates, not a shared
-    // clade — so instead of publishing it as a public node (step 3), it is collapsed:
-    // the sample hangs on its (public) parent and the SNPs are seeded into the
-    // discovery substrate (step 6). Surviving unlabeled nodes — internal splits and
-    // ≥2-tip terminals — stay as real (if unnamed) branches.
+    // Identify private singleton terminals: a leaf node whose only member is a single
+    // tip AND which has no *public* name. Its defining SNPs are that one sample's
+    // privates, not a shared clade — so instead of publishing it as a public node
+    // (step 3) it is collapsed: the sample hangs on its (public) parent and the SNPs are
+    // seeded into the discovery substrate (step 6b) to prime branch discovery.
+    //
+    // "No public name" = the de-novo pipeline either left the node unlabeled (`label`
+    // null) or labeled it with its single sample's own (private) id — both mean the
+    // branch is named after the individual, not a catalogued SNP. An SNP-named
+    // single-sample terminal (e.g. `R-FT49699`) is a real public haplogroup that
+    // happens to have one sample so far, and is NOT collapsed.
+    //
+    // `keep_private` (preprod `--keep-private`) disables the collapse entirely so these
+    // branches render as nodes for visual placement debugging. Production keeps the
+    // default (collapse) — a forgotten flag there is safe (it collapses), and a forgotten
+    // flag in dev merely shows more.
     let mut child_count: HashMap<&str, usize> = HashMap::new();
     let mut parent_of: HashMap<&str, &str> = HashMap::new();
     for node in &doc.nodes {
@@ -214,19 +235,25 @@ pub async fn load(pool: &PgPool, doc: &DenovoTree) -> Result<LoadReport, DbError
         }
     }
     let mut tip_count: HashMap<&str, usize> = HashMap::new();
+    let mut tip_sample: HashMap<&str, &str> = HashMap::new();
     for tip in &doc.tips {
         *tip_count.entry(tip.parent_node.as_str()).or_default() += 1;
+        tip_sample.entry(tip.parent_node.as_str()).or_insert(tip.sample.as_str());
     }
-    let private: HashSet<&str> = doc
-        .nodes
-        .iter()
-        .filter(|n| {
-            n.label.is_none()
-                && child_count.get(n.id.as_str()).copied().unwrap_or(0) == 0
-                && tip_count.get(n.id.as_str()).copied().unwrap_or(0) == 1
-        })
-        .map(|n| n.id.as_str())
-        .collect();
+    let private: HashSet<&str> = if keep_private {
+        HashSet::new()
+    } else {
+        doc.nodes
+            .iter()
+            .filter(|n| {
+                child_count.get(n.id.as_str()).copied().unwrap_or(0) == 0
+                    && tip_count.get(n.id.as_str()).copied().unwrap_or(0) == 1
+                    && (n.label.is_none()
+                        || n.label.as_deref() == tip_sample.get(n.id.as_str()).copied())
+            })
+            .map(|n| n.id.as_str())
+            .collect()
+    };
     rep.private_collapsed = private.len();
 
     for node in &doc.nodes {
@@ -725,4 +752,45 @@ pub async fn list_conflicts(
     .fetch_all(pool)
     .await?;
     Ok(Page { items, total, page: page.max(1), page_size: limit })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn var(polarity: &str, joint: Option<bool>, mono: Option<bool>) -> DenovoVariant {
+        DenovoVariant {
+            chrom: "chrY".into(),
+            pos: 1,
+            ref_: "A".into(),
+            alt: "C".into(),
+            ancestral: "A".into(),
+            derived: "C".into(),
+            reversion: false,
+            polarity: Some(polarity.into()),
+            joint_confirmed: joint,
+            monophyletic: mono,
+        }
+    }
+
+    #[test]
+    fn reverse_polarity_is_exempt_from_monophyletic_gate() {
+        // The deep backbone (BT/CT/F) above the J reference is all reverse-polarity and
+        // falsely flagged monophyletic=false; it must still COUNT.
+        assert!(
+            !var("reverse", Some(true), Some(false)).low_confidence(),
+            "reverse-polarity monophyletic=false must NOT be low-confidence (CHM13=J inversion)"
+        );
+        // Forward-polarity homoplasy is genuine → still excluded.
+        assert!(
+            var("forward", Some(true), Some(false)).low_confidence(),
+            "forward-polarity monophyletic=false stays low-confidence (real homoplasy)"
+        );
+        // jointConfirmed still gates regardless of polarity.
+        assert!(var("reverse", Some(false), Some(true)).low_confidence(), "reverse !jointConfirmed");
+        assert!(var("forward", Some(false), Some(true)).low_confidence(), "forward !jointConfirmed");
+        // Clean calls (and missing flags → confident) count.
+        assert!(!var("forward", Some(true), Some(true)).low_confidence());
+        assert!(!var("forward", None, None).low_confidence(), "missing flags → confident");
+    }
 }

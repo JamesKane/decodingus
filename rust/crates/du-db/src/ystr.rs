@@ -1,6 +1,7 @@
-//! Y-STR per-branch modal signatures: aggregate the mirrored STR profiles
-//! (`fed.str_profile`) by SNP-defined branch (haplogroup) into a modal haplotype
-//! stored in `tree.haplogroup_ancestral_str`. This is the catalog-side half of
+//! Y-STR per-branch modal signatures: aggregate the STR profiles — federated
+//! (`fed.str_profile`) plus locally-imported (`genomics.biosample_str_profile`,
+//! see [`crate::str_import`]) — by SNP-defined branch (haplogroup) into a modal
+//! haplotype stored in `tree.haplogroup_ancestral_str`. This is the catalog-side half of
 //! the STR feature (the mirror is `fed::str_profile`); prediction over these
 //! signatures is Phase 2.
 //!
@@ -172,6 +173,17 @@ pub const GENERATION_YEARS: f64 = 33.0;
 /// (McDonald Eq 14 inner sum). Past ~30, the Poisson age weight at realistic STR
 /// TMRCAs is negligible.
 const STR_M_MAX: i64 = 30;
+
+/// Maximum TMRCA (years) at which a Y-STR estimate is trusted in the combined age
+/// (McDonald Appendix A.5.2: "a maximum time limit should be associated with the
+/// inclusion of Y-STRs"). Beyond a few thousand years a single marker's observed
+/// distance saturates (back/parallel/multi-step mutations), and reconstructed
+/// ancestral motifs miss events, so STR systematically *underestimates* deep
+/// clades (Example 3: 2560 vs 4000 yr). Rather than the paper's harder-to-calibrate
+/// Gaussian taper on `P(g|m)`, we apply the simpler stated option: a node whose STR
+/// median exceeds this limit does not contribute its STR term to the Eq-1 product
+/// (the SNP clock dates it); STR informs the recent clades where it is most useful.
+pub const STR_MAX_RELIABLE_YBP: f64 = 10_000.0;
 
 // ── Multi-step P(g|m): McDonald 2021 §2.5.3–2.5.4 (Eq 14–23, Table 1) ──────────
 //
@@ -640,13 +652,25 @@ struct StrInputs {
 /// motifs. Shared by [`recompute_signatures`] (which writes the signatures + ages)
 /// and [`str_tmrca_pdfs`] (which the combined-age step consumes).
 async fn build_str_inputs(pool: &PgPool) -> Result<StrInputs, DbError> {
+    // Two sources, one population per branch: federated profiles (Navigator's
+    // mirrored com.decodingus.atmosphere.strProfile, keyed by the published
+    // y_haplogroup name) UNION locally-imported vendor profiles (academic / D2C
+    // cohorts in core.biosample, joined live through their Y tree placement —
+    // tree.haplogroup_sample — so the branch is the current one, not a name copy).
     let rows: Vec<(i64, Value)> = sqlx::query_as(
         "SELECT h.id, sp.markers \
          FROM fed.str_profile sp \
          JOIN fed.biosample b ON b.at_uri = sp.biosample_ref \
          JOIN tree.haplogroup h ON h.name = b.y_haplogroup \
               AND h.haplogroup_type::text = 'Y_DNA' AND h.valid_until IS NULL \
-         WHERE b.y_haplogroup IS NOT NULL",
+         WHERE b.y_haplogroup IS NOT NULL \
+         UNION ALL \
+         SELECT hs.haplogroup_id, lp.markers \
+         FROM genomics.biosample_str_profile lp \
+         JOIN tree.haplogroup_sample hs ON hs.sample_guid = lp.sample_guid \
+              AND hs.dna_type = 'Y_DNA'::core.dna_type AND hs.status = 'PLACED' \
+         JOIN tree.haplogroup h ON h.id = hs.haplogroup_id AND h.valid_until IS NULL \
+         WHERE hs.haplogroup_id IS NOT NULL",
     )
     .fetch_all(pool)
     .await?;
@@ -711,12 +735,31 @@ async fn build_str_inputs(pool: &PgPool) -> Result<StrInputs, DbError> {
     Ok(StrInputs { ids, children, motif, testers, models, modal_by_hg })
 }
 
+/// Minimum direct STR testers on a node for its propagated TMRCA to enter the
+/// combined-age product. STR ages need genuine within-clade genetic *diversity*:
+/// with 0–1 testers the reconstructed ancestral motif ≈ the tester(s), the genetic
+/// distance ≈0, and the STR PDF collapses to a spuriously young, narrow estimate
+/// (McDonald §2.5.2) that would dominate the sharp SNP term. ≥2 keeps STR where the
+/// paper says it is most useful; [`STR_MAX_RELIABLE_YBP`] additionally caps it to
+/// recent time, and the Eq 9 causality pass is the hard backstop.
+pub const MIN_STR_TESTERS_FOR_COMBINE: usize = 2;
+
 /// Per-node tree-propagated STR TMRCA PDFs (keyed by haplogroup id) on the given
-/// grid — consumed by the combined-age PDF product in [`crate::age`].
+/// grid — consumed by the combined-age PDF product in [`crate::age`]. Restricted
+/// to nodes with real within-clade STR diversity (≥[`MIN_STR_TESTERS_FOR_COMBINE`]
+/// direct testers); reconstruction-only nodes are left to the SNP clock. The
+/// per-branch `STR_VARIANCE` rows (written by [`recompute_signatures`]) are not
+/// gated — they remain a displayed contributing factor.
 pub async fn str_tmrca_pdfs(pool: &PgPool, res: f64, max_age: f64) -> Result<HashMap<i64, Pdf>, DbError> {
     let inp = build_str_inputs(pool).await?;
     let ages = propagate_str(&inp.children, &inp.motif, &inp.testers, &inp.models, res, max_age);
-    Ok(inp.ids.iter().zip(ages).filter_map(|(&id, a)| a.map(|p| (id, p))).collect())
+    Ok((0..inp.ids.len())
+        .filter(|&i| inp.testers[i].len() >= MIN_STR_TESTERS_FOR_COMBINE)
+        .filter_map(|i| ages[i].clone().map(|p| (inp.ids[i], p)))
+        // Max-reliable-age cap (A.5.2): drop STR where it saturates and would
+        // underestimate; the SNP clock dates the deep clades.
+        .filter(|(_, p)| p.median() <= STR_MAX_RELIABLE_YBP)
+        .collect())
 }
 
 // ── queries ───────────────────────────────────────────────────────────────────
@@ -766,6 +809,8 @@ pub struct RecomputeStats {
     pub haplogroups: usize,
     pub markers: usize,
     pub age_estimates: usize,
+    /// Reconstructed-ancestral-motif marker rows written to tree.haplogroup_str_asr.
+    pub asr_markers: usize,
 }
 
 /// Recompute every Y branch's modal signature from the mirrored profiles, then the
@@ -855,6 +900,38 @@ pub async fn recompute_signatures(pool: &PgPool) -> Result<RecomputeStats, DbErr
         .await?;
         stats.age_estimates += 1;
     }
+    // Reconstructed ancestral motif per branch (phylogenetic ASR) — full refresh.
+    // Persisted so the node sidebar can show the inferred ancestral haplotype and
+    // the per-marker STR mutations along each branch (node vs. parent). Simple
+    // markers only (reconstruct_motifs scores simple values). Flattened into
+    // column arrays and inserted in one UNNEST pass — the motif spans every
+    // ancestor of a tested sample (~hundreds of thousands of rows), so per-row
+    // round-trips are far too slow.
+    sqlx::query("DELETE FROM tree.haplogroup_str_asr").execute(&mut *tx).await?;
+    let (mut asr_hg, mut asr_marker, mut asr_val) = (Vec::new(), Vec::new(), Vec::new());
+    for (i, m) in motif.iter().enumerate() {
+        for (marker, value) in m {
+            asr_hg.push(ids[i]);
+            asr_marker.push(marker.clone());
+            asr_val.push(*value);
+        }
+    }
+    stats.asr_markers = asr_hg.len();
+    // Insert in bounded UNNEST chunks — one round-trip per chunk (vs. per row),
+    // while keeping each bind message small enough not to stress the connection.
+    const ASR_CHUNK: usize = 5_000;
+    for start in (0..asr_hg.len()).step_by(ASR_CHUNK) {
+        let end = (start + ASR_CHUNK).min(asr_hg.len());
+        sqlx::query(
+            "INSERT INTO tree.haplogroup_str_asr (haplogroup_id, marker_name, ancestral_value) \
+             SELECT * FROM UNNEST($1::bigint[], $2::text[], $3::int[])",
+        )
+        .bind(&asr_hg[start..end])
+        .bind(&asr_marker[start..end])
+        .bind(&asr_val[start..end])
+        .execute(&mut *tx)
+        .await?;
+    }
     tx.commit().await?;
     Ok(stats)
 }
@@ -884,6 +961,57 @@ pub async fn branch_signature(pool: &PgPool, haplogroup: &str) -> Result<Vec<Sig
     .fetch_all(pool)
     .await?;
     Ok(rows)
+}
+
+/// One marker of a branch's reconstructed ancestral Y-STR motif (phylogenetic
+/// ASR), with the parent's reconstructed value so the UI can show the mutation
+/// along the branch leading into this node.
+#[derive(Debug, Clone, PartialEq)]
+pub struct StrAsrMarker {
+    pub marker_name: String,
+    /// Reconstructed ancestral repeat count at this node.
+    pub ancestral_value: i32,
+    /// The parent node's reconstructed value (None at the root, or where the
+    /// parent has no reconstruction for this marker). `Some(v) != ancestral_value`
+    /// ⇒ a mutation on this branch.
+    pub parent_value: Option<i32>,
+}
+
+impl StrAsrMarker {
+    /// True when this marker mutated on the branch leading into the node.
+    pub fn changed(&self) -> bool {
+        matches!(self.parent_value, Some(p) if p != self.ancestral_value)
+    }
+}
+
+/// A Y haplogroup's reconstructed ancestral STR motif (by name), each marker
+/// paired with the parent's value. Markers sorted; empty when no ASR is stored
+/// (no STR evidence in the subtree). The parent is the node's current valid
+/// Y-tree parent — `tree.haplogroup_str_asr` is keyed to live nodes, so the diff
+/// always reflects the present topology.
+pub async fn branch_str_asr(pool: &PgPool, haplogroup: &str) -> Result<Vec<StrAsrMarker>, DbError> {
+    let rows: Vec<(String, i32, Option<i32>)> = sqlx::query_as(
+        "SELECT a.marker_name, a.ancestral_value, p.ancestral_value AS parent_value \
+         FROM tree.haplogroup h \
+         JOIN tree.haplogroup_str_asr a ON a.haplogroup_id = h.id \
+         LEFT JOIN tree.haplogroup_relationship r \
+              ON r.child_haplogroup_id = h.id AND r.valid_until IS NULL \
+         LEFT JOIN tree.haplogroup_str_asr p \
+              ON p.haplogroup_id = r.parent_haplogroup_id AND p.marker_name = a.marker_name \
+         WHERE h.name = $1 AND h.haplogroup_type::text = 'Y_DNA' AND h.valid_until IS NULL \
+         ORDER BY a.marker_name",
+    )
+    .bind(haplogroup)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|(marker_name, ancestral_value, parent_value)| StrAsrMarker {
+            marker_name,
+            ancestral_value,
+            parent_value,
+        })
+        .collect())
 }
 
 /// A per-branch age estimate (one contributing factor; method-labeled).
@@ -988,6 +1116,18 @@ mod tests {
 
     fn simple(name: &str, n: i32) -> (String, StrValue) {
         (name.into(), StrValue::Simple(n))
+    }
+
+    #[test]
+    fn str_asr_marker_changed() {
+        let mk = |p: Option<i32>, v: i32| StrAsrMarker {
+            marker_name: "DYS393".into(),
+            ancestral_value: v,
+            parent_value: p,
+        };
+        assert!(mk(Some(12), 13).changed()); // mutated on this branch
+        assert!(!mk(Some(13), 13).changed()); // unchanged from parent
+        assert!(!mk(None, 13).changed()); // root / no parent reconstruction
     }
 
     #[test]

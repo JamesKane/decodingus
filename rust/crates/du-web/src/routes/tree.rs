@@ -148,21 +148,22 @@ struct SnpSidebar {
     name: String,
     provenance: Option<Provenance>,
     variants: Vec<VariantRow>,
-    /// Placed non-D2C sample leaves at or below this node (capped for the sidebar).
-    samples: Vec<LeafRow>,
-    /// How many more placed samples exist beyond the shown `samples` (0 ⇒ all shown).
-    samples_more: i64,
+    /// Reconstructed ancestral Y-STR motif (phylogenetic ASR): the markers that
+    /// mutated on the branch leading into this node (parent→node), headlined.
+    str_changes: Vec<StrChangeRow>,
+    /// Total markers in the node's reconstructed ancestral haplotype (context for
+    /// the change count; 0 ⇒ no STR evidence in the subtree).
+    str_motif_markers: usize,
+    /// Count of placed non-D2C sample leaves at or below this node (shown instead of the list).
+    sample_count: i64,
 }
 
-/// One placed sample row in the sidebar (label + optional paper citation).
-struct LeafRow {
-    label: String,
-    source: String,
-    citation: Option<String>,
+/// One Y-STR mutation along the branch leading into this node, e.g. DYS393 12→13.
+struct StrChangeRow {
+    marker: String,
+    from: i32,
+    to: i32,
 }
-
-/// Max leaf rows rendered in the sidebar before collapsing to an "+N more" note.
-const SIDEBAR_SAMPLE_CAP: usize = 50;
 
 struct VariantRow {
     name: String,
@@ -322,9 +323,14 @@ async fn snp_sidebar(
                 (Some(a), Some(d)) => Some(format!("{a}>{d}")),
                 _ => None,
             };
-            // Back-mutation: this branch's derived state is the SNP's ancestral allele.
-            let back_mutation =
-                matches!((&v.link_derived, coord_ancestral(&v.coordinates)), (Some(d), Some(a)) if *d == a);
+            // Back-mutation: this branch's derived state is the SNP's ancestral allele —
+            // but only meaningful for a RECURRENT SNP (one that occurs on another branch,
+            // so there is something to revert). A single-origin SNP has nothing to back-
+            // mutate from, so a derived==ancestral coincidence there is a catalog strand
+            // artifact (e.g. Y18975, stored reverse-complemented by the inverted-block
+            // liftover: link T>A vs catalog A>T), not biology. Gate on `recurrent`.
+            let back_mutation = v.recurrent
+                && matches!((&v.link_derived, coord_ancestral(&v.coordinates)), (Some(d), Some(a)) if *d == a);
             let aliases = json_str_list(&v.aliases);
             // UNNAMED variants (homoplasy collisions) fall back to an alias.
             let name = v
@@ -383,23 +389,36 @@ async fn snp_sidebar(
         None => None,
     };
 
-    // Placed non-D2C sample leaves at or below this node (capped for the sidebar).
-    let mut leaves = du_db::tree_sample::samples_under(&st.pool, &name, dna_type).await?;
-    let samples_more = (leaves.len() as i64 - SIDEBAR_SAMPLE_CAP as i64).max(0);
-    leaves.truncate(SIDEBAR_SAMPLE_CAP);
-    let samples: Vec<LeafRow> = leaves
-        .into_iter()
-        .map(|s| {
-            let label = s.accession.or(s.alias).unwrap_or_else(|| s.sample_guid.to_string());
-            let citation = s.pub_title.map(|t| match s.pub_doi {
-                Some(doi) => format!("{t} ({doi})"),
-                None => t,
-            });
-            LeafRow { label, source: s.source, citation }
-        })
-        .collect();
+    // Reconstructed ancestral Y-STR motif (Y only) — the per-marker mutations on
+    // the branch leading into this node (parent→node), plus the motif size.
+    let (str_changes, str_motif_markers) = if matches!(dna_type, DnaType::YDna) {
+        let asr = du_db::ystr::branch_str_asr(&st.pool, &name).await?;
+        let changes = asr
+            .iter()
+            .filter(|m| m.changed())
+            .map(|m| StrChangeRow {
+                marker: m.marker_name.clone(),
+                from: m.parent_value.unwrap_or(m.ancestral_value),
+                to: m.ancestral_value,
+            })
+            .collect();
+        (changes, asr.len())
+    } else {
+        (Vec::new(), 0)
+    };
 
-    Ok(html(&SnpSidebar { t: locale.t, name, provenance, variants, samples, samples_more }))
+    // Count of placed non-D2C sample leaves at or below this node (shown instead of the list).
+    let sample_count = du_db::tree_sample::count_under(&st.pool, &name, dna_type).await?;
+
+    Ok(html(&SnpSidebar {
+        t: locale.t,
+        name,
+        provenance,
+        variants,
+        str_changes,
+        str_motif_markers,
+        sample_count,
+    }))
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────

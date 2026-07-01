@@ -37,6 +37,7 @@ pub mod research;
 pub mod test_type;
 pub mod sequencer;
 pub mod social;
+pub mod str_import;
 pub mod study;
 pub mod support;
 pub mod testing;

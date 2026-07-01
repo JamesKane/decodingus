@@ -100,6 +100,15 @@ impl Pdf {
         pdf
     }
 
+    /// Build a PDF from raw per-bin weights (normalised) — for custom priors such
+    /// as the Eq 25 population-size prior. `weights[i]` is the unnormalised weight
+    /// at age `i * res`.
+    pub fn from_weights(res: f64, weights: Vec<f64>) -> Pdf {
+        let mut p = Pdf { res, mass: weights };
+        p.normalize();
+        p
+    }
+
     /// A near-delta PDF at a precisely known age (e.g. a proven MRCA birth year).
     pub fn point(years: f64) -> Pdf {
         let mut pdf = Pdf::zeros(RESOLUTION_YEARS, MAX_AGE_YEARS);

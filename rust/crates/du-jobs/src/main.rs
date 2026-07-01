@@ -10,6 +10,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 mod ena;
+mod ftdna_str;
 mod jetstream;
 mod publications;
 mod scheduler;
@@ -122,8 +123,18 @@ async fn main() -> anyhow::Result<()> {
                 let rep = du_db::tree_sample::recompute_placements(&pool, du_domain::enums::DnaType::YDna).await?;
                 tracing::info!(placed = rep.placed, unplaced = rep.unplaced, "tree-samples-recompute complete (Y)");
             }
+            // Bulk-load FTDNA Y-STR exports into genomics.biosample_str_profile,
+            // matched to the cohort by kit→subject_id. Feeds the STR-variance age
+            // model (run `branch-age` after). Previews unless `--apply`.
+            "ftdna-str" => {
+                let args: Vec<String> = argv.collect();
+                let cfg = ftdna_str::Config::from_env(&args).ok_or_else(|| {
+                    anyhow::anyhow!("set FTDNA_STR_DIR + COHORT_MANIFEST")
+                })?;
+                ftdna_str::run(&pool, &cfg).await?;
+            }
             other => anyhow::bail!(
-                "unknown run-once job '{other}' (known: ybrowse, reconcile, yregions, branch-age, sequencer-consensus, discovery-consensus, coverage-norms, ibd-discovery-recompute, exchange-expire, tree-samples-recompute, dedup-candidates)"
+                "unknown run-once job '{other}' (known: ybrowse, reconcile, yregions, branch-age, ftdna-str, sequencer-consensus, discovery-consensus, coverage-norms, ibd-discovery-recompute, exchange-expire, tree-samples-recompute, dedup-candidates)"
             ),
         }
         return Ok(());

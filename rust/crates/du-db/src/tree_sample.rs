@@ -74,14 +74,31 @@ async fn recompute_placements_locked(pool: &PgPool, dna_type: DnaType) -> Result
     .into_iter()
     .collect();
 
+    // De-novo tree tips are placed by the loader (`denovo::load`) by tree *topology*,
+    // not by a published call — the sample sits under the node its lineage resolves to
+    // in the ML tree. This call-based recompute has no way to reproduce that placement
+    // (these cohort samples carry no Y/mt call under the keys `pick_original_call` reads),
+    // so it must not touch them: protect de-novo-origin biosamples from both the prune
+    // and any overwrite, exactly like CURATED. Without this, a single recompute (or the
+    // daily cron) silently wipes every topology tip. The loader stamps these biosamples
+    // with `source_attrs->>'denovo' = 'true'` at creation.
+    let denovo: std::collections::HashSet<Uuid> = sqlx::query_scalar::<_, Uuid>(
+        "SELECT sample_guid FROM core.biosample WHERE source_attrs->>'denovo' = 'true'",
+    )
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .collect();
+
     // Resolve each sample's call to a node id, caching by call text (calls repeat heavily).
     let mut cache: HashMap<String, Option<i64>> = HashMap::new();
     let mut processed: Vec<Uuid> = Vec::new();
     let mut placements: Vec<(Uuid, Option<i64>, String)> = Vec::new();
     let mut report = PlacementReport::default();
     for (guid, arr) in rows {
-        // Preserve curator placements: keep the row (protect from prune), don't re-resolve.
-        if curated.contains(&guid) {
+        // Preserve curator + de-novo-topology placements: keep the row (protect from
+        // prune), don't re-resolve or overwrite.
+        if curated.contains(&guid) || denovo.contains(&guid) {
             processed.push(guid);
             continue;
         }
@@ -285,5 +302,28 @@ pub async fn samples_under(pool: &PgPool, node_name: &str, dna_type: DnaType) ->
     .bind(node_name)
     .bind(pg_enum_label(&dna_type)?)
     .fetch_all(pool)
+    .await?)
+}
+
+/// Count of placed samples at-or-below a node — the same subtree/filters as [`samples_under`]
+/// but without materializing the rows or their publications (the sidebar shows just the count).
+pub async fn count_under(pool: &PgPool, node_name: &str, dna_type: DnaType) -> Result<i64, DbError> {
+    Ok(sqlx::query_scalar(
+        "WITH RECURSIVE sub AS ( \
+            SELECT id FROM tree.haplogroup \
+            WHERE name = $1 AND haplogroup_type::text = $2 AND valid_until IS NULL \
+            UNION ALL \
+            SELECT r.child_haplogroup_id FROM tree.haplogroup_relationship r \
+            JOIN sub ON r.parent_haplogroup_id = sub.id \
+            WHERE r.valid_until IS NULL \
+         ) \
+         SELECT count(*)::bigint FROM tree.haplogroup_sample hs \
+         JOIN sub ON sub.id = hs.haplogroup_id \
+         JOIN core.biosample b ON b.sample_guid = hs.sample_guid \
+         WHERE hs.dna_type::text = $2 AND hs.status IN ('PLACED','CURATED') AND b.deleted = false",
+    )
+    .bind(node_name)
+    .bind(pg_enum_label(&dna_type)?)
+    .fetch_one(pool)
     .await?)
 }

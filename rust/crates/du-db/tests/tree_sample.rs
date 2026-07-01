@@ -164,3 +164,57 @@ async fn places_non_d2c_samples_and_records_unplaced() {
         .unwrap();
     assert_eq!(curated, "CURATED", "curator placement preserved across recompute");
 }
+
+/// A de-novo tree tip is placed by the loader by topology (no published call). The
+/// call-based recompute must NOT prune or overwrite it — the biosample's
+/// `source_attrs->>'denovo' = 'true'` marker protects it, like CURATED. Regression for
+/// the "tree-samples-recompute wipes every de-novo tip" bug.
+#[tokio::test]
+async fn denovo_topology_tips_survive_recompute() {
+    let Some(url) = database_url() else {
+        eprintln!("DATABASE_URL unset — skipping denovo-tip test");
+        return;
+    };
+    let db = du_db::testing::ephemeral_db(&url).await.expect("ephemeral db");
+    let pool = db.pool().clone();
+
+    let node_id = node(&pool, "R-M269", &[]).await;
+
+    // A de-novo cohort tip: marked denovo, carries NO published Y call (empty
+    // original_haplogroups), and is placed at a node directly by the loader.
+    let guid: Uuid = sqlx::query_scalar(
+        "INSERT INTO core.biosample (source, accession, original_haplogroups, source_attrs) \
+         VALUES ('STANDARD'::core.biosample_source, 'DENOVO-TIP', '[]'::jsonb, \
+                 jsonb_build_object('denovo', true)) RETURNING sample_guid",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("insert denovo biosample");
+    sqlx::query(
+        "INSERT INTO tree.haplogroup_sample (sample_guid, dna_type, haplogroup_id, call_text, status, refreshed_at) \
+         VALUES ($1, 'Y_DNA'::core.dna_type, $2, 'R-M269', 'PLACED', now())",
+    )
+    .bind(guid)
+    .bind(node_id)
+    .execute(&pool)
+    .await
+    .expect("loader-style tip placement");
+
+    // Recompute (which finds no call for this sample) must leave the tip intact.
+    tree_sample::recompute_placements(&pool, DnaType::YDna).await.unwrap();
+
+    let (status, hid): (String, Option<i64>) =
+        sqlx::query_as("SELECT status, haplogroup_id FROM tree.haplogroup_sample WHERE sample_guid = $1")
+            .bind(guid)
+            .fetch_optional(&pool)
+            .await
+            .unwrap()
+            .expect("de-novo tip must survive recompute, not be pruned");
+    assert_eq!(status, "PLACED", "de-novo placement untouched");
+    assert_eq!(hid, Some(node_id), "still placed at its topology node");
+    assert_eq!(
+        tree_sample::counts_by_node(&pool, DnaType::YDna).await.unwrap().get(&node_id).copied(),
+        Some(1),
+        "de-novo tip still counts toward the node rollup",
+    );
+}
