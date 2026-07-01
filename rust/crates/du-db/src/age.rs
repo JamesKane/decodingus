@@ -385,12 +385,23 @@ async fn build_clades(pool: &PgPool) -> Result<(Vec<Clade>, Vec<i64>), DbError> 
         ""
     };
 
+    // Count ONLY single-nucleotide SNPs into the Poisson clock. The clock rate
+    // `SNP_RATE` (µ_SNP) is defined for SNPs; McDonald 2021 §2.2.1 permits indels/
+    // complex variants only "provided a mutation rate for them can be accurately
+    // defined" — i.e. as a *separate* evidence term (Eq 1) with its own µ, never
+    // folded into the SNP `m`. So exclude INDEL/DEL/INS/MNP/STR here. A node whose
+    // defining variants are ALL indels then has 0 age-countable SNPs and is handled
+    // as an age-transparent zero-length branch (see `branch_time`), exactly like the
+    // palindromic/empty backbone nodes. (A dedicated indel clock — µ_indel + its own
+    // callable denominator — is future work: documents/proposals/…-confidence-flags.md.)
+    let snp_only = "AND v.mutation_type = 'SNP'::core.mutation_type";
+
     // Branch defining-SNP counts (recurrent-region-masked, callable-mask-intersected).
     let mask = recurrent_mask();
     let branch: Vec<(i64, i64)> = sqlx::query_as(&format!(
         "SELECT hv.haplogroup_id, count(*)::bigint FROM tree.haplogroup_variant hv \
          JOIN core.variant v ON v.id=hv.variant_id \
-         WHERE hv.valid_until IS NULL AND NOT hv.low_confidence AND {mask} {callable_filter} GROUP BY hv.haplogroup_id"
+         WHERE hv.valid_until IS NULL AND NOT hv.low_confidence {snp_only} AND {mask} {callable_filter} GROUP BY hv.haplogroup_id"
     ))
     .fetch_all(pool)
     .await?;
@@ -411,7 +422,7 @@ async fn build_clades(pool: &PgPool) -> Result<(Vec<Clade>, Vec<i64>), DbError> 
          LEFT JOIN genomics.biosample_callable_loci cl \
             ON cl.sample_guid=pv.sample_guid AND cl.chromosome IN ('chrY','Y') \
          WHERE pv.status='ACTIVE' AND pv.haplogroup_type='Y_DNA'::core.dna_type \
-            AND pv.terminal_haplogroup_id IS NOT NULL AND {mask} {callable_filter} \
+            AND pv.terminal_haplogroup_id IS NOT NULL {snp_only} AND {mask} {callable_filter} \
          GROUP BY pv.terminal_haplogroup_id, pv.sample_guid"
     ))
     .fetch_all(pool)
@@ -986,6 +997,18 @@ mod tests {
         .unwrap()
     }
 
+    /// An indel variant — must be EXCLUDED from the SNP Poisson clock (McDonald §2.2.1).
+    async fn ins_indel(pool: &PgPool, name: &str) -> i64 {
+        sqlx::query_scalar(
+            "INSERT INTO core.variant (canonical_name, mutation_type, naming_status, annotations) \
+             VALUES ($1, 'INS'::core.mutation_type, 'NAMED'::core.naming_status, '{}'::jsonb) RETURNING id",
+        )
+        .bind(name)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+    }
+
     /// Seed a 3-node chain with one tester, run the whole pipeline, and check the
     /// het-mask, causality (parent older), and formed > tmrca — against real PG.
     #[tokio::test]
@@ -1019,6 +1042,12 @@ mod tests {
         }
         let hetdef = ins_var(&pool, "LEAFDEFHET", true).await;
         sqlx::query("INSERT INTO tree.haplogroup_variant (haplogroup_id, variant_id) VALUES ($1,$2)").bind(leaf).bind(hetdef).execute(&pool).await.unwrap();
+        // Two INDEL defining variants on the leaf branch — must NOT be counted into the
+        // SNP clock (they need their own rate; McDonald §2.2.1). branch_snps stays 3.
+        for i in 0..2 {
+            let v = ins_indel(&pool, &format!("LEAFINDEL{i}")).await;
+            sqlx::query("INSERT INTO tree.haplogroup_variant (haplogroup_id, variant_id) VALUES ($1,$2)").bind(leaf).bind(v).execute(&pool).await.unwrap();
+        }
 
         // One tester under leaf: 12.5 Mbp callable, 5 private SNPs + 1 het (masked).
         sqlx::query("INSERT INTO core.biosample (sample_guid, source) VALUES ($1::uuid, 'CITIZEN')").bind(GUID).execute(&pool).await.unwrap();
@@ -1029,12 +1058,15 @@ mod tests {
         }
         let hv = ins_var(&pool, "PRIVHET", true).await;
         sqlx::query("INSERT INTO tree.biosample_private_variant (sample_guid, variant_id, haplogroup_type, terminal_haplogroup_id) VALUES ($1::uuid,$2,'Y_DNA'::core.dna_type,$3)").bind(GUID).bind(hv).bind(leaf).execute(&pool).await.unwrap();
+        // An INDEL private variant — excluded from the tester's SNP count (stays 5).
+        let piv = ins_indel(&pool, "PRIVINDEL").await;
+        sqlx::query("INSERT INTO tree.biosample_private_variant (sample_guid, variant_id, haplogroup_type, terminal_haplogroup_id) VALUES ($1::uuid,$2,'Y_DNA'::core.dna_type,$3)").bind(GUID).bind(piv).bind(leaf).execute(&pool).await.unwrap();
 
         // (a) build_clades: het-masking + structure.
         let (clades, ids) = build_clades(&pool).await.unwrap();
         let at = |id: i64| ids.iter().position(|&x| x == id).unwrap();
-        assert_eq!(clades[at(leaf)].tester_snps, vec![(5, 12_500_000.0)], "het private SNP masked → 5 counted, with its callable bp");
-        assert_eq!(clades[at(leaf)].branch_snps, 3, "het defining SNP masked → 3");
+        assert_eq!(clades[at(leaf)].tester_snps, vec![(5, 12_500_000.0)], "het private SNP masked + INDEL private excluded → 5 counted, with its callable bp");
+        assert_eq!(clades[at(leaf)].branch_snps, 3, "het defining SNP masked + 2 INDEL defining excluded → 3");
         assert!(clades[at(mid)].children.contains(&at(leaf)));
         assert!(clades[at(root)].children.contains(&at(mid)));
         assert!((clades[at(leaf)].callable_bp - 12_500_000.0).abs() < 1.0);
