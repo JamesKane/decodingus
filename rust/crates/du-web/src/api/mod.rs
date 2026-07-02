@@ -234,6 +234,7 @@ fn pathway_dto(call: &du_db::biosample::HaplogroupCall, p: du_db::haplogroup::Pa
         origin: match call.origin {
             HaplogroupCallOrigin::Reconciled => "RECONCILED",
             HaplogroupCallOrigin::FedConsensus => "FED_CONSENSUS",
+            HaplogroupCallOrigin::TreePlacement => "TREE_PLACEMENT",
             HaplogroupCallOrigin::Original => "ORIGINAL",
         }
         .to_string(),

@@ -386,6 +386,9 @@ struct Repoint {
 const REPOINTS: &[Repoint] = &[
     Repoint { table: "fed.pds_submission", cols: &["biosample_guid"], action: Action::Simple },
     Repoint { table: "genomics.biosample_callable_loci", cols: &["sample_guid"], action: Action::Simple },
+    // STR profile is 1-per-sample (mig 0053), keyed by sample_guid — keep the
+    // survivor's if it already has one, else adopt the merged sample's.
+    Repoint { table: "genomics.biosample_str_profile", cols: &["sample_guid"], action: Action::KeepSurvivor(&[]) },
     Repoint { table: "genomics.genotype_data", cols: &["sample_guid"], action: Action::Simple },
     Repoint { table: "genomics.reported_variant_pangenome", cols: &["sample_guid"], action: Action::Simple },
     Repoint { table: "genomics.sequence_library", cols: &["sample_guid"], action: Action::Simple },
@@ -527,14 +530,16 @@ pub async fn merge_biosamples(
             }
             Action::KeepSurvivor(others) => {
                 let col = r.cols[0];
-                let on = others
+                // Extra AND-clauses that make a merged row a *duplicate* of a survivor
+                // row. Empty ⇒ the table is unique on `col` alone (1-per-sample), so the
+                // mere existence of a survivor row makes the merged one a duplicate.
+                let extra = others
                     .iter()
-                    .map(|oc| format!("s.{oc} = m.{oc}"))
-                    .collect::<Vec<_>>()
-                    .join(" AND ");
+                    .map(|oc| format!(" AND s.{oc} = m.{oc}"))
+                    .collect::<String>();
                 let dropped = sqlx::query(&format!(
                     "DELETE FROM {t} m WHERE m.{col} = $2 \
-                     AND EXISTS (SELECT 1 FROM {t} s WHERE s.{col} = $1 AND {on})",
+                     AND EXISTS (SELECT 1 FROM {t} s WHERE s.{col} = $1{extra})",
                     t = r.table
                 ))
                 .bind(survivor)

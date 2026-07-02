@@ -57,6 +57,9 @@ struct PathwayView {
     placed: bool,
     /// True when the call is the cross-technology reconciliation consensus.
     reconciled: bool,
+    /// True when the call comes from the sample's de-novo tree placement (it was a
+    /// building block) rather than a published/federated call.
+    from_tree: bool,
     /// Consensus reliability for a reconciled call (formatted; "" when absent).
     confidence: String,
     run_count: String,
@@ -232,6 +235,7 @@ fn build_pathway(call: Option<&HaplogroupCall>, pathway: Option<Pathway>) -> Pat
             call: None,
             placed: false,
             reconciled: false,
+            from_tree: false,
             confidence: String::new(),
             run_count: String::new(),
             concordance: String::new(),
@@ -261,6 +265,7 @@ fn build_pathway(call: Option<&HaplogroupCall>, pathway: Option<Pathway>) -> Pat
         call: Some(call.name.clone()),
         placed: !steps.is_empty(),
         reconciled: call.origin == du_db::biosample::HaplogroupCallOrigin::Reconciled,
+        from_tree: call.origin == du_db::biosample::HaplogroupCallOrigin::TreePlacement,
         confidence: pct(call.confidence),
         run_count: call.run_count.map(|n| n.to_string()).unwrap_or_default(),
         concordance: pct(call.snp_concordance),

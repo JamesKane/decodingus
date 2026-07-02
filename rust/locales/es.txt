@@ -476,6 +476,7 @@ sample.ydna.title=Linaje Y-DNA
 sample.mtdna.title=Linaje mtDNA
 sample.pathway.noCall=No hay haplogrupo asignado para esta muestra.
 sample.pathway.unplaced=El haplogrupo asignado aún no está ubicado en el árbol.
+sample.pathway.fromTree=De la ubicación en el árbol de-novo
 sample.recon.consensus=Consenso entre tecnologías
 sample.recon.runs=ejecuciones
 sample.recon.confidence=confianza

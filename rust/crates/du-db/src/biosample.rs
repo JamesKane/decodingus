@@ -131,6 +131,10 @@ pub enum HaplogroupCallOrigin {
     Reconciled,
     /// `fed.biosample.y/mt_haplogroup` (a single Navigator call, not reconciled).
     FedConsensus,
+    /// `tree.haplogroup_sample` — the node this sample sits under in the decoding-us
+    /// de-novo tree. The sample was used as a tree building block, so its tip position
+    /// is an authoritative assignment (preferred over the raw publication call).
+    TreePlacement,
     /// `core.biosample.original_haplogroups` (per-publication original call).
     Original,
 }
@@ -427,53 +431,69 @@ pub async fn report_by_guid(pool: &PgPool, guid: SampleGuid) -> Result<Option<Sa
         }
     }
 
+    // ── Q2c: de-novo tree placement, resolved at the DONOR level. When any biosample
+    // of this individual was used as a tree building block, the loader recorded the
+    // terminal node in tree.haplogroup_sample (PLACED for a topology tip, CURATED for
+    // a curator pin). Because the placement lives on the tip biosample — a *sibling*
+    // of this catalog accession under the same specimen_donor — we resolve it across
+    // all of the donor's biosamples, preferring this sample's own placement, then a
+    // curator pin. This is what surfaces the assignment on every accession of the donor.
+    let mut placed_y: Option<String> = None;
+    let mut placed_mt: Option<String> = None;
+    {
+        #[derive(sqlx::FromRow)]
+        struct PlaceRow {
+            dna_type: Option<String>,
+            name: Option<String>,
+        }
+        let rows: Vec<PlaceRow> = sqlx::query_as(
+            "SELECT DISTINCT ON (hs.dna_type) hs.dna_type::text AS dna_type, h.name \
+             FROM tree.haplogroup_sample hs \
+             JOIN core.biosample b2 ON b2.sample_guid = hs.sample_guid \
+             JOIN tree.haplogroup h ON h.id = hs.haplogroup_id AND h.valid_until IS NULL \
+             WHERE hs.status IN ('PLACED', 'CURATED') \
+               AND (b2.sample_guid = $1 \
+                    OR b2.donor_id = (SELECT donor_id FROM core.biosample WHERE sample_guid = $1 AND donor_id IS NOT NULL)) \
+             ORDER BY hs.dna_type, (b2.sample_guid = $1) DESC, (hs.status = 'CURATED') DESC, b2.sample_guid",
+        )
+        .bind(guid.0)
+        .fetch_all(pool)
+        .await?;
+        for r in rows {
+            match r.dna_type.as_deref() {
+                Some("Y_DNA") => placed_y = r.name,
+                Some("MT_DNA") => placed_mt = r.name,
+                _ => {}
+            }
+        }
+    }
+
+    // A plain (no-reliability) call from a name + origin — for the non-reconciled sources.
+    let plain = |name: String, dna_type: DnaType, origin: HaplogroupCallOrigin| HaplogroupCall {
+        name,
+        dna_type,
+        origin,
+        confidence: None,
+        run_count: None,
+        snp_concordance: None,
+        compatibility_level: None,
+    };
+
     // Call precedence: cross-technology consensus, else the single federated call,
-    // else the newest original publication call.
+    // else the de-novo tree placement, else the newest original publication call.
     let y = reconciled_call(recon_y, DnaType::YDna)
+        .or_else(|| fed_y.map(|n| plain(n, DnaType::YDna, HaplogroupCallOrigin::FedConsensus)))
+        .or_else(|| placed_y.map(|n| plain(n, DnaType::YDna, HaplogroupCallOrigin::TreePlacement)))
         .or_else(|| {
-            fed_y.map(|name| HaplogroupCall {
-                name,
-                dna_type: DnaType::YDna,
-                origin: HaplogroupCallOrigin::FedConsensus,
-                confidence: None,
-                run_count: None,
-                snp_concordance: None,
-                compatibility_level: None,
-            })
-        })
-        .or_else(|| {
-            pick_original_call(&idr.original_haplogroups, "y", "y_result").map(|name| HaplogroupCall {
-                name,
-                dna_type: DnaType::YDna,
-                origin: HaplogroupCallOrigin::Original,
-                confidence: None,
-                run_count: None,
-                snp_concordance: None,
-                compatibility_level: None,
-            })
+            pick_original_call(&idr.original_haplogroups, "y", "y_result")
+                .map(|n| plain(n, DnaType::YDna, HaplogroupCallOrigin::Original))
         });
     let mt = reconciled_call(recon_mt, DnaType::MtDna)
+        .or_else(|| fed_mt.map(|n| plain(n, DnaType::MtDna, HaplogroupCallOrigin::FedConsensus)))
+        .or_else(|| placed_mt.map(|n| plain(n, DnaType::MtDna, HaplogroupCallOrigin::TreePlacement)))
         .or_else(|| {
-            fed_mt.map(|name| HaplogroupCall {
-                name,
-                dna_type: DnaType::MtDna,
-                origin: HaplogroupCallOrigin::FedConsensus,
-                confidence: None,
-                run_count: None,
-                snp_concordance: None,
-                compatibility_level: None,
-            })
-        })
-        .or_else(|| {
-            pick_original_call(&idr.original_haplogroups, "mt", "mt_result").map(|name| HaplogroupCall {
-                name,
-                dna_type: DnaType::MtDna,
-                origin: HaplogroupCallOrigin::Original,
-                confidence: None,
-                run_count: None,
-                snp_concordance: None,
-                compatibility_level: None,
-            })
+            pick_original_call(&idr.original_haplogroups, "mt", "mt_result")
+                .map(|n| plain(n, DnaType::MtDna, HaplogroupCallOrigin::Original))
         });
 
     // ── Q3/Q4/Q5: federated sequencing, coverage, ancestry (only when linked) ──
