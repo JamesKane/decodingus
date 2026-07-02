@@ -369,31 +369,73 @@ pub async fn for_haplogroup_name(pool: &PgPool, name: &str) -> Result<Vec<Varian
 /// trip. Backs the tree-with-variants ("full") tree API, which embeds each node's variants
 /// so a client (the Navigator desktop app) can build a placement tree without a per-node
 /// fetch. Current edges only (`valid_until IS NULL`); unnamed variants excluded.
+/// Every named defining variant per haplogroup, each paired with this branch's
+/// ancestral/derived alleles from `tree.haplogroup_variant` (the per-branch ASR
+/// polarity — authoritative over the variant's global coordinate polarity for
+/// descent classification; NULL ⇒ forward/legacy link, fall back to coordinates).
+///
+/// Fetched as two passes joined in-process, NOT one big join. A recurrent SNP maps
+/// to many branches, so the whole-tree join produces ~100k links over ~5k nodes; the
+/// planner badly underestimates that fanout and picks a nested loop that random-reads
+/// the wide `core.variant` heap (JSONB coordinates/annotations) once *per link* — plus
+/// a disk-spilling sort. Instead: (1) pull the narrow link rows, (2) read each distinct
+/// referenced variant exactly once by id, (3) stitch + sort in Rust. One sequential
+/// variant scan instead of ~200k random fetches.
 pub async fn for_dna_type_grouped(
     pool: &PgPool,
     dna_type: DnaType,
-) -> Result<Vec<(i64, Variant)>, DbError> {
+) -> Result<Vec<(i64, Variant, Option<String>, Option<String>)>, DbError> {
+    use std::collections::HashMap;
+
+    // (1) Narrow link rows: haplogroup ↔ variant with this branch's ASR alleles. No JSONB,
+    //     no heap fetch of core.variant — just the current Y links.
     #[derive(sqlx::FromRow)]
-    struct GroupedRow {
+    struct LinkRow {
         haplogroup_id: i64,
-        #[sqlx(flatten)]
-        variant: VariantRow,
+        variant_id: i64,
+        link_ancestral: Option<String>,
+        link_derived: Option<String>,
     }
-    let rows: Vec<GroupedRow> = sqlx::query_as(
-        "SELECT hv.haplogroup_id, v.id, v.canonical_name, v.mutation_type::text AS mutation_type, \
-                v.naming_status::text AS naming_status, v.aliases, v.coordinates, v.annotations \
-         FROM core.variant v \
-         JOIN tree.haplogroup_variant hv ON hv.variant_id = v.id AND hv.valid_until IS NULL \
+    let links: Vec<LinkRow> = sqlx::query_as(
+        "SELECT hv.haplogroup_id, hv.variant_id, \
+                hv.ancestral_allele AS link_ancestral, hv.derived_allele AS link_derived \
+         FROM tree.haplogroup_variant hv \
          JOIN tree.haplogroup h ON h.id = hv.haplogroup_id \
-         WHERE h.haplogroup_type::text = $1 AND h.valid_until IS NULL AND v.canonical_name IS NOT NULL \
-         ORDER BY hv.haplogroup_id, v.canonical_name",
+         WHERE h.haplogroup_type::text = $1 AND h.valid_until IS NULL AND hv.valid_until IS NULL",
     )
     .bind(pg_enum_label(&dna_type)?)
     .fetch_all(pool)
     .await?;
-    rows.into_iter()
-        .map(|r| Ok((r.haplogroup_id, r.variant.into_domain()?)))
-        .collect()
+
+    // (2) Each distinct referenced variant, once. Named-only (matches the prior join's
+    //     `v.canonical_name IS NOT NULL`); unnamed ids simply won't resolve below.
+    let mut ids: Vec<i64> = links.iter().map(|l| l.variant_id).collect();
+    ids.sort_unstable();
+    ids.dedup();
+    let variant_rows: Vec<VariantRow> = sqlx::query_as(&format!(
+        "{SELECT} WHERE id = ANY($1::bigint[]) AND canonical_name IS NOT NULL"
+    ))
+    .bind(&ids)
+    .fetch_all(pool)
+    .await?;
+    let mut by_id: HashMap<i64, Variant> = HashMap::with_capacity(variant_rows.len());
+    for r in variant_rows {
+        by_id.insert(r.id, r.into_domain()?);
+    }
+
+    // (3) Stitch links to variants (clone — a recurrent variant fans out to many branches),
+    //     dropping links whose variant was unnamed/absent. Sort to the prior contract
+    //     (haplogroup_id, canonical_name) in Rust — cheap vs Postgres's external-merge sort.
+    let mut out: Vec<(i64, Variant, Option<String>, Option<String>)> = links
+        .into_iter()
+        .filter_map(|l| {
+            by_id
+                .get(&l.variant_id)
+                .map(|v| (l.haplogroup_id, v.clone(), l.link_ancestral, l.link_derived))
+        })
+        .collect();
+    out.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.canonical_name.cmp(&b.1.canonical_name)));
+    Ok(out)
 }
 
 /// Total NAMED variant count (for the export metadata endpoint).

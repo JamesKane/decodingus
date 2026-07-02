@@ -570,6 +570,9 @@ mod tests {
             coordinates: serde_json::json!({
                 "hs1": {"contig": "chrY", "position": 2_800_000, "ancestral": "A", "derived": "G"}
             }),
+            // Per-branch ASR polarity, reverse of the global coordinate here (the flip case).
+            link_ancestral: Some("G".into()),
+            link_derived: Some("A".into()),
         };
         let node = HaplogroupNodeDto {
             id: 10,
@@ -589,6 +592,10 @@ mod tests {
         assert_eq!(var["canonical_name"], "M207");
         assert_eq!(var["coordinates"]["hs1"]["position"], 2_800_000);
         assert_eq!(var["coordinates"]["hs1"]["derived"], "G");
+        // Per-branch ASR polarity is served and is the authoritative pole for descent
+        // classification (here it's the reverse of the coordinate's global A>G).
+        assert_eq!(var["link_ancestral"], "G");
+        assert_eq!(var["link_derived"], "A");
     }
 
     #[test]

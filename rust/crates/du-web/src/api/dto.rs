@@ -42,6 +42,18 @@ pub struct VariantDto {
     pub rs_ids: Vec<String>,
     /// Coordinates keyed by reference build: `{ "GRCh38": {contig, position, ...} }`.
     pub coordinates: serde_json::Value,
+    /// This branch's ancestral allele (per-branch ASR transition). **Prefer this over
+    /// `coordinates.<build>.ancestral` when present** — the coordinate blob carries a
+    /// single global polarity per variant that can disagree with the branch's actual
+    /// direction (recurrent SNPs, back-mutations, reference-frame), so classifying a
+    /// descendant's genotype against it flips ~18% of backbone calls. NULL ⇒ forward/
+    /// legacy link; fall back to the coordinate alleles. Populated only by `/full`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link_ancestral: Option<String>,
+    /// This branch's derived allele — the state a descendant carries. Prefer over
+    /// `coordinates.<build>.derived`; see [`link_ancestral`](Self::link_ancestral).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link_derived: Option<String>,
 }
 
 impl From<du_domain::variant::Variant> for VariantDto {
@@ -55,6 +67,10 @@ impl From<du_domain::variant::Variant> for VariantDto {
             common_names: v.aliases.common_names,
             rs_ids: v.aliases.rs_ids,
             coordinates,
+            // Per-branch link is not a property of the variant itself; the tree `/full`
+            // path fills it from `tree.haplogroup_variant`. Plain variant lists leave it None.
+            link_ancestral: None,
+            link_derived: None,
         }
     }
 }
