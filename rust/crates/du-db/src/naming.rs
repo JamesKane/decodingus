@@ -45,12 +45,16 @@ fn mode_predicate(mode: &str) -> &'static str {
         // The imported backlog: has a name but DU hasn't ratified it.
         "UNNAMED" => "v.naming_status = 'UNNAMED' AND v.canonical_name IS NOT NULL",
         "all" => "TRUE",
-        // needs_name (default): the actionable naming backlog. A canonical name is
-        // (name + the branch it defines), so only a variant that DEFINES a branch is
-        // nameable — branch-less catalog rows are reference data, not naming work.
-        // "Needs a name" = defines a branch AND has no real name yet: no name, a
-        // synthetic coordinate placeholder (`chrY:pos…`), or flagged for review.
+        // needs_name (default): the actionable naming backlog. The DU authority names
+        // Y-DNA variants only — mtDNA variants are identified by their [anc]pos[der]
+        // coordinate string and never get a DU name, so they're excluded. A canonical
+        // name is (name + the branch it defines), so only a variant that DEFINES a
+        // (Y) branch is nameable — branch-less catalog rows are reference data, not
+        // naming work. "Needs a name" = defines a Y branch AND has no real name yet:
+        // no name, a synthetic coordinate placeholder (`chrY:pos…`), or flagged.
         _ => "v.defining_haplogroup_id IS NOT NULL \
+              AND EXISTS (SELECT 1 FROM tree.haplogroup h \
+                          WHERE h.id = v.defining_haplogroup_id AND h.haplogroup_type = 'Y_DNA'::core.dna_type) \
               AND (v.canonical_name IS NULL OR v.canonical_name LIKE 'chr%:%' \
                    OR v.naming_status = 'PENDING_REVIEW')",
     }
