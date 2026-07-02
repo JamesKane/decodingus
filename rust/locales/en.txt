@@ -592,6 +592,16 @@ ip.notice.accepted=Accepted — lab set:
 ip.notice.rejected=Proposal rejected.
 ip.resolved=Resolved
 ip.resolved.note=This proposal has been resolved.
+ip.tab.proposals=Proposals
+ip.tab.established=Established
+il.search=Search instrument, model, or lab…
+il.select=Select an instrument to maintain its lab.
+il.none=No instruments.
+il.unassigned=Unassigned
+il.lab_name=Lab
+il.save=Save
+il.save.hint=Sets the instrument's lab (what the public lookup resolves).
+il.notice.saved=Saved — lab set:
 
 # Per-sample public report (samples/report.html)
 sample.identity.title=Sample

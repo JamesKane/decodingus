@@ -453,6 +453,16 @@ ip.notice.accepted=Aceptada — laboratorio fijado:
 ip.notice.rejected=Propuesta rechazada.
 ip.resolved=Resuelta
 ip.resolved.note=Esta propuesta se ha resuelto.
+ip.tab.proposals=Propuestas
+ip.tab.established=Establecidas
+il.search=Buscar instrumento, modelo o laboratorio…
+il.select=Seleccione un instrumento para mantener su laboratorio.
+il.none=Sin instrumentos.
+il.unassigned=Sin asignar
+il.lab_name=Laboratorio
+il.save=Guardar
+il.save.hint=Establece el laboratorio del instrumento (lo que resuelve la búsqueda pública).
+il.notice.saved=Guardado — laboratorio establecido:
 
 # Informe público por muestra (samples/report.html)
 sample.identity.title=Muestra

@@ -613,3 +613,161 @@ pub async fn reject_proposal(
     tx.commit().await?;
     Ok(row)
 }
+
+// ── established associations (maintenance) ────────────────────────────────────
+//
+// The consensus queue above is for *new* proposals mined from the federation.
+// These functions expose the already-established instrument→lab associations
+// (preseeded via migration, or ratified via accept) so a curator can maintain
+// them directly — reassign the lab, fix the model/manufacturer — without going
+// through a proposal.
+
+/// An established instrument→lab association row for the maintenance view.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct EstablishedRow {
+    pub id: i64,
+    pub instrument_id: String,
+    pub model_name: Option<String>,
+    pub manufacturer: Option<String>,
+    pub lab_id: Option<i64>,
+    pub lab_name: Option<String>,
+    pub is_d2c: Option<bool>,
+}
+
+const ESTABLISHED_COLS: &str = "si.id, si.instrument_id, si.model_name, si.manufacturer, \
+    si.lab_id, sl.name AS lab_name, sl.is_d2c";
+
+/// Paginated list of every sequencer instrument and its current lab, for the
+/// curator maintenance view. Optional case-insensitive substring `query` matches
+/// instrument id, model, manufacturer, or lab name. Unassigned instruments (no
+/// lab) sort first — they're the ones most in need of attention.
+pub async fn list_established(
+    pool: &PgPool,
+    query: Option<&str>,
+    page: i64,
+    page_size: i64,
+) -> Result<Page<EstablishedRow>, DbError> {
+    let offset = Page::<()>::offset(page, page_size);
+    let limit = page_size.clamp(1, 200);
+    let like = query
+        .map(str::trim)
+        .filter(|q| !q.is_empty())
+        .map(|q| format!("%{}%", q.to_lowercase()));
+    const WHERE: &str = "($1::text IS NULL \
+        OR lower(si.instrument_id) LIKE $1 \
+        OR lower(coalesce(si.model_name, '')) LIKE $1 \
+        OR lower(coalesce(si.manufacturer, '')) LIKE $1 \
+        OR lower(coalesce(sl.name, '')) LIKE $1)";
+    let items: Vec<EstablishedRow> = sqlx::query_as(&format!(
+        "SELECT {ESTABLISHED_COLS} \
+         FROM genomics.sequencer_instrument si \
+         LEFT JOIN genomics.sequencing_lab sl ON sl.id = si.lab_id \
+         WHERE {WHERE} \
+         ORDER BY sl.name NULLS FIRST, si.instrument_id \
+         LIMIT $2 OFFSET $3"
+    ))
+    .bind(like.as_deref())
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(pool)
+    .await?;
+    let total: i64 = sqlx::query_scalar(&format!(
+        "SELECT count(*) FROM genomics.sequencer_instrument si \
+         LEFT JOIN genomics.sequencing_lab sl ON sl.id = si.lab_id WHERE {WHERE}"
+    ))
+    .bind(like.as_deref())
+    .fetch_one(pool)
+    .await?;
+    Ok(Page { items, total, page: page.max(1), page_size: limit })
+}
+
+/// One established association, by `sequencer_instrument.id` (for the edit form).
+pub async fn established_detail(pool: &PgPool, id: i64) -> Result<Option<EstablishedRow>, DbError> {
+    Ok(sqlx::query_as(&format!(
+        "SELECT {ESTABLISHED_COLS} \
+         FROM genomics.sequencer_instrument si \
+         LEFT JOIN genomics.sequencing_lab sl ON sl.id = si.lab_id \
+         WHERE si.id = $1"
+    ))
+    .bind(id)
+    .fetch_optional(pool)
+    .await?)
+}
+
+/// A lab the curator can reassign an instrument to (dropdown / datalist source).
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct LabOption {
+    pub id: i64,
+    pub name: String,
+    pub is_d2c: bool,
+}
+
+/// Every known lab, alphabetical — for the reassignment picker.
+pub async fn list_labs(pool: &PgPool) -> Result<Vec<LabOption>, DbError> {
+    Ok(sqlx::query_as("SELECT id, name, is_d2c FROM genomics.sequencing_lab ORDER BY name")
+        .fetch_all(pool)
+        .await?)
+}
+
+/// **Maintain** an established association directly (no proposal): get-or-create
+/// the named lab, set the instrument's `lab_id` (what `lookup_lab` resolves) plus
+/// its model/manufacturer, audited. Mirrors [`accept_proposal`] minus the proposal
+/// bookkeeping. Keyed by `sequencer_instrument.id`. Returns the resolved lookup.
+pub async fn update_instrument_lab(
+    pool: &PgPool,
+    user_id: Uuid,
+    id: i64,
+    lab_name: &str,
+    manufacturer: Option<&str>,
+    model: Option<&str>,
+    is_d2c: Option<bool>,
+) -> Result<LabLookup, DbError> {
+    let mut tx = pool.begin().await?;
+    let before: LabLookup = sqlx::query_as(
+        "SELECT si.instrument_id, coalesce(sl.name, '') AS lab_name, coalesce(sl.is_d2c, false) AS is_d2c, \
+                sl.website_url, si.manufacturer, si.model_name \
+         FROM genomics.sequencer_instrument si \
+         LEFT JOIN genomics.sequencing_lab sl ON sl.id = si.lab_id \
+         WHERE si.id = $1 FOR UPDATE OF si",
+    )
+    .bind(id)
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or_else(|| DbError::Conflict(format!("instrument {id} not found")))?;
+
+    let lab_id = get_or_create_lab(&mut tx, lab_name, is_d2c.unwrap_or(false)).await?;
+    // Only touch an existing lab's d2c flag when the curator explicitly set it — an
+    // omitted flag must not silently clear a preseeded lab's is_d2c (which is shared
+    // by every other instrument tied to that lab). Mirrors accept_proposal.
+    if let Some(d2c) = is_d2c {
+        sqlx::query("UPDATE genomics.sequencing_lab SET is_d2c = $2 WHERE id = $1")
+            .bind(lab_id)
+            .bind(d2c)
+            .execute(&mut *tx)
+            .await?;
+    }
+    sqlx::query(
+        "UPDATE genomics.sequencer_instrument \
+         SET lab_id = $2, manufacturer = COALESCE($3, manufacturer), model_name = COALESCE($4, model_name) \
+         WHERE id = $1",
+    )
+    .bind(id)
+    .bind(lab_id)
+    .bind(manufacturer)
+    .bind(model)
+    .execute(&mut *tx)
+    .await?;
+    let hit: LabLookup = sqlx::query_as(
+        "SELECT si.instrument_id, sl.name AS lab_name, sl.is_d2c, sl.website_url, si.manufacturer, si.model_name \
+         FROM genomics.sequencer_instrument si JOIN genomics.sequencing_lab sl ON sl.id = si.lab_id \
+         WHERE si.id = $1",
+    )
+    .bind(id)
+    .fetch_one(&mut *tx)
+    .await?;
+    let old = json!({ "lab_name": before.lab_name, "manufacturer": before.manufacturer, "model_name": before.model_name });
+    let new = json!({ "instrument_id": hit.instrument_id, "lab_name": hit.lab_name, "is_d2c": hit.is_d2c, "manufacturer": hit.manufacturer, "model_name": hit.model_name });
+    crate::audit::log(&mut *tx, user_id, "sequencer_instrument", id, "REASSIGN_LAB", Some(&old), Some(&new), None).await?;
+    tx.commit().await?;
+    Ok(hit)
+}

@@ -1,0 +1,32 @@
+{# Fragment: established instrument→lab rows. Target of #established-table. #}
+<table class="table table-hover table-sm align-middle">
+  <thead><tr>
+    <th>{{ t.get("ip.col.instrument") }}</th>
+    <th>{{ t.get("ip.col.model") }}</th>
+    <th>{{ t.get("ip.col.lab") }}</th>
+  </tr></thead>
+  <tbody>
+    {% for r in list.rows %}
+    <tr class="tree-node" hx-get="/curator/instrument-labs/{{ r.id }}/panel" hx-target="#established-detail" hx-swap="innerHTML">
+      <td><strong>{{ r.instrument_id }}</strong></td>
+      <td><small class="text-muted">{{ r.model }}</small></td>
+      <td>{% if r.unassigned %}<span class="badge text-bg-warning">{{ t.get("il.unassigned") }}</span>{% else %}<small>{{ r.lab }}</small>{% endif %}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="3" class="detail-empty">{{ t.get("il.none") }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% if list.total_pages > 1 %}
+<nav class="d-flex justify-content-between align-items-center">
+  {# Only `page` in the URL — the search `query` comes from the inherited
+     hx-include="#il-q" on #established-table (duplicating it here → 400). #}
+  <button class="btn btn-sm btn-outline-secondary{% if list.page <= 1 %} disabled{% endif %}"
+          hx-get="/curator/instrument-labs/fragment?page={{ list.page - 1 }}" hx-target="#established-table">{{ t.get("pagination.previous") }}</button>
+  <small class="text-muted">{{ t.get("pagination.page") }} {{ list.page }} {{ t.get("pagination.of") }} {{ list.total_pages }} ({{ list.total }})</small>
+  <button class="btn btn-sm btn-outline-secondary{% if list.page >= list.total_pages %} disabled{% endif %}"
+          hx-get="/curator/instrument-labs/fragment?page={{ list.page + 1 }}" hx-target="#established-table">{{ t.get("pagination.next") }}</button>
+</nav>
+{% else %}
+<small class="text-muted">{{ list.total }} {{ t.get("pagination.total") }}</small>
+{% endif %}
