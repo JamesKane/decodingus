@@ -73,6 +73,21 @@ fn is_state_changing(m: &Method) -> bool {
     matches!(*m, Method::POST | Method::PUT | Method::PATCH | Method::DELETE)
 }
 
+/// Dev-only escape hatch: when `DU_DISABLE_CSRF` is set to a truthy value, skip CSRF
+/// enforcement (the `csrf` cookie is still issued). **Never set this in production** —
+/// it exists so local smoke-testing of the native-form credential login/logout works
+/// while the double-submit token is header-only. Read once at startup.
+fn csrf_disabled() -> bool {
+    use std::sync::OnceLock;
+    static DISABLED: OnceLock<bool> = OnceLock::new();
+    *DISABLED.get_or_init(|| {
+        matches!(
+            std::env::var("DU_DISABLE_CSRF").ok().as_deref(),
+            Some("1") | Some("true") | Some("TRUE") | Some("yes")
+        )
+    })
+}
+
 /// Read the `csrf` cookie value out of the request's `Cookie` header.
 fn csrf_cookie(req: &Request) -> Option<String> {
     req.headers()
@@ -95,7 +110,7 @@ pub async fn csrf_protect(req: Request, next: Next) -> Response {
     let cookie_token = csrf_cookie(&req);
     let exempt = req.uri().path().starts_with("/api/v1/");
 
-    if is_state_changing(req.method()) && !exempt {
+    if is_state_changing(req.method()) && !exempt && !csrf_disabled() {
         let header_token = req.headers().get("x-csrf-token").and_then(|v| v.to_str().ok());
         let valid = matches!((&cookie_token, header_token), (Some(c), Some(h)) if c == h);
         if !valid {

@@ -8,6 +8,11 @@
   <link href="/assets/vendor/bootstrap-icons.min.css" rel="stylesheet">
   <link href="/assets/main.css" rel="stylesheet">
   <script src="/assets/vendor/htmx.min.js"></script>
+  {# Bootstrap loads in <head> (deferred), NOT at end of <body>: hx-boost swaps the
+     whole body on every nav, and a <script> inside that body re-executes on each
+     swap — stacking duplicate Bootstrap event-delegation listeners (dropdowns/
+     toggles double-fire and break). In <head> it runs once and survives boosts. #}
+  <script src="/assets/vendor/bootstrap.bundle.min.js" defer></script>
   <script src="/assets/app.js" defer></script>
   {% block head %}{% endblock %}
 </head>
@@ -25,7 +30,7 @@
           <li class="nav-item"><a class="nav-link" href="/mtree">{{ t.get("nav.mtree") }}</a></li>
           <li class="nav-item"><a class="nav-link" href="/references">{{ t.get("nav.references") }}</a></li>
           <li class="nav-item dropdown">
-            <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">{{ t.get("nav.tools") }}</a>
+            <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false" hx-boost="false">{{ t.get("nav.tools") }}</a>
             <ul class="dropdown-menu">
               <li><a class="dropdown-item" href="/variants"><i class="bi bi-search me-2"></i>{{ t.get("nav.variants") }}</a></li>
               <li><a class="dropdown-item" href="/coverage-benchmarks"><i class="bi bi-bar-chart me-2"></i>{{ t.get("nav.coverage") }}</a></li>
@@ -36,7 +41,7 @@
         </ul>
         <ul class="navbar-nav ms-auto">
           <li class="nav-item dropdown">
-            <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+            <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false" hx-boost="false">
               <i class="bi bi-translate me-1"></i>{{ t.get("lang.label") }}
             </a>
             <ul class="dropdown-menu dropdown-menu-end">
@@ -51,7 +56,7 @@
           {% endif %}
           <li class="nav-item"><a class="nav-link" href="/notifications" title="{{ t.get("nav.notifications") }}"><i class="bi bi-bell"></i><span hx-get="/notifications/unread-count" hx-trigger="load, every 60s" hx-swap="innerHTML"></span></a></li>
           <li class="nav-item dropdown">
-            <a class="nav-link dropdown-toggle d-flex align-items-center" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+            <a class="nav-link dropdown-toggle d-flex align-items-center" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false" hx-boost="false">
               <i class="bi bi-person-circle me-1"></i>{{ u.display_name }}
             </a>
             <ul class="dropdown-menu dropdown-menu-end">
@@ -107,7 +112,6 @@
       </span>
     </div>
   </div>
-  <script src="/assets/vendor/bootstrap.bundle.min.js"></script>
   {% block scripts %}{% endblock %}
 </body>
 </html>

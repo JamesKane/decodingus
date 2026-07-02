@@ -5,8 +5,95 @@
   <h1 class="display-5 fw-bold">{{ t.get("home.heading") }}</h1>
   <p class="lead col-lg-8 mx-auto">{{ t.get("home.lead") }}</p>
   <div class="d-grid gap-2 d-sm-flex justify-content-sm-center mt-4">
-    <a class="btn btn-primary btn-lg px-4" href="/ytree">{{ t.get("home.cta.tree") }}</a>
-    <a class="btn btn-outline-secondary btn-lg px-4" href="/variants">{{ t.get("home.cta.variants") }}</a>
+    <a class="btn btn-primary btn-lg px-4" href="/ytree"><i class="bi bi-diagram-3 me-2"></i>{{ t.get("home.cta.ytree") }}</a>
+    <a class="btn btn-primary btn-lg px-4" href="/mtree"><i class="bi bi-diagram-3 me-2"></i>{{ t.get("home.cta.mtree") }}</a>
+    <a class="btn btn-outline-secondary btn-lg px-4" href="/variants"><i class="bi bi-search me-2"></i>{{ t.get("home.cta.variants") }}</a>
   </div>
 </div>
+
+{# ── What is Decoding Us? (the ecosystem) ───────────────────────────────── #}
+<section class="py-4 border-top">
+  <div class="col-lg-9 mx-auto">
+    <h2 class="h3 text-center mb-2">{{ t.get("home.eco.title") }}</h2>
+    <p class="text-center text-muted col-lg-10 mx-auto mb-4">{{ t.get("home.eco.intro") }}</p>
+    <div class="row g-4">
+      <div class="col-md-4">
+        <div class="card h-100 border-0 shadow-sm">
+          <div class="card-body">
+            <div class="fs-2 text-primary mb-2"><i class="bi bi-diagram-3"></i></div>
+            <h3 class="h6 fw-bold">{{ t.get("home.eco.trees.title") }}</h3>
+            <p class="small text-muted mb-0">{{ t.get("home.eco.trees.body") }}</p>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="card h-100 border-0 shadow-sm">
+          <div class="card-body">
+            <div class="fs-2 text-primary mb-2"><i class="bi bi-database"></i></div>
+            <h3 class="h6 fw-bold">{{ t.get("home.eco.catalog.title") }}</h3>
+            <p class="small text-muted mb-0">{{ t.get("home.eco.catalog.body") }}</p>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="card h-100 border-0 shadow-sm">
+          <div class="card-body">
+            <div class="fs-2 text-primary mb-2"><i class="bi bi-shield-lock"></i></div>
+            <h3 class="h6 fw-bold">{{ t.get("home.eco.discovery.title") }}</h3>
+            <p class="small text-muted mb-0">{{ t.get("home.eco.discovery.body") }}</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+{# ── How to participate ─────────────────────────────────────────────────── #}
+<section class="py-4 border-top">
+  <div class="col-lg-9 mx-auto">
+    <h2 class="h3 text-center mb-2">{{ t.get("home.participate.title") }}</h2>
+    <p class="text-center text-muted col-lg-10 mx-auto mb-4">{{ t.get("home.participate.intro") }}</p>
+    <div class="row g-4">
+      <div class="col-md-6">
+        <div class="d-flex gap-3">
+          <div class="fs-4 text-primary"><i class="bi bi-compass"></i></div>
+          <div>
+            <h3 class="h6 fw-bold mb-1">{{ t.get("home.participate.explore.title") }}</h3>
+            <p class="small text-muted mb-0">{{ t.get("home.participate.explore.body") }}</p>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-6">
+        <div class="d-flex gap-3">
+          <div class="fs-4 text-primary"><i class="bi bi-cpu"></i></div>
+          <div>
+            <h3 class="h6 fw-bold mb-1">{{ t.get("home.participate.contribute.title") }}</h3>
+            <p class="small text-muted mb-0">{{ t.get("home.participate.contribute.body") }}</p>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-6">
+        <div class="d-flex gap-3">
+          <div class="fs-4 text-primary"><i class="bi bi-key"></i></div>
+          <div>
+            <h3 class="h6 fw-bold mb-1">{{ t.get("home.participate.own.title") }}</h3>
+            <p class="small text-muted mb-0">{{ t.get("home.participate.own.body") }}</p>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-6">
+        <div class="d-flex gap-3">
+          <div class="fs-4 text-primary"><i class="bi bi-people"></i></div>
+          <div>
+            <h3 class="h6 fw-bold mb-1">{{ t.get("home.participate.collab.title") }}</h3>
+            <p class="small text-muted mb-0">{{ t.get("home.participate.collab.body") }}</p>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="text-center mt-4">
+      <a class="btn btn-outline-primary" href="/about">{{ t.get("home.participate.learn") }}</a>
+    </div>
+  </div>
+</section>
 {% endblock %}

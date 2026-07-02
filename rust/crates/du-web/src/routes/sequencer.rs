@@ -12,7 +12,8 @@ use crate::htmx::HxHeaders;
 use crate::i18n::{Locale, T};
 use crate::render::html;
 use crate::state::AppState;
-use axum::extract::{Path, Query, State};
+use crate::extract::Query;
+use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Form, Json, Router};
@@ -32,6 +33,12 @@ pub fn router() -> Router<AppState> {
         .route("/curator/instrument-proposals/:id/panel", get(ui_panel))
         .route("/curator/instrument-proposals/:id/accept", post(ui_accept))
         .route("/curator/instrument-proposals/:id/reject", post(ui_reject))
+        // "Established" tab: maintain already-associated instrument→lab mappings
+        // directly (distinct path prefix so it never collides with the `:id` routes
+        // above). Same page, second pane.
+        .route("/curator/instrument-labs/fragment", get(ui_established_list))
+        .route("/curator/instrument-labs/:id/panel", get(ui_established_panel))
+        .route("/curator/instrument-labs/:id", post(ui_established_update))
 }
 
 fn proposal_json(p: &ProposalView) -> Value {
@@ -391,6 +398,160 @@ async fn ui_reject(
         .ok_or_else(|| AppError::NotFound(format!("reviewable proposal {id}")))?;
     let notice = locale.t.get("ip.notice.rejected").to_string();
     changed_response(&st, locale.t, id, Some(notice)).await
+}
+
+// ── "Established" maintenance tab ────────────────────────────────────────────
+
+const ESTABLISHED_CHANGED: &str = "established-changed";
+
+struct EstablishedRow {
+    id: i64,
+    instrument_id: String,
+    model: String,
+    lab: String,
+    /// True when the instrument has no lab yet — flagged for the curator's eye.
+    unassigned: bool,
+}
+
+struct EstablishedList {
+    rows: Vec<EstablishedRow>,
+    page: i64,
+    total: i64,
+    total_pages: i64,
+}
+
+#[derive(Deserialize)]
+struct EstablishedQuery {
+    query: Option<String>,
+    page: Option<i64>,
+}
+
+async fn load_established(st: &AppState, q: &EstablishedQuery) -> Result<EstablishedList, AppError> {
+    let page = du_db::sequencer::list_established(&st.pool, q.query.as_deref(), q.page.unwrap_or(1), 25).await?;
+    let (cur_page, total, total_pages) = (page.page, page.total, page.total_pages());
+    Ok(EstablishedList {
+        rows: page
+            .items
+            .into_iter()
+            .map(|r| EstablishedRow {
+                id: r.id,
+                instrument_id: r.instrument_id,
+                model: r.model_name.unwrap_or_default(),
+                lab: r.lab_name.clone().unwrap_or_default(),
+                unassigned: r.lab_name.is_none(),
+            })
+            .collect(),
+        page: cur_page,
+        total,
+        total_pages,
+    })
+}
+
+#[derive(askama::Template)]
+#[template(path = "curator/instrument-proposals/established-list.html")]
+struct EstablishedListTemplate {
+    t: T,
+    list: EstablishedList,
+}
+
+async fn ui_established_list(
+    _c: Curator,
+    State(st): State<AppState>,
+    locale: Locale,
+    Query(q): Query<EstablishedQuery>,
+) -> Result<Response, AppError> {
+    let list = load_established(&st, &q).await?;
+    Ok(html(&EstablishedListTemplate { t: locale.t, list }))
+}
+
+struct EstablishedDetail {
+    id: i64,
+    instrument_id: String,
+    lab: String,
+    manufacturer: String,
+    model: String,
+    is_d2c: bool,
+    unassigned: bool,
+    /// Existing lab names for the reassignment datalist.
+    labs: Vec<String>,
+    notice: Option<String>,
+}
+
+#[derive(askama::Template)]
+#[template(path = "curator/instrument-proposals/established-detail.html")]
+struct EstablishedDetailTemplate {
+    t: T,
+    e: EstablishedDetail,
+}
+
+async fn build_established_detail(st: &AppState, id: i64, notice: Option<String>) -> Result<EstablishedDetail, AppError> {
+    let r = du_db::sequencer::established_detail(&st.pool, id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("instrument {id}")))?;
+    let labs = du_db::sequencer::list_labs(&st.pool).await?.into_iter().map(|l| l.name).collect();
+    Ok(EstablishedDetail {
+        id: r.id,
+        instrument_id: r.instrument_id,
+        lab: r.lab_name.clone().unwrap_or_default(),
+        manufacturer: r.manufacturer.unwrap_or_default(),
+        model: r.model_name.unwrap_or_default(),
+        is_d2c: r.is_d2c.unwrap_or(false),
+        unassigned: r.lab_name.is_none(),
+        labs,
+        notice,
+    })
+}
+
+async fn established_detail_response(st: &AppState, t: T, id: i64, notice: Option<String>) -> Result<Response, AppError> {
+    Ok(html(&EstablishedDetailTemplate { t, e: build_established_detail(st, id, notice).await? }))
+}
+
+async fn ui_established_panel(
+    _c: Curator,
+    State(st): State<AppState>,
+    locale: Locale,
+    Path(id): Path<i64>,
+) -> Result<Response, AppError> {
+    established_detail_response(&st, locale.t, id, None).await
+}
+
+#[derive(Deserialize)]
+struct EstablishedForm {
+    lab_name: String,
+    manufacturer: Option<String>,
+    model: Option<String>,
+    /// Checkbox: present only when ticked (absent ⇒ leave the lab's flag untouched).
+    is_d2c: Option<String>,
+}
+
+async fn ui_established_update(
+    Curator(s): Curator,
+    State(st): State<AppState>,
+    locale: Locale,
+    Path(id): Path<i64>,
+    Form(f): Form<EstablishedForm>,
+) -> Result<Response, AppError> {
+    let lab_name = f.lab_name.trim();
+    if lab_name.is_empty() {
+        return Err(AppError::BadRequest("lab_name is required".into()));
+    }
+    let clean = |o: Option<String>| o.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+    let manufacturer = clean(f.manufacturer);
+    let model = clean(f.model);
+    let is_d2c = f.is_d2c.map(|_| true); // ticked ⇒ Some(true); absent ⇒ None
+    let hit = du_db::sequencer::update_instrument_lab(
+        &st.pool,
+        s.user_id,
+        id,
+        lab_name,
+        manufacturer.as_deref(),
+        model.as_deref(),
+        is_d2c,
+    )
+    .await?;
+    let notice = format!("{} {}", locale.t.get("il.notice.saved"), hit.lab_name);
+    let body = established_detail_response(&st, locale.t, id, Some(notice)).await?;
+    Ok((HxHeaders::new().trigger(ESTABLISHED_CHANGED), body).into_response())
 }
 
 #[cfg(test)]

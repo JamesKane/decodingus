@@ -74,8 +74,11 @@ async fn build_tree(st: &AppState, dna: DnaType, root: Option<&str>) -> Result<T
 async fn build_tree_full(st: &AppState, dna: DnaType, root: Option<&str>) -> Result<TreeDto, AppError> {
     let nodes = du_db::haplogroup::subtree(&st.pool, dna, root).await?;
     let mut variants: HashMap<i64, Vec<VariantDto>> = HashMap::new();
-    for (hid, v) in du_db::variant::for_dna_type_grouped(&st.pool, dna).await? {
-        variants.entry(hid).or_default().push(VariantDto::from(v));
+    for (hid, v, link_ancestral, link_derived) in du_db::variant::for_dna_type_grouped(&st.pool, dna).await? {
+        // Carry the per-branch ASR polarity so the descent report classifies against the
+        // branch's actual ancestral→derived direction, not the variant's global coordinate
+        // polarity (which flips ~18% of backbone calls). See VariantDto::link_ancestral.
+        variants.entry(hid).or_default().push(VariantDto { link_ancestral, link_derived, ..VariantDto::from(v) });
     }
     let counts = du_db::tree_sample::counts_by_node(&st.pool, dna).await?;
     Ok(TreeDto { roots: assemble_forest(nodes, &variants, &counts) })

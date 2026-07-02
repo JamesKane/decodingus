@@ -13,6 +13,10 @@
     {% if pv.confidence != "" %}<span>{{ t.get("sample.recon.confidence") }} {{ pv.confidence }}</span>{% endif %}
     {% if pv.concordance != "" %}<span>{{ t.get("sample.recon.concordance") }} {{ pv.concordance }}</span>{% endif %}
   </div>
+  {% else if pv.from_tree %}
+  <div class="card-header py-1 bg-light small text-muted">
+    <span class="badge text-bg-info">{{ t.get("sample.pathway.fromTree") }}</span>
+  </div>
   {% endif %}
   {% if pv.call.is_none() %}
   <div class="card-body small text-muted">{{ t.get("sample.pathway.noCall") }}</div>

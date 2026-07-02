@@ -8,7 +8,8 @@
     {% if let Some(n) = v.notice %}<div class="alert alert-info py-2 px-3 small mb-3">{{ n }}</div>{% endif %}
 
     <dl class="row mb-2 small">
-      <dt class="col-4">{{ t.get("nm.coord") }}</dt><dd class="col-8">{{ v.coord }}</dd>
+      <dt class="col-4">{{ t.get("nm.coord") }}</dt><dd class="col-8">{{ v.coord }} <span class="badge text-bg-light">{{ v.coord_build }}</span></dd>
+      <dt class="col-4">{{ t.get("nm.mut") }}</dt><dd class="col-8"><span class="font-monospace">{{ v.alleles }}</span></dd>
       <dt class="col-4">{{ t.get("nm.type") }}</dt><dd class="col-8">{{ v.mutation_type }}</dd>
       {% if let Some(d) = v.defining %}<dt class="col-4">{{ t.get("nm.defines") }}</dt><dd class="col-8"><code>{{ d }}</code></dd>{% endif %}
       {% if !v.aliases.is_empty() %}
@@ -27,9 +28,20 @@
 
     {% if v.can_assign %}
     <div class="d-flex gap-2 flex-wrap">
+      {% if let Some(name) = v.established %}
+      {# Named by definition: an established (ISOGG/YBrowse) name exists for this
+         locus + mutation state — reuse it rather than mint a new DU identifier. #}
+      <button class="btn btn-sm btn-success"
+              hx-post="/curator/naming/{{ v.id }}/adopt" hx-target="#naming-detail" hx-swap="innerHTML"
+              hx-confirm="{{ t.get("nm.adopt.confirm") }} {{ name }}?">{{ t.get("nm.adopt") }} {{ name }}</button>
+      <button class="btn btn-sm btn-outline-secondary"
+              hx-post="/curator/naming/{{ v.id }}/assign" hx-target="#naming-detail" hx-swap="innerHTML"
+              hx-confirm="{{ t.get("nm.assign.confirm") }}">{{ t.get("nm.assign") }}</button>
+      {% else %}
       <button class="btn btn-sm btn-success"
               hx-post="/curator/naming/{{ v.id }}/assign" hx-target="#naming-detail" hx-swap="innerHTML"
               hx-confirm="{{ t.get("nm.assign.confirm") }}">{{ t.get("nm.assign") }}</button>
+      {% endif %}
       {% if v.status != "PENDING_REVIEW" %}
       <button class="btn btn-sm btn-outline-secondary"
               hx-post="/curator/naming/{{ v.id }}/status" hx-vals='{"status":"PENDING_REVIEW"}'

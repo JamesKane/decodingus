@@ -1,0 +1,38 @@
+{# Fragment: established instrument→lab edit panel. Target of #established-detail. #}
+<div class="card">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <strong>{{ e.instrument_id }}</strong>
+    {% if e.unassigned %}<span class="badge text-bg-warning">{{ t.get("il.unassigned") }}</span>{% else %}<span class="badge text-bg-primary">{{ e.lab }}</span>{% endif %}
+  </div>
+  <div class="card-body">
+    {% if let Some(n) = e.notice %}<div class="alert alert-success py-2 px-3 small mb-3">{{ n }}</div>{% endif %}
+
+    <form hx-post="/curator/instrument-labs/{{ e.id }}" hx-target="#established-detail" hx-swap="innerHTML">
+      <div class="mb-2">
+        <label class="form-label small mb-0">{{ t.get("il.lab_name") }}</label>
+        {# Datalist: pick an existing lab or type a new name. #}
+        <input type="text" name="lab_name" class="form-control form-control-sm" list="il-labs"
+               value="{{ e.lab }}" required autocomplete="off">
+        <datalist id="il-labs">
+          {% for l in e.labs %}<option value="{{ l }}">{% endfor %}
+        </datalist>
+      </div>
+      <div class="row g-2 mb-2">
+        <div class="col">
+          <label class="form-label small mb-0">{{ t.get("ip.manufacturer") }}</label>
+          <input type="text" name="manufacturer" class="form-control form-control-sm" value="{{ e.manufacturer }}">
+        </div>
+        <div class="col">
+          <label class="form-label small mb-0">{{ t.get("ip.model") }}</label>
+          <input type="text" name="model" class="form-control form-control-sm" value="{{ e.model }}">
+        </div>
+      </div>
+      <div class="form-check mb-2">
+        <input type="checkbox" name="is_d2c" value="true" class="form-check-input" id="il-d2c"{% if e.is_d2c %} checked{% endif %}>
+        <label class="form-check-label small" for="il-d2c">{{ t.get("ip.is_d2c") }}</label>
+      </div>
+      <button class="btn btn-sm btn-success">{{ t.get("il.save") }}</button>
+      <span class="small text-muted ms-2">{{ t.get("il.save.hint") }}</span>
+    </form>
+  </div>
+</div>

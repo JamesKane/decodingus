@@ -21,6 +21,14 @@
   </tbody>
 </table>
 {% if list.total_pages > 1 %}
-<p class="small text-muted">{{ t.get("inbox.page") }} {{ list.page }} / {{ list.total_pages }} · {{ list.total }}</p>
+{# #thread-table has no hx-include, so the status filter is carried in the URL
+   alongside page (no duplicate-key risk). #}
+<nav class="d-flex justify-content-between align-items-center">
+  <button class="btn btn-sm btn-outline-secondary{% if list.page <= 1 %} disabled{% endif %}"
+          hx-get="/curator/inbox/fragment?status={{ list.status }}&page={{ list.page - 1 }}" hx-target="#thread-table">{{ t.get("pagination.previous") }}</button>
+  <small class="text-muted">{{ t.get("inbox.page") }} {{ list.page }} / {{ list.total_pages }} · {{ list.total }}</small>
+  <button class="btn btn-sm btn-outline-secondary{% if list.page >= list.total_pages %} disabled{% endif %}"
+          hx-get="/curator/inbox/fragment?status={{ list.status }}&page={{ list.page + 1 }}" hx-target="#thread-table">{{ t.get("pagination.next") }}</button>
+</nav>
 {% endif %}
 {% endif %}

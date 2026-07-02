@@ -436,9 +436,31 @@ pub async fn load(pool: &PgPool, doc: &DenovoTree, keep_private: bool) -> Result
             _ => ("STANDARD", false),
         };
         let attrs = json!({ "cohort": tip.cohort, "sex": tip.sex, "denovo": true });
+        // Resolve the donor (the entity that links one individual's biosample rows):
+        // if a catalog accession already carries this panel id as its alias/accession,
+        // reuse that donor so the tip joins the same person instead of forming a
+        // donor-less orphan; else create a donor keyed by the panel id. This keeps the
+        // tip donor-linked across reloads (consolidate-donors still merges the case
+        // where the individual has more than one catalog donor).
+        let donor_id: i64 = sqlx::query_scalar(
+            "WITH existing AS ( \
+                 SELECT donor_id FROM core.biosample \
+                 WHERE donor_id IS NOT NULL AND deleted = false \
+                   AND (lower(alias) = lower($1) OR lower(accession) = lower($1)) \
+                 ORDER BY (source_attrs->>'denovo' = 'true') ASC, donor_id LIMIT 1), \
+             ins AS ( \
+                 INSERT INTO core.specimen_donor (donor_identifier, donor_type) \
+                 SELECT $1, $2::core.biosample_source WHERE NOT EXISTS (SELECT 1 FROM existing) \
+                 RETURNING id) \
+             SELECT donor_id FROM existing UNION ALL SELECT id FROM ins LIMIT 1",
+        )
+        .bind(&tip.sample)
+        .bind(src)
+        .fetch_one(&mut *tx)
+        .await?;
         let guid: Uuid = match sqlx::query_scalar(
-            "INSERT INTO core.biosample (source, accession, center_name, source_attrs, is_public) \
-             VALUES ($1::core.biosample_source, $2, $3, $4, $5) \
+            "INSERT INTO core.biosample (source, accession, center_name, source_attrs, is_public, donor_id) \
+             VALUES ($1::core.biosample_source, $2, $3, $4, $5, $6) \
              ON CONFLICT (accession) WHERE accession IS NOT NULL DO NOTHING RETURNING sample_guid",
         )
         .bind(src)
@@ -446,6 +468,7 @@ pub async fn load(pool: &PgPool, doc: &DenovoTree, keep_private: bool) -> Result
         .bind(tip.cohort.as_deref())
         .bind(&attrs)
         .bind(is_public)
+        .bind(donor_id)
         .fetch_optional(&mut *tx)
         .await?
         {
@@ -454,10 +477,15 @@ pub async fn load(pool: &PgPool, doc: &DenovoTree, keep_private: bool) -> Result
                 g
             }
             None => {
-                sqlx::query_scalar("SELECT sample_guid FROM core.biosample WHERE accession = $1")
-                    .bind(&tip.sample)
-                    .fetch_one(&mut *tx)
-                    .await?
+                // Already present (reload): backfill a missing donor link.
+                sqlx::query_scalar(
+                    "UPDATE core.biosample SET donor_id = COALESCE(donor_id, $2), updated_at = now() \
+                     WHERE accession = $1 RETURNING sample_guid",
+                )
+                .bind(&tip.sample)
+                .bind(donor_id)
+                .fetch_one(&mut *tx)
+                .await?
             }
         };
         let call = tip.terminal_label.clone().unwrap_or_else(|| tip.sample.clone());

@@ -123,6 +123,21 @@ async fn main() -> anyhow::Result<()> {
                 let rep = du_db::tree_sample::recompute_placements(&pool, du_domain::enums::DnaType::YDna).await?;
                 tracing::info!(placed = rep.placed, unplaced = rep.unplaced, "tree-samples-recompute complete (Y)");
             }
+            // One-shot backfill: link every biosample of one individual — the multiple
+            // publication accessions AND the de-novo tree tip — under a single donor,
+            // pruning the redundant donor rows. The sample report then resolves the
+            // haplogroup at the donor level (surfacing the tip's tree placement on every
+            // accession). Grouped by shared panel id (tip.accession == ref.alias).
+            // Previews unless `--apply`.
+            "consolidate-donors" => {
+                let apply = argv.any(|a| a == "--apply");
+                let rep = du_db::donor::consolidate_denovo_donors(&pool, apply).await?;
+                tracing::info!(
+                    apply, groups = rep.groups, biosamples_repointed = rep.biosamples_repointed,
+                    donors_pruned = rep.donors_pruned,
+                    "consolidate-donors complete{}", if apply { "" } else { " (preview — pass --apply to consolidate)" }
+                );
+            }
             // Bulk-load FTDNA Y-STR exports into genomics.biosample_str_profile,
             // matched to the cohort by kit→subject_id. Feeds the STR-variance age
             // model (run `branch-age` after). Previews unless `--apply`.
@@ -134,7 +149,7 @@ async fn main() -> anyhow::Result<()> {
                 ftdna_str::run(&pool, &cfg).await?;
             }
             other => anyhow::bail!(
-                "unknown run-once job '{other}' (known: ybrowse, reconcile, yregions, branch-age, ftdna-str, sequencer-consensus, discovery-consensus, coverage-norms, ibd-discovery-recompute, exchange-expire, tree-samples-recompute, dedup-candidates)"
+                "unknown run-once job '{other}' (known: ybrowse, reconcile, yregions, branch-age, ftdna-str, sequencer-consensus, discovery-consensus, coverage-norms, ibd-discovery-recompute, exchange-expire, tree-samples-recompute, dedup-candidates, consolidate-donors)"
             ),
         }
         return Ok(());

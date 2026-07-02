@@ -19,6 +19,7 @@ pub mod coverage;
 pub mod dedup;
 pub mod denovo;
 pub mod discovery;
+pub mod donor;
 pub mod exchange;
 pub mod fed;
 pub mod genome_region;

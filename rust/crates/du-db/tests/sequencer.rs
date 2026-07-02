@@ -20,6 +20,17 @@ async fn lab(pool: &PgPool, name: &str, d2c: bool, web: Option<&str>) -> i64 {
     .expect("insert lab")
 }
 
+/// A curator user — reassignments write an audit row (FK to ident.users).
+async fn test_user(pool: &PgPool) -> uuid::Uuid {
+    sqlx::query_scalar(
+        "INSERT INTO ident.users (handle, display_name) VALUES ('testmaint-curator', 'Test Curator') \
+         ON CONFLICT (handle) DO UPDATE SET display_name = EXCLUDED.display_name RETURNING id",
+    )
+    .fetch_one(pool)
+    .await
+    .expect("test user")
+}
+
 async fn instrument(pool: &PgPool, iid: &str, model: Option<&str>, manuf: Option<&str>, lab_id: Option<i64>) {
     sqlx::query(
         "INSERT INTO genomics.sequencer_instrument (instrument_id, model_name, manufacturer, lab_id) \
@@ -67,6 +78,65 @@ async fn lookup_resolves_preseeded_association() {
     let all = du_db::sequencer::lab_instruments(&pool).await.expect("list");
     assert!(all.iter().any(|i| i.instrument_id == "ACME-T1"));
     assert!(!all.iter().any(|i| i.instrument_id == "M01234"));
+}
+
+/// The "Established" maintenance surface: list all instrument→lab associations
+/// (incl. unassigned), open one, and reassign its lab directly (no proposal).
+#[tokio::test]
+async fn established_maintenance_flow() {
+    let Some(url) = database_url() else {
+        eprintln!("DATABASE_URL unset — skipping established test");
+        return;
+    };
+    let db = du_db::testing::ephemeral_db(&url).await.expect("ephemeral db");
+    let pool = db.pool().clone();
+    let user = test_user(&pool).await;
+
+    let acme = lab(&pool, "Acme Test Sequencing", false, None).await;
+    instrument(&pool, "ACME-T1", Some("NovaSeq 6000"), Some("Illumina"), Some(acme)).await;
+    // An unassigned instrument — must surface in the maintenance list (unlike lookup).
+    instrument(&pool, "MAINT-UN1", Some("MiSeq"), Some("Illumina"), None).await;
+
+    // Search narrows to our test instruments; the unassigned one is included.
+    let page = du_db::sequencer::list_established(&pool, Some("maint-un1"), 1, 50).await.expect("list");
+    let un = page.items.iter().find(|r| r.instrument_id == "MAINT-UN1").expect("unassigned listed");
+    assert!(un.lab_name.is_none(), "unassigned instrument has no lab");
+
+    // The lab picker offers our seeded/test labs.
+    let labs = du_db::sequencer::list_labs(&pool).await.expect("labs");
+    assert!(labs.iter().any(|l| l.name == "Acme Test Sequencing"));
+
+    // Reassign the unassigned instrument to an existing lab — sets what the public
+    // lookup resolves, and is auditable.
+    let hit = du_db::sequencer::update_instrument_lab(
+        &pool, user, un.id, "Acme Test Sequencing", None, Some("MiSeq v3"), None,
+    )
+    .await
+    .expect("reassign");
+    assert_eq!(hit.lab_name, "Acme Test Sequencing");
+    // lookup now resolves it (was None before).
+    let resolved = du_db::sequencer::lookup_lab(&pool, "MAINT-UN1").await.unwrap().expect("now resolves");
+    assert_eq!(resolved.lab_name, "Acme Test Sequencing");
+    assert_eq!(resolved.model_name.as_deref(), Some("MiSeq v3"), "model updated");
+
+    // Typing a brand-new lab name creates it and reassigns in one step.
+    let a1 = du_db::sequencer::established_detail(&pool, un.id).await.unwrap().unwrap();
+    let hit2 = du_db::sequencer::update_instrument_lab(
+        &pool, user, a1.id, "Brand New Lab Co", Some("BGI"), None, Some(true),
+    )
+    .await
+    .expect("reassign to new lab");
+    assert_eq!(hit2.lab_name, "Brand New Lab Co");
+    assert!(hit2.is_d2c, "explicit d2c flag applied to the new lab");
+    // The audit trail recorded the reassignment.
+    let audited: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM ident.audit_log WHERE entity_type = 'sequencer_instrument' AND action = 'REASSIGN_LAB' AND entity_id = $1",
+    )
+    .bind(a1.id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(audited >= 2, "two reassignments audited, got {audited}");
 }
 
 /// The 0038 seed preloads the YDNA-Warehouse d2c instrument→lab map (n_crams>2, max-lab).
