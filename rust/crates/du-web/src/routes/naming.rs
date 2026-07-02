@@ -24,23 +24,55 @@ pub fn router() -> Router<AppState> {
         .route("/curator/naming/fragment", get(list))
         .route("/curator/naming/:id/panel", get(panel))
         .route("/curator/naming/:id/assign", post(assign))
+        .route("/curator/naming/:id/adopt", post(adopt))
         .route("/curator/naming/:id/status", post(status))
 }
 
 // ── helpers ─────────────────────────────────────────────────────────────────
 
-/// "chrY:2781234" from the GRCh38 coordinate JSONB, or "—".
-fn coord_label(coords: &serde_json::Value) -> String {
-    let g = coords.get("GRCh38");
-    match g {
-        Some(g) => {
-            let contig = g.get("contig").and_then(|v| v.as_str());
-            let pos = g.get("position").and_then(|v| v.as_str().map(str::to_string).or_else(|| v.as_i64().map(|n| n.to_string())));
-            match (contig, pos) {
-                (Some(c), Some(p)) => format!("{c}:{p}"),
-                _ => "—".into(),
-            }
+/// Pick the coordinate build to display, **preferring `hs1`** — the platform-native
+/// T2T-CHM13 assembly the de-novo catalog is built on — then GRCh38, then whatever
+/// build is present. Returns the build name and its coordinate object.
+fn pick_build(coords: &serde_json::Value) -> Option<(String, &serde_json::Value)> {
+    let obj = coords.as_object()?;
+    for b in ["hs1", "GRCh38"] {
+        if let Some(v) = obj.get(b) {
+            return Some((b.to_string(), v));
         }
+    }
+    obj.iter().next().map(|(k, v)| (k.clone(), v))
+}
+
+/// A JSONB string-or-integer field as a string (positions may be either).
+fn field_str(v: &serde_json::Value, key: &str) -> Option<String> {
+    v.get(key)
+        .and_then(|x| x.as_str().map(str::to_string).or_else(|| x.as_i64().map(|n| n.to_string())))
+}
+
+/// "chrY:2781234" from the preferred-build coordinate JSONB (hs1 first), or "—".
+fn coord_label(coords: &serde_json::Value) -> String {
+    match pick_build(coords) {
+        Some((_, g)) => match (g.get("contig").and_then(|v| v.as_str()), field_str(g, "position")) {
+            (Some(c), Some(p)) => format!("{c}:{p}"),
+            _ => "—".into(),
+        },
+        None => "—".into(),
+    }
+}
+
+/// The build name whose coordinate `coord_label` displayed (e.g. "hs1"), or "—".
+fn coord_build(coords: &serde_json::Value) -> String {
+    pick_build(coords).map(|(b, _)| b).unwrap_or_else(|| "—".into())
+}
+
+/// The mutation state "G→A" (ancestral→derived) from the preferred build — what the
+/// curator needs to name a variant — or "—".
+fn allele_label(coords: &serde_json::Value) -> String {
+    match pick_build(coords) {
+        Some((_, g)) => match (field_str(g, "ancestral"), field_str(g, "derived")) {
+            (Some(a), Some(d)) => format!("{a}→{d}"),
+            _ => "—".into(),
+        },
         None => "—".into(),
     }
 }
@@ -60,6 +92,7 @@ struct Row {
     name: String,
     status: String,
     coord: String,
+    alleles: String,
     defining: String,
 }
 
@@ -89,6 +122,7 @@ async fn load_list(st: &AppState, q: &ListQuery) -> Result<ListView, AppError> {
             name: i.canonical_name.unwrap_or_else(|| "(unnamed)".into()),
             status: i.naming_status,
             coord: coord_label(&i.coordinates),
+            alleles: allele_label(&i.coordinates),
             defining: i.defining.unwrap_or_else(|| "—".into()),
         })
         .collect();
@@ -147,10 +181,14 @@ struct DetailView {
     status: String,
     mutation_type: String,
     coord: String,
+    coord_build: String,
+    alleles: String,
     aliases: Vec<String>,
     defining: Option<String>,
     dedup: Vec<Candidate>,
     can_assign: bool,
+    /// Established (non-DU) name to reuse, if this variant is named by definition.
+    established: Option<String>,
     notice: Option<String>,
 }
 
@@ -165,21 +203,32 @@ async fn build_detail(st: &AppState, id: i64, notice: Option<String>) -> Result<
     let i = du_db::naming::get(&st.pool, id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("variant {id}")))?;
-    let dedup = du_db::naming::dedup_by_coordinates(&st.pool, id)
+    let dedup = du_db::naming::dedup_by_site(&st.pool, id)
         .await?
         .into_iter()
         .map(|(_, name)| Candidate { name })
         .collect();
+    let can_assign = i.naming_status != "NAMED";
+    // "Named by definition": the variant already carries an established (non-DU)
+    // name for its locus+mutation-state — reuse it rather than mint a new DU id.
+    let established = if can_assign && i.canonical_name.is_none() {
+        du_db::naming::established_name(&i.aliases)
+    } else {
+        None
+    };
     Ok(DetailView {
         id: i.id,
         name: i.canonical_name.clone(),
         status: i.naming_status.clone(),
         mutation_type: i.mutation_type,
         coord: coord_label(&i.coordinates),
+        coord_build: coord_build(&i.coordinates),
+        alleles: allele_label(&i.coordinates),
         aliases: common_names(&i.aliases),
         defining: i.defining,
         dedup,
-        can_assign: i.naming_status != "NAMED",
+        can_assign,
+        established,
         notice,
     })
 }
@@ -213,6 +262,22 @@ async fn assign(
 ) -> Result<Response, AppError> {
     let notice = match du_db::naming::assign_du_name(&st.pool, id).await {
         Ok(du) => format!("{} {du}", locale.t.get("nm.notice.minted")),
+        Err(du_db::DbError::Conflict(m)) => m,
+        Err(e) => return Err(e.into()),
+    };
+    changed_response(&st, locale.t, id, Some(notice)).await
+}
+
+/// Reuse the variant's established ISOGG/YBrowse name as its canonical name
+/// ("named by definition") instead of minting a new DU identifier.
+async fn adopt(
+    _c: Curator,
+    State(st): State<AppState>,
+    locale: Locale,
+    Path(id): Path<i64>,
+) -> Result<Response, AppError> {
+    let notice = match du_db::naming::adopt_established_name(&st.pool, id).await {
+        Ok(name) => format!("{} {name}", locale.t.get("nm.notice.adopted")),
         Err(du_db::DbError::Conflict(m)) => m,
         Err(e) => return Err(e.into()),
     };

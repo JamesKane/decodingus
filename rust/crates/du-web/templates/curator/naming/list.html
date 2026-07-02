@@ -3,6 +3,7 @@
   <thead><tr>
     <th>{{ t.get("nm.col.name") }}</th>
     <th>{{ t.get("nm.col.coord") }}</th>
+    <th>{{ t.get("nm.col.mut") }}</th>
     <th>{{ t.get("nm.col.defines") }}</th>
     <th>{{ t.get("nm.col.status") }}</th>
   </tr></thead>
@@ -11,11 +12,12 @@
     <tr class="tree-node" hx-get="/curator/naming/{{ r.id }}/panel" hx-target="#naming-detail" hx-swap="innerHTML">
       <td>{% if r.name == "(unnamed)" %}<em class="text-muted">{{ r.name }}</em>{% else %}<strong>{{ r.name }}</strong>{% endif %}</td>
       <td><small class="text-muted">{{ r.coord }}</small></td>
+      <td><small class="font-monospace">{{ r.alleles }}</small></td>
       <td><small class="text-muted">{{ r.defining }}</small></td>
       <td><span class="badge text-bg-light">{{ r.status }}</span></td>
     </tr>
     {% else %}
-    <tr><td colspan="4" class="detail-empty">{{ t.get("nm.none") }}</td></tr>
+    <tr><td colspan="5" class="detail-empty">{{ t.get("nm.none") }}</td></tr>
     {% endfor %}
   </tbody>
 </table>

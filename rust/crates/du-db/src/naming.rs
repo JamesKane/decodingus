@@ -45,8 +45,14 @@ fn mode_predicate(mode: &str) -> &'static str {
         // The imported backlog: has a name but DU hasn't ratified it.
         "UNNAMED" => "v.naming_status = 'UNNAMED' AND v.canonical_name IS NOT NULL",
         "all" => "TRUE",
-        // needs_name (default)
-        _ => "(v.canonical_name IS NULL OR v.naming_status = 'PENDING_REVIEW')",
+        // needs_name (default): the actionable naming backlog. A canonical name is
+        // (name + the branch it defines), so only a variant that DEFINES a branch is
+        // nameable — branch-less catalog rows are reference data, not naming work.
+        // "Needs a name" = defines a branch AND has no real name yet: no name, a
+        // synthetic coordinate placeholder (`chrY:pos…`), or flagged for review.
+        _ => "v.defining_haplogroup_id IS NOT NULL \
+              AND (v.canonical_name IS NULL OR v.canonical_name LIKE 'chr%:%' \
+                   OR v.naming_status = 'PENDING_REVIEW')",
     }
 }
 
@@ -140,17 +146,96 @@ pub async fn assign_du_name(pool: &PgPool, id: i64) -> Result<String, DbError> {
     Ok(du)
 }
 
-/// **Dedup check** before minting: other *named* variants sharing this variant's
-/// GRCh38 coordinate (contig + position). A non-empty result means an
-/// established name likely already exists — reuse it instead of minting.
-pub async fn dedup_by_coordinates(pool: &PgPool, id: i64) -> Result<Vec<(i64, String)>, DbError> {
+/// The first established (non-DU) working name among a variant's `common_names`
+/// aliases — an ISOGG/YBrowse-derived name the authority can **reuse** rather than
+/// re-mint. Our own `DU…` mints are skipped (they aren't external definitions).
+pub fn established_name(aliases: &Value) -> Option<String> {
+    aliases
+        .get("common_names")?
+        .as_array()?
+        .iter()
+        .filter_map(|x| x.as_str())
+        .find(|s| !s.trim().is_empty() && !s.starts_with("DU"))
+        .map(str::to_string)
+}
+
+/// **Adopt an established name**: ratify a variant's existing ISOGG/YBrowse name
+/// (a non-DU `common_names` alias) as its canonical name instead of minting a new
+/// `DU` identifier. This is the "named by definition" path — when a matching locus
+/// + mutation state already has a name in the source set, the authority reuses it.
+/// Sets `canonical_name` to that name and marks `NAMED`. Errors if the variant is
+/// already named or carries no established name.
+pub async fn adopt_established_name(pool: &PgPool, id: i64) -> Result<String, DbError> {
+    let mut tx = pool.begin().await?;
+    let row: Option<(Option<String>, String, Value)> = sqlx::query_as(
+        "SELECT canonical_name, naming_status::text, aliases FROM core.variant WHERE id = $1 FOR UPDATE",
+    )
+    .bind(id)
+    .fetch_optional(&mut *tx)
+    .await?;
+    let (canon, status, aliases) =
+        row.ok_or_else(|| DbError::Conflict(format!("variant {id} not found")))?;
+    if status == "NAMED" || canon.is_some() {
+        return Err(DbError::Conflict("variant already has a canonical name".into()));
+    }
+    let name = established_name(&aliases)
+        .ok_or_else(|| DbError::Conflict("variant has no established name to adopt".into()))?;
+    // Canonical identity is (name + defining branch) — the recurrence model that
+    // replaces ISOGG's L270.1/L270.2 suffixing: the same SNP name is canonical on
+    // each branch it defines, scoped by `defining_haplogroup_id`. A clash only
+    // exists when another row already holds this name for the *same* branch (which
+    // `variant_canonical_name_key` enforces, treating NULL as one bucket). Guard it
+    // so the write returns a clear notice instead of a 500.
+    let taken: Option<i64> = sqlx::query_scalar(
+        "SELECT o.id FROM core.variant o, core.variant me \
+         WHERE me.id = $2 AND o.id <> me.id AND o.canonical_name = $1 \
+           AND COALESCE(o.defining_haplogroup_id, -1) = COALESCE(me.defining_haplogroup_id, -1) LIMIT 1",
+    )
+    .bind(&name)
+    .bind(id)
+    .fetch_optional(&mut *tx)
+    .await?;
+    if let Some(other) = taken {
+        return Err(DbError::Conflict(format!(
+            "name {name} is already canonical for this branch on variant #{other} — resolve the duplicate / recurrence in merge review before reusing it"
+        )));
+    }
+    sqlx::query(
+        "UPDATE core.variant SET canonical_name = $2, naming_status = 'NAMED', updated_at = now() WHERE id = $1",
+    )
+    .bind(id)
+    .bind(&name)
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(name)
+}
+
+/// **Dedup check** before naming: other *named* variants at the same locus **and
+/// mutation state** — contig + position + ancestral + derived — on this variant's
+/// preferred build (`hs1` first, else `GRCh38`). Matching by locus alone is wrong:
+/// two distinct SNPs can share a position with different alleles (e.g. Z12236 A>C
+/// vs Y17125 A>G), so a same-position-different-allele variant is NOT a duplicate.
+pub async fn dedup_by_site(pool: &PgPool, id: i64) -> Result<Vec<(i64, String)>, DbError> {
     Ok(sqlx::query_as(
-        "WITH me AS (SELECT coordinates->'GRCh38'->>'contig' AS c, coordinates->'GRCh38'->>'position' AS p \
-                     FROM core.variant WHERE id = $1) \
+        "WITH b AS ( \
+           SELECT CASE WHEN coordinates ? 'hs1' THEN 'hs1' \
+                       WHEN coordinates ? 'GRCh38' THEN 'GRCh38' END AS build \
+           FROM core.variant WHERE id = $1), \
+         me AS ( \
+           SELECT b.build, \
+                  v.coordinates->b.build->>'contig'    AS c, \
+                  v.coordinates->b.build->>'position'  AS p, \
+                  v.coordinates->b.build->>'ancestral' AS a, \
+                  v.coordinates->b.build->>'derived'   AS d \
+           FROM core.variant v, b WHERE v.id = $1) \
          SELECT v.id, v.canonical_name FROM core.variant v, me \
-         WHERE v.id <> $1 AND v.canonical_name IS NOT NULL AND me.c IS NOT NULL AND me.p IS NOT NULL \
-           AND v.coordinates->'GRCh38'->>'contig' = me.c \
-           AND v.coordinates->'GRCh38'->>'position' = me.p \
+         WHERE v.id <> $1 AND v.canonical_name IS NOT NULL AND me.build IS NOT NULL \
+           AND me.c IS NOT NULL AND me.p IS NOT NULL \
+           AND v.coordinates->me.build->>'contig'    = me.c \
+           AND v.coordinates->me.build->>'position'  = me.p \
+           AND v.coordinates->me.build->>'ancestral' IS NOT DISTINCT FROM me.a \
+           AND v.coordinates->me.build->>'derived'   IS NOT DISTINCT FROM me.d \
          ORDER BY v.canonical_name LIMIT 10",
     )
     .bind(id)
