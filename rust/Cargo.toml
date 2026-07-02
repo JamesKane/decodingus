@@ -56,6 +56,9 @@ utoipa-swagger-ui = { version = "8", features = ["axum"] }
 # Serialization / JSONB payloads
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# Query-string (de)serialization — used directly by crate::extract::Query to
+# dedupe repeated keys before deserializing (axum already pulls it transitively).
+serde_urlencoded = "0.7"
 
 # Common types
 uuid = { version = "1", features = ["v4", "serde"] }

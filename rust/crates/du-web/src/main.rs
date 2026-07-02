@@ -12,6 +12,7 @@ use tower_cookies::Key;
 mod api;
 mod auth;
 mod error;
+mod extract;
 mod htmx;
 mod i18n;
 mod render;
