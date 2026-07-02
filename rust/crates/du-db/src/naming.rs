@@ -93,6 +93,16 @@ pub async fn get(pool: &PgPool, id: i64) -> Result<Option<NamingItem>, DbError> 
         .await?)
 }
 
+/// Whether a `canonical_name` is a **synthetic coordinate placeholder** written by
+/// the de-novo loader (`chrY:pos anc->der`) rather than a real, ratified name. The
+/// loader stamps every branch-defining variant `NAMED` with such a stand-in, so the
+/// authority must treat these as *unnamed* — they're eligible to mint/adopt, and
+/// must not display as "already named". Mirrors the SQL `canonical_name LIKE 'chr%:%'`
+/// the needs_name queue filters on. Real Y-SNP names never start with `chr`.
+pub fn is_placeholder_name(name: &str) -> bool {
+    name.starts_with("chr") && name.contains(':')
+}
+
 /// Set a variant's naming status (e.g. flag for review or send back to unnamed).
 /// Does not touch the name. Returns whether a row changed.
 pub async fn set_status(pool: &PgPool, id: i64, status: &str) -> Result<bool, DbError> {
@@ -119,13 +129,17 @@ pub async fn assign_du_name(pool: &PgPool, id: i64) -> Result<String, DbError> {
             .fetch_optional(&mut *tx)
             .await?;
     let (old_name, status) = row.ok_or_else(|| DbError::Conflict(format!("variant {id} not found")))?;
-    if status == "NAMED" {
+    // A synthetic coordinate placeholder (`chrY:…`) counts as unnamed even though the
+    // loader marked it NAMED — only a *real* ratified name blocks re-minting.
+    let real_named = old_name.as_deref().is_some_and(|n| !is_placeholder_name(n));
+    if status == "NAMED" && real_named {
         return Err(DbError::Conflict("variant is already NAMED".into()));
     }
     let du: String = sqlx::query_scalar("SELECT core.next_du_name()").fetch_one(&mut *tx).await?;
 
-    // Preserve any prior working name as a common-name alias (union, deduped).
-    if let Some(prev) = old_name.filter(|n| !n.trim().is_empty() && *n != du) {
+    // Preserve any prior *real* working name as a common-name alias (union, deduped).
+    // A placeholder coordinate string is not a name, so it's dropped rather than kept.
+    if let Some(prev) = old_name.filter(|n| !n.trim().is_empty() && *n != du && !is_placeholder_name(n)) {
         sqlx::query(
             "UPDATE core.variant SET aliases = jsonb_set( \
                 COALESCE(aliases, '{}'::jsonb), '{common_names}', \
@@ -139,8 +153,16 @@ pub async fn assign_du_name(pool: &PgPool, id: i64) -> Result<String, DbError> {
         .execute(&mut *tx)
         .await?;
     }
+    // Set the DU name and, in the same write, purge any synthetic coordinate placeholders
+    // (`chr…:…`) the loader left in common_names — they were never real alternate names.
     sqlx::query(
-        "UPDATE core.variant SET canonical_name = $2, naming_status = 'NAMED', updated_at = now() WHERE id = $1",
+        "UPDATE core.variant SET canonical_name = $2, naming_status = 'NAMED', \
+           aliases = jsonb_set(COALESCE(aliases, '{}'::jsonb), '{common_names}', \
+             COALESCE((SELECT jsonb_agg(a) \
+                       FROM jsonb_array_elements_text(COALESCE(aliases->'common_names', '[]'::jsonb)) a \
+                       WHERE a NOT LIKE 'chr%:%'), '[]'::jsonb), true), \
+           updated_at = now() \
+         WHERE id = $1",
     )
     .bind(id)
     .bind(&du)
@@ -159,7 +181,9 @@ pub fn established_name(aliases: &Value) -> Option<String> {
         .as_array()?
         .iter()
         .filter_map(|x| x.as_str())
-        .find(|s| !s.trim().is_empty() && !s.starts_with("DU"))
+        // Skip our own DU mints and synthetic coordinate placeholders (`chrY:…`) — neither
+        // is an external "named by definition" reference the authority can adopt.
+        .find(|s| !s.trim().is_empty() && !s.starts_with("DU") && !is_placeholder_name(s))
         .map(str::to_string)
 }
 
@@ -171,15 +195,18 @@ pub fn established_name(aliases: &Value) -> Option<String> {
 /// already named or carries no established name.
 pub async fn adopt_established_name(pool: &PgPool, id: i64) -> Result<String, DbError> {
     let mut tx = pool.begin().await?;
-    let row: Option<(Option<String>, String, Value)> = sqlx::query_as(
-        "SELECT canonical_name, naming_status::text, aliases FROM core.variant WHERE id = $1 FOR UPDATE",
+    let row: Option<(Option<String>, Value)> = sqlx::query_as(
+        "SELECT canonical_name, aliases FROM core.variant WHERE id = $1 FOR UPDATE",
     )
     .bind(id)
     .fetch_optional(&mut *tx)
     .await?;
-    let (canon, status, aliases) =
+    let (canon, aliases) =
         row.ok_or_else(|| DbError::Conflict(format!("variant {id} not found")))?;
-    if status == "NAMED" || canon.is_some() {
+    // A synthetic coordinate placeholder (`chrY:…`) doesn't count as a real canonical
+    // name — the loader stamps it NAMED, but the variant is still adoptable.
+    let real_named = canon.as_deref().is_some_and(|n| !is_placeholder_name(n));
+    if real_named {
         return Err(DbError::Conflict("variant already has a canonical name".into()));
     }
     let name = established_name(&aliases)

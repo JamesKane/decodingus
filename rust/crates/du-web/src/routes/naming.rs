@@ -81,7 +81,15 @@ fn common_names(aliases: &serde_json::Value) -> Vec<String> {
     aliases
         .get("common_names")
         .and_then(|v| v.as_array())
-        .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect())
+        .map(|a| {
+            a.iter()
+                .filter_map(|x| x.as_str())
+                // Drop synthetic coordinate placeholders (`chrY:…`) the loader stashed as
+                // aliases — they aren't real alternate names.
+                .filter(|s| !du_db::naming::is_placeholder_name(s))
+                .map(str::to_string)
+                .collect()
+        })
         .unwrap_or_default()
 }
 
@@ -117,13 +125,21 @@ async fn load_list(st: &AppState, q: &ListQuery) -> Result<ListView, AppError> {
     let rows = result
         .items
         .into_iter()
-        .map(|i| Row {
-            id: i.id,
-            name: i.canonical_name.unwrap_or_else(|| "(unnamed)".into()),
-            status: i.naming_status,
-            coord: coord_label(&i.coordinates),
-            alleles: allele_label(&i.coordinates),
-            defining: i.defining.unwrap_or_else(|| "—".into()),
+        .map(|i| {
+            // A synthetic coordinate placeholder (`chrY:…`) the loader stamped NAMED is
+            // shown as unnamed — it is naming work, not a ratified name.
+            let placeholder = i.canonical_name.as_deref().is_some_and(du_db::naming::is_placeholder_name);
+            Row {
+                id: i.id,
+                name: match i.canonical_name {
+                    Some(n) if !placeholder => n,
+                    _ => "(unnamed)".into(),
+                },
+                status: if placeholder { "UNNAMED".into() } else { i.naming_status },
+                coord: coord_label(&i.coordinates),
+                alleles: allele_label(&i.coordinates),
+                defining: i.defining.unwrap_or_else(|| "—".into()),
+            }
         })
         .collect();
     Ok(ListView { mode, rows, page, total, total_pages })
@@ -208,18 +224,22 @@ async fn build_detail(st: &AppState, id: i64, notice: Option<String>) -> Result<
         .into_iter()
         .map(|(_, name)| Candidate { name })
         .collect();
-    let can_assign = i.naming_status != "NAMED";
+    // A synthetic coordinate placeholder (`chrY:…`) counts as unnamed even though the
+    // loader marked it NAMED — the variant is still nameable, and must not display as
+    // "already named".
+    let placeholder = i.canonical_name.as_deref().is_some_and(du_db::naming::is_placeholder_name);
+    let can_assign = i.naming_status != "NAMED" || placeholder;
     // "Named by definition": the variant already carries an established (non-DU)
     // name for its locus+mutation-state — reuse it rather than mint a new DU id.
-    let established = if can_assign && i.canonical_name.is_none() {
+    let established = if can_assign && (i.canonical_name.is_none() || placeholder) {
         du_db::naming::established_name(&i.aliases)
     } else {
         None
     };
     Ok(DetailView {
         id: i.id,
-        name: i.canonical_name.clone(),
-        status: i.naming_status.clone(),
+        name: if placeholder { None } else { i.canonical_name.clone() },
+        status: if placeholder { "UNNAMED".into() } else { i.naming_status.clone() },
         mutation_type: i.mutation_type,
         coord: coord_label(&i.coordinates),
         coord_build: coord_build(&i.coordinates),

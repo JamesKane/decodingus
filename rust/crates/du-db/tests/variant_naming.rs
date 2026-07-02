@@ -120,12 +120,36 @@ async fn variant_naming_authority_flow() {
     // Adopting again (already named) is refused.
     assert!(du_db::naming::adopt_established_name(&pool, adoptable).await.is_err(), "no re-adopt of NAMED");
 
+    // Placeholder names: the de-novo loader stamps branch-defining variants NAMED with a
+    // synthetic coordinate string (`chrY:pos anc->der`) — which it ALSO copies into the
+    // common_names aliases. The authority must treat these as *unnamed*: they belong in
+    // the needs_name queue, are still mintable despite the NAMED status, and the
+    // placeholder must not survive as an alias nor be offered as an established name.
+    let ph = mk_variant(&pool, Some("chrY:9999999 A->G"), "NAMED", Some("9999999"), Some(("A", "G")), Some(branch)).await;
+    sqlx::query("UPDATE core.variant SET aliases = jsonb_build_object('common_names', jsonb_build_array('chrY:9999999 A->G')) WHERE id = $1")
+        .bind(ph).execute(&pool).await.unwrap();
+    assert!(du_db::naming::is_placeholder_name("chrY:9999999 A->G"), "coordinate string is a placeholder");
+    assert!(!du_db::naming::is_placeholder_name("Z12335"), "a real SNP name is not a placeholder");
+    let qph = du_db::naming::queue(&pool, "needs_name", 1, 500).await.expect("queue");
+    assert!(qph.items.iter().any(|i| i.id == ph), "placeholder-named variant is naming work");
+    // No established name to adopt — the only alias is the placeholder itself.
+    let phi = du_db::naming::get(&pool, ph).await.unwrap().unwrap();
+    assert!(du_db::naming::established_name(&phi.aliases).is_none(), "placeholder alias is not an established name");
+    // Minting succeeds despite the NAMED status, and drops the placeholder alias.
+    let du_ph = du_db::naming::assign_du_name(&pool, ph).await.expect("mint over placeholder");
+    assert!(du_ph.starts_with("DU"));
+    let kept_placeholder: bool = sqlx::query_scalar(
+        "SELECT COALESCE(aliases->'common_names', '[]'::jsonb) ? 'chrY:9999999 A->G' FROM core.variant WHERE id = $1",
+    )
+    .bind(ph).fetch_one(&pool).await.unwrap();
+    assert!(!kept_placeholder, "placeholder is not preserved as an alias");
+
     // set_status drives the lifecycle.
     assert!(du_db::naming::set_status(&pool, named_same, "PENDING_REVIEW").await.expect("set"));
     assert_eq!(du_db::naming::get(&pool, named_same).await.unwrap().unwrap().naming_status, "PENDING_REVIEW");
 
     // cleanup (variants first — they reference the branches via defining_haplogroup_id).
-    for id in ids.iter().chain(std::iter::once(&adoptable)) {
+    for id in ids.iter().chain([&adoptable, &ph]) {
         let _ = sqlx::query("DELETE FROM core.variant WHERE id = $1").bind(id).execute(&pool).await;
     }
     for hg in [branch, branch2] {
