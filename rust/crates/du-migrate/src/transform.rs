@@ -1075,19 +1075,26 @@ pub async fn sequencing_lab(legacy: &PgPool, target: &PgPool) -> anyhow::Result<
     .await?;
     let n = rows.len();
     let mut tx = target.begin().await?;
-    for (id, name, d2c, web, desc) in rows {
+    for (_id, name, d2c, web, desc) in rows {
+        // Labs are keyed by NAME: mig 0038 preseeds the canonical labs (with the D8
+        // instrument→lab lookup FK'd to them by name), so the ETL must merge prod
+        // labs onto that seed by name — enriching metadata and adding prod-only labs
+        // — rather than forcing legacy ids over the seeded rows (which collide on the
+        // name unique key). Legacy lab ids carry no downstream FK (sequence_library
+        // resolves its lab by name string, not id), so id preservation is unneeded.
         sqlx::query(
-            "INSERT INTO genomics.sequencing_lab (id, name, is_d2c, website_url, description_markdown) \
-             OVERRIDING SYSTEM VALUE VALUES ($1,$2,$3,$4,$5) \
-             ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, is_d2c=EXCLUDED.is_d2c, \
-               website_url=EXCLUDED.website_url, description_markdown=EXCLUDED.description_markdown",
+            "INSERT INTO genomics.sequencing_lab (name, is_d2c, website_url, description_markdown) \
+             VALUES ($1,$2,$3,$4) \
+             ON CONFLICT (name) DO UPDATE SET is_d2c=EXCLUDED.is_d2c, \
+               website_url=COALESCE(EXCLUDED.website_url, genomics.sequencing_lab.website_url), \
+               description_markdown=COALESCE(EXCLUDED.description_markdown, genomics.sequencing_lab.description_markdown)",
         )
-        .bind(id).bind(name).bind(d2c).bind(web).bind(desc)
+        .bind(name).bind(d2c).bind(web).bind(desc)
         .execute(&mut *tx)
         .await?;
     }
     tx.commit().await?;
-    tracing::info!(table = "sequencing_lab", rows = n, "migrated");
+    tracing::info!(table = "sequencing_lab", rows = n, "migrated (name-keyed; merged onto mig-0038 seed)");
     Ok(())
 }
 
