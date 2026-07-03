@@ -233,6 +233,62 @@ pub async fn set_coordinates_batch(
     Ok(affected)
 }
 
+/// One tree branch a variant is assigned to (defines). Surfaced on the Variant Browser detail.
+#[derive(Debug, Clone)]
+pub struct BranchAssignment {
+    /// Haplogroup (branch) name, e.g. `R-M269`.
+    pub haplogroup_name: String,
+    /// `"Y_DNA"` or `"MT_DNA"` — selects the tree page for the link.
+    pub dna_type: String,
+    /// The link is marked provisional/low-confidence.
+    pub low_confidence: bool,
+    /// The defining variant's canonical name. Differs from the viewed variant when the tree
+    /// placement lives on a same-site sibling row (the de-novo coordinate-named variant vs a
+    /// separately-named catalog row).
+    pub via_name: String,
+}
+
+/// The tree branch(es) a variant is assigned to (defines) in the *current* tree.
+///
+/// Matched by genomic **site**, not just the row's own links: the de-novo tree places a
+/// coordinate-named variant (`chrY:<pos><ref>>>...`) while the same physical SNP may also exist
+/// as a separately-named catalog row (e.g. a YBrowse name like `V3739`) carrying no direct
+/// link. `site` is a `{"hs1":{"contig":…,"position":…}}` containment blob built from the
+/// viewed variant's hs1 coordinate (the tree is hs1-native) — GIN-indexed on `coordinates` —
+/// or `None` when it has no hs1 coordinate (then only the variant's own direct links match).
+pub async fn tree_branches(
+    pool: &PgPool,
+    variant_id: VariantId,
+    site: Option<serde_json::Value>,
+) -> Result<Vec<BranchAssignment>, DbError> {
+    let rows: Vec<(String, String, bool, String)> = sqlx::query_as(
+        "WITH cand AS ( \
+             SELECT $1::bigint AS id \
+             UNION \
+             SELECT id FROM core.variant WHERE $2::jsonb IS NOT NULL AND coordinates @> $2::jsonb \
+         ) \
+         SELECT DISTINCT h.name, h.haplogroup_type::text, hv.low_confidence, def.canonical_name \
+         FROM cand \
+         JOIN tree.haplogroup_variant hv ON hv.variant_id = cand.id AND hv.valid_until IS NULL \
+         JOIN core.variant def ON def.id = cand.id \
+         JOIN tree.haplogroup h ON h.id = hv.haplogroup_id \
+         ORDER BY h.name",
+    )
+    .bind(variant_id.0)
+    .bind(site)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|(haplogroup_name, dna_type, low_confidence, via_name)| BranchAssignment {
+            haplogroup_name,
+            dna_type,
+            low_confidence,
+            via_name,
+        })
+        .collect())
+}
+
 /// Region types whose sequence is structurally unreliable for Y-SNP placement
 /// (multi-copy / repeat-rich), so a variant landing inside one should not be
 /// trusted as branch-defining without scrutiny. AZF intervals are deliberately
