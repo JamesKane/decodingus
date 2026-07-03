@@ -106,3 +106,11 @@ aes-gcm = "0.10"
 lto = "thin"
 codegen-units = 1
 strip = true
+
+# Local co-dev against decodingus-shared working-tree changes (all three crates patched
+# together so du-domain resolves to a single version across the boundary). Remove once the
+# shared change is pushed and the `rev` above is bumped. See [workspace.dependencies].
+[patch."https://github.com/JamesKane/decodingus-shared.git"]
+du-domain  = { path = "../../decodingus-shared/crates/du-domain" }
+du-atproto = { path = "../../decodingus-shared/crates/du-atproto" }
+du-bio     = { path = "../../decodingus-shared/crates/du-bio" }

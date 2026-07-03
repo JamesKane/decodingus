@@ -122,6 +122,68 @@ pub async fn update(
     Ok(affected > 0)
 }
 
+/// Outcome of [`backfill_mt_rcrs_coordinates`].
+#[derive(Debug, Default, Clone, Copy)]
+pub struct MtRcrsLiftReport {
+    /// mt variants carrying an `hs1` chrM coordinate (the lift candidates).
+    pub total: usize,
+    /// rCRS coordinate written (or would be, in preview).
+    pub lifted: usize,
+    /// `hs1` position had no rCRS counterpart — a CHM13 `chrM`-specific insertion near the
+    /// rotation wrap. Left without an rCRS coordinate (matches Navigator's drop-on-no-map).
+    pub unmapped: usize,
+}
+
+/// Backfill `coordinates.rCRS` on every mtDNA variant from its `hs1` (CHM13 `chrM`) coordinate,
+/// using the shared rotation-aware map ([`du_bio::mt::hs1_to_rcrs`]). This gives the AppView
+/// standard PhyloTree/MITOMAP-frame positions for its `hs1`-native mt tree. Idempotent (the
+/// `rCRS` key is overwritten in place, `hs1` untouched); previews (counts, no writes) unless
+/// `apply`. Alleles are copied verbatim — CHM13 `chrM` and rCRS are the same strand (a circular
+/// rotation, not an inversion), so no reverse-complement is needed. Bumps the tree revision when
+/// it writes, so Edge caches of the mt tree revalidate.
+pub async fn backfill_mt_rcrs_coordinates(pool: &PgPool, apply: bool) -> Result<MtRcrsLiftReport, DbError> {
+    use du_domain::variant::BuildCoordinate;
+    let map = du_bio::mt::hs1_to_rcrs();
+    // Every variant whose hs1 coordinate sits on chrM — i.e. the mt tree's native frame.
+    let rows: Vec<(i64, Json<BuildCoordinate>)> = sqlx::query_as(
+        "SELECT id, coordinates->'hs1' AS hs1 FROM core.variant \
+         WHERE coordinates->'hs1'->>'contig' = 'chrM' ORDER BY id",
+    )
+    .fetch_all(pool)
+    .await?;
+
+    let mut rep = MtRcrsLiftReport { total: rows.len(), ..Default::default() };
+    for (id, hs1) in rows {
+        let hs1 = hs1.0;
+        let Some(&rcrs_pos) = map.get(&hs1.position) else {
+            rep.unmapped += 1;
+            continue;
+        };
+        rep.lifted += 1;
+        if apply {
+            let rcrs = BuildCoordinate {
+                contig: "NC_012920.1".to_string(),
+                position: rcrs_pos,
+                ancestral: hs1.ancestral.clone(),
+                derived: hs1.derived.clone(),
+            };
+            let val = serde_json::to_value(&rcrs).map_err(|e| DbError::Decode(e.to_string()))?;
+            sqlx::query(
+                "UPDATE core.variant SET coordinates = jsonb_set(coordinates, '{rCRS}', $2, true), \
+                 updated_at = now() WHERE id = $1",
+            )
+            .bind(id)
+            .bind(val)
+            .execute(pool)
+            .await?;
+        }
+    }
+    if apply && rep.lifted > 0 {
+        crate::tree_revision::bump(pool).await?;
+    }
+    Ok(rep)
+}
+
 /// Region types whose sequence is structurally unreliable for Y-SNP placement
 /// (multi-copy / repeat-rich), so a variant landing inside one should not be
 /// trusted as branch-defining without scrutiny. AZF intervals are deliberately

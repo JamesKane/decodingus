@@ -148,8 +148,20 @@ async fn main() -> anyhow::Result<()> {
                 })?;
                 ftdna_str::run(&pool, &cfg).await?;
             }
+            // Backfill rCRS (NC_012920.1) coordinates onto the hs1-native mtDNA tree
+            // variants, lifting each hs1 chrM position through the shared rotation-aware
+            // CHM13 chrM↔rCRS map (du_bio::mt). Gives PhyloTree/MITOMAP-frame positions.
+            // Idempotent; previews unless `--apply`.
+            "mt-rcrs-lift" => {
+                let apply = argv.any(|a| a == "--apply");
+                let rep = du_db::variant::backfill_mt_rcrs_coordinates(&pool, apply).await?;
+                tracing::info!(
+                    apply, total = rep.total, lifted = rep.lifted, unmapped = rep.unmapped,
+                    "mt-rcrs-lift complete{}", if apply { "" } else { " (preview — pass --apply to write)" }
+                );
+            }
             other => anyhow::bail!(
-                "unknown run-once job '{other}' (known: ybrowse, reconcile, yregions, branch-age, ftdna-str, sequencer-consensus, discovery-consensus, coverage-norms, ibd-discovery-recompute, exchange-expire, tree-samples-recompute, dedup-candidates, consolidate-donors)"
+                "unknown run-once job '{other}' (known: ybrowse, reconcile, yregions, branch-age, ftdna-str, sequencer-consensus, discovery-consensus, coverage-norms, ibd-discovery-recompute, exchange-expire, tree-samples-recompute, dedup-candidates, consolidate-donors, mt-rcrs-lift)"
             ),
         }
         return Ok(());
