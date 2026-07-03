@@ -9,7 +9,9 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+mod coord_lift;
 mod ena;
+mod faidx;
 mod ftdna_str;
 mod jetstream;
 mod publications;
@@ -160,8 +162,18 @@ async fn main() -> anyhow::Result<()> {
                     "mt-rcrs-lift complete{}", if apply { "" } else { " (preview — pass --apply to write)" }
                 );
             }
+            // Backfill missing Y-DNA build coordinates (GRCh37/hs1) by lifting each
+            // variant's GRCh38 position via UCSC chains, reverse-complementing alleles
+            // on inverted blocks and validating against the target reference base.
+            // Chains/refs from ~/.decodingus (DU_LIFTOVER_DIR/DU_REFERENCE_DIR).
+            // Previews unless `--apply`.
+            "variant-coord-lift" => {
+                let args: Vec<String> = argv.collect();
+                let cfg = coord_lift::Config::from_env(&args);
+                coord_lift::run(&pool, &cfg).await?;
+            }
             other => anyhow::bail!(
-                "unknown run-once job '{other}' (known: ybrowse, reconcile, yregions, branch-age, ftdna-str, sequencer-consensus, discovery-consensus, coverage-norms, ibd-discovery-recompute, exchange-expire, tree-samples-recompute, dedup-candidates, consolidate-donors, mt-rcrs-lift)"
+                "unknown run-once job '{other}' (known: ybrowse, reconcile, yregions, branch-age, ftdna-str, sequencer-consensus, discovery-consensus, coverage-norms, ibd-discovery-recompute, exchange-expire, tree-samples-recompute, dedup-candidates, consolidate-donors, mt-rcrs-lift, variant-coord-lift)"
             ),
         }
         return Ok(());

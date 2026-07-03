@@ -184,6 +184,55 @@ pub async fn backfill_mt_rcrs_coordinates(pool: &PgPool, apply: bool) -> Result<
     Ok(rep)
 }
 
+/// A page of Y variants that are missing at least one tracked build coordinate — the input
+/// to the coordinate-lift backfill (`du_jobs::coord_lift`). Streamed by ascending id with an
+/// `after_id` cursor; because the backfill only *adds* build keys, a completed row simply
+/// stops matching and never reappears.
+pub async fn y_variants_needing_lift(
+    pool: &PgPool,
+    after_id: i64,
+    limit: i64,
+) -> Result<Vec<(VariantId, Coordinates)>, DbError> {
+    let rows: Vec<(i64, Json<Coordinates>)> = sqlx::query_as(
+        "SELECT id, coordinates FROM core.variant \
+         WHERE (coordinates->'GRCh38'->>'contig' IN ('chrY','Y') \
+             OR coordinates->'hs1'->>'contig' = 'chrY' \
+             OR coordinates->'GRCh37'->>'contig' IN ('chrY','Y')) \
+           AND NOT (coordinates ? 'GRCh38' AND coordinates ? 'GRCh37' AND coordinates ? 'hs1') \
+           AND id > $1 \
+         ORDER BY id LIMIT $2",
+    )
+    .bind(after_id)
+    .bind(limit)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows.into_iter().map(|(id, c)| (VariantId(id), c.0)).collect())
+}
+
+/// Overwrite the `coordinates` JSONB for a batch of variants in one transaction (the
+/// coordinate-lift backfill reads a page, fills missing builds, writes the merged blobs
+/// back). Returns rows affected.
+pub async fn set_coordinates_batch(
+    pool: &PgPool,
+    rows: &[(VariantId, Coordinates)],
+) -> Result<u64, DbError> {
+    let mut tx = pool.begin().await?;
+    let mut affected = 0u64;
+    for (id, coords) in rows {
+        let val = serde_json::to_value(coords).map_err(|e| DbError::Decode(e.to_string()))?;
+        affected += sqlx::query(
+            "UPDATE core.variant SET coordinates = $2, updated_at = now() WHERE id = $1",
+        )
+        .bind(id.0)
+        .bind(val)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+    }
+    tx.commit().await?;
+    Ok(affected)
+}
+
 /// Region types whose sequence is structurally unreliable for Y-SNP placement
 /// (multi-copy / repeat-rich), so a variant landing inside one should not be
 /// trusted as branch-defining without scrutiny. AZF intervals are deliberately
