@@ -41,5 +41,20 @@
       </tbody>
     </table>
     {% endif %}
+
+    <h6 class="mt-3">{{ t.get("variants.detail.branches") }}</h6>
+    {% if branches.is_empty() %}
+    <p class="detail-empty">{{ t.get("variants.detail.nobranches") }}</p>
+    {% else %}
+    <ul class="list-unstyled mb-0">
+      {% for b in branches %}
+      <li class="mb-1">
+        <a href="{{ b.tree_url }}"><code>{{ b.name }}</code></a>
+        {% if b.low_confidence %}<span class="badge text-bg-warning">{{ t.get("variants.detail.lowconf") }}</span>{% endif %}
+        {% if let Some(via) = b.via %}<small class="text-muted">{{ t.get("variants.detail.via") }} <code>{{ via }}</code></small>{% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+    {% endif %}
   </div>
 </div>
