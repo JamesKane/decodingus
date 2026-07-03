@@ -53,11 +53,6 @@ fn load_target(build: ReferenceBuild, path: &Option<String>) -> anyhow::Result<O
     }
 }
 
-/// Lift a 1-based position through a (0-based) chain, returning a 1-based result.
-fn lift_1based(chain: &Liftover, contig: &str, pos_1based: i64) -> Option<(String, i64)> {
-    chain.lift(contig, pos_1based - 1).map(|(c, p)| (c, p + 1))
-}
-
 /// One parsed GFF3 SNP record (GRCh38).
 #[derive(Debug, Clone, PartialEq)]
 pub struct GffSnp {
@@ -151,16 +146,11 @@ fn to_mirror(snp: &GffSnp, targets: &[LiftTarget]) -> (MirrorRow, usize) {
     );
     let mut unmapped = 0usize;
     for t in targets {
-        match lift_1based(&t.chain, &snp.contig, snp.pos) {
-            Some((contig, position)) => coords.set(
-                t.build,
-                BuildCoordinate {
-                    contig,
-                    position,
-                    ancestral: snp.anc.clone(),
-                    derived: snp.der.clone(),
-                },
-            ),
+        // Orientation-aware lift: reverse-complements alleles on an inverted (q-) chain
+        // block (GRCh38↔CHM13 Y inversions), so lifted builds carry correct target-strand
+        // alleles instead of the verbatim GRCh38 ones. See du_bio::ybrowse.
+        match du_bio::ybrowse::lift_build_coordinate(&t.chain, &snp.contig, snp.pos, &snp.anc, &snp.der) {
+            Some(bc) => coords.set(t.build, bc),
             None => unmapped += 1,
         }
     }
