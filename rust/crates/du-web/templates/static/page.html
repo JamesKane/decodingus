@@ -122,6 +122,21 @@
         </div></div>
       </article>
     </li>
+
+    <li id="faq7" class="list-group-item border-0 px-0">
+      <article class="faq-entry">
+        <header class="mb-3">
+          <h2 class="h5 text-primary mb-2">Question 7</h2>
+          <h3 class="h6 text-secondary">Which reference genome are your trees built on, and why don't the coordinates match FTDNA / YFull / ISOGG?</h3>
+        </header>
+        <div class="card shadow-sm"><div class="card-body">
+          <p class="card-text mb-3">Our Y-DNA and mitochondrial trees are built natively on <strong>T2T-CHM13v2.0</strong> (the UCSC name is <code>hs1</code>), the first complete, gapless "telomere-to-telomere" human reference assembly. Most consumer and academic services still report positions on <strong>GRCh38</strong> (also called build 38, b38, or hg38), an older assembly that contains thousands of gaps. Because the two assemblies number their bases differently, a variant's position on CHM13 is <em>not</em> the same number as its position on GRCh38, and haplogroup-defining SNP addresses will not line up one-to-one with a GRCh38-based catalog. This is a difference of <em>coordinates</em>, not of biology — the same underlying mutations and branches are simply addressed on a more complete map.</p>
+          <p class="card-text mb-3"><strong>Why this matters most on the Y chromosome:</strong> GRCh38's Y is heavily gapped — the ampliconic and palindromic segments (P1–P8), the <abbr title="Deleted in Azoospermia">DAZ</abbr>/ampliconic arrays, and the enormous Yq12 heterochromatin were unresolved or misassembled. T2T-CHM13v2.0 incorporates a complete Y (from the HG002 genome, since the CHM13 cell line itself is 46,XX), giving the first end-to-end Y sequence. That lets us confidently place variants — and therefore branches — in regions GRCh38 could not even represent. We still <strong>mask the most repetitive regions</strong> (palindromes, ampliconic arrays, and heterochromatin) when computing branch placement and ages, because short-read data remains error-prone there. Legacy SNP names originally defined on hg19 or GRCh38 are preserved as <strong>aliases</strong>, so you can still search for a familiar SNP even though its canonical coordinate here is CHM13-based.</p>
+          <p class="card-text mb-3"><strong>Why this matters on mtDNA:</strong> Standard mitochondrial nomenclature — PhyloTree, and tools like HaploGrep that follow it — is defined against the <strong>rCRS</strong> (the revised Cambridge Reference Sequence, GenBank <code>NC_012920</code>, 16,569&nbsp;bp). T2T-CHM13v2.0's mitochondrial genome is a <em>different</em> sequence (GenBank <code>CP068254.1</code>), so our de-novo mitochondrial tree's defining variants and positions are expressed in CHM13 coordinates and will <strong>not</strong> match rCRS-based mutation names or the classic PhyloTree labels. If you know your mtDNA haplogroup from another service, the clade relationships are comparable, but the position numbers and the specific defining mutations shown here are on the CHM13 frame.</p>
+          <p class="card-text mb-0"><strong>On our roadmap:</strong> an rCRS "liftover" for mtDNA (and clearer cross-referencing of GRCh38/hg19 SNP positions for Y-DNA) so you can translate between our CHM13-native coordinates and the references you may already be using.</p>
+        </div></div>
+      </article>
+    </li>
   </ol>
 
 {% else if page == "terms" %}

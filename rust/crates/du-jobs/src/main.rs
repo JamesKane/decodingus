@@ -9,7 +9,9 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+mod coord_lift;
 mod ena;
+mod faidx;
 mod ftdna_str;
 mod jetstream;
 mod publications;
@@ -148,8 +150,30 @@ async fn main() -> anyhow::Result<()> {
                 })?;
                 ftdna_str::run(&pool, &cfg).await?;
             }
+            // Backfill rCRS (NC_012920.1) coordinates onto the hs1-native mtDNA tree
+            // variants, lifting each hs1 chrM position through the shared rotation-aware
+            // CHM13 chrM↔rCRS map (du_bio::mt). Gives PhyloTree/MITOMAP-frame positions.
+            // Idempotent; previews unless `--apply`.
+            "mt-rcrs-lift" => {
+                let apply = argv.any(|a| a == "--apply");
+                let rep = du_db::variant::backfill_mt_rcrs_coordinates(&pool, apply).await?;
+                tracing::info!(
+                    apply, total = rep.total, lifted = rep.lifted, unmapped = rep.unmapped,
+                    "mt-rcrs-lift complete{}", if apply { "" } else { " (preview — pass --apply to write)" }
+                );
+            }
+            // Backfill missing Y-DNA build coordinates (GRCh37/hs1) by lifting each
+            // variant's GRCh38 position via UCSC chains, reverse-complementing alleles
+            // on inverted blocks and validating against the target reference base.
+            // Chains/refs from ~/.decodingus (DU_LIFTOVER_DIR/DU_REFERENCE_DIR).
+            // Previews unless `--apply`.
+            "variant-coord-lift" => {
+                let args: Vec<String> = argv.collect();
+                let cfg = coord_lift::Config::from_env(&args);
+                coord_lift::run(&pool, &cfg).await?;
+            }
             other => anyhow::bail!(
-                "unknown run-once job '{other}' (known: ybrowse, reconcile, yregions, branch-age, ftdna-str, sequencer-consensus, discovery-consensus, coverage-norms, ibd-discovery-recompute, exchange-expire, tree-samples-recompute, dedup-candidates, consolidate-donors)"
+                "unknown run-once job '{other}' (known: ybrowse, reconcile, yregions, branch-age, ftdna-str, sequencer-consensus, discovery-consensus, coverage-norms, ibd-discovery-recompute, exchange-expire, tree-samples-recompute, dedup-candidates, consolidate-donors, mt-rcrs-lift, variant-coord-lift)"
             ),
         }
         return Ok(());
