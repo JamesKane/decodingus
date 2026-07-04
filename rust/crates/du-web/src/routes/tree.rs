@@ -271,8 +271,14 @@ async fn render_tree(
     let node_ids: Vec<i64> = window.iter().map(|n| n.id).collect();
     let mut samples_by_node: HashMap<i64, Vec<String>> = HashMap::new();
     for (id, label) in du_db::tree_sample::direct_labels(&st.pool, dna_type, &node_ids).await? {
+        if is_uuid_label(&label) {
+            continue; // hide private (UUID-accession) biosample leaves
+        }
         samples_by_node.entry(id).or_default().push(label);
     }
+    // Collapse private auto-named intermediate nodes (`…:n<number>`) so they vanish from the
+    // public tree, re-parenting their children/samples onto the nearest named ancestor.
+    let window = hide_private_nodes(window, &mut samples_by_node);
     let laid = build_root(&window, &samples_by_node).and_then(|root| tree_layout::layout(Some(&root), orientation));
 
     // Breadcrumbs: ancestors (root→parent) + the current node (no link).
@@ -456,6 +462,64 @@ async fn default_root_name(pool: &du_db::PgPool, dna_type: DnaType, default_root
 /// Max sample tips drawn directly under one node before collapsing to a "+N" overflow tip.
 const NODE_TIP_CAP: usize = 8;
 
+/// A private auto-named node: `<name>:n<digits>` — the de-novo loader's placeholder for a branch
+/// with no public SNP name. Meant to be invisible in the public tree.
+fn is_private_node(name: &str) -> bool {
+    name.rsplit_once(":n")
+        .is_some_and(|(_, tail)| !tail.is_empty() && tail.bytes().all(|b| b.is_ascii_digit()))
+}
+
+/// A biosample leaf label that is a bare UUID (a private D2C subject id) rather than a public
+/// accession like `HG01890` — hidden from the tree.
+fn is_uuid_label(s: &str) -> bool {
+    s.len() == 36
+        && s.bytes()
+            .enumerate()
+            .all(|(i, b)| if matches!(i, 8 | 13 | 18 | 23) { b == b'-' } else { b.is_ascii_hexdigit() })
+}
+
+/// Drop private ([`is_private_node`]) nodes from the window, re-parenting their descendants and
+/// merging their placed samples onto the nearest non-private ancestor — so the private node
+/// disappears while public samples beneath it still render under its named parent.
+fn hide_private_nodes(window: Vec<WindowNode>, samples: &mut HashMap<i64, Vec<String>>) -> Vec<WindowNode> {
+    use std::collections::HashSet;
+    let private: HashSet<i64> = window.iter().filter(|n| is_private_node(&n.name)).map(|n| n.id).collect();
+    if private.is_empty() {
+        return window;
+    }
+    let parent_of: HashMap<i64, Option<i64>> = window.iter().map(|n| (n.id, n.parent_id)).collect();
+    // Climb from `start` past any private ids to the nearest non-private ancestor.
+    let named_ancestor = |start: Option<i64>| -> Option<i64> {
+        let mut cur = start;
+        while let Some(id) = cur {
+            if private.contains(&id) {
+                cur = parent_of.get(&id).copied().flatten();
+            } else {
+                return Some(id);
+            }
+        }
+        None
+    };
+    // Move each private node's samples up to its nearest named ancestor.
+    for &pid in &private {
+        if let Some(labels) = samples.remove(&pid) {
+            if let Some(anc) = named_ancestor(parent_of.get(&pid).copied().flatten()) {
+                samples.entry(anc).or_default().extend(labels);
+            }
+        }
+    }
+    window
+        .into_iter()
+        .filter(|n| !private.contains(&n.id))
+        .map(|mut n| {
+            if n.parent_id.is_some_and(|p| private.contains(&p)) {
+                n.parent_id = named_ancestor(n.parent_id);
+            }
+            n
+        })
+        .collect()
+}
+
 /// Nest the flat window into an `InNode` tree rooted at the depth-0 node. `samples` maps a node
 /// id to its directly-placed sample labels (rendered as leaf tips).
 fn build_root(window: &[WindowNode], samples: &HashMap<i64, Vec<String>>) -> Option<InNode> {
@@ -566,9 +630,62 @@ fn short_genome(g: &str) -> &str {
 
 #[cfg(test)]
 mod tests {
+    use super::{hide_private_nodes, is_private_node, is_uuid_label};
     use axum::body::{to_bytes, Body};
     use axum::http::{Request, StatusCode};
+    use du_db::haplogroup::WindowNode;
+    use std::collections::HashMap;
     use tower::ServiceExt;
+
+    fn win(id: i64, name: &str, parent: Option<i64>, depth: i32) -> WindowNode {
+        WindowNode {
+            id,
+            name: name.into(),
+            parent_id: parent,
+            depth,
+            formed_ybp: None,
+            tmrca_ybp: None,
+            is_backbone: false,
+            is_recent: false,
+            variant_count: 0,
+            has_hidden: false,
+        }
+    }
+
+    #[test]
+    fn private_node_and_uuid_predicates() {
+        assert!(is_private_node("A-L987:n0"));
+        assert!(is_private_node("R-M269:n12"));
+        assert!(!is_private_node("A-L987")); // real name
+        assert!(!is_private_node("foo:notes")); // ':n' but not digits
+        assert!(!is_private_node("BT")); // no ':n'
+
+        assert!(is_uuid_label("00192078-fecd-4194-8a0d-09ce47c9c138"));
+        assert!(!is_uuid_label("HG01890")); // public accession
+        assert!(!is_uuid_label("A-L987")); // node name
+    }
+
+    #[test]
+    fn hide_private_collapses_children_and_samples() {
+        // A-L987 (10) → A-L987:n0 (11, private) → { A-child (12), samples on 11 }
+        let window = vec![
+            win(10, "A-L987", None, 0),
+            win(11, "A-L987:n0", Some(10), 1),
+            win(12, "A-M1", Some(11), 2),
+        ];
+        let mut samples: HashMap<i64, Vec<String>> = HashMap::new();
+        samples.insert(11, vec!["HG02982".into(), "HG02984".into()]);
+
+        let out = hide_private_nodes(window, &mut samples);
+        // Private node dropped.
+        assert!(out.iter().all(|n| n.name != "A-L987:n0"));
+        // Its child re-parented onto the named ancestor A-L987 (10).
+        let child = out.iter().find(|n| n.id == 12).unwrap();
+        assert_eq!(child.parent_id, Some(10));
+        // Its samples merged onto A-L987 (10).
+        assert_eq!(samples.get(&10).map(Vec::len), Some(2));
+        assert!(samples.get(&11).is_none());
+    }
 
     /// The cladogram shows a node's cumulative placed-sample count, and the SNP sidebar lists
     /// the placed (non-D2C) samples with their citation.
