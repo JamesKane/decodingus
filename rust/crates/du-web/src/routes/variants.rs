@@ -100,6 +100,17 @@ struct CoordView {
     change: Option<String>,
 }
 
+/// A tree branch this variant defines, flattened for the template.
+struct BranchView {
+    name: String,
+    /// Link to the branch on the relevant tree page.
+    tree_url: String,
+    low_confidence: bool,
+    /// The defining variant's name, shown only when it differs from the viewed variant
+    /// (the placement is carried by a same-site sibling row).
+    via: Option<String>,
+}
+
 #[derive(askama::Template)]
 #[template(path = "variants/detail.html")]
 struct DetailTemplate {
@@ -110,6 +121,7 @@ struct DetailTemplate {
     common_names: Vec<String>,
     rs_ids: Vec<String>,
     coords: Vec<CoordView>,
+    branches: Vec<BranchView>,
 }
 
 async fn browser(
@@ -156,6 +168,28 @@ async fn detail(
         .collect();
     coords.sort_by(|a, b| a.build.cmp(&b.build));
 
+    // Which tree branch(es) this SNP is assigned to. Match by hs1 site (the tree is
+    // hs1-native), so a catalog-named SNP still surfaces the placement its de-novo
+    // coordinate-named sibling carries.
+    let site = v
+        .coordinates
+        .get(du_domain::enums::ReferenceBuild::Hs1)
+        .map(|c| serde_json::json!({ "hs1": { "contig": c.contig, "position": c.position } }));
+    let variant_name = v.canonical_name.clone();
+    let branches = du_db::variant::tree_branches(&st.pool, VariantId(id), site)
+        .await?
+        .into_iter()
+        .map(|b| {
+            let base = if b.dna_type == "MT_DNA" { "/mtree" } else { "/ytree" };
+            BranchView {
+                tree_url: format!("{base}?root={}", b.haplogroup_name),
+                via: (b.via_name != variant_name).then_some(b.via_name),
+                name: b.haplogroup_name,
+                low_confidence: b.low_confidence,
+            }
+        })
+        .collect();
+
     Ok(html(&DetailTemplate {
         t: locale.t,
         name: v.canonical_name,
@@ -164,5 +198,6 @@ async fn detail(
         common_names: v.aliases.common_names,
         rs_ids: v.aliases.rs_ids,
         coords,
+        branches,
     }))
 }
