@@ -33,6 +33,21 @@
     f.appendChild(i);
   }, true);
 
+  // AT Protocol sign-in: the GET /login/atproto form redirects to an external
+  // authorization server (bsky.app or any PDS), which CSP `form-action 'self'` blocks
+  // (it governs form-submission redirect targets). Navigate via JS instead — location
+  // changes aren't governed by form-action — so the server can still PAR + redirect to
+  // any auth server. Bubble phase (after the csrf capture handler, which ignores GET).
+  document.addEventListener('submit', function (e) {
+    var f = e.target;
+    if (!f || f.getAttribute('action') !== '/login/atproto') return;
+    var input = f.querySelector('input[name="handle"]');
+    var handle = input && input.value.trim();
+    if (!handle) return; // let the browser's `required` validation handle empties
+    e.preventDefault();
+    window.location.assign('/login/atproto?handle=' + encodeURIComponent(handle));
+  });
+
   // "Cancel" buttons that clear an htmx-loaded detail panel (replaces inline onclick).
   document.addEventListener('click', function (e) {
     var btn = e.target.closest && e.target.closest('[data-clear-target]');
