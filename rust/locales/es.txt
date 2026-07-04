@@ -142,10 +142,12 @@ coverage.col.expectedDepth=Esperada
 coverage.none=Aún no hay datos de cobertura.
 
 auth.login.title=Iniciar sesión
-auth.login.handle=Usuario o correo
-auth.login.password=Contraseña
-auth.login.submit=Iniciar sesión
-auth.login.error=Usuario o contraseña no válidos.
+auth.login.intro=Inicia sesión con tu cuenta de AT Protocol (por ejemplo, Bluesky).
+auth.login.handle=Identificador de Bluesky
+auth.login.handlehelp=Por ejemplo, tu.bsky.social o el identificador de tu propio dominio.
+auth.login.submit=Continuar con Bluesky
+auth.login.error=Error al iniciar sesión. Inténtalo de nuevo.
+auth.login.unavailable=El inicio de sesión no está disponible temporalmente.
 
 curator.title=Panel del curador
 curator.welcome=Sesión iniciada como

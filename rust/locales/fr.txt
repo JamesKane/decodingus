@@ -142,10 +142,12 @@ coverage.col.expectedDepth=Attendue
 coverage.none=Aucune donnée de couverture pour le moment.
 
 auth.login.title=Connexion
-auth.login.handle=Identifiant ou e-mail
-auth.login.password=Mot de passe
-auth.login.submit=Se connecter
-auth.login.error=Identifiant ou mot de passe invalide.
+auth.login.intro=Connectez-vous avec votre compte AT Protocol (par ex. Bluesky).
+auth.login.handle=Identifiant Bluesky
+auth.login.handlehelp=Par exemple, vous.bsky.social ou l'identifiant de votre propre domaine.
+auth.login.submit=Continuer avec Bluesky
+auth.login.error=Échec de la connexion. Veuillez réessayer.
+auth.login.unavailable=La connexion est temporairement indisponible.
 
 curator.title=Tableau de bord du curateur
 curator.welcome=Connecté en tant que

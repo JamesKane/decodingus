@@ -190,10 +190,12 @@ coverage.col.expectedDepth=Expected
 coverage.none=No coverage data yet.
 
 auth.login.title=Sign in
-auth.login.handle=Handle or email
-auth.login.password=Password
-auth.login.submit=Sign in
-auth.login.error=Invalid handle or password.
+auth.login.intro=Sign in with your AT Protocol account (e.g. Bluesky).
+auth.login.handle=Bluesky handle
+auth.login.handlehelp=For example, you.bsky.social or your own domain handle.
+auth.login.submit=Continue with Bluesky
+auth.login.error=Sign-in failed. Please try again.
+auth.login.unavailable=Sign-in is temporarily unavailable.
 
 curator.title=Curator Dashboard
 curator.welcome=Signed in as

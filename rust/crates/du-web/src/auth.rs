@@ -1,9 +1,9 @@
-//! Session auth: password hashing/verification, the signed-cookie session, and
-//! request extractors. Federated (AT Protocol) login lands later in du-atproto;
-//! this covers local credential login + RBAC.
+//! Session auth: the signed-cookie session and request extractors, plus the
+//! `hash_password` helper used by the `hash-password` CLI. Login itself is AT
+//! Protocol OAuth (`crate::oauth`); there is no local credential login.
 
 use crate::state::AppState;
-use argon2::password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
+use argon2::password_hash::{rand_core::OsRng, PasswordHasher, SaltString};
 use argon2::Argon2;
 use axum::extract::FromRequestParts;
 use axum::http::request::Parts;
@@ -21,19 +21,6 @@ pub fn hash_password(password: &str) -> Result<String, String> {
         .hash_password(password.as_bytes(), &salt)
         .map(|h| h.to_string())
         .map_err(|e| e.to_string())
-}
-
-/// Verify a password against a stored hash. Supports Argon2 (new) and bcrypt
-/// (legacy) hashes, dispatching on the hash prefix.
-pub fn verify_password(password: &str, hash: &str) -> bool {
-    if hash.starts_with("$argon2") {
-        PasswordHash::new(hash)
-            .is_ok_and(|parsed| Argon2::default().verify_password(password.as_bytes(), &parsed).is_ok())
-    } else if hash.starts_with("$2") {
-        bcrypt::verify(password, hash).unwrap_or(false)
-    } else {
-        false
-    }
 }
 
 /// Authenticated session, stored in a signed cookie.
@@ -132,15 +119,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn argon2_hash_roundtrips_and_rejects_wrong() {
+    fn argon2_hash_has_expected_prefix() {
         let h = hash_password("correct horse").unwrap();
         assert!(h.starts_with("$argon2"));
-        assert!(verify_password("correct horse", &h));
-        assert!(!verify_password("Tr0ub4dor", &h));
-    }
-
-    #[test]
-    fn unknown_hash_format_is_rejected() {
-        assert!(!verify_password("x", "plaintext"));
     }
 }

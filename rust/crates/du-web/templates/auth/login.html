@@ -5,18 +5,23 @@
   <div class="col-md-5">
     <h1 class="h3 mb-3">{{ t.get("auth.login.title") }}</h1>
     {% if error %}<div class="alert alert-danger">{{ t.get("auth.login.error") }}</div>{% endif %}
-    {# Full POST (not boosted) so the Set-Cookie + redirect are handled by the browser. #}
-    <form method="post" action="/login" hx-boost="false">
+    {% if oauth_enabled %}
+    <p class="text-muted">{{ t.get("auth.login.intro") }}</p>
+    {# Native GET → the AT Protocol OAuth flow; you authenticate on your own PDS
+       (e.g. bsky.app), then get redirected back. hx-boost off: this navigates
+       cross-origin, so it must be a real browser navigation, not an HTMX swap. #}
+    <form method="get" action="/login/atproto" hx-boost="false">
       <div class="mb-3">
         <label class="form-label" for="handle">{{ t.get("auth.login.handle") }}</label>
-        <input class="form-control" id="handle" name="handle" value="{{ handle }}" autofocus required>
-      </div>
-      <div class="mb-3">
-        <label class="form-label" for="password">{{ t.get("auth.login.password") }}</label>
-        <input class="form-control" id="password" name="password" type="password" required>
+        <input class="form-control" id="handle" name="handle" value="{{ handle }}"
+               placeholder="you.bsky.social" autocomplete="username" autofocus required>
+        <div class="form-text">{{ t.get("auth.login.handlehelp") }}</div>
       </div>
       <button class="btn btn-primary" type="submit">{{ t.get("auth.login.submit") }}</button>
     </form>
+    {% else %}
+    <div class="alert alert-secondary mb-0">{{ t.get("auth.login.unavailable") }}</div>
+    {% endif %}
   </div>
 </div>
 {% endblock %}
