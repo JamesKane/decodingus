@@ -38,6 +38,12 @@
       <dd class="col-7 mb-0">{{ n }}</dd>
       {% endif %}
     </dl>
+    {% if p.formed_ybp.is_some() || p.tmrca_ybp.is_some() %}
+    <div class="text-muted mt-2" style="font-size:.68rem; line-height:1.35;">
+      {{ t.get("tree.prov.agecredit") }}
+      <a href="https://doi.org/10.3390/genes12060862" target="_blank" rel="noopener noreferrer">McDonald (2021)</a>.
+    </div>
+    {% endif %}
   </div>
   {% endif %}
 
