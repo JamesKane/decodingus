@@ -11,6 +11,16 @@
     return (n >= MIN && n <= MAX) ? n : null;
   }
 
+  // The focused root is authoritative in the URL — every re-root / search / depth
+  // change pushes `?root=…`. The control bar (search box, depth select, orientation
+  // toggle) is rendered OUTSIDE the swapped `#tree-container`, so its server-rendered
+  // root goes stale after an HTMX search. Read the live value instead of that stale
+  // attribute, so changing depth or orientation keeps the focused node.
+  function currentRoot(fallback) {
+    var m = /[?&]root=([^&]*)/.exec(window.location.search);
+    return m && m[1] ? decodeURIComponent(m[1].replace(/\+/g, ' ')) : (fallback || '');
+  }
+
   // Inject the persisted depth into every tree-window request (re-root, breadcrumb,
   // search, orientation toggle) — but not the SNP sidebar.
   document.addEventListener('htmx:configRequest', function (e) {
@@ -29,26 +39,51 @@
     }
   });
 
+  // Keep the orientation-toggle links pointed at the live focused root (+ stored depth),
+  // so switching orientation doesn't navigate back to the default root. Re-synced after
+  // every tree swap (the links sit outside the swapped region, so they persist and are
+  // just rewritten in place).
+  function syncOrientLinks() {
+    var root = currentRoot();
+    document.querySelectorAll('a[href*="orient="]').forEach(function (a) {
+      var u = new URL(a.getAttribute('href'), window.location.origin);
+      if (root) { u.searchParams.set('root', root); }
+      var d = storedDepth();
+      if (d) { u.searchParams.set('depth', String(d)); }
+      a.setAttribute('href', u.pathname + u.search);
+    });
+  }
+
   // Per-render: wire the selector and align the view to the stored preference.
   function wireDepth() {
     var sel = document.getElementById('tree-depth');
     if (!sel || sel.dataset.wired) return;
     sel.dataset.wired = '1';
-    var base = sel.dataset.base, root = sel.dataset.root;
-    var url = base + '?root=' + encodeURIComponent(root);
+    var base = sel.dataset.base;
+    var reload = function (push) {
+      // Use the live root, not the (possibly stale) rendered data-root.
+      var url = base + '?root=' + encodeURIComponent(currentRoot(sel.dataset.root));
+      htmx.ajax('GET', url, { target: '#tree-container', pushUrl: !!push });
+    };
     var rendered = parseInt(sel.value, 10);
     var stored = storedDepth();
     // Returning visitor whose preference differs from this (default) render:
     // reload just the tree window at the stored depth.
     if (stored && stored !== rendered) {
       sel.value = String(stored);
-      htmx.ajax('GET', url, { target: '#tree-container' });
+      reload(false);
     }
     sel.addEventListener('change', function () {
       localStorage.setItem(KEY, sel.value);
-      htmx.ajax('GET', url, { target: '#tree-container', pushUrl: true });
+      reload(true);
     });
   }
-  document.addEventListener('htmx:load', wireDepth);
-  wireDepth();
+
+  function onRender() {
+    wireDepth();
+    syncOrientLinks();
+  }
+  document.addEventListener('htmx:load', onRender);
+  document.addEventListener('htmx:afterSettle', syncOrientLinks);
+  onRender();
 })();
