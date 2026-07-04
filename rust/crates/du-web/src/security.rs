@@ -111,14 +111,43 @@ pub async fn csrf_protect(req: Request, next: Next) -> Response {
     let exempt = req.uri().path().starts_with("/api/v1/");
 
     if is_state_changing(req.method()) && !exempt && !csrf_disabled() {
-        let header_token = req.headers().get("x-csrf-token").and_then(|v| v.to_str().ok());
-        let valid = matches!((&cookie_token, header_token), (Some(c), Some(h)) if c == h);
-        if !valid {
-            return (StatusCode::FORBIDDEN, "CSRF validation failed").into_response();
+        // Fast path: the `X-CSRF-Token` header (HTMX / hx-boost requests).
+        let header_ok = matches!(
+            (&cookie_token, req.headers().get("x-csrf-token").and_then(|v| v.to_str().ok())),
+            (Some(c), Some(h)) if c == h
+        );
+        if header_ok {
+            return finish(req, next, false).await;
         }
+        // Fallback: a `csrf_token` form field, for native (non-HTMX) POST forms that
+        // cannot set a custom header (credential login/logout). Buffer the urlencoded
+        // body to check it, then hand the buffered body to the downstream handler.
+        let is_form = req
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|c| c.starts_with("application/x-www-form-urlencoded"));
+        if let (Some(cookie), true) = (cookie_token.clone(), is_form) {
+            let (parts, body) = req.into_parts();
+            let Ok(bytes) = axum::body::to_bytes(body, 1 << 20).await else {
+                return (StatusCode::FORBIDDEN, "CSRF validation failed").into_response();
+            };
+            let field_ok = serde_urlencoded::from_bytes::<Vec<(String, String)>>(&bytes)
+                .map(|pairs| pairs.iter().any(|(k, v)| k == "csrf_token" && *v == cookie))
+                .unwrap_or(false);
+            let req = Request::from_parts(parts, axum::body::Body::from(bytes));
+            if field_ok {
+                return finish(req, next, false).await;
+            }
+        }
+        return (StatusCode::FORBIDDEN, "CSRF validation failed").into_response();
     }
 
-    let issue = cookie_token.is_none();
+    finish(req, next, cookie_token.is_none()).await
+}
+
+/// Run the handler and, on first contact (no `csrf` cookie yet), issue one.
+async fn finish(req: Request, next: Next, issue: bool) -> Response {
     let mut res = next.run(req).await;
     if issue {
         let token = Uuid::new_v4().simple().to_string();
@@ -208,6 +237,27 @@ mod tests {
         assert_eq!(send(csrf_app(), "POST", "/form", Some("abc"), Some("xyz")).await.status(), StatusCode::FORBIDDEN);
         // Matching cookie + header → allowed.
         assert_eq!(send(csrf_app(), "POST", "/form", Some("abc"), Some("abc")).await.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn post_accepts_form_field_token() {
+        let form = |body: &'static str| {
+            csrf_app().oneshot(
+                HttpRequest::builder()
+                    .method("POST")
+                    .uri("/form")
+                    .header(header::COOKIE, "csrf=abc")
+                    .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+        };
+        // Native form (no header) with a matching csrf_token field → allowed.
+        assert_eq!(form("user=x&csrf_token=abc&pw=y").await.unwrap().status(), StatusCode::OK);
+        // Wrong field value → blocked.
+        assert_eq!(form("csrf_token=nope").await.unwrap().status(), StatusCode::FORBIDDEN);
+        // Missing field → blocked.
+        assert_eq!(form("user=x").await.unwrap().status(), StatusCode::FORBIDDEN);
     }
 
     #[tokio::test]

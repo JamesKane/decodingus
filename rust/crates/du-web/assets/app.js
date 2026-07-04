@@ -17,6 +17,22 @@
     if (t) { e.detail.headers['X-CSRF-Token'] = t; }
   });
 
+  // Native (hx-boost="false") POST forms — e.g. login/logout — can't send a custom
+  // header, so mirror the `csrf` cookie into a hidden `csrf_token` field the server
+  // accepts as the double-submit token. Capture phase so it runs before submission.
+  document.addEventListener('submit', function (e) {
+    var f = e.target;
+    if (!f || String(f.method || '').toLowerCase() !== 'post') return;
+    if (f.querySelector('input[name="csrf_token"]')) return;
+    var t = csrfToken();
+    if (!t) return;
+    var i = document.createElement('input');
+    i.type = 'hidden';
+    i.name = 'csrf_token';
+    i.value = t;
+    f.appendChild(i);
+  }, true);
+
   // "Cancel" buttons that clear an htmx-loaded detail panel (replaces inline onclick).
   document.addEventListener('click', function (e) {
     var btn = e.target.closest && e.target.closest('[data-clear-target]');
