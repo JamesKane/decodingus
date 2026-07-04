@@ -124,6 +124,7 @@ fn pct(s: &str) -> String {
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/oauth/client-metadata.json", get(client_metadata))
+        .route("/oauth/navigator-client-metadata.json", get(navigator_client_metadata))
         .route("/oauth/jwks.json", get(jwks))
         .route("/login/atproto", get(login))
         .route("/login/atproto/dev", get(login_dev))
@@ -141,6 +142,42 @@ fn require(st: &AppState) -> Result<&Arc<OauthClient>, AppError> {
 async fn client_metadata(State(st): State<AppState>) -> Result<Response, AppError> {
     let oc = require(&st)?;
     Ok(Json(&oc.metadata).into_response())
+}
+
+/// The scope the Navigator desktop client requests (identity + transitional write, so it can
+/// publish federated records to the user's PDS). Must match `navigator-app`'s `OAUTH_SCOPE`.
+const NAVIGATOR_SCOPE: &str = "atproto transition:generic";
+
+/// Client-metadata document for the Navigator desktop app — a **native/public** OAuth client
+/// (loopback redirect, PKCE, `token_endpoint_auth_method: none`, no jwks). This is deliberately
+/// distinct from the confidential `web` client at `/oauth/client-metadata.json`: a desktop app
+/// can't hold a signing key or take a server-side redirect. Navigator's `DEFAULT_OAUTH_CLIENT_ID`
+/// points at this URL and the auth server fetches it to validate the client. Kept in sync with
+/// DUNavigator/documents/atmosphere/navigator-client-metadata.json.
+fn navigator_metadata_doc(base_url: &str) -> serde_json::Value {
+    serde_json::json!({
+        "client_id": format!("{base_url}/oauth/navigator-client-metadata.json"),
+        "client_name": "Decoding Us Navigator",
+        "client_uri": base_url,
+        "tos_uri": format!("{base_url}/terms"),
+        "policy_uri": format!("{base_url}/privacy"),
+        // Loopback with no port — per RFC 8252 §7.3 the auth server matches 127.0.0.1 redirects
+        // ignoring the runtime port, so the app's http://127.0.0.1:{port}/callback is accepted.
+        "redirect_uris": ["http://127.0.0.1/callback"],
+        "grant_types": ["authorization_code", "refresh_token"],
+        "response_types": ["code"],
+        "scope": NAVIGATOR_SCOPE,
+        "token_endpoint_auth_method": "none",
+        "application_type": "native",
+        "dpop_bound_access_tokens": true,
+    })
+}
+
+async fn navigator_client_metadata(State(st): State<AppState>) -> Result<Response, AppError> {
+    // Reuse the web client's base URL (client_uri == OAUTH_BASE_URL) so the two documents can't
+    // drift onto different origins.
+    let oc = require(&st)?;
+    Ok(Json(navigator_metadata_doc(&oc.metadata.client_uri)).into_response())
 }
 
 async fn jwks(State(st): State<AppState>) -> Result<Response, AppError> {
@@ -413,4 +450,28 @@ async fn callback(
     cookies.signed(&st.key).add(sc);
 
     Ok(Redirect::to("/").into_response())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::navigator_metadata_doc;
+
+    /// The Navigator client document must stay a native/public client (drift guard against
+    /// DUNavigator/documents/atmosphere/navigator-client-metadata.json).
+    #[test]
+    fn navigator_metadata_is_native_public_client() {
+        let m = navigator_metadata_doc("https://decoding-us.org");
+        assert_eq!(m["client_id"], "https://decoding-us.org/oauth/navigator-client-metadata.json");
+        assert_eq!(m["token_endpoint_auth_method"], "none");
+        assert_eq!(m["application_type"], "native");
+        assert_eq!(m["redirect_uris"], serde_json::json!(["http://127.0.0.1/callback"]));
+        assert_eq!(m["scope"], "atproto transition:generic");
+        assert_eq!(m["dpop_bound_access_tokens"], true);
+        assert_eq!(m["client_uri"], "https://decoding-us.org");
+        assert_eq!(m["tos_uri"], "https://decoding-us.org/terms");
+        assert_eq!(m["policy_uri"], "https://decoding-us.org/privacy");
+        // A public client publishes no signing key.
+        assert!(m.get("jwks_uri").is_none(), "public client has no jwks_uri");
+        assert!(m.get("token_endpoint_auth_signing_alg").is_none());
+    }
 }
