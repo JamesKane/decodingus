@@ -1360,7 +1360,7 @@ dependencies = [
 [[package]]
 name = "du-atproto"
 version = "0.1.0"
-source = "git+https://github.com/JamesKane/decodingus-shared.git?rev=67091c8bb559f09eb48cfe10ff10b36dbc93c9c4#67091c8bb559f09eb48cfe10ff10b36dbc93c9c4"
+source = "git+https://github.com/JamesKane/decodingus-shared.git?rev=b8a3473127856b5792fb10b5e3a415819d4ef2b3#b8a3473127856b5792fb10b5e3a415819d4ef2b3"
 dependencies = [
  "base64",
  "du-domain",
@@ -1378,7 +1378,7 @@ dependencies = [
 [[package]]
 name = "du-bio"
 version = "0.1.0"
-source = "git+https://github.com/JamesKane/decodingus-shared.git?rev=67091c8bb559f09eb48cfe10ff10b36dbc93c9c4#67091c8bb559f09eb48cfe10ff10b36dbc93c9c4"
+source = "git+https://github.com/JamesKane/decodingus-shared.git?rev=b8a3473127856b5792fb10b5e3a415819d4ef2b3#b8a3473127856b5792fb10b5e3a415819d4ef2b3"
 dependencies = [
  "du-domain",
  "serde",
@@ -1405,7 +1405,7 @@ dependencies = [
 [[package]]
 name = "du-domain"
 version = "0.1.0"
-source = "git+https://github.com/JamesKane/decodingus-shared.git?rev=67091c8bb559f09eb48cfe10ff10b36dbc93c9c4#67091c8bb559f09eb48cfe10ff10b36dbc93c9c4"
+source = "git+https://github.com/JamesKane/decodingus-shared.git?rev=b8a3473127856b5792fb10b5e3a415819d4ef2b3#b8a3473127856b5792fb10b5e3a415819d4ef2b3"
 dependencies = [
  "chrono",
  "rust_decimal",

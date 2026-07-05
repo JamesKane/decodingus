@@ -102,10 +102,16 @@ Steps:
    code / `platform` says PacBio/Nanopore, or `meanReadLen > 1000`; else short-read.
    (`readType` wins when present — it's the only way to tell HiFi from CLR; an explicit
    `SHORT` pins short-read.)
-2. **Bucket the yield.** `G = totalBases / 1e9`, snapped to the nearest value in the
-   canonical Gbase ladder `[15, 30, 45, 60, 90, 100, 150, 200, 300]` when within **±8 %**;
-   otherwise round to the nearest 5 Gbases. (Tolerance absorbs trimming/dedup loss so a
-   measured 43.6 Gb still reads `45Gbases`.) Yield absent → the label simply omits it.
+2. **Bucket the yield.** `G = totalBases / 1e9`.
+   - **Short-read WGS** snaps to the **nearest marketed depth tier**
+     `[15, 30, 45, 90, 150, 300]` Gbases — at ~3 Gb/1× these are 5× / 10× / 15× / 30× /
+     50× / 100×, the depths the labs actually sell. Always the nearest (no "in between"
+     bucket), so one product is one cohort: Dante's 30× lands on `90Gbases` whether it
+     measured 92 or 101 Gb, instead of fragmenting across 90/100. Non-marketed measured
+     values (60/100/200) are deliberately **not** tiers.
+   - **Exome and long-read** aren't sold in those tiers, so they show the measured yield
+     rounded to the nearest 5 Gbases.
+   - Yield absent → the label simply omits it.
 3. **Short-read:** bucket `meanReadLen` to the nearest of `[100, 150, 250, 300, 500]`
    within **±15 bp**, else round to the nearest 10 → `readLen`. Emit
    `WGS{readLen} {G}Gbases` (`WES{readLen} …` for exome; read length absent → just `WGS`).
