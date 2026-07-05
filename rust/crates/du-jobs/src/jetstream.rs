@@ -133,6 +133,12 @@ async fn stream_once(pool: &PgPool, cfg: &Config) -> anyhow::Result<()> {
                         continue;
                     }
                 };
+                // Diagnostic: log every commit that reaches us (collection + op). If your
+                // published records don't show here, the filtered stream isn't delivering them
+                // (endpoint/filter); if they DO but no row lands, it's handle()/the upsert.
+                if let Some(c) = &event.commit {
+                    tracing::info!(collection = %c.collection, op = %c.operation, rkey = %c.rkey, did = %event.did, "commit received");
+                }
                 if let Err(e) = handle(pool, &event).await {
                     tracing::warn!(error = %e, did = %event.did, "failed to mirror event");
                 }
