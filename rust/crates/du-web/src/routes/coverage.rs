@@ -1,5 +1,6 @@
-//! Public coverage benchmarks: observed sequencing coverage by lab and test
-//! type, aggregated from the alignment-metadata coverage JSONB.
+//! Public per-chromosome "Testing Benchmarks": sequencing coverage aggregated
+//! across the federated cohort (`fed.coverage_summary.metrics->'contigs'`) by
+//! vendor / test type / reference build / chromosome, filterable in the UI.
 
 use crate::error::AppError;
 use crate::i18n::{Locale, T};
@@ -12,41 +13,11 @@ use axum::Router;
 use serde::Deserialize;
 
 pub fn router() -> Router<AppState> {
-    Router::new()
-        .route("/coverage-benchmarks", get(benchmarks))
-        .route("/coverage/labs", get(labs_page))
-        .route("/coverage/labs/fragment", get(labs_fragment))
-}
-
-struct BenchRow {
-    test_type: String,
-    libraries: i64,
-    mean_depth: String,
-    cov_10x: String,
-    expected: String,
-    /// Observed mean depth meets the test type's expected minimum.
-    meets: bool,
+    Router::new().route("/coverage-benchmarks", get(benchmarks))
 }
 
 fn fmt_depth(v: Option<f64>) -> String {
     v.map(|d| format!("{d:.1}×")).unwrap_or_else(|| "—".into())
-}
-fn fmt_pct(v: Option<f64>) -> String {
-    v.map(|d| format!("{d:.1}%")).unwrap_or_else(|| "—".into())
-}
-
-fn to_bench_row(b: du_domain::coverage::CoverageBenchmark) -> BenchRow {
-    BenchRow {
-        test_type: b.test_type.unwrap_or_else(|| "—".into()),
-        libraries: b.library_count,
-        mean_depth: fmt_depth(b.avg_mean_depth),
-        cov_10x: fmt_pct(b.avg_cov_10x),
-        expected: b.expected_min_depth.map(|d| format!("{d:.0}×")).unwrap_or_else(|| "—".into()),
-        meets: matches!(
-            (b.avg_mean_depth, b.expected_min_depth),
-            (Some(obs), Some(exp)) if obs >= exp
-        ),
-    }
 }
 
 // ── per-chromosome "Testing Benchmarks" (federated cohort) ───────────────────────
@@ -208,100 +179,41 @@ async fn benchmarks(
     user: crate::auth::MaybeUser,
     Query(q): Query<BenchQuery>,
 ) -> Result<Response, AppError> {
-    let filter = du_db::coverage::ContigBenchmarkFilter {
-        vendor: nz(q.vendor),
-        test_type: nz(q.test_type),
-        build: nz(q.build),
-        contig: nz(q.contig),
-    };
-    let groups = group_benchmarks(du_db::coverage::contig_benchmarks(&st.pool, &filter).await?);
-
     let options = du_db::coverage::contig_benchmark_options(&st.pool).await?;
-    let mut contigs = options.contigs;
+    let mut contigs = options.contigs.clone();
     contigs.sort_by(|a, b| contig_key(a).cmp(&contig_key(b)));
 
-    let sel_vendor = filter.vendor.unwrap_or_default();
-    let sel_test_type = filter.test_type.unwrap_or_default();
-    let sel_build = filter.build.unwrap_or_default();
-    let sel_contig = filter.contig.unwrap_or_default();
+    // A first, param-less visit lands on a small, relevant slice (chrY on the CHM13
+    // build — the Y-tree's reference) rather than every chromosome × lab × build. Once
+    // the user touches any filter, the form submits all four keys, so we honor exactly
+    // what's given (including empty = "All"). A missing key ⇒ untouched ⇒ default.
+    let untouched = q.vendor.is_none() && q.test_type.is_none() && q.build.is_none() && q.contig.is_none();
+    let (vendor, test_type, build, contig) = if untouched {
+        let contig = options.contigs.iter().find(|c| contig_key(c) == contig_key("chrY")).cloned();
+        let build = options.builds.iter().find(|b| b.to_ascii_lowercase().contains("chm13")).cloned();
+        (None, None, build, contig)
+    } else {
+        (nz(q.vendor), nz(q.test_type), nz(q.build), nz(q.contig))
+    };
+
+    let filter = du_db::coverage::ContigBenchmarkFilter {
+        vendor: vendor.clone(),
+        test_type: test_type.clone(),
+        build: build.clone(),
+        contig: contig.clone(),
+    };
+    let groups = group_benchmarks(du_db::coverage::contig_benchmarks(&st.pool, &filter).await?);
 
     Ok(html(&CoverageTemplate {
         t: locale.t,
         next: locale.next,
         user: user.nav(),
         groups,
-        vendors: opts(options.vendors, &sel_vendor),
-        test_types: opts(options.test_types, &sel_test_type),
-        builds: opts(options.builds, &sel_build),
-        contigs: opts(contigs, &sel_contig),
+        vendors: opts(options.vendors, &vendor.unwrap_or_default()),
+        test_types: opts(options.test_types, &test_type.unwrap_or_default()),
+        builds: opts(options.builds, &build.unwrap_or_default()),
+        contigs: opts(contigs, &contig.unwrap_or_default()),
     }))
-}
-
-// ── per-lab drill-down ─────────────────────────────────────────────────────────
-
-struct LabRow {
-    lab: String,
-    libraries: i64,
-    test_types: usize,
-}
-
-#[derive(askama::Template)]
-#[template(path = "coverage/labs.html")]
-struct LabsTemplate {
-    t: T,
-    next: String,
-    user: Option<crate::auth::NavUser>,
-    labs: Vec<LabRow>,
-}
-
-#[derive(askama::Template)]
-#[template(path = "coverage/lab_rows.html")]
-struct LabRowsTemplate {
-    t: T,
-    lab: String,
-    rows: Vec<BenchRow>,
-}
-
-#[derive(Deserialize)]
-struct LabQuery {
-    lab: Option<String>,
-}
-
-/// Collapse the per-(lab, test-type) benchmarks into one row per lab.
-fn lab_summaries(benches: &[du_domain::coverage::CoverageBenchmark]) -> Vec<LabRow> {
-    use std::collections::BTreeMap;
-    let mut by_lab: BTreeMap<String, (i64, usize)> = BTreeMap::new();
-    for b in benches {
-        let lab = b.lab.clone().unwrap_or_else(|| "—".into());
-        let e = by_lab.entry(lab).or_default();
-        e.0 += b.library_count;
-        e.1 += 1;
-    }
-    by_lab.into_iter().map(|(lab, (libraries, test_types))| LabRow { lab, libraries, test_types }).collect()
-}
-
-async fn labs_page(
-    State(st): State<AppState>,
-    locale: Locale,
-    user: crate::auth::MaybeUser,
-) -> Result<Response, AppError> {
-    let labs = lab_summaries(&du_db::coverage::benchmarks(&st.pool).await?);
-    Ok(html(&LabsTemplate { t: locale.t, next: locale.next, user: user.nav(), labs }))
-}
-
-async fn labs_fragment(
-    State(st): State<AppState>,
-    locale: Locale,
-    Query(q): Query<LabQuery>,
-) -> Result<Response, AppError> {
-    let lab = q.lab.unwrap_or_default();
-    let rows = du_db::coverage::benchmarks(&st.pool)
-        .await?
-        .into_iter()
-        .filter(|b| b.lab.clone().unwrap_or_else(|| "—".into()) == lab)
-        .map(to_bench_row)
-        .collect();
-    Ok(html(&LabRowsTemplate { t: locale.t, lab, rows }))
 }
 
 #[cfg(test)]
