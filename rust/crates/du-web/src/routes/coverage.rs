@@ -125,8 +125,25 @@ fn to_contig_row(b: &du_domain::coverage::ContigBenchmark) -> ContigRow {
     }
 }
 
-/// Fold the flat per-contig rows (already ordered vendor→test→build→contig by SQL)
-/// into vendor/test/build sections, preserving order.
+/// Karyotype sort key for a contig label: autosomes `1..22` numerically, then
+/// `X`, `Y`, `M`/`MT`, then anything else alphabetically. `chr` prefix optional and
+/// case-insensitive (e.g. `chr1`, `CHR12`, `Y`).
+fn contig_key(contig: &str) -> (u8, u32, String) {
+    let lc = contig.to_ascii_lowercase();
+    let bare = lc.strip_prefix("chr").unwrap_or(&lc);
+    if let Ok(n) = bare.parse::<u32>() {
+        return (0, n, String::new());
+    }
+    match bare {
+        "x" => (1, 0, String::new()),
+        "y" => (2, 0, String::new()),
+        "m" | "mt" => (3, 0, String::new()),
+        other => (4, 0, other.to_string()),
+    }
+}
+
+/// Fold the flat per-contig rows (ordered vendor→test→build by SQL) into
+/// vendor/test/build sections, then karyotype-sort the contigs within each section.
 fn group_benchmarks(rows: Vec<du_domain::coverage::ContigBenchmark>) -> Vec<BenchGroup> {
     let mut groups: Vec<BenchGroup> = Vec::new();
     for b in &rows {
@@ -140,6 +157,9 @@ fn group_benchmarks(rows: Vec<du_domain::coverage::ContigBenchmark>) -> Vec<Benc
             groups.push(BenchGroup { vendor, test_type, build, rows: Vec::new() });
         }
         groups.last_mut().unwrap().rows.push(to_contig_row(b));
+    }
+    for g in &mut groups {
+        g.rows.sort_by(|a, b| contig_key(&a.contig).cmp(&contig_key(&b.contig)));
     }
     groups
 }
@@ -218,4 +238,28 @@ async fn labs_fragment(
         .map(to_bench_row)
         .collect();
     Ok(html(&LabRowsTemplate { t: locale.t, lab, rows }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::contig_key;
+
+    #[test]
+    fn contigs_sort_in_karyotype_order() {
+        let mut got = vec![
+            "chr1", "chr2", "chr9", "chrM", "chrX", "chrY", "chr10", "chr22", "chr21",
+        ];
+        got.sort_by(|a, b| contig_key(a).cmp(&contig_key(b)));
+        assert_eq!(
+            got,
+            vec!["chr1", "chr2", "chr9", "chr10", "chr21", "chr22", "chrX", "chrY", "chrM"]
+        );
+    }
+
+    #[test]
+    fn contig_key_tolerates_prefix_and_case() {
+        assert_eq!(contig_key("chr7"), contig_key("CHR7"));
+        assert_eq!(contig_key("Y"), contig_key("chrY"));
+        assert_eq!(contig_key("MT"), contig_key("chrM")); // MT and M coalesce
+    }
 }

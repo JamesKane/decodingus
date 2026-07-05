@@ -66,7 +66,8 @@ const SNP_RATE_PER_BP_YR: f64 = 8.33e-10;
 
 /// Per-chromosome benchmarks across the federated coverage cohort. Rows with only one
 /// contributing sample report `None` for every CV (a CV needs a spread). Ordered by
-/// vendor, test type, build, then a natural-ish contig order.
+/// vendor, test type, build; contigs within a group are left in insertion order and
+/// karyotype-sorted by the caller (SQL can't cheaply express `1..22, X, Y, M`).
 pub async fn contig_benchmarks(pool: &PgPool) -> Result<Vec<ContigBenchmark>, DbError> {
     #[derive(sqlx::FromRow)]
     struct Row {
@@ -109,8 +110,7 @@ pub async fn contig_benchmarks(pool: &PgPool) -> Result<Vec<ContigBenchmark>, Db
          WHERE jsonb_typeof(cs.metrics->'contigs') = 'array' \
            AND c->>'contig' IS NOT NULL \
          GROUP BY lab.name, sr.test_type, cs.reference_build, c->>'contig' \
-         ORDER BY lab.name NULLS LAST, sr.test_type NULLS LAST, cs.reference_build NULLS LAST, \
-                  length(c->>'contig'), c->>'contig'",
+         ORDER BY lab.name NULLS LAST, sr.test_type NULLS LAST, cs.reference_build NULLS LAST",
     )
     .fetch_all(pool)
     .await?;
