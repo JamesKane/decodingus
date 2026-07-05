@@ -22,6 +22,7 @@ pub mod discovery;
 pub mod donor;
 pub mod exchange;
 pub mod fed;
+pub mod fed_subject;
 pub mod genome_region;
 pub mod haplogroup;
 pub mod ibd;

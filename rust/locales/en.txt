@@ -188,6 +188,18 @@ coverage.col.meanDepth=Mean depth
 coverage.col.cov10x=Coverage ≥10×
 coverage.col.expectedDepth=Expected
 coverage.none=No coverage data yet.
+coverage.bench.intro=Per-chromosome sequencing benchmarks aggregated across the federated cohort. Each figure is an average with its coefficient of variation (CV = σ/µ) across contributing samples.
+coverage.bench.vendor=Vendor
+coverage.bench.chr=Chr
+coverage.bench.samples=Samples
+coverage.bench.callable=Callable loci
+coverage.bench.depth=Mean depth
+coverage.bench.poor=Poor alignment
+coverage.bench.total=Total loci
+coverage.bench.yearsPerSnp=Est. years/SNP
+coverage.bench.avg=Avg
+coverage.bench.cv=CV
+coverage.bench.build=Build
 
 auth.login.title=Sign in
 auth.login.intro=Sign in with your AT Protocol account (e.g. Bluesky).

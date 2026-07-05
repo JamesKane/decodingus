@@ -1,37 +1,55 @@
 {% extends "base.html" %}
 {% block title %}{{ t.get("coverage.title") }} — {{ t.get("app.name") }}{% endblock %}
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3">
+<div class="d-flex justify-content-between align-items-center mb-2">
   <h1 class="h3 mb-0">{{ t.get("coverage.title") }}</h1>
   <a class="btn btn-sm btn-outline-primary" href="/coverage/labs">{{ t.get("coverage.labs.byLab") }}</a>
 </div>
-<table class="table table-striped align-middle">
-  <thead>
-    <tr>
-      <th>{{ t.get("coverage.col.lab") }}</th>
-      <th>{{ t.get("coverage.col.testType") }}</th>
-      <th class="text-end">{{ t.get("coverage.col.libraries") }}</th>
-      <th class="text-end">{{ t.get("coverage.col.meanDepth") }}</th>
-      <th class="text-end">{{ t.get("coverage.col.cov10x") }}</th>
-      <th class="text-end">{{ t.get("coverage.col.expectedDepth") }}</th>
-    </tr>
-  </thead>
-  <tbody>
-    {% for r in rows %}
-    <tr>
-      <td>{{ r.lab }}</td>
-      <td>{{ r.test_type }}</td>
-      <td class="text-end">{{ r.libraries }}</td>
-      <td class="text-end">
-        {{ r.mean_depth }}
-        {% if r.meets %}<i class="text-success">✓</i>{% else %}<i class="text-warning">!</i>{% endif %}
-      </td>
-      <td class="text-end">{{ r.cov_10x }}</td>
-      <td class="text-end text-muted">{{ r.expected }}</td>
-    </tr>
-    {% else %}
-    <tr><td colspan="6" class="detail-empty">{{ t.get("coverage.none") }}</td></tr>
-    {% endfor %}
-  </tbody>
-</table>
+<p class="text-muted small">{{ t.get("coverage.bench.intro") }}</p>
+
+{% for g in groups %}
+<div class="card mb-4">
+  <div class="card-header d-flex flex-wrap gap-2 align-items-center">
+    <strong>{{ g.vendor }}</strong>
+    <span class="badge text-bg-secondary">{{ g.test_type }}</span>
+    <span class="badge text-bg-light border">{{ t.get("coverage.bench.build") }}: {{ g.build }}</span>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-sm table-striped align-middle mb-0">
+      <thead>
+        <tr class="text-center">
+          <th rowspan="2" class="align-middle text-start">{{ t.get("coverage.bench.chr") }}</th>
+          <th rowspan="2" class="align-middle text-end">{{ t.get("coverage.bench.samples") }}</th>
+          <th colspan="2">{{ t.get("coverage.bench.callable") }}</th>
+          <th colspan="2">{{ t.get("coverage.bench.depth") }}</th>
+          <th colspan="2">{{ t.get("coverage.bench.poor") }}</th>
+          <th colspan="2">{{ t.get("coverage.bench.total") }}</th>
+          <th rowspan="2" class="align-middle text-end">{{ t.get("coverage.bench.yearsPerSnp") }}</th>
+        </tr>
+        <tr class="text-center small text-muted">
+          <th class="text-end">{{ t.get("coverage.bench.avg") }}</th><th class="text-end">{{ t.get("coverage.bench.cv") }}</th>
+          <th class="text-end">{{ t.get("coverage.bench.avg") }}</th><th class="text-end">{{ t.get("coverage.bench.cv") }}</th>
+          <th class="text-end">{{ t.get("coverage.bench.avg") }}</th><th class="text-end">{{ t.get("coverage.bench.cv") }}</th>
+          <th class="text-end">{{ t.get("coverage.bench.avg") }}</th><th class="text-end">{{ t.get("coverage.bench.cv") }}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in g.rows %}
+        <tr>
+          <td><code>{{ r.contig }}</code></td>
+          <td class="text-end">{{ r.samples }}</td>
+          <td class="text-end">{{ r.callable.avg }}</td><td class="text-end text-muted">{{ r.callable.cv }}</td>
+          <td class="text-end">{{ r.depth.avg }}</td><td class="text-end text-muted">{{ r.depth.cv }}</td>
+          <td class="text-end">{{ r.poor.avg }}</td><td class="text-end text-muted">{{ r.poor.cv }}</td>
+          <td class="text-end">{{ r.total.avg }}</td><td class="text-end text-muted">{{ r.total.cv }}</td>
+          <td class="text-end">{{ r.years_per_snp }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% else %}
+<p class="detail-empty">{{ t.get("coverage.none") }}</p>
+{% endfor %}
 {% endblock %}

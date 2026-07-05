@@ -165,6 +165,21 @@ async fn main() -> anyhow::Result<()> {
                     "consolidate-donors complete{}", if apply { "" } else { " (preview — pass --apply to consolidate)" }
                 );
             }
+            // Anchor federated subjects: mint a pseudonymous core.biosample (+ donor
+            // carrying the published sex) for every fed.biosample lacking a core anchor,
+            // linked by the record's at:// URI + repo DID. This is what surfaces a
+            // live-published citizen's runs / coverage / ancestry / haplogroups in the
+            // unified sample report (all gated on core.biosample.atproto->>'uri').
+            // Idempotent; previews unless `--apply`.
+            "link-federated-subjects" => {
+                let apply = argv.any(|a| a == "--apply");
+                let rep = du_db::fed_subject::link_federated_subjects(&pool, apply).await?;
+                tracing::info!(
+                    apply, unlinked = rep.unlinked, biosamples_created = rep.biosamples_created,
+                    donors_created = rep.donors_created,
+                    "link-federated-subjects complete{}", if apply { "" } else { " (preview — pass --apply to write)" }
+                );
+            }
             // Bulk-load FTDNA Y-STR exports into genomics.biosample_str_profile,
             // matched to the cohort by kit→subject_id. Feeds the STR-variance age
             // model (run `branch-age` after). Previews unless `--apply`.
@@ -198,7 +213,7 @@ async fn main() -> anyhow::Result<()> {
                 coord_lift::run(&pool, &cfg).await?;
             }
             other => anyhow::bail!(
-                "unknown run-once job '{other}' (known: ybrowse, reconcile, yregions, branch-age, ftdna-str, sequencer-consensus, discovery-consensus, coverage-norms, ibd-discovery-recompute, exchange-expire, tree-samples-recompute, dedup-candidates, consolidate-donors, mt-rcrs-lift, variant-coord-lift)"
+                "unknown run-once job '{other}' (known: ybrowse, reconcile, yregions, branch-age, ftdna-str, sequencer-consensus, discovery-consensus, coverage-norms, ibd-discovery-recompute, exchange-expire, tree-samples-recompute, dedup-candidates, consolidate-donors, link-federated-subjects, mt-rcrs-lift, variant-coord-lift)"
             ),
         }
         return Ok(());
@@ -355,6 +370,26 @@ async fn main() -> anyhow::Result<()> {
             }
         }));
         tracing::info!("coverage-norms registered");
+    }
+
+    // Federated-subject anchoring: mint a core.biosample anchor for every federated
+    // subject the Jetstream consumer mirrored into fed.biosample, so their runs /
+    // coverage / ancestry / haplogroups surface in the unified sample report (and
+    // feed the downstream IBD / dedup jobs). Hourly; idempotent.
+    {
+        let pool = pool.clone();
+        sched.register(Job::new("link-federated-subjects", Duration::from_secs(3_600), move || {
+            let pool = pool.clone();
+            async move {
+                let rep = du_db::fed_subject::link_federated_subjects(&pool, true).await?;
+                tracing::info!(
+                    unlinked = rep.unlinked, biosamples_created = rep.biosamples_created,
+                    donors_created = rep.donors_created, "link-federated-subjects done"
+                );
+                Ok(())
+            }
+        }));
+        tracing::info!("link-federated-subjects registered");
     }
 
     // IBD candidate generation: mine introduction candidates from fed.* ancestry +

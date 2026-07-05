@@ -140,6 +140,18 @@ coverage.col.meanDepth=Profundidad media
 coverage.col.cov10x=Cobertura ≥10×
 coverage.col.expectedDepth=Esperada
 coverage.none=Aún no hay datos de cobertura.
+coverage.bench.intro=Referencias de secuenciación por cromosoma agregadas sobre la cohorte federada. Cada valor es un promedio con su coeficiente de variación (CV = σ/µ) entre las muestras contribuyentes.
+coverage.bench.vendor=Proveedor
+coverage.bench.chr=Cr
+coverage.bench.samples=Muestras
+coverage.bench.callable=Loci evaluables
+coverage.bench.depth=Profundidad media
+coverage.bench.poor=Alineamiento deficiente
+coverage.bench.total=Loci totales
+coverage.bench.yearsPerSnp=Años/SNP est.
+coverage.bench.avg=Prom.
+coverage.bench.cv=CV
+coverage.bench.build=Ensamblaje
 
 auth.login.title=Iniciar sesión
 auth.login.intro=Inicia sesión con tu cuenta de AT Protocol (por ejemplo, Bluesky).

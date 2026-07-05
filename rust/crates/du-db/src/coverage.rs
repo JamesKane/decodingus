@@ -3,7 +3,7 @@
 //! index from migration 0004 accelerates the JSONB extraction.
 
 use crate::DbError;
-use du_domain::coverage::CoverageBenchmark;
+use du_domain::coverage::{ContigBenchmark, CoverageBenchmark};
 use sqlx::PgPool;
 use std::collections::HashMap;
 
@@ -46,6 +46,107 @@ pub async fn benchmarks(pool: &PgPool) -> Result<Vec<CoverageBenchmark>, DbError
             avg_mean_depth: r.avg_mean_depth,
             avg_cov_10x: r.avg_cov_10x,
             expected_min_depth: r.expected_min_depth,
+        })
+        .collect())
+}
+
+// ── per-chromosome "Testing Benchmarks" (federated) ──────────────────────────────
+//
+// The YDNA-Warehouse-style benchmark, generalized to every contig and sourced from
+// the FEDERATED coverage cohort (`fed.coverage_summary.metrics->'contigs'`) instead
+// of the local `genomics.alignment_metadata` catalog — that catalog is empty on the
+// AppView (no local alignments are ingested there). Each published alignment record
+// carries a per-contig breakdown (`ContigMetrics`); we unnest it and aggregate per
+// vendor / test type / reference build / contig, reporting each metric's average and
+// coefficient of variation (CV = σ/µ) across the contributing samples.
+
+/// MSY combined SNP mutation rate (SNPs/bp/year) — mirrors [`crate::age::SNP_RATE`],
+/// used to turn a contig's average callable Y loci into an "Est Years/SNP" figure.
+const SNP_RATE_PER_BP_YR: f64 = 8.33e-10;
+
+/// Per-chromosome benchmarks across the federated coverage cohort. Rows with only one
+/// contributing sample report `None` for every CV (a CV needs a spread). Ordered by
+/// vendor, test type, build, then a natural-ish contig order.
+pub async fn contig_benchmarks(pool: &PgPool) -> Result<Vec<ContigBenchmark>, DbError> {
+    #[derive(sqlx::FromRow)]
+    struct Row {
+        vendor: Option<String>,
+        test_type: Option<String>,
+        reference_build: Option<String>,
+        contig: String,
+        samples: i64,
+        callable_avg: Option<f64>,
+        callable_sd: Option<f64>,
+        depth_avg: Option<f64>,
+        depth_sd: Option<f64>,
+        poor_avg: Option<f64>,
+        poor_sd: Option<f64>,
+        total_avg: Option<f64>,
+        total_sd: Option<f64>,
+    }
+
+    // `c` = one contig entry unnested from a record's metrics.contigs[]. Numeric fields
+    // are wire strings (WireF64) or ints; cast defensively via ->> + ::double precision.
+    let rows: Vec<Row> = sqlx::query_as(
+        "SELECT lab.name AS vendor, \
+                sr.test_type AS test_type, \
+                cs.reference_build AS reference_build, \
+                c->>'contig' AS contig, \
+                count(*) AS samples, \
+                avg((c->>'callable')::double precision) AS callable_avg, \
+                stddev_samp((c->>'callable')::double precision) AS callable_sd, \
+                avg((c->>'meanDepth')::double precision) AS depth_avg, \
+                stddev_samp((c->>'meanDepth')::double precision) AS depth_sd, \
+                avg((c->>'poorMappingQuality')::double precision) AS poor_avg, \
+                stddev_samp((c->>'poorMappingQuality')::double precision) AS poor_sd, \
+                avg(((c->>'length')::double precision) - (c->>'refN')::double precision) AS total_avg, \
+                stddev_samp(((c->>'length')::double precision) - (c->>'refN')::double precision) AS total_sd \
+         FROM fed.coverage_summary cs \
+         CROSS JOIN LATERAL jsonb_array_elements(cs.metrics->'contigs') AS c \
+         LEFT JOIN fed.sequencerun sr ON sr.at_uri = cs.sequence_run_ref \
+         LEFT JOIN genomics.sequencer_instrument si ON si.instrument_id = sr.instrument_id \
+         LEFT JOIN genomics.sequencing_lab lab ON lab.id = si.lab_id \
+         WHERE jsonb_typeof(cs.metrics->'contigs') = 'array' \
+           AND c->>'contig' IS NOT NULL \
+         GROUP BY lab.name, sr.test_type, cs.reference_build, c->>'contig' \
+         ORDER BY lab.name NULLS LAST, sr.test_type NULLS LAST, cs.reference_build NULLS LAST, \
+                  length(c->>'contig'), c->>'contig'",
+    )
+    .fetch_all(pool)
+    .await?;
+
+    // CV = σ/µ, only meaningful with a spread (n ≥ 2) and a non-zero mean.
+    let cv = |avg: Option<f64>, sd: Option<f64>, n: i64| -> Option<f64> {
+        match (avg, sd) {
+            (Some(a), Some(s)) if n >= 2 && a != 0.0 => Some(s / a),
+            _ => None,
+        }
+    };
+
+    Ok(rows
+        .into_iter()
+        .map(|r| {
+            let is_y = matches!(r.contig.as_str(), "chrY" | "Y" | "chrY_hs1");
+            let est_years_per_snp = r
+                .callable_avg
+                .filter(|&b| is_y && b > 0.0)
+                .map(|b| 1.0 / (b * SNP_RATE_PER_BP_YR));
+            ContigBenchmark {
+                vendor: r.vendor,
+                test_type: r.test_type,
+                reference_build: r.reference_build,
+                contig: r.contig,
+                samples: r.samples,
+                callable_cv: cv(r.callable_avg, r.callable_sd, r.samples),
+                callable_avg: r.callable_avg,
+                depth_cv: cv(r.depth_avg, r.depth_sd, r.samples),
+                depth_avg: r.depth_avg,
+                poor_cv: cv(r.poor_avg, r.poor_sd, r.samples),
+                poor_avg: r.poor_avg,
+                total_cv: cv(r.total_avg, r.total_sd, r.samples),
+                total_avg: r.total_avg,
+                est_years_per_snp,
+            }
         })
         .collect())
 }
