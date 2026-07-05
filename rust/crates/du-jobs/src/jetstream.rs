@@ -15,7 +15,7 @@
 
 use du_db::fed::{self, analytics, core, coverage, device_key, instrument_observation, private_variant, str_profile};
 use du_db::PgPool;
-use futures_util::StreamExt;
+use futures_util::{SinkExt, StreamExt};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::time::Duration;
@@ -106,27 +106,41 @@ async fn stream_once(pool: &PgPool, cfg: &Config) -> anyhow::Result<()> {
     let url = build_url(cfg, cursor);
     tracing::info!(%url, "jetstream connecting");
     let (ws, _resp) = connect_async(&url).await?;
-    let (_write, mut read) = ws.split();
+    let (mut write, mut read) = ws.split();
 
-    while let Some(msg) = read.next().await {
-        let text = match msg? {
-            Message::Text(t) => t,
-            Message::Close(_) => break,
-            _ => continue, // ping/pong/binary/frame
-        };
-        let event: Event = match serde_json::from_str(text.as_str()) {
-            Ok(e) => e,
-            Err(e) => {
-                tracing::debug!(error = %e, "skipping unparsable jetstream event");
-                continue;
+    // The DecodingUs collection filter makes this stream mostly idle, so without a client
+    // keepalive an intermediary/NAT silently drops the connection ("connection reset without
+    // closing handshake"). Send a ping periodically to hold it open, concurrently with reading.
+    let mut keepalive = tokio::time::interval(Duration::from_secs(30));
+    keepalive.tick().await; // consume the immediate first tick
+
+    loop {
+        tokio::select! {
+            _ = keepalive.tick() => {
+                write.send(Message::Ping(Default::default())).await?;
             }
-        };
-        if let Err(e) = handle(pool, &event).await {
-            tracing::warn!(error = %e, did = %event.did, "failed to mirror event");
+            msg = read.next() => {
+                let Some(msg) = msg else { break };
+                let text = match msg? {
+                    Message::Text(t) => t,
+                    Message::Close(_) => break,
+                    _ => continue, // pong/binary/frame
+                };
+                let event: Event = match serde_json::from_str(text.as_str()) {
+                    Ok(e) => e,
+                    Err(e) => {
+                        tracing::debug!(error = %e, "skipping unparsable jetstream event");
+                        continue;
+                    }
+                };
+                if let Err(e) = handle(pool, &event).await {
+                    tracing::warn!(error = %e, did = %event.did, "failed to mirror event");
+                }
+                // Advance the cursor. Volume is low (server-side filtered), so persisting
+                // per-event is cheap and keeps replay overlap minimal on reconnect.
+                fed::save_cursor(pool, event.time_us).await?;
+            }
         }
-        // Advance the cursor. Volume is low (server-side filtered), so persisting
-        // per-event is cheap and keeps replay overlap minimal on reconnect.
-        fed::save_cursor(pool, event.time_us).await?;
     }
     Ok(())
 }
