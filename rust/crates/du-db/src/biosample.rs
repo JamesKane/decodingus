@@ -212,6 +212,9 @@ pub struct SequencingRun {
     pub total_reads: Option<i64>,
     pub read_length: Option<i32>,
     pub mean_insert_size: Option<f64>,
+    /// Standardized vendor-neutral test label (`du_domain::testprofile`), or `None` for
+    /// non-yield tests / records published before the profile fields existed.
+    pub test_profile_label: Option<String>,
     /// at:// uri of the run (join key to its coverage summary).
     pub at_uri: String,
 }
@@ -227,8 +230,11 @@ pub struct CoverageSummary {
     pub pct_30x: Option<f64>,
     /// at:// uri of the sequencing run this coverage belongs to (may be NULL).
     pub sequence_run_ref: Option<String>,
-    /// The run's test type, when resolvable (drives the conformance check).
+    /// The run's raw test-type code, when resolvable (drives the conformance check /
+    /// norm joins).
     pub test_type: Option<String>,
+    /// Standardized vendor-neutral test label for display (`du_domain::testprofile`).
+    pub test_profile_label: Option<String>,
     /// Advertised minimum depth for the test type (`test_type_definition`), if set.
     pub expected_min_depth: Option<f64>,
     /// The empirical cohort median depth for the test type (`test_type_coverage_norm`).
@@ -511,10 +517,11 @@ pub async fn report_by_guid(pool: &PgPool, guid: SampleGuid) -> Result<Option<Sa
             total_reads: Option<i64>,
             read_length: Option<i32>,
             mean_insert_size: Option<f64>,
+            test_profile_label: Option<String>,
         }
         let seq: Vec<SeqRow> = sqlx::query_as(
             "SELECT at_uri, platform_name, instrument_model, test_type, library_layout, \
-                    total_reads, read_length, mean_insert_size \
+                    total_reads, read_length, mean_insert_size, test_profile_label \
              FROM fed.sequencerun WHERE biosample_ref = $1 ORDER BY record_created_at DESC NULLS LAST",
         )
         .bind(at_uri)
@@ -530,6 +537,7 @@ pub async fn report_by_guid(pool: &PgPool, guid: SampleGuid) -> Result<Option<Sa
                 total_reads: r.total_reads,
                 read_length: r.read_length,
                 mean_insert_size: r.mean_insert_size,
+                test_profile_label: r.test_profile_label,
                 at_uri: r.at_uri,
             })
             .collect();
@@ -545,6 +553,7 @@ pub async fn report_by_guid(pool: &PgPool, guid: SampleGuid) -> Result<Option<Sa
             pct_30x: Option<f64>,
             sequence_run_ref: Option<String>,
             test_type: Option<String>,
+            test_profile_label: Option<String>,
             expected_min_depth: Option<f64>,
             norm_median_depth: Option<f64>,
         }
@@ -553,7 +562,8 @@ pub async fn report_by_guid(pool: &PgPool, guid: SampleGuid) -> Result<Option<Sa
         let cov: Vec<CovRow> = sqlx::query_as(
             "SELECT cs.reference_build, cs.aligner, cs.mean_coverage, cs.median_coverage, \
                     cs.pct_10x, cs.pct_20x, cs.pct_30x, cs.sequence_run_ref, \
-                    sr.test_type AS test_type, ttd.expected_min_depth AS expected_min_depth, \
+                    sr.test_type AS test_type, sr.test_profile_label AS test_profile_label, \
+                    ttd.expected_min_depth AS expected_min_depth, \
                     n.median_mean_depth AS norm_median_depth \
              FROM fed.coverage_summary cs \
              LEFT JOIN fed.sequencerun sr ON sr.at_uri = cs.sequence_run_ref \
@@ -577,6 +587,7 @@ pub async fn report_by_guid(pool: &PgPool, guid: SampleGuid) -> Result<Option<Sa
                 pct_30x: r.pct_30x,
                 sequence_run_ref: r.sequence_run_ref,
                 test_type: r.test_type,
+                test_profile_label: r.test_profile_label,
                 expected_min_depth: r.expected_min_depth,
                 norm_median_depth: r.norm_median_depth,
             })

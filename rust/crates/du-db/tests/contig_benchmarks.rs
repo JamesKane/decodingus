@@ -109,6 +109,63 @@ async fn facility_falls_back_as_vendor() {
     assert!(options.vendors.iter().any(|v| v == "Dante Labs"), "facility in vendor options: {:?}", options.vendors);
 }
 
+/// The coverage benchmark's test-type dimension is the standardized profile label
+/// (`COALESCE(sr.test_profile_label, sr.test_type)`): two runs with the same raw
+/// `test_type` but different profile labels form distinct, comparable cohorts, and the
+/// label (not the raw code) drives grouping, filtering, and the options list.
+#[tokio::test]
+async fn coverage_groups_by_standardized_profile_label() {
+    let Some(url) = database_url() else {
+        eprintln!("DATABASE_URL unset — skipping profile-label grouping test");
+        return;
+    };
+    let db = du_db::testing::ephemeral_db(&url).await.expect("ephemeral db");
+    let pool = db.pool().clone();
+
+    // Two runs, both raw testType "WGS", but standardized to different labels — YSEQ's
+    // "WGS" is 100-or-150 bp, so the label is the only thing that separates the cohorts.
+    for (did, label) in [("did:test:p150", "WGS150 45Gbases"), ("did:test:p100", "WGS100 45Gbases")] {
+        let run_uri = format!("at://{did}/com.decodingus.atmosphere.sequencerun/p1");
+        sqlx::query(
+            "INSERT INTO fed.sequencerun (did, rkey, at_uri, test_type, test_profile_label, platform_name, time_us) \
+             VALUES ($1,'p1',$2,'WGS',$3,'ILLUMINA',100)",
+        )
+        .bind(did)
+        .bind(&run_uri)
+        .bind(label)
+        .execute(&pool)
+        .await
+        .expect("insert run");
+
+        let mut r = rec(did, 11_000_000, 30.0, 3_500_000, 100);
+        r.reference_build = Some("GRCh38".to_string());
+        r.sequence_run_ref = Some(run_uri);
+        coverage::upsert(&pool, &r).await.expect("coverage upsert");
+    }
+
+    let rows = du_db::coverage::contig_benchmarks(&pool, &Default::default()).await.expect("benchmarks");
+    let labels: Vec<_> = rows.iter().filter(|r| r.contig == "chrY").filter_map(|r| r.test_type.clone()).collect();
+    assert!(labels.iter().any(|t| t == "WGS150 45Gbases"), "150 cohort labelled: {labels:?}");
+    assert!(labels.iter().any(|t| t == "WGS100 45Gbases"), "100 cohort labelled: {labels:?}");
+    // Two distinct cohorts, not one merged "WGS".
+    assert!(!labels.iter().any(|t| t == "WGS"), "raw code not used as the dimension: {labels:?}");
+
+    // Filtering by the standardized label isolates that cohort.
+    let only150 = du_db::coverage::contig_benchmarks(
+        &pool,
+        &du_db::coverage::ContigBenchmarkFilter { test_type: Some("WGS150 45Gbases".into()), ..Default::default() },
+    )
+    .await
+    .expect("label filter");
+    assert!(!only150.is_empty());
+    assert!(only150.iter().all(|r| r.test_type.as_deref() == Some("WGS150 45Gbases")), "filter restricts to the label");
+
+    // The options dropdown lists the labels, not the raw code.
+    let options = du_db::coverage::contig_benchmark_options(&pool).await.expect("options");
+    assert!(options.test_types.iter().any(|t| t == "WGS150 45Gbases"), "label in test-type options: {:?}", options.test_types);
+    assert!(!options.test_types.iter().any(|t| t == "WGS"), "raw code absent from options: {:?}", options.test_types);
+}
+
 #[tokio::test]
 async fn contig_benchmarks_avg_cv_and_years_per_snp() {
     let Some(url) = database_url() else {

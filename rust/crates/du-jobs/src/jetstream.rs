@@ -297,16 +297,36 @@ fn build_biosample(c: fed::Common, record: &Value) -> core::Biosample {
 }
 
 fn build_sequencerun(c: fed::Common, record: &Value) -> core::SequenceRun {
+    let platform_name = str_at(record, "platformName");
+    let test_type = str_at(record, "testType");
+    let read_type = str_at(record, "readType");
+    let read_length = i32_at(record, "readLength");
+    let total_bases = i64_at(record, "totalBases");
+
+    // Classify once at ingest via the shared source-of-truth function, then persist the
+    // label as a column so the coverage benchmark can group/filter on it in SQL and the
+    // sample report can read it directly (see 11-Standardized-Test-Profiles.md).
+    let test_profile_label = du_domain::testprofile::standardized_label(&du_domain::testprofile::RunProfile {
+        test_type: test_type.as_deref(),
+        platform: platform_name.as_deref(),
+        read_type: read_type.as_deref(),
+        mean_read_len: read_length.map(|r| r as f64),
+        total_bases,
+    });
+
     core::SequenceRun {
         biosample_ref: str_at(record, "biosampleRef"),
-        platform_name: str_at(record, "platformName"),
+        platform_name,
         instrument_model: str_at(record, "instrumentModel"),
         instrument_id: str_at(record, "instrumentId"),
         sequencing_facility: str_at(record, "sequencingFacility"),
-        test_type: str_at(record, "testType"),
+        test_type,
         library_layout: str_at(record, "libraryLayout"),
         total_reads: i64_at(record, "totalReads"),
-        read_length: i32_at(record, "readLength"),
+        read_length,
+        total_bases,
+        read_type,
+        test_profile_label,
         mean_insert_size: f64_at(record, "meanInsertSize"),
         common: c,
     }
@@ -525,6 +545,43 @@ mod tests {
         assert_eq!(r.mean_coverage, Some(31.5));
         assert_eq!(r.pct_30x, Some(88.0));
         assert!(r.metrics.get("contigs").is_some());
+    }
+
+    #[test]
+    fn sequencerun_classifies_standardized_test_profile_label() {
+        // Short-read WGS: readLength + totalBases → "WGS150 45Gbases" (yield snaps to the 45 tier).
+        let sr = build_sequencerun(
+            mk_common(),
+            &json!({
+                "platformName": "ILLUMINA",
+                "testType": "WGS",
+                "readType": "SHORT",
+                "readLength": 150,
+                "totalReads": 300_000_000,
+                "totalBases": 43_600_000_000_i64,
+                "instrumentId": "A00500",
+            }),
+        );
+        assert_eq!(sr.total_bases, Some(43_600_000_000));
+        assert_eq!(sr.read_type.as_deref(), Some("SHORT"));
+        assert_eq!(sr.test_profile_label.as_deref(), Some("WGS150 45Gbases"));
+
+        // Long-read HiFi: no readLength component, PacBio HiFi → "HiFi 90Gbases".
+        let hifi = build_sequencerun(
+            mk_common(),
+            &json!({
+                "platformName": "PACBIO",
+                "testType": "WGS_HIFI",
+                "readType": "HIFI",
+                "totalBases": 90_000_000_000_i64,
+            }),
+        );
+        assert_eq!(hifi.test_profile_label.as_deref(), Some("HiFi 90Gbases"));
+
+        // A record with no profile inputs (pre-upgrade / non-yield) → no label.
+        let bare = build_sequencerun(mk_common(), &json!({ "testType": "ARRAY_23ANDME_V5" }));
+        assert_eq!(bare.test_profile_label, None);
+        assert_eq!(bare.total_bases, None);
     }
 
     #[test]

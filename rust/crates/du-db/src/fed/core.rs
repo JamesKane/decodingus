@@ -99,6 +99,11 @@ pub struct SequenceRun {
     pub library_layout: Option<String>,
     pub total_reads: Option<i64>,
     pub read_length: Option<i32>,
+    pub total_bases: Option<i64>,
+    pub read_type: Option<String>,
+    /// Standardized vendor-neutral test label (`du_domain::testprofile`), classified at
+    /// ingest from the fields above; `None` for non-yield tests (chips/panels).
+    pub test_profile_label: Option<String>,
     pub mean_insert_size: Option<f64>,
 }
 
@@ -107,15 +112,18 @@ pub async fn upsert_sequencerun(pool: &PgPool, s: &SequenceRun) -> Result<(), Db
         "INSERT INTO fed.sequencerun \
            (did, rkey, at_uri, cid, biosample_ref, platform_name, instrument_model, \
             instrument_id, sequencing_facility, test_type, library_layout, total_reads, read_length, \
+            total_bases, read_type, test_profile_label, \
             mean_insert_size, record_created_at, time_us) \
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) \
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) \
          ON CONFLICT (did, rkey) DO UPDATE SET \
            at_uri = EXCLUDED.at_uri, cid = EXCLUDED.cid, biosample_ref = EXCLUDED.biosample_ref, \
            platform_name = EXCLUDED.platform_name, instrument_model = EXCLUDED.instrument_model, \
            instrument_id = EXCLUDED.instrument_id, sequencing_facility = EXCLUDED.sequencing_facility, \
            test_type = EXCLUDED.test_type, \
            library_layout = EXCLUDED.library_layout, total_reads = EXCLUDED.total_reads, \
-           read_length = EXCLUDED.read_length, mean_insert_size = EXCLUDED.mean_insert_size, \
+           read_length = EXCLUDED.read_length, total_bases = EXCLUDED.total_bases, \
+           read_type = EXCLUDED.read_type, test_profile_label = EXCLUDED.test_profile_label, \
+           mean_insert_size = EXCLUDED.mean_insert_size, \
            record_created_at = EXCLUDED.record_created_at, time_us = EXCLUDED.time_us, indexed_at = now() \
          WHERE EXCLUDED.time_us >= fed.sequencerun.time_us",
     )
@@ -132,6 +140,9 @@ pub async fn upsert_sequencerun(pool: &PgPool, s: &SequenceRun) -> Result<(), Db
     .bind(&s.library_layout)
     .bind(s.total_reads)
     .bind(s.read_length)
+    .bind(s.total_bases)
+    .bind(&s.read_type)
+    .bind(&s.test_profile_label)
     .bind(s.mean_insert_size)
     .bind(s.common.record_created_at)
     .bind(s.common.time_us)

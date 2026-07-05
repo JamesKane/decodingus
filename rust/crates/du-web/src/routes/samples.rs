@@ -309,7 +309,9 @@ impl SampleView {
             .map(|r| SeqView {
                 platform: dash(r.platform_name.clone()),
                 instrument: dash(r.instrument_model.clone()),
-                test_type: dash(r.test_type.clone()),
+                // Prefer the standardized profile label (e.g. "WGS150 45Gbases");
+                // fall back to the raw catalog code for non-yield / pre-profile records.
+                test_type: dash(r.test_profile_label.clone().or_else(|| r.test_type.clone())),
                 layout: dash(r.library_layout.clone()),
                 reads: num_i64(r.total_reads),
                 read_length: num_i32(r.read_length),
@@ -322,7 +324,7 @@ impl SampleView {
             .map(|c| CovView {
                 build: dash(c.reference_build.clone()),
                 aligner: dash(c.aligner.clone()),
-                test_type: dash(c.test_type.clone()),
+                test_type: dash(c.test_profile_label.clone().or_else(|| c.test_type.clone())),
                 mean: num_f64(c.mean_coverage, 1),
                 pct_10x: num_f64(c.pct_10x, 1),
                 pct_20x: num_f64(c.pct_20x, 1),

@@ -114,7 +114,7 @@ pub async fn contig_benchmarks(
     // are wire strings (WireF64) or ints; cast defensively via ->> + ::double precision.
     let rows: Vec<Row> = sqlx::query_as(
         "SELECT COALESCE(lab.name, sr.sequencing_facility) AS vendor, \
-                sr.test_type AS test_type, \
+                COALESCE(sr.test_profile_label, sr.test_type) AS test_type, \
                 cs.reference_build AS reference_build, \
                 c->>'contig' AS contig, \
                 count(*) AS samples, \
@@ -134,11 +134,11 @@ pub async fn contig_benchmarks(
          WHERE jsonb_typeof(cs.metrics->'contigs') = 'array' \
            AND c->>'contig' IS NOT NULL \
            AND ($1::text IS NULL OR COALESCE(lab.name, sr.sequencing_facility) = $1) \
-           AND ($2::text IS NULL OR sr.test_type = $2) \
+           AND ($2::text IS NULL OR COALESCE(sr.test_profile_label, sr.test_type) = $2) \
            AND ($3::text IS NULL OR cs.reference_build = $3) \
            AND ($4::text IS NULL OR c->>'contig' = $4) \
-         GROUP BY COALESCE(lab.name, sr.sequencing_facility), sr.test_type, cs.reference_build, c->>'contig' \
-         ORDER BY COALESCE(lab.name, sr.sequencing_facility) NULLS LAST, sr.test_type NULLS LAST, cs.reference_build NULLS LAST",
+         GROUP BY COALESCE(lab.name, sr.sequencing_facility), COALESCE(sr.test_profile_label, sr.test_type), cs.reference_build, c->>'contig' \
+         ORDER BY COALESCE(lab.name, sr.sequencing_facility) NULLS LAST, COALESCE(sr.test_profile_label, sr.test_type) NULLS LAST, cs.reference_build NULLS LAST",
     )
     .bind(&filter.vendor)
     .bind(&filter.test_type)
@@ -200,10 +200,11 @@ pub async fn contig_benchmark_options(pool: &PgPool) -> Result<ContigBenchmarkOp
     .fetch_all(pool)
     .await?;
     let test_types: Vec<String> = sqlx::query_scalar(
-        "SELECT DISTINCT sr.test_type \
-         FROM fed.coverage_summary cs \
-         JOIN fed.sequencerun sr ON sr.at_uri = cs.sequence_run_ref \
-         WHERE sr.test_type IS NOT NULL AND btrim(sr.test_type) <> '' ORDER BY sr.test_type",
+        "SELECT DISTINCT tt FROM ( \
+           SELECT COALESCE(sr.test_profile_label, sr.test_type) AS tt \
+           FROM fed.coverage_summary cs \
+           JOIN fed.sequencerun sr ON sr.at_uri = cs.sequence_run_ref \
+         ) t WHERE tt IS NOT NULL AND btrim(tt) <> '' ORDER BY tt",
     )
     .fetch_all(pool)
     .await?;
