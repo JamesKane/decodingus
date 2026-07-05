@@ -31,13 +31,38 @@ async fn main() -> anyhow::Result<()> {
 
     let url = std::env::var("DATABASE_URL")
         .map_err(|_| anyhow::anyhow!("DATABASE_URL is required for the job runner"))?;
-    let pool = du_db::connect(&url, 4).await?;
+    // The scheduler fires several jobs concurrently (esp. the startup burst and the hourly
+    // consensus/coverage ticks) alongside the long-lived Jetstream consumer, which acquires a
+    // connection per upsert/cursor write. A pool of 4 starves under that; size it (overridable
+    // via DU_JOBS_DB_POOL) so jobs + ingest coexist.
+    let pool_size = std::env::var("DU_JOBS_DB_POOL")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .filter(|&n| n > 0)
+        .unwrap_or(16);
+    let pool = du_db::connect(&url, pool_size).await?;
+
+    let mut argv = std::env::args().skip(1);
+    let mode = argv.next();
+
+    // Standalone real-time consumer: `decodingus-jobs jetstream` runs ONLY the Jetstream
+    // reporting mirror (no batch scheduler), so ingestion is never starved by — nor does a
+    // restart re-trigger — the heavy periodic jobs (branch-age, consensus). Run this as the
+    // always-on ingest service; run the batch jobs separately (run-once / a scheduler service).
+    if mode.as_deref() == Some("jetstream") {
+        let cfg = jetstream::Config::from_env().ok_or_else(|| anyhow::anyhow!("set JETSTREAM_URL"))?;
+        tracing::info!(url = %cfg.url, collections = ?cfg.collections, "jetstream consumer (standalone)");
+        tokio::select! {
+            _ = jetstream::run(pool.clone(), cfg) => {}
+            _ = tokio::signal::ctrl_c() => tracing::info!("jetstream consumer shutting down"),
+        }
+        return Ok(());
+    }
 
     // One-shot mode: `du-jobs run-once <job>` runs a single job to completion and
     // exits, instead of starting the interval scheduler. For ops/backfills (e.g.
     // a full YBrowse GFF3 ingest + reconcile on demand, not on the 24h tick).
-    let mut argv = std::env::args().skip(1);
-    if argv.next().as_deref() == Some("run-once") {
+    if mode.as_deref() == Some("run-once") {
         let job = argv.next().unwrap_or_default();
         match job.as_str() {
             "ybrowse" => {
