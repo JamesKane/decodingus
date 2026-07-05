@@ -7,6 +7,40 @@
 </div>
 <p class="text-muted small">{{ t.get("coverage.bench.intro") }}</p>
 
+<form method="get" action="/coverage-benchmarks" class="row g-2 align-items-end mb-4">
+  <div class="col-auto">
+    <label class="form-label small mb-1" for="f-lab">{{ t.get("coverage.filter.lab") }}</label>
+    <select id="f-lab" name="vendor" class="form-select form-select-sm" data-autosubmit>
+      <option value="">{{ t.get("coverage.filter.all") }}</option>
+      {% for o in vendors %}<option value="{{ o.value }}"{% if o.selected %} selected{% endif %}>{{ o.value }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="col-auto">
+    <label class="form-label small mb-1" for="f-test">{{ t.get("coverage.filter.testType") }}</label>
+    <select id="f-test" name="test_type" class="form-select form-select-sm" data-autosubmit>
+      <option value="">{{ t.get("coverage.filter.all") }}</option>
+      {% for o in test_types %}<option value="{{ o.value }}"{% if o.selected %} selected{% endif %}>{{ o.value }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="col-auto">
+    <label class="form-label small mb-1" for="f-build">{{ t.get("coverage.filter.build") }}</label>
+    <select id="f-build" name="build" class="form-select form-select-sm" data-autosubmit>
+      <option value="">{{ t.get("coverage.filter.all") }}</option>
+      {% for o in builds %}<option value="{{ o.value }}"{% if o.selected %} selected{% endif %}>{{ o.value }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="col-auto">
+    <label class="form-label small mb-1" for="f-chr">{{ t.get("coverage.filter.chr") }}</label>
+    <select id="f-chr" name="contig" class="form-select form-select-sm" data-autosubmit>
+      <option value="">{{ t.get("coverage.filter.all") }}</option>
+      {% for o in contigs %}<option value="{{ o.value }}"{% if o.selected %} selected{% endif %}>{{ o.value }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="col-auto">
+    <button type="submit" class="btn btn-sm btn-outline-secondary">{{ t.get("coverage.filter.apply") }}</button>
+  </div>
+</form>
+
 {% for g in groups %}
 <div class="card mb-4">
   <div class="card-header d-flex flex-wrap gap-2 align-items-center">

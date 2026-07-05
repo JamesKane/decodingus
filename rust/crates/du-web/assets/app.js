@@ -56,6 +56,13 @@
     if (el) { el.innerHTML = ''; }
   });
 
+  // Auto-submit a form when a `data-autosubmit` <select> changes (CSP-safe
+  // replacement for inline onchange). The submit button is the no-JS fallback.
+  document.addEventListener('change', function (e) {
+    var sel = e.target.closest && e.target.closest('select[data-autosubmit]');
+    if (sel && sel.form) { sel.form.submit(); }
+  });
+
   // GDPR cookie banner: show + wire it when present and no consent cookie is set.
   function wireBanner() {
     if (document.cookie.split('; ').some(function (c) { return c.indexOf('du_consent=') === 0; })) return;

@@ -64,11 +64,35 @@ pub async fn benchmarks(pool: &PgPool) -> Result<Vec<CoverageBenchmark>, DbError
 /// used to turn a contig's average callable Y loci into an "Est Years/SNP" figure.
 const SNP_RATE_PER_BP_YR: f64 = 8.33e-10;
 
-/// Per-chromosome benchmarks across the federated coverage cohort. Rows with only one
-/// contributing sample report `None` for every CV (a CV needs a spread). Ordered by
-/// vendor, test type, build; contigs within a group are left in insertion order and
-/// karyotype-sorted by the caller (SQL can't cheaply express `1..22, X, Y, M`).
-pub async fn contig_benchmarks(pool: &PgPool) -> Result<Vec<ContigBenchmark>, DbError> {
+/// Optional equality filters for [`contig_benchmarks`] — each `None` field matches
+/// everything. Applied in SQL so a filtered view ships only the rows it needs.
+#[derive(Debug, Default, Clone)]
+pub struct ContigBenchmarkFilter {
+    pub vendor: Option<String>,
+    pub test_type: Option<String>,
+    pub build: Option<String>,
+    pub contig: Option<String>,
+}
+
+/// The distinct filter values present in the cohort, for building the report's
+/// dropdowns. `contigs` is unsorted (the web layer karyotype-sorts it).
+#[derive(Debug, Default, Clone)]
+pub struct ContigBenchmarkOptions {
+    pub vendors: Vec<String>,
+    pub test_types: Vec<String>,
+    pub builds: Vec<String>,
+    pub contigs: Vec<String>,
+}
+
+/// Per-chromosome benchmarks across the federated coverage cohort, narrowed by
+/// `filter`. Rows with only one contributing sample report `None` for every CV (a CV
+/// needs a spread). Ordered by vendor, test type, build; contigs within a group are
+/// left in insertion order and karyotype-sorted by the caller (SQL can't cheaply
+/// express `1..22, X, Y, M`).
+pub async fn contig_benchmarks(
+    pool: &PgPool,
+    filter: &ContigBenchmarkFilter,
+) -> Result<Vec<ContigBenchmark>, DbError> {
     #[derive(sqlx::FromRow)]
     struct Row {
         vendor: Option<String>,
@@ -109,9 +133,17 @@ pub async fn contig_benchmarks(pool: &PgPool) -> Result<Vec<ContigBenchmark>, Db
          LEFT JOIN genomics.sequencing_lab lab ON lab.id = si.lab_id \
          WHERE jsonb_typeof(cs.metrics->'contigs') = 'array' \
            AND c->>'contig' IS NOT NULL \
+           AND ($1::text IS NULL OR lab.name = $1) \
+           AND ($2::text IS NULL OR sr.test_type = $2) \
+           AND ($3::text IS NULL OR cs.reference_build = $3) \
+           AND ($4::text IS NULL OR c->>'contig' = $4) \
          GROUP BY lab.name, sr.test_type, cs.reference_build, c->>'contig' \
          ORDER BY lab.name NULLS LAST, sr.test_type NULLS LAST, cs.reference_build NULLS LAST",
     )
+    .bind(&filter.vendor)
+    .bind(&filter.test_type)
+    .bind(&filter.build)
+    .bind(&filter.contig)
     .fetch_all(pool)
     .await?;
 
@@ -149,6 +181,46 @@ pub async fn contig_benchmarks(pool: &PgPool) -> Result<Vec<ContigBenchmark>, Db
             }
         })
         .collect())
+}
+
+/// The distinct vendor / test-type / build / contig values present in the coverage
+/// cohort, for the report's filter dropdowns. Cheap `DISTINCT` scans (only `contigs`
+/// needs the array unnest). Each list is non-null and sorted where the DB can (contig
+/// order is fixed up by the web layer's karyotype sort).
+pub async fn contig_benchmark_options(pool: &PgPool) -> Result<ContigBenchmarkOptions, DbError> {
+    let vendors: Vec<String> = sqlx::query_scalar(
+        "SELECT DISTINCT lab.name \
+         FROM fed.coverage_summary cs \
+         JOIN fed.sequencerun sr ON sr.at_uri = cs.sequence_run_ref \
+         JOIN genomics.sequencer_instrument si ON si.instrument_id = sr.instrument_id \
+         JOIN genomics.sequencing_lab lab ON lab.id = si.lab_id \
+         WHERE lab.name IS NOT NULL ORDER BY lab.name",
+    )
+    .fetch_all(pool)
+    .await?;
+    let test_types: Vec<String> = sqlx::query_scalar(
+        "SELECT DISTINCT sr.test_type \
+         FROM fed.coverage_summary cs \
+         JOIN fed.sequencerun sr ON sr.at_uri = cs.sequence_run_ref \
+         WHERE sr.test_type IS NOT NULL AND btrim(sr.test_type) <> '' ORDER BY sr.test_type",
+    )
+    .fetch_all(pool)
+    .await?;
+    let builds: Vec<String> = sqlx::query_scalar(
+        "SELECT DISTINCT reference_build FROM fed.coverage_summary \
+         WHERE reference_build IS NOT NULL ORDER BY reference_build",
+    )
+    .fetch_all(pool)
+    .await?;
+    let contigs: Vec<String> = sqlx::query_scalar(
+        "SELECT DISTINCT c->>'contig' \
+         FROM fed.coverage_summary cs \
+         CROSS JOIN LATERAL jsonb_array_elements(cs.metrics->'contigs') AS c \
+         WHERE jsonb_typeof(cs.metrics->'contigs') = 'array' AND c->>'contig' IS NOT NULL",
+    )
+    .fetch_all(pool)
+    .await?;
+    Ok(ContigBenchmarkOptions { vendors, test_types, builds, contigs })
 }
 
 // ── empirical per-test-type coverage norms (D7) ──────────────────────────────────

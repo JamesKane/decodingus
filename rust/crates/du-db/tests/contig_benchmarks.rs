@@ -68,7 +68,9 @@ async fn contig_benchmarks_avg_cv_and_years_per_snp() {
     coverage::upsert(&pool, &rec("did:test:a", 10_000_000, 28.0, 4_000_000, 100)).await.expect("a");
     coverage::upsert(&pool, &rec("did:test:b", 12_000_000, 32.0, 3_000_000, 100)).await.expect("b");
 
-    let rows = du_db::coverage::contig_benchmarks(&pool).await.expect("benchmarks");
+    let rows = du_db::coverage::contig_benchmarks(&pool, &Default::default())
+        .await
+        .expect("benchmarks");
     let y = rows
         .iter()
         .find(|r| r.contig == "chrY" && r.reference_build.as_deref() == Some("GRCh38"))
@@ -87,4 +89,27 @@ async fn contig_benchmarks_avg_cv_and_years_per_snp() {
     let expected_yps = 1.0 / (callable_avg * 8.33e-10);
     let got = y.est_years_per_snp.expect("years per snp on chrY");
     assert!((got - expected_yps).abs() / expected_yps < 1e-9, "yps {got} vs {expected_yps}");
+
+    // ── Filter: only chrY rows come back when the contig filter is set ──
+    let filter = du_db::coverage::ContigBenchmarkFilter {
+        contig: Some("chrY".into()),
+        ..Default::default()
+    };
+    let only_y = du_db::coverage::contig_benchmarks(&pool, &filter).await.expect("filtered");
+    assert!(!only_y.is_empty(), "chrY filter returns rows");
+    assert!(only_y.iter().all(|r| r.contig == "chrY"), "filter restricts to chrY");
+
+    // A build that isn't in the cohort yields nothing.
+    let none = du_db::coverage::contig_benchmarks(
+        &pool,
+        &du_db::coverage::ContigBenchmarkFilter { build: Some("GRCh99".into()), ..Default::default() },
+    )
+    .await
+    .expect("filtered build");
+    assert!(none.is_empty(), "unknown build filters everything out");
+
+    // Options expose the distinct values for the dropdowns.
+    let options = du_db::coverage::contig_benchmark_options(&pool).await.expect("options");
+    assert!(options.builds.iter().any(|b| b == "GRCh38"), "GRCh38 in build options");
+    assert!(options.contigs.iter().any(|c| c == "chrY"), "chrY in contig options");
 }

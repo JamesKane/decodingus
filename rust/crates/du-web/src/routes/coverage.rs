@@ -77,6 +77,24 @@ struct BenchGroup {
     rows: Vec<ContigRow>,
 }
 
+/// One `<option>` in a filter dropdown, with `selected` precomputed (the template
+/// does no string comparison — askama can't compare `&String == String`).
+struct FilterOpt {
+    value: String,
+    selected: bool,
+}
+
+/// Turn distinct option values into `FilterOpt`s, marking the current selection.
+fn opts(values: Vec<String>, selected: &str) -> Vec<FilterOpt> {
+    values
+        .into_iter()
+        .map(|value| {
+            let selected = value == selected;
+            FilterOpt { value, selected }
+        })
+        .collect()
+}
+
 #[derive(askama::Template)]
 #[template(path = "coverage/benchmarks.html")]
 struct CoverageTemplate {
@@ -84,6 +102,26 @@ struct CoverageTemplate {
     next: String,
     user: Option<crate::auth::NavUser>,
     groups: Vec<BenchGroup>,
+    // Filter dropdown options, each flagged if currently selected ("" = all).
+    vendors: Vec<FilterOpt>,
+    test_types: Vec<FilterOpt>,
+    builds: Vec<FilterOpt>,
+    contigs: Vec<FilterOpt>,
+}
+
+/// Filter selections from the query string. Empty strings (the "All" option) are
+/// normalized to `None`.
+#[derive(Deserialize)]
+struct BenchQuery {
+    vendor: Option<String>,
+    test_type: Option<String>,
+    build: Option<String>,
+    contig: Option<String>,
+}
+
+/// `Some(non-empty)` → itself; `Some("")` / `None` → `None`.
+fn nz(v: Option<String>) -> Option<String> {
+    v.filter(|s| !s.trim().is_empty())
 }
 
 /// Integer with thousands separators (e.g. `12,345,678`); `—` for `None`.
@@ -168,9 +206,35 @@ async fn benchmarks(
     State(st): State<AppState>,
     locale: Locale,
     user: crate::auth::MaybeUser,
+    Query(q): Query<BenchQuery>,
 ) -> Result<Response, AppError> {
-    let groups = group_benchmarks(du_db::coverage::contig_benchmarks(&st.pool).await?);
-    Ok(html(&CoverageTemplate { t: locale.t, next: locale.next, user: user.nav(), groups }))
+    let filter = du_db::coverage::ContigBenchmarkFilter {
+        vendor: nz(q.vendor),
+        test_type: nz(q.test_type),
+        build: nz(q.build),
+        contig: nz(q.contig),
+    };
+    let groups = group_benchmarks(du_db::coverage::contig_benchmarks(&st.pool, &filter).await?);
+
+    let options = du_db::coverage::contig_benchmark_options(&st.pool).await?;
+    let mut contigs = options.contigs;
+    contigs.sort_by(|a, b| contig_key(a).cmp(&contig_key(b)));
+
+    let sel_vendor = filter.vendor.unwrap_or_default();
+    let sel_test_type = filter.test_type.unwrap_or_default();
+    let sel_build = filter.build.unwrap_or_default();
+    let sel_contig = filter.contig.unwrap_or_default();
+
+    Ok(html(&CoverageTemplate {
+        t: locale.t,
+        next: locale.next,
+        user: user.nav(),
+        groups,
+        vendors: opts(options.vendors, &sel_vendor),
+        test_types: opts(options.test_types, &sel_test_type),
+        builds: opts(options.builds, &sel_build),
+        contigs: opts(contigs, &sel_contig),
+    }))
 }
 
 // ── per-lab drill-down ─────────────────────────────────────────────────────────

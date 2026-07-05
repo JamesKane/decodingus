@@ -152,6 +152,12 @@ coverage.bench.yearsPerSnp=Années/SNP est.
 coverage.bench.avg=Moy.
 coverage.bench.cv=CV
 coverage.bench.build=Assemblage
+coverage.filter.lab=Laboratoire
+coverage.filter.testType=Type de test
+coverage.filter.build=Assemblage
+coverage.filter.chr=Chromosome
+coverage.filter.all=Tous
+coverage.filter.apply=Appliquer
 
 auth.login.title=Connexion
 auth.login.intro=Connectez-vous avec votre compte AT Protocol (par ex. Bluesky).
