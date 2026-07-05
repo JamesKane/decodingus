@@ -94,6 +94,7 @@ pub struct SequenceRun {
     pub platform_name: Option<String>,
     pub instrument_model: Option<String>,
     pub instrument_id: Option<String>,
+    pub sequencing_facility: Option<String>,
     pub test_type: Option<String>,
     pub library_layout: Option<String>,
     pub total_reads: Option<i64>,
@@ -105,13 +106,14 @@ pub async fn upsert_sequencerun(pool: &PgPool, s: &SequenceRun) -> Result<(), Db
     sqlx::query(
         "INSERT INTO fed.sequencerun \
            (did, rkey, at_uri, cid, biosample_ref, platform_name, instrument_model, \
-            instrument_id, test_type, library_layout, total_reads, read_length, \
+            instrument_id, sequencing_facility, test_type, library_layout, total_reads, read_length, \
             mean_insert_size, record_created_at, time_us) \
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) \
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) \
          ON CONFLICT (did, rkey) DO UPDATE SET \
            at_uri = EXCLUDED.at_uri, cid = EXCLUDED.cid, biosample_ref = EXCLUDED.biosample_ref, \
            platform_name = EXCLUDED.platform_name, instrument_model = EXCLUDED.instrument_model, \
-           instrument_id = EXCLUDED.instrument_id, test_type = EXCLUDED.test_type, \
+           instrument_id = EXCLUDED.instrument_id, sequencing_facility = EXCLUDED.sequencing_facility, \
+           test_type = EXCLUDED.test_type, \
            library_layout = EXCLUDED.library_layout, total_reads = EXCLUDED.total_reads, \
            read_length = EXCLUDED.read_length, mean_insert_size = EXCLUDED.mean_insert_size, \
            record_created_at = EXCLUDED.record_created_at, time_us = EXCLUDED.time_us, indexed_at = now() \
@@ -125,6 +127,7 @@ pub async fn upsert_sequencerun(pool: &PgPool, s: &SequenceRun) -> Result<(), Db
     .bind(&s.platform_name)
     .bind(&s.instrument_model)
     .bind(&s.instrument_id)
+    .bind(&s.sequencing_facility)
     .bind(&s.test_type)
     .bind(&s.library_layout)
     .bind(s.total_reads)

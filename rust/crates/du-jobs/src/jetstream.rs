@@ -302,6 +302,7 @@ fn build_sequencerun(c: fed::Common, record: &Value) -> core::SequenceRun {
         platform_name: str_at(record, "platformName"),
         instrument_model: str_at(record, "instrumentModel"),
         instrument_id: str_at(record, "instrumentId"),
+        sequencing_facility: str_at(record, "sequencingFacility"),
         test_type: str_at(record, "testType"),
         library_layout: str_at(record, "libraryLayout"),
         total_reads: i64_at(record, "totalReads"),

@@ -55,6 +55,60 @@ fn rec(did: &str, callable: i64, depth: f64, poor: i64, time_us: i64) -> Coverag
     }
 }
 
+/// A coverage summary whose `sequence_run_ref` resolves to a sequencerun with a
+/// published `sequencing_facility` but no instrument→lab mapping. The benchmark
+/// vendor must fall back to the facility (`COALESCE(lab.name, sr.sequencing_facility)`)
+/// and the facility must appear in the vendor filter options.
+#[tokio::test]
+async fn facility_falls_back_as_vendor() {
+    let Some(url) = database_url() else {
+        eprintln!("DATABASE_URL unset — skipping facility-vendor test");
+        return;
+    };
+    let db = du_db::testing::ephemeral_db(&url).await.expect("ephemeral db");
+    let pool = db.pool().clone();
+
+    let did = "did:test:fac";
+    let run_uri = format!("at://{did}/com.decodingus.atmosphere.sequencerun/f1");
+    // A PacBio run with a facility but no seeded lab_id — the lab.name join yields NULL.
+    sqlx::query(
+        "INSERT INTO fed.sequencerun (did, rkey, at_uri, instrument_id, sequencing_facility, platform_name, test_type, time_us) \
+         VALUES ($1,'f1',$2,'m64023e','Dante Labs','PACBIO_SMRT','WGS_HIFI',100)",
+    )
+    .bind(did)
+    .bind(&run_uri)
+    .execute(&pool)
+    .await
+    .expect("insert facility run");
+
+    // A coverage summary that references that run.
+    let mut r = rec(did, 11_000_000, 30.0, 3_500_000, 100);
+    r.reference_build = Some("chm13v2.0".to_string());
+    r.sequence_run_ref = Some(run_uri.clone());
+    coverage::upsert(&pool, &r).await.expect("coverage upsert");
+
+    let rows = du_db::coverage::contig_benchmarks(&pool, &Default::default()).await.expect("benchmarks");
+    let y = rows
+        .iter()
+        .find(|row| row.contig == "chrY" && row.reference_build.as_deref() == Some("chm13v2.0"))
+        .expect("a chrY / chm13v2.0 row");
+    assert_eq!(y.vendor.as_deref(), Some("Dante Labs"), "facility used as vendor when lab unmapped");
+
+    // The vendor filter selects on the coalesced expression, so filtering by the
+    // facility name returns the row.
+    let filtered = du_db::coverage::contig_benchmarks(
+        &pool,
+        &du_db::coverage::ContigBenchmarkFilter { vendor: Some("Dante Labs".into()), ..Default::default() },
+    )
+    .await
+    .expect("vendor filter");
+    assert!(filtered.iter().any(|row| row.vendor.as_deref() == Some("Dante Labs")), "facility vendor filter hits");
+
+    // The options dropdown lists the facility-only lab.
+    let options = du_db::coverage::contig_benchmark_options(&pool).await.expect("options");
+    assert!(options.vendors.iter().any(|v| v == "Dante Labs"), "facility in vendor options: {:?}", options.vendors);
+}
+
 #[tokio::test]
 async fn contig_benchmarks_avg_cv_and_years_per_snp() {
     let Some(url) = database_url() else {

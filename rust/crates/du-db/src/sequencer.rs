@@ -250,6 +250,34 @@ async fn recompute_locked(pool: &PgPool, cfg: &ConsensusConfig) -> Result<Consen
     .await?
     .rows_affected();
 
+    // 2c) Fold in the contributor's published sequencingFacility as a KNOWN claim.
+    //     A run that carries `instrument_id + sequencing_facility` is an explicit lab
+    //     assertion — stronger than the INFERRED center_name path (2), so 'KNOWN' wins
+    //     the dominant-lab vote below and teaches the map serials it never had (PacBio).
+    //     Keyed on the sequencerun's own uri (same key as 2), so this overwrites that
+    //     run's INFERRED row rather than double-counting the citizen. Generic center
+    //     names are excluded for parity with (2).
+    rep.observations_upserted += sqlx::query(
+        "INSERT INTO genomics.instrument_observation \
+            (instrument_id, lab_name, biosample_ref, platform, instrument_model, confidence, observed_at, atproto) \
+         SELECT si.id, btrim(s.sequencing_facility), s.biosample_ref, s.platform_name, s.instrument_model, \
+                'KNOWN', s.record_created_at, \
+                jsonb_build_object('uri', s.at_uri, 'cid', s.cid, 'repo_did', s.did) \
+         FROM fed.sequencerun s \
+         JOIN genomics.sequencer_instrument si ON si.instrument_id = s.instrument_id \
+         WHERE s.instrument_id IS NOT NULL AND s.sequencing_facility IS NOT NULL \
+           AND lower(btrim(s.sequencing_facility)) <> ALL($1::text[]) \
+         ON CONFLICT ((atproto->>'uri')) WHERE atproto IS NOT NULL \
+         DO UPDATE SET instrument_id = EXCLUDED.instrument_id, lab_name = EXCLUDED.lab_name, \
+            biosample_ref = EXCLUDED.biosample_ref, platform = EXCLUDED.platform, \
+            instrument_model = EXCLUDED.instrument_model, confidence = EXCLUDED.confidence, \
+            observed_at = EXCLUDED.observed_at",
+    )
+    .bind(&generic)
+    .execute(pool)
+    .await?
+    .rows_affected();
+
     // Prune observations no longer backed by a current fed record (either source).
     rep.observations_pruned = sqlx::query(
         "DELETE FROM genomics.instrument_observation o \

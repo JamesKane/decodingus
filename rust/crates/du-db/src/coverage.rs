@@ -113,7 +113,7 @@ pub async fn contig_benchmarks(
     // `c` = one contig entry unnested from a record's metrics.contigs[]. Numeric fields
     // are wire strings (WireF64) or ints; cast defensively via ->> + ::double precision.
     let rows: Vec<Row> = sqlx::query_as(
-        "SELECT lab.name AS vendor, \
+        "SELECT COALESCE(lab.name, sr.sequencing_facility) AS vendor, \
                 sr.test_type AS test_type, \
                 cs.reference_build AS reference_build, \
                 c->>'contig' AS contig, \
@@ -133,12 +133,12 @@ pub async fn contig_benchmarks(
          LEFT JOIN genomics.sequencing_lab lab ON lab.id = si.lab_id \
          WHERE jsonb_typeof(cs.metrics->'contigs') = 'array' \
            AND c->>'contig' IS NOT NULL \
-           AND ($1::text IS NULL OR lab.name = $1) \
+           AND ($1::text IS NULL OR COALESCE(lab.name, sr.sequencing_facility) = $1) \
            AND ($2::text IS NULL OR sr.test_type = $2) \
            AND ($3::text IS NULL OR cs.reference_build = $3) \
            AND ($4::text IS NULL OR c->>'contig' = $4) \
-         GROUP BY lab.name, sr.test_type, cs.reference_build, c->>'contig' \
-         ORDER BY lab.name NULLS LAST, sr.test_type NULLS LAST, cs.reference_build NULLS LAST",
+         GROUP BY COALESCE(lab.name, sr.sequencing_facility), sr.test_type, cs.reference_build, c->>'contig' \
+         ORDER BY COALESCE(lab.name, sr.sequencing_facility) NULLS LAST, sr.test_type NULLS LAST, cs.reference_build NULLS LAST",
     )
     .bind(&filter.vendor)
     .bind(&filter.test_type)
@@ -189,12 +189,13 @@ pub async fn contig_benchmarks(
 /// order is fixed up by the web layer's karyotype sort).
 pub async fn contig_benchmark_options(pool: &PgPool) -> Result<ContigBenchmarkOptions, DbError> {
     let vendors: Vec<String> = sqlx::query_scalar(
-        "SELECT DISTINCT lab.name \
-         FROM fed.coverage_summary cs \
-         JOIN fed.sequencerun sr ON sr.at_uri = cs.sequence_run_ref \
-         JOIN genomics.sequencer_instrument si ON si.instrument_id = sr.instrument_id \
-         JOIN genomics.sequencing_lab lab ON lab.id = si.lab_id \
-         WHERE lab.name IS NOT NULL ORDER BY lab.name",
+        "SELECT DISTINCT vendor FROM ( \
+           SELECT COALESCE(lab.name, sr.sequencing_facility) AS vendor \
+           FROM fed.coverage_summary cs \
+           JOIN fed.sequencerun sr ON sr.at_uri = cs.sequence_run_ref \
+           LEFT JOIN genomics.sequencer_instrument si ON si.instrument_id = sr.instrument_id \
+           LEFT JOIN genomics.sequencing_lab lab ON lab.id = si.lab_id \
+         ) v WHERE vendor IS NOT NULL ORDER BY vendor",
     )
     .fetch_all(pool)
     .await?;

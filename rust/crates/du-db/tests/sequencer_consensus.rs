@@ -54,6 +54,25 @@ async fn run(pool: &PgPool, did: &str, run_uri: &str, biosample_ref: &str, instr
     .expect("insert run");
 }
 
+/// One federated sequencerun carrying an instrument id AND a published
+/// `sequencing_facility` — the contributor's known lab, with no biosample/center_name
+/// and (deliberately) no seeded instrument→lab mapping (e.g. a PacBio serial).
+async fn run_with_facility(pool: &PgPool, did: &str, run_uri: &str, instrument: &str, facility: &str, t: i64) {
+    sqlx::query(
+        "INSERT INTO fed.sequencerun (did, rkey, at_uri, instrument_id, sequencing_facility, platform_name, instrument_model, time_us) \
+         VALUES ($1,$2,$3,$4,$5,'PACBIO_SMRT','Revio',$6)",
+    )
+    .bind(did)
+    .bind(format!("frun-{t}"))
+    .bind(run_uri)
+    .bind(instrument)
+    .bind(facility)
+    .bind(t)
+    .execute(pool)
+    .await
+    .expect("insert facility run");
+}
+
 /// One explicit citizen instrumentObservation (mirrored from the lexicon record),
 /// observed `now()` with the given confidence level.
 async fn observation(pool: &PgPool, did: &str, at_uri: &str, instrument: &str, lab: &str, confidence: &str, t: i64) {
@@ -116,6 +135,50 @@ async fn explicit_observations_drive_consensus() {
     // Accept closes the loop to the lookup.
     sequencer::accept_proposal(&pool, p.id, curator, "YSEQ", None, None, Some(false)).await.expect("accept");
     assert!(sequencer::lookup_lab(&pool, "B00100").await.expect("lookup").is_some());
+}
+
+/// The published `sequencingFacility` alone (no center_name, no explicit
+/// instrumentObservation, no seeded lab map) drives a KNOWN proposal, so a serial the
+/// instrument→lab map never had — a PacBio `m64023e` — becomes resolvable after accept.
+#[tokio::test]
+async fn published_facility_drives_consensus() {
+    let Some(url) = database_url() else {
+        eprintln!("DATABASE_URL unset — skipping facility-consensus test");
+        return;
+    };
+    let db = du_db::testing::ephemeral_db(&url).await.expect("ephemeral db");
+    let pool = db.pool().clone();
+    let curator = test_user(&pool).await;
+
+    // Three citizens, six runs, all publishing "Dante Labs" for PacBio serial m64023e.
+    // No biosamples/center_names and no seeded lab_id — the facility is the only signal.
+    let mut t = 7000i64;
+    for (did, n_runs) in [("did:ex:xan", 2), ("did:ex:yara", 2), ("did:ex:zed", 2)] {
+        for r in 0..n_runs {
+            run_with_facility(&pool, did, &format!("at://{did}/frun/{r}"), "m64023e", "Dante Labs", t).await;
+            t += 1;
+        }
+    }
+
+    let cfg = ConsensusConfig::default();
+    let rep = sequencer::recompute_consensus(&pool, &cfg).await.expect("recompute");
+    assert!(rep.observations_upserted >= 6, "facility runs materialize KNOWN observations");
+
+    let page = sequencer::list_proposals(&pool, None, 1, 50).await.expect("list");
+    let p = page.items.iter().find(|p| p.instrument_id == "m64023e").expect("m64023e proposal");
+    assert_eq!(p.proposed_lab_name.as_deref(), Some("Dante Labs"));
+    assert_eq!(p.observation_count, 6);
+    assert_eq!(p.distinct_citizen_count, 3);
+    assert_eq!(p.status, "READY_FOR_REVIEW");
+
+    // The supporting observations are KNOWN (facility is an explicit claim, not INFERRED).
+    let (_pv, obs) = sequencer::proposal_detail(&pool, p.id).await.expect("detail").expect("found");
+    assert!(obs.iter().all(|o| o.confidence.as_deref() == Some("KNOWN")), "facility → KNOWN: {obs:?}");
+
+    // Accept once → the serial resolves for every future contributor.
+    sequencer::accept_proposal(&pool, p.id, curator, "Dante Labs", None, None, Some(true)).await.expect("accept");
+    let resolved = sequencer::lookup_lab(&pool, "m64023e").await.expect("lookup").expect("resolved");
+    assert_eq!(resolved.lab_name, "Dante Labs");
 }
 
 #[tokio::test]
