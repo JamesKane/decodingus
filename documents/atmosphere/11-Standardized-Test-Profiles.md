@@ -246,6 +246,11 @@ upgrades it to the exact label.
     `standardized_label()`; the publish path attaches them via `with_read_profile`; older runs
     backfill `total_bases` from a cached `read_metrics` artifact on next load.
   - The Data Sources run card shows the standardized label under the run title.
+  - **Batch backfill for existing workspaces** — `navigator backfill-profiles [--rescan]
+    [--project NAME] [--json]` populates both fields across every run in the DB without a
+    re-analysis: `total_bases` from cached read-metrics, `read_type` from platform/test-type
+    inference (and, with `--rescan`, a bounded read-name scan to tell HiFi from CLR on
+    generic-`WGS` PacBio runs).
 
 **AppView: remaining follow-up** (the "AppView side" section above) — mirror the two columns
 onto `fed.sequencerun`, parse `totalBases`/`readType` in the Jetstream ingest, and group the

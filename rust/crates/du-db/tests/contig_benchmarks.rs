@@ -166,6 +166,60 @@ async fn coverage_groups_by_standardized_profile_label() {
     assert!(!options.test_types.iter().any(|t| t == "WGS"), "raw code absent from options: {:?}", options.test_types);
 }
 
+/// GRCh38/CHM13 prefix contigs with `chr`; GRCh37 does not. The benchmark canonicalizes
+/// (`fed.canonical_contig`) so the same chromosome is one option — not `chrY` + `Y` — and a
+/// filter pick matches every build. Distinct build rows are preserved; alt contigs are not folded.
+#[tokio::test]
+async fn contig_names_canonicalized_across_builds() {
+    let Some(url) = database_url() else {
+        eprintln!("DATABASE_URL unset — skipping contig-canonicalization test");
+        return;
+    };
+    let db = du_db::testing::ephemeral_db(&url).await.expect("ephemeral db");
+    let pool = db.pool().clone();
+
+    // Build a coverage record naming its single contig `contig` under reference `build`.
+    let rec_named = |did: &str, build: &str, contig: &str| -> CoverageRecord {
+        let mut r = rec(did, 11_000_000, 30.0, 3_500_000, 100);
+        r.reference_build = Some(build.to_string());
+        r.metrics = json!({
+            "meanCoverage": "30.0",
+            "contigs": [{
+                "contig": contig, "length": 57_227_415, "numReads": 1_000_000,
+                "meanDepth": "30.0", "coveragePct": "41.0", "callable": 11_000_000,
+                "noCoverage": 30_000_000, "lowCoverage": 500_000, "excessiveCoverage": 10_000,
+                "poorMappingQuality": 3_500_000, "refN": 33_000_000, "meanBaseQ": "35.0", "meanMapQ": "52.0"
+            }]
+        });
+        r
+    };
+
+    // Same chromosome, two builds/spellings; plus a GRCh37 unplaced contig that must NOT fold.
+    coverage::upsert(&pool, &rec_named("did:test:g38", "GRCh38", "chrY")).await.expect("g38");
+    coverage::upsert(&pool, &rec_named("did:test:g37", "GRCh37", "Y")).await.expect("g37");
+    coverage::upsert(&pool, &rec_named("did:test:hs1", "chm13v2.0", "chrY_hs1")).await.expect("hs1");
+    coverage::upsert(&pool, &rec_named("did:test:alt", "GRCh37", "GL000209.1")).await.expect("alt");
+
+    // The options list carries a single canonical "chrY" (not chrY + Y + chrY_hs1), and the
+    // unplaced contig survives verbatim.
+    let options = du_db::coverage::contig_benchmark_options(&pool).await.expect("options");
+    let ys: Vec<_> = options.contigs.iter().filter(|c| c.eq_ignore_ascii_case("chrY") || c.as_str() == "Y" || c.as_str() == "chrY_hs1").collect();
+    assert_eq!(ys, vec![&"chrY".to_string()], "one canonical Y option: {:?}", options.contigs);
+    assert!(options.contigs.iter().any(|c| c == "GL000209.1"), "alt contig kept verbatim: {:?}", options.contigs);
+
+    // Filtering by the canonical "chrY" returns all three primary-Y builds (chrY, Y, chrY_hs1).
+    let ybench = du_db::coverage::contig_benchmarks(
+        &pool,
+        &du_db::coverage::ContigBenchmarkFilter { contig: Some("chrY".into()), ..Default::default() },
+    )
+    .await
+    .expect("chrY filter");
+    assert!(ybench.iter().all(|r| r.contig == "chrY"), "all rows report canonical chrY: {ybench:?}");
+    let builds: std::collections::BTreeSet<_> = ybench.iter().filter_map(|r| r.reference_build.clone()).collect();
+    assert_eq!(builds, ["GRCh37", "GRCh38", "chm13v2.0"].iter().map(|s| s.to_string()).collect(),
+        "the one filter spans every build: {builds:?}");
+}
+
 #[tokio::test]
 async fn contig_benchmarks_avg_cv_and_years_per_snp() {
     let Some(url) = database_url() else {

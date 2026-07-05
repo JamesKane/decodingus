@@ -116,7 +116,7 @@ pub async fn contig_benchmarks(
         "SELECT COALESCE(lab.name, sr.sequencing_facility) AS vendor, \
                 COALESCE(sr.test_profile_label, sr.test_type) AS test_type, \
                 cs.reference_build AS reference_build, \
-                c->>'contig' AS contig, \
+                fed.canonical_contig(c->>'contig') AS contig, \
                 count(*) AS samples, \
                 avg((c->>'callable')::double precision) AS callable_avg, \
                 stddev_samp((c->>'callable')::double precision) AS callable_sd, \
@@ -136,8 +136,8 @@ pub async fn contig_benchmarks(
            AND ($1::text IS NULL OR COALESCE(lab.name, sr.sequencing_facility) = $1) \
            AND ($2::text IS NULL OR COALESCE(sr.test_profile_label, sr.test_type) = $2) \
            AND ($3::text IS NULL OR cs.reference_build = $3) \
-           AND ($4::text IS NULL OR c->>'contig' = $4) \
-         GROUP BY COALESCE(lab.name, sr.sequencing_facility), COALESCE(sr.test_profile_label, sr.test_type), cs.reference_build, c->>'contig' \
+           AND ($4::text IS NULL OR fed.canonical_contig(c->>'contig') = $4) \
+         GROUP BY COALESCE(lab.name, sr.sequencing_facility), COALESCE(sr.test_profile_label, sr.test_type), cs.reference_build, fed.canonical_contig(c->>'contig') \
          ORDER BY COALESCE(lab.name, sr.sequencing_facility) NULLS LAST, COALESCE(sr.test_profile_label, sr.test_type) NULLS LAST, cs.reference_build NULLS LAST",
     )
     .bind(&filter.vendor)
@@ -158,7 +158,8 @@ pub async fn contig_benchmarks(
     Ok(rows
         .into_iter()
         .map(|r| {
-            let is_y = matches!(r.contig.as_str(), "chrY" | "Y" | "chrY_hs1");
+            // contig is canonicalized in SQL (fed.canonical_contig), so Y is always "chrY".
+            let is_y = r.contig == "chrY";
             let est_years_per_snp = r
                 .callable_avg
                 .filter(|&b| is_y && b > 0.0)
@@ -215,7 +216,7 @@ pub async fn contig_benchmark_options(pool: &PgPool) -> Result<ContigBenchmarkOp
     .fetch_all(pool)
     .await?;
     let contigs: Vec<String> = sqlx::query_scalar(
-        "SELECT DISTINCT c->>'contig' \
+        "SELECT DISTINCT fed.canonical_contig(c->>'contig') \
          FROM fed.coverage_summary cs \
          CROSS JOIN LATERAL jsonb_array_elements(cs.metrics->'contigs') AS c \
          WHERE jsonb_typeof(cs.metrics->'contigs') = 'array' AND c->>'contig' IS NOT NULL",
