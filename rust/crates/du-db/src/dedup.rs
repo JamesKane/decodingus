@@ -319,6 +319,146 @@ pub async fn list_candidates(
     Ok(rows)
 }
 
+// ── identifier-tier candidates (shared external id → placement-confirmed) ─────
+//
+// A shared external identifier (an FTDNA kit, a catalog accession) is a deterministic
+// duplicate signal the uniparental engine can't produce — two de-novo tips of one donor
+// share NO private variants (each is a per-sample singleton), so the Y+mt block never
+// pairs them; the identifier is the only link. But "same kit" ≠ "safe to merge" — a
+// mistyped/reused kit would fuse two people. So each identifier collision is adjudicated
+// by a DNA signature (terminal-Y concordance) before it becomes a merge:
+//   SAME_TERMINAL / PARENT_CHILD / SIBLING → CONFIRMED (same person)
+//   DISTANT                                → DISPUTED  (kit matches, DNA disagrees — review)
+//   NO_PLACEMENT                           → UNPLACED  (can't confirm yet)
+// See proposals/biosample-identifier-dedup.md §5.
+
+/// A biosample pair that share an external identifier — input to placement adjudication.
+/// Pre-ordered `sample_a < sample_b` by the caller (matches the table's canonical pair).
+#[derive(Debug, Clone)]
+pub struct IdentifierPair {
+    pub sample_a: Uuid,
+    pub sample_b: Uuid,
+    pub namespace: String,
+    pub value: String,
+}
+
+/// An identifier pair after terminal-Y adjudication.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct ClassifiedPair {
+    pub sample_a: Uuid,
+    pub sample_b: Uuid,
+    pub namespace: String,
+    pub value: String,
+    pub relationship: String,
+    pub a_terminal: Option<String>,
+    pub b_terminal: Option<String>,
+}
+
+impl ClassifiedPair {
+    /// CONFIRMED (concordant placement) / DISPUTED (divergent) / UNPLACED (unresolvable).
+    pub fn disposition(&self) -> &'static str {
+        match self.relationship.as_str() {
+            "SAME_TERMINAL" | "PARENT_CHILD" | "SIBLING" => "CONFIRMED",
+            "NO_PLACEMENT" => "UNPLACED",
+            _ => "DISPUTED",
+        }
+    }
+    /// Queue rank (`list_candidates` orders by score DESC): confirmed on top, disputed last.
+    pub fn score(&self) -> f64 {
+        match self.disposition() {
+            "CONFIRMED" => 0.98,
+            "UNPLACED" => 0.60,
+            _ => 0.50,
+        }
+    }
+}
+
+/// Adjudicate identifier pairs by terminal-Y concordance (read-only). Each sample's terminal
+/// is its `tree.haplogroup_sample` Y placement; relationship is compared against the current
+/// parent edges. Pairs with no Y placement come back `NO_PLACEMENT`.
+pub async fn classify_identifier_pairs(pool: &PgPool, pairs: &[IdentifierPair]) -> Result<Vec<ClassifiedPair>, DbError> {
+    if pairs.is_empty() {
+        return Ok(Vec::new());
+    }
+    let a: Vec<Uuid> = pairs.iter().map(|p| p.sample_a).collect();
+    let b: Vec<Uuid> = pairs.iter().map(|p| p.sample_b).collect();
+    let ns: Vec<String> = pairs.iter().map(|p| p.namespace.clone()).collect();
+    let val: Vec<String> = pairs.iter().map(|p| p.value.clone()).collect();
+    let rows = sqlx::query_as::<_, ClassifiedPair>(
+        "WITH input AS (SELECT * FROM unnest($1::uuid[],$2::uuid[],$3::text[],$4::text[]) AS t(a,b,ns,val)), \
+              term AS (SELECT sample_guid, min(haplogroup_id) tid FROM tree.haplogroup_sample \
+                       WHERE dna_type='Y_DNA' GROUP BY sample_guid), \
+              par AS (SELECT child_haplogroup_id id, parent_haplogroup_id pid \
+                      FROM tree.haplogroup_relationship WHERE valid_until IS NULL) \
+         SELECT i.a AS sample_a, i.b AS sample_b, i.ns AS namespace, i.val AS value, \
+                CASE WHEN ta.tid IS NULL OR tb.tid IS NULL THEN 'NO_PLACEMENT' \
+                     WHEN ta.tid = tb.tid THEN 'SAME_TERMINAL' \
+                     WHEN pa.pid = tb.tid OR pb.pid = ta.tid THEN 'PARENT_CHILD' \
+                     WHEN pa.pid = pb.pid THEN 'SIBLING' ELSE 'DISTANT' END AS relationship, \
+                ha.name AS a_terminal, hb.name AS b_terminal \
+         FROM input i \
+         LEFT JOIN term ta ON ta.sample_guid = i.a \
+         LEFT JOIN term tb ON tb.sample_guid = i.b \
+         LEFT JOIN tree.haplogroup ha ON ha.id = ta.tid \
+         LEFT JOIN tree.haplogroup hb ON hb.id = tb.tid \
+         LEFT JOIN par pa ON pa.id = ta.tid \
+         LEFT JOIN par pb ON pb.id = tb.tid",
+    )
+    .bind(&a)
+    .bind(&b)
+    .bind(&ns)
+    .bind(&val)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}
+
+/// Upsert adjudicated pairs as `tier='IDENTIFIER'` candidates. Idempotent, and it never
+/// overwrites a curator/Tier-2 decision — `DO UPDATE` refreshes the evidence only while the
+/// row is still `CANDIDATE`. Returns rows written/refreshed.
+pub async fn write_identifier_candidates(pool: &PgPool, pairs: &[ClassifiedPair]) -> Result<u64, DbError> {
+    if pairs.is_empty() {
+        return Ok(0);
+    }
+    let a: Vec<Uuid> = pairs.iter().map(|p| p.sample_a).collect();
+    let b: Vec<Uuid> = pairs.iter().map(|p| p.sample_b).collect();
+    let ns: Vec<String> = pairs.iter().map(|p| p.namespace.clone()).collect();
+    let val: Vec<String> = pairs.iter().map(|p| p.value.clone()).collect();
+    let rel: Vec<String> = pairs.iter().map(|p| p.relationship.clone()).collect();
+    let disp: Vec<String> = pairs.iter().map(|p| p.disposition().to_string()).collect();
+    let score: Vec<f64> = pairs.iter().map(|p| p.score()).collect();
+    let at: Vec<Option<String>> = pairs.iter().map(|p| p.a_terminal.clone()).collect();
+    let bt: Vec<Option<String>> = pairs.iter().map(|p| p.b_terminal.clone()).collect();
+    let n = sqlx::query(
+        "INSERT INTO dedup.duplicate_candidate (sample_a, sample_b, tier, block_key, score, signals, status, verdict) \
+         SELECT a, b, 'IDENTIFIER', ns || '=' || val, score, \
+                jsonb_build_object('namespace',ns,'value',val,'source','cohort-manifest', \
+                    'disposition',disp,'relationship',rel,'a_terminal',at,'b_terminal',bt), \
+                'CANDIDATE', \
+                jsonb_build_object('method','identifier+Y-placement','relationship',rel, \
+                    'a_terminal',at,'b_terminal',bt,'disposition',disp) \
+         FROM unnest($1::uuid[],$2::uuid[],$3::text[],$4::text[],$5::float8[],$6::text[],$7::text[],$8::text[],$9::text[]) \
+              AS t(a,b,ns,val,score,rel,disp,at,bt) \
+         ON CONFLICT (sample_a, sample_b) DO UPDATE SET \
+            tier = EXCLUDED.tier, block_key = EXCLUDED.block_key, score = EXCLUDED.score, \
+            signals = EXCLUDED.signals, verdict = EXCLUDED.verdict, updated_at = now() \
+         WHERE dedup.duplicate_candidate.status = 'CANDIDATE'",
+    )
+    .bind(&a)
+    .bind(&b)
+    .bind(&ns)
+    .bind(&val)
+    .bind(&score)
+    .bind(&rel)
+    .bind(&disp)
+    .bind(&at)
+    .bind(&bt)
+    .execute(pool)
+    .await?
+    .rows_affected();
+    Ok(n)
+}
+
 // ── resolution + merge ───────────────────────────────────────────────────────
 
 /// Terminal statuses a curator / Tier-2 may assign to a candidate (everything
@@ -696,5 +836,30 @@ mod tests {
         let plain = evaluate_pair(&[], &[], Some(7), Some(7), &cfg).unwrap();
         let rich = evaluate_pair(&[1, 2, 3], &[1, 2, 3], Some(7), Some(7), &cfg).unwrap();
         assert!(rich.score > plain.score);
+    }
+
+    #[test]
+    fn identifier_disposition_and_score_by_placement() {
+        let mk = |rel: &str| ClassifiedPair {
+            sample_a: Uuid::nil(),
+            sample_b: Uuid::nil(),
+            namespace: "FTDNA".into(),
+            value: "B5163".into(),
+            relationship: rel.into(),
+            a_terminal: None,
+            b_terminal: None,
+        };
+        // Concordant placement confirms the kit match → top of the queue.
+        for rel in ["SAME_TERMINAL", "PARENT_CHILD", "SIBLING"] {
+            assert_eq!(mk(rel).disposition(), "CONFIRMED", "{rel}");
+            assert!((mk(rel).score() - 0.98).abs() < 1e-9, "{rel}");
+        }
+        // Divergent placement = kit matches but DNA disagrees → disputed, never auto-merged.
+        assert_eq!(mk("DISTANT").disposition(), "DISPUTED");
+        // Unresolvable (no Y placement) sits between: can't confirm, can't refute.
+        assert_eq!(mk("NO_PLACEMENT").disposition(), "UNPLACED");
+        // Queue ranking: confirmed > unplaced > disputed.
+        assert!(mk("SAME_TERMINAL").score() > mk("NO_PLACEMENT").score());
+        assert!(mk("NO_PLACEMENT").score() > mk("DISTANT").score());
     }
 }

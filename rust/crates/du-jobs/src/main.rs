@@ -13,6 +13,7 @@ mod coord_lift;
 mod ena;
 mod faidx;
 mod ftdna_str;
+mod import_kit_identifiers;
 mod jetstream;
 mod publications;
 mod scheduler;
@@ -190,6 +191,26 @@ async fn main() -> anyhow::Result<()> {
                 })?;
                 ftdna_str::run(&pool, &cfg).await?;
             }
+            // Backfill vendor kit identifiers (FTDNA/YSEQ/Dante/FGC/Nebula) from the
+            // cohort manifest into core.biosample_identifier — the background dedup key
+            // for federated re-publications. subject_id == biosample accession; one
+            // (namespace=lab, value=kit) per kit, is_public=false. Does NOT touch the
+            // UUID accession or MDKA. Previews unless `--apply`.
+            "import-kit-identifiers" => {
+                let args: Vec<String> = argv.collect();
+                let cfg = import_kit_identifiers::Config::from_env(&args)
+                    .ok_or_else(|| anyhow::anyhow!("set COHORT_MANIFEST"))?;
+                let rep = import_kit_identifiers::run(&pool, &cfg).await?;
+                tracing::info!(
+                    apply = cfg.apply, rows_total = rep.rows_total, rows_matched = rep.rows_matched,
+                    rows_unmatched = rep.rows_unmatched, multi_lab_rows = rep.multi_lab_rows,
+                    staged = rep.staged, inserted = rep.inserted, fallback_ns = rep.fallback_ns,
+                    per_namespace = ?rep.per_namespace,
+                    dup_pairs = rep.dup_pairs, confirmed = rep.confirmed, disputed = rep.disputed,
+                    unplaced = rep.unplaced, candidates_written = rep.candidates_written,
+                    "import-kit-identifiers complete{}", if cfg.apply { "" } else { " (preview — pass --apply to write)" }
+                );
+            }
             // Backfill rCRS (NC_012920.1) coordinates onto the hs1-native mtDNA tree
             // variants, lifting each hs1 chrM position through the shared rotation-aware
             // CHM13 chrM↔rCRS map (du_bio::mt). Gives PhyloTree/MITOMAP-frame positions.
@@ -213,7 +234,7 @@ async fn main() -> anyhow::Result<()> {
                 coord_lift::run(&pool, &cfg).await?;
             }
             other => anyhow::bail!(
-                "unknown run-once job '{other}' (known: ybrowse, reconcile, yregions, branch-age, ftdna-str, sequencer-consensus, discovery-consensus, coverage-norms, ibd-discovery-recompute, exchange-expire, tree-samples-recompute, dedup-candidates, consolidate-donors, link-federated-subjects, mt-rcrs-lift, variant-coord-lift)"
+                "unknown run-once job '{other}' (known: ybrowse, reconcile, yregions, branch-age, ftdna-str, sequencer-consensus, discovery-consensus, coverage-norms, ibd-discovery-recompute, exchange-expire, tree-samples-recompute, dedup-candidates, consolidate-donors, link-federated-subjects, import-kit-identifiers, mt-rcrs-lift, variant-coord-lift)"
             ),
         }
         return Ok(());
