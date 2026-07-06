@@ -61,7 +61,8 @@ pub async fn geo_points(pool: &PgPool) -> Result<Vec<GeoPoint>, DbError> {
         "SELECT ST_Y(d.geocoord) AS lat, ST_X(d.geocoord) AS lon, b.accession, \
          b.source::text AS source \
          FROM core.biosample b JOIN core.specimen_donor d ON d.id = b.donor_id \
-         WHERE d.geocoord IS NOT NULL AND b.deleted = false",
+         WHERE d.geocoord IS NOT NULL AND b.deleted = false \
+           AND NOT (abs(ST_X(d.geocoord)) < 1e-6 AND abs(ST_Y(d.geocoord)) < 1e-6)",
     )
     .fetch_all(pool)
     .await?;
