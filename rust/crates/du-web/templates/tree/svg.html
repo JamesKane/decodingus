@@ -29,6 +29,13 @@
       <circle cx="{{ tip.cx }}" cy="{{ tip.cy }}" r="5" fill="#6c757d"></circle>
       <text x="{{ tip.label_x }}" y="{{ tip.cy }}" dominant-baseline="central" font-size="11" fill="#6c757d">{{ tip.label }}</text>
     </g>
+    {% else if let Some(slug) = tip.slug %}
+    <a href="/sample/{{ slug }}" hx-boost="false" class="tree-tip-link">
+      <g class="tree-tip">
+        <circle cx="{{ tip.cx }}" cy="{{ tip.cy }}" r="4" fill="#2e7d32" stroke="#1b5e20"></circle>
+        <text x="{{ tip.label_x }}" y="{{ tip.cy }}" dominant-baseline="central" font-size="11" fill="#2e7d32" font-family="monospace" text-decoration="underline">{{ tip.label }}</text>
+      </g>
+    </a>
     {% else %}
     <g class="tree-tip">
       <circle cx="{{ tip.cx }}" cy="{{ tip.cy }}" r="4" fill="#2e7d32" stroke="#1b5e20"></circle>

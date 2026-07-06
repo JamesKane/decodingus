@@ -745,7 +745,9 @@ pub async fn report_by_guid(pool: &PgPool, guid: SampleGuid) -> Result<Option<Sa
         .collect();
 
     let origin = match (idr.lat, idr.lon) {
-        (Some(lat), Some(lon)) => Some(LatLon { lat, lon }),
+        // Treat "null island" (0,0) as unknown — it's open ocean in the Gulf of
+        // Guinea, never a real sampling origin (a zeroed/missing geocoord).
+        (Some(lat), Some(lon)) if !(lat.abs() < 1e-6 && lon.abs() < 1e-6) => Some(LatLon { lat, lon }),
         _ => None,
     };
     let identity = ReportIdentity {

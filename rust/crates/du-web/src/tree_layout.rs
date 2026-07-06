@@ -58,13 +58,21 @@ impl Orientation {
     }
 }
 
+/// A placed-sample leaf tip: display `label` (Coriell-style alias preferred) and a
+/// `slug` for linking to `/sample/:slug`.
+#[derive(Debug, Clone)]
+pub struct SampleTip {
+    pub label: String,
+    pub slug: String,
+}
+
 /// Input node fed to the layout engine (nested).
 #[derive(Debug, Clone)]
 pub struct InNode {
     pub name: String,
     pub variant_count: i64,
-    /// Placed-sample leaf labels to hang under this node (capped; YFull-style tips).
-    pub samples: Vec<String>,
+    /// Placed-sample leaf tips to hang under this node (capped; YFull-style tips).
+    pub samples: Vec<SampleTip>,
     /// How many more placed samples beyond `samples` (renders a "+N" overflow tip).
     pub sample_overflow: i64,
     pub is_backbone: bool,
@@ -116,6 +124,8 @@ pub struct LaidTip {
     pub label_x: f64,
     /// When set, this is the `+N` overflow tip; opens the node's sidebar (the haplogroup name).
     pub overflow_node: Option<String>,
+    /// Sample slug for `/sample/:slug` (a real leaf); `None` for the `+N` overflow tip.
+    pub slug: Option<String>,
 }
 
 /// An SVG connector path between a parent and one child.
@@ -202,16 +212,18 @@ impl Builder {
         let tip_depth = (depth + 1) as f64 * self.depth_spacing
             + if self.orientation == Orientation::Horizontal { MARGIN_LEFT } else { MARGIN_TOP };
         let mut tip_breadths: Vec<f64> = Vec::new();
-        let mut tip_labels: Vec<(String, Option<String>)> =
-            node.samples.iter().map(|s| (s.clone(), None)).collect();
+        // (label, overflow_node, slug): real leaves carry a slug; the `+N` overflow
+        // tip carries the node name (opens the sidebar) and no slug.
+        let mut tip_labels: Vec<(String, Option<String>, Option<String>)> =
+            node.samples.iter().map(|s| (s.label.clone(), None, Some(s.slug.clone()))).collect();
         if node.sample_overflow > 0 {
-            tip_labels.push((format!("+{}", node.sample_overflow), Some(node.name.clone())));
+            tip_labels.push((format!("+{}", node.sample_overflow), Some(node.name.clone()), None));
         }
-        for (label, overflow_node) in tip_labels {
+        for (label, overflow_node, slug) in tip_labels {
             let b = *breadth_cursor;
             *breadth_cursor += self.breadth_spacing;
             let (cx, cy) = self.center(tip_depth, b);
-            self.tips.push(LaidTip { label, cx, cy, label_x: cx + TIP_LABEL_DX, overflow_node });
+            self.tips.push(LaidTip { label, cx, cy, label_x: cx + TIP_LABEL_DX, overflow_node, slug });
             tip_breadths.push(b);
         }
 

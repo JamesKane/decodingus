@@ -201,12 +201,22 @@ pub struct LeafSample {
     pub pub_url: Option<String>,
 }
 
-/// Placed-sample leaf labels per node id (samples sitting **directly** at the node), for the
-/// cladogram's YFull-style tips. Label = accession, else alias, else the short guid. Bounded
-/// to `node_ids` (the rendered window); caller caps per node for display.
-pub async fn direct_labels(pool: &PgPool, dna_type: DnaType, node_ids: &[i64]) -> Result<Vec<(i64, String)>, DbError> {
+/// Placed-sample leaf tips per node id (samples sitting **directly** at the node),
+/// as `(haplogroup_id, label, slug)` for the cladogram's YFull-style tips.
+/// `label` prefers the common Coriell-style alias (HG…/NA…) over the accession —
+/// the accessioned survivor of a dedup merge keeps its SAMN…/SAMEA… accession, but
+/// the familiar HG/NA name is the better leaf label. `slug` is a stable identifier
+/// for `/sample/:slug` (accession first, so leaf links don't churn). Bounded to
+/// `node_ids` (the rendered window); caller caps per node for display.
+pub async fn direct_labels(
+    pool: &PgPool,
+    dna_type: DnaType,
+    node_ids: &[i64],
+) -> Result<Vec<(i64, String, String)>, DbError> {
     Ok(sqlx::query_as(
-        "SELECT hs.haplogroup_id, COALESCE(b.accession, b.alias, left(b.sample_guid::text, 8)) AS label \
+        "SELECT hs.haplogroup_id, \
+                COALESCE(b.alias, b.accession, left(b.sample_guid::text, 8)) AS label, \
+                COALESCE(b.accession, b.alias, b.sample_guid::text) AS slug \
          FROM tree.haplogroup_sample hs \
          JOIN core.biosample b ON b.sample_guid = hs.sample_guid \
          WHERE hs.dna_type::text = $1 AND hs.status IN ('PLACED','CURATED') \
