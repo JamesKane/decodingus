@@ -144,6 +144,7 @@ async fn main() -> anyhow::Result<()> {
                     males = rep.males, multi_blocks = rep.multi_blocks, pairs = rep.pairs_evaluated,
                     written = rep.candidates_written, pruned = rep.candidates_pruned,
                     mt_match = rep.mt_match_pairs, jaccard = rep.jaccard_pairs,
+                    identifier_readjudicated = rep.identifier_readjudicated,
                     "dedup-candidates complete"
                 );
             }

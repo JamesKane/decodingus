@@ -64,6 +64,8 @@ pub struct DedupReport {
     pub candidates_pruned: u64,
     pub mt_match_pairs: u64,
     pub jaccard_pairs: u64,
+    /// IDENTIFIER-tier candidates re-adjudicated against current placement (UNPLACED → CONFIRMED/DISPUTED).
+    pub identifier_readjudicated: u64,
 }
 
 /// Intersection size and Jaccard of two ascending-sorted id sets.
@@ -123,7 +125,14 @@ pub async fn recompute_candidates(pool: &PgPool, cfg: &DedupConfig) -> Result<De
     if !locked {
         return Ok(DedupReport::default());
     }
-    let result = recompute_locked(pool, cfg).await;
+    let result = async {
+        let mut rep = recompute_locked(pool, cfg).await?;
+        // Re-adjudicate IDENTIFIER candidates now that placements are current (federated anchors
+        // that raised UNPLACED candidates at ingest get confirmed once their sample is placed).
+        rep.identifier_readjudicated = readjudicate_identifier_candidates(pool).await?;
+        Ok::<_, DbError>(rep)
+    }
+    .await;
     let _ = sqlx::query("SELECT pg_advisory_unlock($1)")
         .bind(DEDUP_ADVISORY_KEY)
         .execute(&mut *lock_conn)
@@ -248,6 +257,7 @@ async fn recompute_locked(pool: &PgPool, cfg: &DedupConfig) -> Result<DedupRepor
                 tier = EXCLUDED.tier, block_key = EXCLUDED.block_key, \
                 score = EXCLUDED.score, signals = EXCLUDED.signals, updated_at = now() \
              WHERE dedup.duplicate_candidate.status = 'CANDIDATE' \
+               AND dedup.duplicate_candidate.tier = 'UNIPARENTAL' \
              RETURNING id",
         )
         .bind(sa)
@@ -263,8 +273,11 @@ async fn recompute_locked(pool: &PgPool, cfg: &DedupConfig) -> Result<DedupRepor
         }
     }
 
+    // Prune only THIS engine's own (UNIPARENTAL) candidates — IDENTIFIER-tier rows are owned
+    // by the identifier pipeline and must survive the uniparental recompute.
     rep.candidates_pruned = sqlx::query(
-        "DELETE FROM dedup.duplicate_candidate WHERE status = 'CANDIDATE' AND id <> ALL($1)",
+        "DELETE FROM dedup.duplicate_candidate \
+         WHERE status = 'CANDIDATE' AND tier = 'UNIPARENTAL' AND id <> ALL($1)",
     )
     .bind(&kept)
     .execute(&mut *tx)
@@ -461,6 +474,64 @@ pub async fn write_identifier_candidates(pool: &PgPool, pairs: &[ClassifiedPair]
     Ok(n)
 }
 
+/// Re-adjudicate open IDENTIFIER-tier candidates against the CURRENT Y placement. A federated
+/// anchor raises its collision candidates at ingest, before its sample is placed in the tree, so
+/// they start `UNPLACED`; once `tree-samples-recompute` places the sample this upgrades them to
+/// `CONFIRMED`/`DISPUTED`. In-place update — preserves `signals.namespace/value/source`, touches
+/// only rows still `CANDIDATE`. Returns rows refreshed.
+pub async fn readjudicate_identifier_candidates(pool: &PgPool) -> Result<u64, DbError> {
+    #[derive(sqlx::FromRow)]
+    struct Open {
+        sample_a: Uuid,
+        sample_b: Uuid,
+        namespace: Option<String>,
+        value: Option<String>,
+    }
+    let open: Vec<Open> = sqlx::query_as(
+        "SELECT sample_a, sample_b, signals->>'namespace' AS namespace, signals->>'value' AS value \
+         FROM dedup.duplicate_candidate WHERE tier = 'IDENTIFIER' AND status = 'CANDIDATE'",
+    )
+    .fetch_all(pool)
+    .await?;
+    let pairs: Vec<IdentifierPair> = open
+        .into_iter()
+        .filter_map(|o| {
+            Some(IdentifierPair { sample_a: o.sample_a, sample_b: o.sample_b, namespace: o.namespace?, value: o.value? })
+        })
+        .collect();
+    if pairs.is_empty() {
+        return Ok(0);
+    }
+    let classified = classify_identifier_pairs(pool, &pairs).await?;
+    let a: Vec<Uuid> = classified.iter().map(|c| c.sample_a).collect();
+    let b: Vec<Uuid> = classified.iter().map(|c| c.sample_b).collect();
+    let score: Vec<f64> = classified.iter().map(|c| c.score()).collect();
+    let disp: Vec<String> = classified.iter().map(|c| c.disposition().to_string()).collect();
+    let rel: Vec<String> = classified.iter().map(|c| c.relationship.clone()).collect();
+    let at: Vec<Option<String>> = classified.iter().map(|c| c.a_terminal.clone()).collect();
+    let bt: Vec<Option<String>> = classified.iter().map(|c| c.b_terminal.clone()).collect();
+    let n = sqlx::query(
+        "UPDATE dedup.duplicate_candidate d SET \
+            score = u.score, \
+            signals = d.signals || jsonb_build_object('disposition',u.disp,'relationship',u.rel,'a_terminal',u.at,'b_terminal',u.bt), \
+            verdict = jsonb_build_object('method','identifier+Y-placement','relationship',u.rel,'a_terminal',u.at,'b_terminal',u.bt,'disposition',u.disp), \
+            updated_at = now() \
+         FROM unnest($1::uuid[],$2::uuid[],$3::float8[],$4::text[],$5::text[],$6::text[],$7::text[]) AS u(a,b,score,disp,rel,at,bt) \
+         WHERE d.sample_a = u.a AND d.sample_b = u.b AND d.tier = 'IDENTIFIER' AND d.status = 'CANDIDATE'",
+    )
+    .bind(&a)
+    .bind(&b)
+    .bind(&score)
+    .bind(&disp)
+    .bind(&rel)
+    .bind(&at)
+    .bind(&bt)
+    .execute(pool)
+    .await?
+    .rows_affected();
+    Ok(n)
+}
+
 // ── resolution + merge ───────────────────────────────────────────────────────
 
 /// Terminal statuses a curator / Tier-2 may assign to a candidate (everything
@@ -526,6 +597,10 @@ struct Repoint {
 /// `dedup.duplicate_candidate` (sample_a/sample_b) is covered separately (the
 /// merged sample's other candidates are resolved, not repointed).
 const REPOINTS: &[Repoint] = &[
+    // External-identifier index (mig 0059): (namespace, value) is globally unique, so on a
+    // collision keep the survivor's row and repoint the rest — merging a duplicate hands its
+    // vendor/catalog ids to the survivor.
+    Repoint { table: "core.biosample_identifier", cols: &["sample_guid"], action: Action::KeepSurvivor(&["namespace", "value"]) },
     Repoint { table: "fed.pds_submission", cols: &["biosample_guid"], action: Action::Simple },
     Repoint { table: "genomics.biosample_callable_loci", cols: &["sample_guid"], action: Action::Simple },
     // STR profile is 1-per-sample (mig 0053), keyed by sample_guid — keep the

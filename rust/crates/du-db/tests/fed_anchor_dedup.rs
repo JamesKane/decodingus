@@ -117,3 +117,71 @@ async fn anchor_dedup_registers_new_ids_and_flags_collisions() {
     let pair = [a, b];
     assert!(pair.contains(&existing) && pair.contains(&anchor), "candidate links the two samples");
 }
+
+/// Place a sample under a Y haplogroup node (the tree-placement link classify() reads).
+async fn place(pool: &PgPool, sample: Uuid, node: i64) {
+    sqlx::query(
+        "INSERT INTO tree.haplogroup_sample (sample_guid, dna_type, haplogroup_id, call_text, status) \
+         VALUES ($1, 'Y_DNA'::core.dna_type, $2, 'R-TESTTERM', 'PLACED')",
+    )
+    .bind(sample)
+    .bind(node)
+    .execute(pool)
+    .await
+    .expect("place sample");
+}
+
+#[tokio::test]
+async fn readjudication_confirms_once_placed() {
+    let Some(url) = database_url() else {
+        eprintln!("DATABASE_URL unset — skipping readjudication test");
+        return;
+    };
+    let db = du_db::testing::ephemeral_db(&url).await.expect("ephemeral db");
+    let pool = db.pool().clone();
+
+    let existing = seed_existing(&pool).await;
+    let at_uri = seed_federated(&pool, "did:ex:republisher2").await;
+    du_db::fed_subject::link_federated_subjects(&pool, true).await.expect("link");
+    let anchor: Uuid = sqlx::query_scalar("SELECT sample_guid FROM core.biosample WHERE atproto->>'uri' = $1")
+        .bind(&at_uri)
+        .fetch_one(&pool)
+        .await
+        .expect("anchor");
+
+    // At ingest the anchor isn't tree-placed → the candidate is UNPLACED.
+    let disp0: String = sqlx::query_scalar(
+        "SELECT verdict->>'disposition' FROM dedup.duplicate_candidate WHERE block_key='FTDNA=B5163'",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("disposition");
+    assert_eq!(disp0, "UNPLACED", "unplaced at ingest");
+
+    // Place both samples at the SAME terminal, then re-adjudicate → CONFIRMED.
+    let node: i64 = sqlx::query_scalar(
+        "INSERT INTO tree.haplogroup (name, haplogroup_type) VALUES ('R-TESTTERM', 'Y_DNA'::core.dna_type) RETURNING id",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("node");
+    place(&pool, existing, node).await;
+    place(&pool, anchor, node).await;
+
+    let n = du_db::dedup::readjudicate_identifier_candidates(&pool).await.expect("readjudicate");
+    assert_eq!(n, 1, "one candidate refreshed");
+    let (disp, score): (String, f64) = sqlx::query_as(
+        "SELECT verdict->>'disposition', score FROM dedup.duplicate_candidate WHERE block_key='FTDNA=B5163'",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("after");
+    assert_eq!(disp, "CONFIRMED", "same terminal → confirmed");
+    assert!((score - 0.98).abs() < 1e-9, "confirmed score");
+    // signals.source is preserved across re-adjudication (still 'federation' from the anchor path).
+    let src: String = sqlx::query_scalar("SELECT signals->>'source' FROM dedup.duplicate_candidate WHERE block_key='FTDNA=B5163'")
+        .fetch_one(&pool)
+        .await
+        .expect("source");
+    assert_eq!(src, "federation", "source preserved");
+}
