@@ -642,7 +642,6 @@ pub struct MergeReport {
 #[derive(sqlx::FromRow)]
 struct BioRow {
     sample_guid: Uuid,
-    locked: bool,
     deleted: bool,
     accession: Option<String>,
     alias: Option<String>,
@@ -687,8 +686,9 @@ async fn assert_fk_coverage(tx: &mut sqlx::PgConnection) -> Result<(), DbError> 
 
 /// Merge `merged` into `survivor`: repoint every FK, fold metadata, tombstone the
 /// merged row, resolve the dedup candidate, and write a `core.biosample_merge`
-/// audit row — all in one transaction. Refuses if either sample is missing,
-/// already deleted, or `locked`, or if the FK plan is stale.
+/// audit row — all in one transaction. Refuses if either sample is missing or
+/// already deleted, or if the FK plan is stale. `locked` does NOT block a merge
+/// (dedup is allowed automation; see the note in the body).
 ///
 /// This is the **only** mutation that acts on a confirmed duplicate; Tier-1 never
 /// reaches it. Pass `candidate_id` to mark that candidate MERGED (other open
@@ -709,7 +709,7 @@ pub async fn merge_biosamples(
 
     // Load + validate both rows.
     let rows: Vec<BioRow> = sqlx::query_as(
-        "SELECT sample_guid, locked, deleted, accession, alias, \
+        "SELECT sample_guid, deleted, accession, alias, \
                 COALESCE(original_haplogroups,'[]'::jsonb) AS original_haplogroups, \
                 COALESCE(source_attrs,'{}'::jsonb) AS source_attrs, is_public \
          FROM core.biosample WHERE sample_guid = ANY($1)",
@@ -725,9 +725,11 @@ pub async fn merge_biosamples(
         if r.deleted {
             return Err(DbError::Decode(format!("{label} biosample is already deleted/merged")));
         }
-        if r.locked {
-            return Err(DbError::Decode(format!("{label} biosample is locked")));
-        }
+        // NB: `locked` is deliberately NOT a bar here. In the legacy Scala model
+        // `locked` meant "don't apply publication-driven field updates"; in the Rust
+        // model it means "no unattended automation edits". Deduplication is exactly
+        // the kind of automation that is allowed to act on locked rows — a confirmed
+        // duplicate must be merged regardless of the lock.
     }
 
     let mut rep = MergeReport { survivor, merged, rows_repointed: 0, rows_dropped: 0, candidates_dismissed: 0 };

@@ -10,17 +10,23 @@ use crate::i18n::{Locale, T};
 use crate::render::html;
 use crate::state::AppState;
 use axum::extract::{Path, State};
-use axum::response::Response;
-use axum::routing::{get, post};
-use axum::{Form, Router};
-use du_db::biosample::{HaplogroupCall, SampleReport};
+use axum::http::{HeaderMap, StatusCode};
+use axum::response::{IntoResponse, Response};
+use axum::routing::{get, patch, post};
+use axum::{Form, Json, Router};
+use du_db::biosample::{BiosamplePatch, HaplogroupCall, SampleReport};
 use du_db::haplogroup::Pathway;
+use du_domain::enums::BiosampleSource;
+use du_domain::ids::SampleGuid;
 use serde::Deserialize;
+use uuid::Uuid;
 
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/sample/:slug", get(report))
         .route("/curator/samples/:slug/public", post(toggle_public))
+        .route("/manage/biosamples/merge", post(merge_biosamples))
+        .route("/manage/biosamples/:guid", patch(patch_biosample))
 }
 
 // ── view models (all display logic lives here; templates stay logic-free) ──────
@@ -76,6 +82,28 @@ struct SeqView {
     read_length: String,
 }
 
+/// One downloadable academic data file (CRAM/BAM/masterVar).
+struct FileView {
+    name: String,
+    format: String,
+    size: String,
+    /// Public download URL (empty string ⇒ not shown as a link).
+    url: String,
+    md5: String,
+    aligner: String,
+    reference: String,
+}
+
+/// An academic sequencing run and its data files (`genomics.sequence_*`).
+struct SeqDataView {
+    instrument: String,
+    layout: String,
+    reads: String,
+    read_length: String,
+    run_date: String,
+    files: Vec<FileView>,
+}
+
 struct CovView {
     build: String,
     aligner: String,
@@ -115,8 +143,27 @@ struct SampleView {
     mt: PathwayView,
     sequencing: Vec<SeqView>,
     coverage: Vec<CovView>,
+    sequence_data: Vec<SeqDataView>,
     ancestry: Vec<AncestryComp>,
     ancestry_method: Option<String>,
+}
+
+/// Human-readable byte size (e.g. "1.4 GB"), or "—". A 0 size means "unrecorded"
+/// for these migrated files (ENA CRAM rows carry no byte count), not literally 0 B.
+fn human_bytes(n: Option<i64>) -> String {
+    let Some(n) = n.filter(|&n| n > 0) else { return "—".to_string() };
+    const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
+    let mut size = n as f64;
+    let mut u = 0;
+    while size >= 1024.0 && u < UNITS.len() - 1 {
+        size /= 1024.0;
+        u += 1;
+    }
+    if u == 0 {
+        format!("{n} B")
+    } else {
+        format!("{size:.1} {}", UNITS[u])
+    }
 }
 
 fn dash(v: Option<String>) -> String {
@@ -335,6 +382,42 @@ impl SampleView {
             })
             .collect();
 
+        let sequence_data = rep
+            .sequence_data
+            .iter()
+            .map(|r| SeqDataView {
+                instrument: dash(r.instrument.clone()),
+                layout: match r.paired_end {
+                    Some(true) => "PAIRED".to_string(),
+                    Some(false) => "SINGLE".to_string(),
+                    None => "—".to_string(),
+                },
+                reads: num_i64(r.reads),
+                read_length: num_i32(r.read_length),
+                run_date: dash(r.run_date.clone()),
+                files: r
+                    .files
+                    .iter()
+                    .map(|f| FileView {
+                        name: dash(f.file_name.clone()),
+                        format: dash(f.file_format.clone()),
+                        size: human_bytes(f.file_size_bytes),
+                        // Normalize to an absolute URL: some locations carry a scheme
+                        // (https://evolbio…), others are scheme-less ENA paths
+                        // (ftp.sra.ebi.ac.uk/…) that resolve fine over https.
+                        url: f
+                            .download_url
+                            .as_deref()
+                            .map(|u| if u.contains("://") { u.to_string() } else { format!("https://{u}") })
+                            .unwrap_or_default(),
+                        md5: dash(f.md5.clone()),
+                        aligner: dash(f.aligner.clone()),
+                        reference: dash(f.target_reference.clone()),
+                    })
+                    .collect(),
+            })
+            .collect();
+
         let (ancestry, ancestry_method) = build_ancestry(&rep);
 
         SampleView {
@@ -352,6 +435,7 @@ impl SampleView {
             mt: build_pathway(rep.mt.as_ref(), mt_path),
             sequencing,
             coverage,
+            sequence_data,
             ancestry,
             ancestry_method,
         }
@@ -446,4 +530,111 @@ async fn toggle_public(
     let make_public = f.is_public.is_some();
     du_db::biosample::set_public(&st.pool, guid, make_public).await?;
     Ok(html(&PublicToggleFragment { t: locale.t, slug, is_public: make_public }))
+}
+
+// ── machine-authenticated biosample field correction ─────────────────────────
+// A curator/ops PATCH endpoint (the un-ported Scala curator biosample edit).
+// Gated by X-API-Key == DU_CURATION_API_KEY (injected in prod from the AWS secret
+// `prod/decodingus/api`), the same machine-auth as the curation-proposal intake.
+// Becomes an OAuth bearer once the Edge handshake is live.
+
+/// Require the curation/ops API key (X-API-Key == DU_CURATION_API_KEY).
+fn check_api_key(headers: &HeaderMap) -> Result<(), AppError> {
+    match std::env::var("DU_CURATION_API_KEY").ok().filter(|s| !s.is_empty()) {
+        None => Err(AppError::Upstream("curation API not configured".into())),
+        Some(expected) => {
+            let provided = headers.get("x-api-key").and_then(|v| v.to_str().ok()).unwrap_or("");
+            if provided == expected {
+                Ok(())
+            } else {
+                Err(AppError::Forbidden)
+            }
+        }
+    }
+}
+
+/// Partial biosample update. Only the fields present in the JSON body are written;
+/// omitted fields are left untouched. `source` accepts the wire enum
+/// (`STANDARD`/`CITIZEN`/`PGP`/`EXTERNAL`/`ANCIENT`).
+#[derive(Deserialize)]
+struct BiosamplePatchIn {
+    source: Option<BiosampleSource>,
+    is_public: Option<bool>,
+    accession: Option<String>,
+    alias: Option<String>,
+    center_name: Option<String>,
+    description: Option<String>,
+}
+
+/// `PATCH /manage/biosamples/:guid` — apply a partial field correction to one
+/// biosample and return the updated row. 403 without the key, 404 for an unknown
+/// or deleted guid, 422 on an accession collision.
+async fn patch_biosample(
+    State(st): State<AppState>,
+    headers: HeaderMap,
+    Path(guid): Path<Uuid>,
+    Json(body): Json<BiosamplePatchIn>,
+) -> Result<Response, AppError> {
+    check_api_key(&headers)?;
+    let p = BiosamplePatch {
+        source: body.source,
+        is_public: body.is_public,
+        accession: body.accession,
+        alias: body.alias,
+        center_name: body.center_name,
+        description: body.description,
+    };
+    if p.is_empty() {
+        return Err(AppError::BadRequest("no fields to update".into()));
+    }
+    let guid = SampleGuid(guid);
+    if !du_db::biosample::patch(&st.pool, guid, &p).await? {
+        return Err(AppError::NotFound(format!("biosample {}", guid.0)));
+    }
+    let row = du_db::biosample::get_by_guid(&st.pool, guid)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("biosample {}", guid.0)))?;
+    Ok((StatusCode::OK, Json(row)).into_response())
+}
+
+/// Merge one confirmed-duplicate biosample into another. `survivor` is the record
+/// to KEEP (e.g. the publication-linked accessioned row); `merged` is tombstoned
+/// after every FK to it is repointed to the survivor.
+#[derive(Deserialize)]
+struct MergeIn {
+    survivor: Uuid,
+    merged: Uuid,
+    merged_by: Option<String>,
+    evidence: Option<serde_json::Value>,
+}
+
+/// `POST /manage/biosamples/merge` — repoint every child FK to `survivor`, fold
+/// metadata, tombstone `merged`, write a `core.biosample_merge` audit row (one
+/// transaction). X-API-Key gated. 422 on a self/duplicate/missing/stale-plan
+/// merge (never a silent orphan — the FK-coverage check aborts instead).
+async fn merge_biosamples(
+    State(st): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<MergeIn>,
+) -> Result<Response, AppError> {
+    check_api_key(&headers)?;
+    let merged_by = body.merged_by.unwrap_or_else(|| "ops-merge-api".to_string());
+    let evidence = body.evidence.unwrap_or_else(|| serde_json::json!({ "via": "ops merge api" }));
+    let rep = du_db::dedup::merge_biosamples(&st.pool, body.survivor, body.merged, &merged_by, None, evidence)
+        .await
+        .map_err(|e| match e {
+            du_db::DbError::Decode(msg) => AppError::BadRequest(msg),
+            other => other.into(),
+        })?;
+    Ok((
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "survivor": rep.survivor,
+            "merged": rep.merged,
+            "rows_repointed": rep.rows_repointed,
+            "rows_dropped": rep.rows_dropped,
+            "candidates_dismissed": rep.candidates_dismissed,
+        })),
+    )
+        .into_response())
 }

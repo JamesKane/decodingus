@@ -142,6 +142,58 @@
   </div>
 </div>
 
+{# 4b. Academic sequence data & downloadable files #}
+{% if !s.sequence_data.is_empty() %}
+<div class="card mb-3">
+  <div class="card-header py-2"><strong>{{ t.get("sample.data.title") }}</strong></div>
+  <div class="card-body">
+    {% for run in s.sequence_data %}
+    <div class="mb-3">
+      <div class="small text-muted mb-1">
+        {{ t.get("sample.data.instrument") }}: {{ run.instrument }} ·
+        {{ t.get("sample.data.layout") }}: {{ run.layout }} ·
+        {{ t.get("sample.data.reads") }}: {{ run.reads }} ·
+        {{ t.get("sample.data.readLength") }}: {{ run.read_length }} ·
+        {{ t.get("sample.data.date") }}: {{ run.run_date }}
+      </div>
+      {% if !run.files.is_empty() %}
+      <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0">
+          <thead><tr>
+            <th>{{ t.get("sample.data.file") }}</th>
+            <th>{{ t.get("sample.data.format") }}</th>
+            <th class="text-end">{{ t.get("sample.data.size") }}</th>
+            <th>{{ t.get("sample.data.reference") }}</th>
+            <th>{{ t.get("sample.data.aligner") }}</th>
+            <th>{{ t.get("sample.data.md5") }}</th>
+            <th></th>
+          </tr></thead>
+          <tbody>
+            {% for f in run.files %}
+            <tr>
+              <td class="text-break">{{ f.name }}</td>
+              <td>{{ f.format }}</td>
+              <td class="text-end">{{ f.size }}</td>
+              <td>{{ f.reference }}</td>
+              <td>{{ f.aligner }}</td>
+              <td class="small font-monospace text-break">{{ f.md5 }}</td>
+              <td class="text-end">
+                {% if !f.url.is_empty() %}
+                <a class="btn btn-sm btn-outline-primary" rel="nofollow noopener" href="{{ f.url }}">{{ t.get("sample.data.download") }}</a>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
 {# 5. Ancestry breakdown #}
 <div class="card mb-3">
   <div class="card-header py-2 d-flex justify-content-between align-items-center">
