@@ -413,10 +413,11 @@ pub async fn classify_identifier_pairs(pool: &PgPool, pairs: &[IdentifierPair]) 
     Ok(rows)
 }
 
-/// Upsert adjudicated pairs as `tier='IDENTIFIER'` candidates. Idempotent, and it never
-/// overwrites a curator/Tier-2 decision — `DO UPDATE` refreshes the evidence only while the
-/// row is still `CANDIDATE`. Returns rows written/refreshed.
-pub async fn write_identifier_candidates(pool: &PgPool, pairs: &[ClassifiedPair]) -> Result<u64, DbError> {
+/// Upsert adjudicated pairs as `tier='IDENTIFIER'` candidates. `source` records where the
+/// collision was found (`cohort-manifest` | `federation`). Idempotent, and it never overwrites
+/// a curator/Tier-2 decision — `DO UPDATE` refreshes the evidence only while the row is still
+/// `CANDIDATE`. Returns rows written/refreshed.
+pub async fn write_identifier_candidates(pool: &PgPool, pairs: &[ClassifiedPair], source: &str) -> Result<u64, DbError> {
     if pairs.is_empty() {
         return Ok(0);
     }
@@ -432,7 +433,7 @@ pub async fn write_identifier_candidates(pool: &PgPool, pairs: &[ClassifiedPair]
     let n = sqlx::query(
         "INSERT INTO dedup.duplicate_candidate (sample_a, sample_b, tier, block_key, score, signals, status, verdict) \
          SELECT a, b, 'IDENTIFIER', ns || '=' || val, score, \
-                jsonb_build_object('namespace',ns,'value',val,'source','cohort-manifest', \
+                jsonb_build_object('namespace',ns,'value',val,'source',$10::text, \
                     'disposition',disp,'relationship',rel,'a_terminal',at,'b_terminal',bt), \
                 'CANDIDATE', \
                 jsonb_build_object('method','identifier+Y-placement','relationship',rel, \
@@ -453,6 +454,7 @@ pub async fn write_identifier_candidates(pool: &PgPool, pairs: &[ClassifiedPair]
     .bind(&disp)
     .bind(&at)
     .bind(&bt)
+    .bind(source)
     .execute(pool)
     .await?
     .rows_affected();

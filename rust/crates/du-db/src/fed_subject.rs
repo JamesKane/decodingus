@@ -23,8 +23,10 @@
 //! Idempotent + re-runnable (a subject already anchored is skipped by the
 //! `NOT EXISTS` guard). `apply = false` previews the candidate count.
 
+use crate::dedup::{self, IdentifierPair};
 use crate::DbError;
 use sqlx::PgPool;
+use uuid::Uuid;
 
 /// Outcome of [`link_federated_subjects`].
 #[derive(Debug, Clone, Default)]
@@ -35,6 +37,11 @@ pub struct FederatedLinkReport {
     pub biosamples_created: u64,
     /// `core.specimen_donor` rows minted (one per new DID).
     pub donors_created: u64,
+    /// Published external ids registered into `core.biosample_identifier` (Phase 4 anchor dedup).
+    pub identifiers_registered: u64,
+    /// IDENTIFIER-tier duplicate candidates raised — a published id already on another sample
+    /// (the same donor re-published under a new DID/URI).
+    pub dup_candidates: u64,
 }
 
 /// Ensure every federated subject has a linked `core.biosample` anchor. See module
@@ -67,6 +74,8 @@ pub async fn link_federated_subjects(pool: &PgPool, apply: bool) -> Result<Feder
     }
 
     let mut tx = pool.begin().await?;
+    // Identifier collisions found while anchoring — adjudicated after commit (below).
+    let mut collisions: Vec<IdentifierPair> = Vec::new();
     for c in &candidates {
         // One person (DID) = one donor across however many biosamples the DID
         // publishes. Reuse an existing *federated* donor for the DID (matched via a
@@ -101,23 +110,73 @@ pub async fn link_federated_subjects(pool: &PgPool, apply: bool) -> Result<Feder
         // The anchor. Federated records only reach the AppView because they were
         // published to the public firehose, so the subject is public by construction
         // (`is_public = true`). `source_attrs.federated` flags the origin.
-        sqlx::query(
+        let anchor: Uuid = sqlx::query_scalar(
             "INSERT INTO core.biosample \
                (source, center_name, is_public, donor_id, source_attrs, atproto) \
              VALUES ('CITIZEN'::core.biosample_source, $1, true, $2, \
                      jsonb_build_object('federated', true), \
                      jsonb_strip_nulls(jsonb_build_object( \
-                         'uri', $3::text, 'cid', $4::text, 'repo_did', $5::text)))",
+                         'uri', $3::text, 'cid', $4::text, 'repo_did', $5::text))) \
+             RETURNING sample_guid",
         )
         .bind(c.center_name.as_deref())
         .bind(donor_id)
         .bind(&c.at_uri)
         .bind(c.cid.as_deref())
         .bind(&c.did)
-        .execute(&mut *tx)
+        .fetch_one(&mut *tx)
         .await?;
         rep.biosamples_created += 1;
+
+        // Phase 4 — anchor dedup. Fold this record's published external ids into the dedup
+        // index (mirrored in fed.biosample_identifier). An id already owned by a DIFFERENT
+        // sample means the same donor was re-published under a new DID/URI → collect a
+        // duplicate pair (adjudicated by Y placement after commit); an id no one holds yet is
+        // registered to this anchor so the next publisher matches it.
+        let fed_ids: Vec<(String, String, bool)> = sqlx::query_as(
+            "SELECT namespace, value, is_public FROM fed.biosample_identifier WHERE at_uri = $1",
+        )
+        .bind(&c.at_uri)
+        .fetch_all(&mut *tx)
+        .await?;
+        for (namespace, value, is_public) in fed_ids {
+            let owner: Option<Uuid> = sqlx::query_scalar(
+                "SELECT sample_guid FROM core.biosample_identifier WHERE namespace = $1 AND value = $2",
+            )
+            .bind(&namespace)
+            .bind(&value)
+            .fetch_optional(&mut *tx)
+            .await?;
+            match owner {
+                Some(other) if other != anchor => {
+                    let (sample_a, sample_b) = if anchor < other { (anchor, other) } else { (other, anchor) };
+                    collisions.push(IdentifierPair { sample_a, sample_b, namespace, value });
+                }
+                Some(_) => {}
+                None => {
+                    sqlx::query(
+                        "INSERT INTO core.biosample_identifier (sample_guid, namespace, value, is_public, source) \
+                         VALUES ($1, $2, $3, $4, 'federation') ON CONFLICT (namespace, value) DO NOTHING",
+                    )
+                    .bind(anchor)
+                    .bind(&namespace)
+                    .bind(&value)
+                    .bind(is_public)
+                    .execute(&mut *tx)
+                    .await?;
+                    rep.identifiers_registered += 1;
+                }
+            }
+        }
     }
     tx.commit().await?;
+
+    // Adjudicate the collisions by terminal-Y concordance and upsert IDENTIFIER candidates
+    // (post-commit — both samples are persisted). A freshly-anchored sample not yet placed in
+    // the tree classifies UNPLACED and is confirmed by a later dedup pass once it resolves.
+    if !collisions.is_empty() {
+        let classified = dedup::classify_identifier_pairs(pool, &collisions).await?;
+        rep.dup_candidates = dedup::write_identifier_candidates(pool, &classified, "federation").await?;
+    }
     Ok(rep)
 }

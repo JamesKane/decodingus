@@ -177,7 +177,8 @@ async fn main() -> anyhow::Result<()> {
                 let rep = du_db::fed_subject::link_federated_subjects(&pool, apply).await?;
                 tracing::info!(
                     apply, unlinked = rep.unlinked, biosamples_created = rep.biosamples_created,
-                    donors_created = rep.donors_created,
+                    donors_created = rep.donors_created, identifiers_registered = rep.identifiers_registered,
+                    dup_candidates = rep.dup_candidates,
                     "link-federated-subjects complete{}", if apply { "" } else { " (preview — pass --apply to write)" }
                 );
             }

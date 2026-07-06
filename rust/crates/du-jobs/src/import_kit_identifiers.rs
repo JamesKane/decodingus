@@ -183,7 +183,7 @@ pub async fn run(pool: &PgPool, cfg: &Config) -> Result<Report> {
         }
     }
     if cfg.apply {
-        rep.candidates_written = dedup::write_identifier_candidates(pool, &classified).await?;
+        rep.candidates_written = dedup::write_identifier_candidates(pool, &classified, SOURCE).await?;
     }
     Ok(rep)
 }
