@@ -87,6 +87,47 @@ pub async fn upsert_biosample(pool: &PgPool, b: &Biosample) -> Result<(), DbErro
     Ok(())
 }
 
+/// Mirror a biosample record's published external identifiers into
+/// `fed.biosample_identifier` (Phase 3 of the identifier-dedup design). Full replace: the
+/// record's existing rows are cleared and the current `(namespace, value)` set re-inserted,
+/// so a re-publish that drops an id removes it. `is_public` is derived per namespace. Must be
+/// called AFTER [`upsert_biosample`] (the FK needs the parent row). Call with an empty slice
+/// to clear a record's identifiers.
+pub async fn replace_biosample_identifiers(
+    pool: &PgPool,
+    c: &Common,
+    ids: &[(String, String)],
+) -> Result<(), DbError> {
+    let mut tx = pool.begin().await?;
+    sqlx::query("DELETE FROM fed.biosample_identifier WHERE did = $1 AND rkey = $2")
+        .bind(&c.did)
+        .bind(&c.rkey)
+        .execute(&mut *tx)
+        .await?;
+    if !ids.is_empty() {
+        let namespaces: Vec<String> = ids.iter().map(|(n, _)| n.clone()).collect();
+        let values: Vec<String> = ids.iter().map(|(_, v)| v.clone()).collect();
+        let publics: Vec<bool> = ids.iter().map(|(n, _)| crate::identifier::is_public_namespace(n)).collect();
+        sqlx::query(
+            "INSERT INTO fed.biosample_identifier (did, rkey, at_uri, namespace, value, is_public) \
+             SELECT $1, $2, $3, ns, val, pub \
+             FROM unnest($4::text[], $5::text[], $6::bool[]) AS t(ns, val, pub) \
+             ON CONFLICT (did, rkey, namespace, value) DO UPDATE SET \
+                at_uri = EXCLUDED.at_uri, is_public = EXCLUDED.is_public, indexed_at = now()",
+        )
+        .bind(&c.did)
+        .bind(&c.rkey)
+        .bind(&c.at_uri)
+        .bind(&namespaces)
+        .bind(&values)
+        .bind(&publics)
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
+    Ok(())
+}
+
 /// Sequence run — platform/instrument/test characterization (no files, no PII).
 pub struct SequenceRun {
     pub common: Common,

@@ -130,11 +130,12 @@ pub async fn run(pool: &PgPool, cfg: &Config) -> Result<Report> {
                 }
             };
             *rep.per_namespace.entry(ns.clone()).or_default() += 1;
+            let is_public = identifier::is_public_namespace(&ns); // vendor kits → false
             staged.push(NewIdentifier {
                 sample_guid: guid,
                 namespace: ns,
                 value: kit.clone(),
-                is_public: false, // every manifest vendor is background-only
+                is_public,
                 source: SOURCE.to_string(),
             });
         }

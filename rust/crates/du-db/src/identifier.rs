@@ -21,6 +21,17 @@ pub struct NewIdentifier {
     pub source: String,
 }
 
+/// Namespace privacy policy — the single source of truth shared by the manifest backfill,
+/// the fed ingest, and the anchor dedup. Public/open-consent catalog ids (PGP is open-consent;
+/// IGSR/ENA/SRA/BioSample/HGDP/SGDP are public) are displayable; every vendor kit namespace
+/// (FTDNA/YSEQ/Dante/FGC/Nebula/…) is background-only — matched but never on a public surface.
+pub fn is_public_namespace(namespace: &str) -> bool {
+    matches!(
+        namespace.trim().to_ascii_uppercase().as_str(),
+        "PGP" | "IGSR" | "1000G" | "ENA" | "SRA" | "BIOSAMPLE" | "HGDP" | "SGDP"
+    )
+}
+
 /// `accession -> sample_guid` for every live biosample — the manifest join map
 /// (`subject_id == accession`). Loaded once; the caller resolves in memory.
 pub async fn accession_to_guid(pool: &PgPool) -> Result<HashMap<String, Uuid>, DbError> {

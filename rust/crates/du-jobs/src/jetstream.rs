@@ -169,7 +169,14 @@ async fn handle(pool: &PgPool, ev: &Event) -> anyhow::Result<()> {
     let c = common(ev, commit, record);
     match commit.collection.as_str() {
         fed::NS_ALIGNMENT => coverage::upsert(pool, &build_coverage(c, record)).await?,
-        fed::NS_BIOSAMPLE => core::upsert_biosample(pool, &build_biosample(c, record)).await?,
+        fed::NS_BIOSAMPLE => {
+            let bio = build_biosample(c, record);
+            core::upsert_biosample(pool, &bio).await?;
+            // Mirror the record's published external ids so Phase 4's anchor dedup can match
+            // a re-published donor to its existing biosample. Public catalog ids (PGP/IGSR)
+            // stay displayable; vendor kits are background-only (is_public derived in du-db).
+            core::replace_biosample_identifiers(pool, &bio.common, &external_ids(record)).await?;
+        }
         fed::NS_SEQUENCERUN => core::upsert_sequencerun(pool, &build_sequencerun(c, record)).await?,
         fed::NS_PROJECT => core::upsert_project(pool, &build_project(c, record)).await?,
         fed::NS_WORKSPACE => core::upsert_workspace(pool, &build_workspace(c, record)).await?,
@@ -225,6 +232,24 @@ fn i64_at(v: &Value, key: &str) -> Option<i64> {
 }
 fn arr_len(v: &Value, key: &str) -> i32 {
     v.get(key).and_then(Value::as_array).map_or(0, |a| a.len() as i32)
+}
+/// Published `externalIds: [{namespace, value}]` → normalized `(namespace, value)` pairs
+/// (upper/trimmed, empties dropped). The biosample record's cross-namespace identity for
+/// dedup (proposals/biosample-identifier-dedup.md).
+fn external_ids(record: &Value) -> Vec<(String, String)> {
+    record
+        .get("externalIds")
+        .and_then(Value::as_array)
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|e| {
+                    let ns = e.get("namespace").and_then(Value::as_str)?.trim().to_ascii_uppercase();
+                    let val = e.get("value").and_then(Value::as_str)?.trim().to_ascii_uppercase();
+                    (!ns.is_empty() && !val.is_empty()).then_some((ns, val))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 /// `haplogroups.<arm>.haplogroupName` (arm = "yDna" | "mtDna").
 fn haplogroup_name(v: &Value, container: &str, arm: &str) -> Option<String> {
@@ -545,6 +570,25 @@ mod tests {
         assert_eq!(r.mean_coverage, Some(31.5));
         assert_eq!(r.pct_30x, Some(88.0));
         assert!(r.metrics.get("contigs").is_some());
+    }
+
+    #[test]
+    fn external_ids_normalizes_and_drops_empties() {
+        let record = json!({
+            "externalIds": [
+                { "namespace": "pgp",   "value": "huF98AFD" },
+                { "namespace": "FTDNA", "value": " b5163 " },
+                { "namespace": "YSEQ",  "value": "" },              // empty value → dropped
+                { "namespace": "",      "value": "x" },             // empty namespace → dropped
+                { "value": "no-namespace" }                        // missing namespace → dropped
+            ]
+        });
+        assert_eq!(
+            external_ids(&record),
+            vec![("PGP".to_string(), "HUF98AFD".to_string()), ("FTDNA".to_string(), "B5163".to_string())]
+        );
+        // No externalIds key → empty.
+        assert!(external_ids(&json!({ "sex": "MALE" })).is_empty());
     }
 
     #[test]
