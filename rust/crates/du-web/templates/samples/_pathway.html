@@ -1,10 +1,19 @@
 {# Macro: one haplogroup pathway (root → tip). Imported by samples/report.html.
    `t` is the translator, passed in since macros can't see template fields. #}
-{% macro pathway(t, title, pv) %}
+{% macro pathway(t, title, pv, dom_id) %}
 <div class="card mb-3">
   <div class="card-header py-2 d-flex justify-content-between align-items-center">
     <strong>{{ title }}</strong>
-    {% if let Some(call) = pv.call %}<code class="small">{{ call }}</code>{% endif %}
+    <span class="d-flex align-items-center gap-2">
+      {% if let Some(call) = pv.call %}<code class="small">{{ call }}</code>{% endif %}
+      {% if pv.placed && !pv.steps.is_empty() %}
+      <button class="btn btn-sm btn-outline-secondary py-0 px-2" type="button"
+              data-bs-toggle="collapse" data-bs-target="#{{ dom_id }}"
+              aria-expanded="false" aria-controls="{{ dom_id }}">
+        {{ pv.steps.len() }} {{ t.get("sample.pathway.steps") }}
+      </button>
+      {% endif %}
+    </span>
   </div>
   {% if pv.reconciled %}
   <div class="card-header py-1 bg-light small text-muted d-flex flex-wrap gap-3">
@@ -23,6 +32,7 @@
   {% else if !pv.placed %}
   <div class="card-body small text-muted">{{ t.get("sample.pathway.unplaced") }}</div>
   {% else %}
+  <div class="collapse" id="{{ dom_id }}">
   <div class="card-body p-0">
     <ol class="list-group list-group-flush list-group-numbered">
       {% for st in pv.steps %}
@@ -40,6 +50,7 @@
       </li>
       {% endfor %}
     </ol>
+  </div>
   </div>
   {% endif %}
 </div>

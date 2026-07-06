@@ -661,6 +661,7 @@ sample.mtdna.title=mtDNA pathway
 sample.pathway.noCall=No haplogroup call for this sample.
 sample.pathway.unplaced=Called haplogroup is not yet placed in the tree.
 sample.pathway.fromTree=From de-novo tree placement
+sample.pathway.steps=steps
 sample.recon.consensus=Cross-technology consensus
 sample.recon.runs=runs
 sample.recon.confidence=confidence

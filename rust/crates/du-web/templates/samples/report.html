@@ -64,8 +64,8 @@
 
 {# 2. Haplogroup pathways #}
 <div class="row">
-  <div class="col-lg-6">{% call paths::pathway(t, t.get("sample.ydna.title"), s.y) %}</div>
-  <div class="col-lg-6">{% call paths::pathway(t, t.get("sample.mtdna.title"), s.mt) %}</div>
+  <div class="col-lg-6">{% call paths::pathway(t, t.get("sample.ydna.title"), s.y, "ypath") %}</div>
+  <div class="col-lg-6">{% call paths::pathway(t, t.get("sample.mtdna.title"), s.mt, "mtpath") %}</div>
 </div>
 
 {# 3. Origin map #}
