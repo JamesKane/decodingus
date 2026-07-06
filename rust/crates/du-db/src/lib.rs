@@ -26,6 +26,7 @@ pub mod fed_subject;
 pub mod genome_region;
 pub mod haplogroup;
 pub mod ibd;
+pub mod identifier;
 pub mod merge;
 pub mod naming;
 pub mod notification;

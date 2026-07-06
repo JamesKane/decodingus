@@ -64,6 +64,8 @@ pub struct DedupReport {
     pub candidates_pruned: u64,
     pub mt_match_pairs: u64,
     pub jaccard_pairs: u64,
+    /// IDENTIFIER-tier candidates re-adjudicated against current placement (UNPLACED → CONFIRMED/DISPUTED).
+    pub identifier_readjudicated: u64,
 }
 
 /// Intersection size and Jaccard of two ascending-sorted id sets.
@@ -123,7 +125,14 @@ pub async fn recompute_candidates(pool: &PgPool, cfg: &DedupConfig) -> Result<De
     if !locked {
         return Ok(DedupReport::default());
     }
-    let result = recompute_locked(pool, cfg).await;
+    let result = async {
+        let mut rep = recompute_locked(pool, cfg).await?;
+        // Re-adjudicate IDENTIFIER candidates now that placements are current (federated anchors
+        // that raised UNPLACED candidates at ingest get confirmed once their sample is placed).
+        rep.identifier_readjudicated = readjudicate_identifier_candidates(pool).await?;
+        Ok::<_, DbError>(rep)
+    }
+    .await;
     let _ = sqlx::query("SELECT pg_advisory_unlock($1)")
         .bind(DEDUP_ADVISORY_KEY)
         .execute(&mut *lock_conn)
@@ -248,6 +257,7 @@ async fn recompute_locked(pool: &PgPool, cfg: &DedupConfig) -> Result<DedupRepor
                 tier = EXCLUDED.tier, block_key = EXCLUDED.block_key, \
                 score = EXCLUDED.score, signals = EXCLUDED.signals, updated_at = now() \
              WHERE dedup.duplicate_candidate.status = 'CANDIDATE' \
+               AND dedup.duplicate_candidate.tier = 'UNIPARENTAL' \
              RETURNING id",
         )
         .bind(sa)
@@ -263,8 +273,11 @@ async fn recompute_locked(pool: &PgPool, cfg: &DedupConfig) -> Result<DedupRepor
         }
     }
 
+    // Prune only THIS engine's own (UNIPARENTAL) candidates — IDENTIFIER-tier rows are owned
+    // by the identifier pipeline and must survive the uniparental recompute.
     rep.candidates_pruned = sqlx::query(
-        "DELETE FROM dedup.duplicate_candidate WHERE status = 'CANDIDATE' AND id <> ALL($1)",
+        "DELETE FROM dedup.duplicate_candidate \
+         WHERE status = 'CANDIDATE' AND tier = 'UNIPARENTAL' AND id <> ALL($1)",
     )
     .bind(&kept)
     .execute(&mut *tx)
@@ -317,6 +330,206 @@ pub async fn list_candidates(
     .fetch_all(pool)
     .await?;
     Ok(rows)
+}
+
+// ── identifier-tier candidates (shared external id → placement-confirmed) ─────
+//
+// A shared external identifier (an FTDNA kit, a catalog accession) is a deterministic
+// duplicate signal the uniparental engine can't produce — two de-novo tips of one donor
+// share NO private variants (each is a per-sample singleton), so the Y+mt block never
+// pairs them; the identifier is the only link. But "same kit" ≠ "safe to merge" — a
+// mistyped/reused kit would fuse two people. So each identifier collision is adjudicated
+// by a DNA signature (terminal-Y concordance) before it becomes a merge:
+//   SAME_TERMINAL / PARENT_CHILD / SIBLING → CONFIRMED (same person)
+//   DISTANT                                → DISPUTED  (kit matches, DNA disagrees — review)
+//   NO_PLACEMENT                           → UNPLACED  (can't confirm yet)
+// See proposals/biosample-identifier-dedup.md §5.
+
+/// A biosample pair that share an external identifier — input to placement adjudication.
+/// Pre-ordered `sample_a < sample_b` by the caller (matches the table's canonical pair).
+#[derive(Debug, Clone)]
+pub struct IdentifierPair {
+    pub sample_a: Uuid,
+    pub sample_b: Uuid,
+    pub namespace: String,
+    pub value: String,
+}
+
+/// An identifier pair after terminal-Y adjudication.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct ClassifiedPair {
+    pub sample_a: Uuid,
+    pub sample_b: Uuid,
+    pub namespace: String,
+    pub value: String,
+    pub relationship: String,
+    pub a_terminal: Option<String>,
+    pub b_terminal: Option<String>,
+}
+
+impl ClassifiedPair {
+    /// CONFIRMED (concordant placement) / DISPUTED (divergent) / UNPLACED (unresolvable).
+    pub fn disposition(&self) -> &'static str {
+        match self.relationship.as_str() {
+            "SAME_TERMINAL" | "PARENT_CHILD" | "SIBLING" => "CONFIRMED",
+            "NO_PLACEMENT" => "UNPLACED",
+            _ => "DISPUTED",
+        }
+    }
+    /// Queue rank (`list_candidates` orders by score DESC): confirmed on top, disputed last.
+    pub fn score(&self) -> f64 {
+        match self.disposition() {
+            "CONFIRMED" => 0.98,
+            "UNPLACED" => 0.60,
+            _ => 0.50,
+        }
+    }
+}
+
+/// Adjudicate identifier pairs by terminal-Y concordance (read-only). Each sample's terminal
+/// is its `tree.haplogroup_sample` Y placement; relationship is compared against the current
+/// parent edges. Pairs with no Y placement come back `NO_PLACEMENT`.
+pub async fn classify_identifier_pairs(pool: &PgPool, pairs: &[IdentifierPair]) -> Result<Vec<ClassifiedPair>, DbError> {
+    if pairs.is_empty() {
+        return Ok(Vec::new());
+    }
+    let a: Vec<Uuid> = pairs.iter().map(|p| p.sample_a).collect();
+    let b: Vec<Uuid> = pairs.iter().map(|p| p.sample_b).collect();
+    let ns: Vec<String> = pairs.iter().map(|p| p.namespace.clone()).collect();
+    let val: Vec<String> = pairs.iter().map(|p| p.value.clone()).collect();
+    let rows = sqlx::query_as::<_, ClassifiedPair>(
+        "WITH input AS (SELECT * FROM unnest($1::uuid[],$2::uuid[],$3::text[],$4::text[]) AS t(a,b,ns,val)), \
+              term AS (SELECT sample_guid, min(haplogroup_id) tid FROM tree.haplogroup_sample \
+                       WHERE dna_type='Y_DNA' GROUP BY sample_guid), \
+              par AS (SELECT child_haplogroup_id id, parent_haplogroup_id pid \
+                      FROM tree.haplogroup_relationship WHERE valid_until IS NULL) \
+         SELECT i.a AS sample_a, i.b AS sample_b, i.ns AS namespace, i.val AS value, \
+                CASE WHEN ta.tid IS NULL OR tb.tid IS NULL THEN 'NO_PLACEMENT' \
+                     WHEN ta.tid = tb.tid THEN 'SAME_TERMINAL' \
+                     WHEN pa.pid = tb.tid OR pb.pid = ta.tid THEN 'PARENT_CHILD' \
+                     WHEN pa.pid = pb.pid THEN 'SIBLING' ELSE 'DISTANT' END AS relationship, \
+                ha.name AS a_terminal, hb.name AS b_terminal \
+         FROM input i \
+         LEFT JOIN term ta ON ta.sample_guid = i.a \
+         LEFT JOIN term tb ON tb.sample_guid = i.b \
+         LEFT JOIN tree.haplogroup ha ON ha.id = ta.tid \
+         LEFT JOIN tree.haplogroup hb ON hb.id = tb.tid \
+         LEFT JOIN par pa ON pa.id = ta.tid \
+         LEFT JOIN par pb ON pb.id = tb.tid",
+    )
+    .bind(&a)
+    .bind(&b)
+    .bind(&ns)
+    .bind(&val)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}
+
+/// Upsert adjudicated pairs as `tier='IDENTIFIER'` candidates. `source` records where the
+/// collision was found (`cohort-manifest` | `federation`). Idempotent, and it never overwrites
+/// a curator/Tier-2 decision — `DO UPDATE` refreshes the evidence only while the row is still
+/// `CANDIDATE`. Returns rows written/refreshed.
+pub async fn write_identifier_candidates(pool: &PgPool, pairs: &[ClassifiedPair], source: &str) -> Result<u64, DbError> {
+    if pairs.is_empty() {
+        return Ok(0);
+    }
+    let a: Vec<Uuid> = pairs.iter().map(|p| p.sample_a).collect();
+    let b: Vec<Uuid> = pairs.iter().map(|p| p.sample_b).collect();
+    let ns: Vec<String> = pairs.iter().map(|p| p.namespace.clone()).collect();
+    let val: Vec<String> = pairs.iter().map(|p| p.value.clone()).collect();
+    let rel: Vec<String> = pairs.iter().map(|p| p.relationship.clone()).collect();
+    let disp: Vec<String> = pairs.iter().map(|p| p.disposition().to_string()).collect();
+    let score: Vec<f64> = pairs.iter().map(|p| p.score()).collect();
+    let at: Vec<Option<String>> = pairs.iter().map(|p| p.a_terminal.clone()).collect();
+    let bt: Vec<Option<String>> = pairs.iter().map(|p| p.b_terminal.clone()).collect();
+    let n = sqlx::query(
+        "INSERT INTO dedup.duplicate_candidate (sample_a, sample_b, tier, block_key, score, signals, status, verdict) \
+         SELECT a, b, 'IDENTIFIER', ns || '=' || val, score, \
+                jsonb_build_object('namespace',ns,'value',val,'source',$10::text, \
+                    'disposition',disp,'relationship',rel,'a_terminal',at,'b_terminal',bt), \
+                'CANDIDATE', \
+                jsonb_build_object('method','identifier+Y-placement','relationship',rel, \
+                    'a_terminal',at,'b_terminal',bt,'disposition',disp) \
+         FROM unnest($1::uuid[],$2::uuid[],$3::text[],$4::text[],$5::float8[],$6::text[],$7::text[],$8::text[],$9::text[]) \
+              AS t(a,b,ns,val,score,rel,disp,at,bt) \
+         ON CONFLICT (sample_a, sample_b) DO UPDATE SET \
+            tier = EXCLUDED.tier, block_key = EXCLUDED.block_key, score = EXCLUDED.score, \
+            signals = EXCLUDED.signals, verdict = EXCLUDED.verdict, updated_at = now() \
+         WHERE dedup.duplicate_candidate.status = 'CANDIDATE'",
+    )
+    .bind(&a)
+    .bind(&b)
+    .bind(&ns)
+    .bind(&val)
+    .bind(&score)
+    .bind(&rel)
+    .bind(&disp)
+    .bind(&at)
+    .bind(&bt)
+    .bind(source)
+    .execute(pool)
+    .await?
+    .rows_affected();
+    Ok(n)
+}
+
+/// Re-adjudicate open IDENTIFIER-tier candidates against the CURRENT Y placement. A federated
+/// anchor raises its collision candidates at ingest, before its sample is placed in the tree, so
+/// they start `UNPLACED`; once `tree-samples-recompute` places the sample this upgrades them to
+/// `CONFIRMED`/`DISPUTED`. In-place update — preserves `signals.namespace/value/source`, touches
+/// only rows still `CANDIDATE`. Returns rows refreshed.
+pub async fn readjudicate_identifier_candidates(pool: &PgPool) -> Result<u64, DbError> {
+    #[derive(sqlx::FromRow)]
+    struct Open {
+        sample_a: Uuid,
+        sample_b: Uuid,
+        namespace: Option<String>,
+        value: Option<String>,
+    }
+    let open: Vec<Open> = sqlx::query_as(
+        "SELECT sample_a, sample_b, signals->>'namespace' AS namespace, signals->>'value' AS value \
+         FROM dedup.duplicate_candidate WHERE tier = 'IDENTIFIER' AND status = 'CANDIDATE'",
+    )
+    .fetch_all(pool)
+    .await?;
+    let pairs: Vec<IdentifierPair> = open
+        .into_iter()
+        .filter_map(|o| {
+            Some(IdentifierPair { sample_a: o.sample_a, sample_b: o.sample_b, namespace: o.namespace?, value: o.value? })
+        })
+        .collect();
+    if pairs.is_empty() {
+        return Ok(0);
+    }
+    let classified = classify_identifier_pairs(pool, &pairs).await?;
+    let a: Vec<Uuid> = classified.iter().map(|c| c.sample_a).collect();
+    let b: Vec<Uuid> = classified.iter().map(|c| c.sample_b).collect();
+    let score: Vec<f64> = classified.iter().map(|c| c.score()).collect();
+    let disp: Vec<String> = classified.iter().map(|c| c.disposition().to_string()).collect();
+    let rel: Vec<String> = classified.iter().map(|c| c.relationship.clone()).collect();
+    let at: Vec<Option<String>> = classified.iter().map(|c| c.a_terminal.clone()).collect();
+    let bt: Vec<Option<String>> = classified.iter().map(|c| c.b_terminal.clone()).collect();
+    let n = sqlx::query(
+        "UPDATE dedup.duplicate_candidate d SET \
+            score = u.score, \
+            signals = d.signals || jsonb_build_object('disposition',u.disp,'relationship',u.rel,'a_terminal',u.at,'b_terminal',u.bt), \
+            verdict = jsonb_build_object('method','identifier+Y-placement','relationship',u.rel,'a_terminal',u.at,'b_terminal',u.bt,'disposition',u.disp), \
+            updated_at = now() \
+         FROM unnest($1::uuid[],$2::uuid[],$3::float8[],$4::text[],$5::text[],$6::text[],$7::text[]) AS u(a,b,score,disp,rel,at,bt) \
+         WHERE d.sample_a = u.a AND d.sample_b = u.b AND d.tier = 'IDENTIFIER' AND d.status = 'CANDIDATE'",
+    )
+    .bind(&a)
+    .bind(&b)
+    .bind(&score)
+    .bind(&disp)
+    .bind(&rel)
+    .bind(&at)
+    .bind(&bt)
+    .execute(pool)
+    .await?
+    .rows_affected();
+    Ok(n)
 }
 
 // ── resolution + merge ───────────────────────────────────────────────────────
@@ -384,6 +597,10 @@ struct Repoint {
 /// `dedup.duplicate_candidate` (sample_a/sample_b) is covered separately (the
 /// merged sample's other candidates are resolved, not repointed).
 const REPOINTS: &[Repoint] = &[
+    // External-identifier index (mig 0059): (namespace, value) is globally unique, so on a
+    // collision keep the survivor's row and repoint the rest — merging a duplicate hands its
+    // vendor/catalog ids to the survivor.
+    Repoint { table: "core.biosample_identifier", cols: &["sample_guid"], action: Action::KeepSurvivor(&["namespace", "value"]) },
     Repoint { table: "fed.pds_submission", cols: &["biosample_guid"], action: Action::Simple },
     Repoint { table: "genomics.biosample_callable_loci", cols: &["sample_guid"], action: Action::Simple },
     // STR profile is 1-per-sample (mig 0053), keyed by sample_guid — keep the
@@ -696,5 +913,30 @@ mod tests {
         let plain = evaluate_pair(&[], &[], Some(7), Some(7), &cfg).unwrap();
         let rich = evaluate_pair(&[1, 2, 3], &[1, 2, 3], Some(7), Some(7), &cfg).unwrap();
         assert!(rich.score > plain.score);
+    }
+
+    #[test]
+    fn identifier_disposition_and_score_by_placement() {
+        let mk = |rel: &str| ClassifiedPair {
+            sample_a: Uuid::nil(),
+            sample_b: Uuid::nil(),
+            namespace: "FTDNA".into(),
+            value: "B5163".into(),
+            relationship: rel.into(),
+            a_terminal: None,
+            b_terminal: None,
+        };
+        // Concordant placement confirms the kit match → top of the queue.
+        for rel in ["SAME_TERMINAL", "PARENT_CHILD", "SIBLING"] {
+            assert_eq!(mk(rel).disposition(), "CONFIRMED", "{rel}");
+            assert!((mk(rel).score() - 0.98).abs() < 1e-9, "{rel}");
+        }
+        // Divergent placement = kit matches but DNA disagrees → disputed, never auto-merged.
+        assert_eq!(mk("DISTANT").disposition(), "DISPUTED");
+        // Unresolvable (no Y placement) sits between: can't confirm, can't refute.
+        assert_eq!(mk("NO_PLACEMENT").disposition(), "UNPLACED");
+        // Queue ranking: confirmed > unplaced > disputed.
+        assert!(mk("SAME_TERMINAL").score() > mk("NO_PLACEMENT").score());
+        assert!(mk("NO_PLACEMENT").score() > mk("DISTANT").score());
     }
 }
