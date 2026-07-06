@@ -14,7 +14,7 @@ use crate::htmx::{HxHeaders, HxRequest};
 use crate::i18n::{Locale, T};
 use crate::render::html;
 use crate::state::AppState;
-use crate::tree_layout::{self, InNode, Laid, Orientation};
+use crate::tree_layout::{self, InNode, Laid, Orientation, SampleTip};
 use crate::auth::Curator;
 use axum::extract::{Path, Query, State};
 use axum::http::header::{HeaderMap, HeaderValue, COOKIE, SET_COOKIE};
@@ -269,12 +269,12 @@ async fn render_tree(
     // YFull-style leaf tips (capped per node).
     let window = du_db::haplogroup::subtree_window(&st.pool, dna_type, &root_name, depth).await?;
     let node_ids: Vec<i64> = window.iter().map(|n| n.id).collect();
-    let mut samples_by_node: HashMap<i64, Vec<String>> = HashMap::new();
-    for (id, label) in du_db::tree_sample::direct_labels(&st.pool, dna_type, &node_ids).await? {
+    let mut samples_by_node: HashMap<i64, Vec<tree_layout::SampleTip>> = HashMap::new();
+    for (id, label, slug) in du_db::tree_sample::direct_labels(&st.pool, dna_type, &node_ids).await? {
         if is_uuid_label(&label) {
             continue; // hide private (UUID-accession) biosample leaves
         }
-        samples_by_node.entry(id).or_default().push(label);
+        samples_by_node.entry(id).or_default().push(tree_layout::SampleTip { label, slug });
     }
     // Collapse private auto-named intermediate nodes (`…:n<number>`) so they vanish from the
     // public tree, re-parenting their children/samples onto the nearest named ancestor.
@@ -481,7 +481,7 @@ fn is_uuid_label(s: &str) -> bool {
 /// Drop private ([`is_private_node`]) nodes from the window, re-parenting their descendants and
 /// merging their placed samples onto the nearest non-private ancestor — so the private node
 /// disappears while public samples beneath it still render under its named parent.
-fn hide_private_nodes(window: Vec<WindowNode>, samples: &mut HashMap<i64, Vec<String>>) -> Vec<WindowNode> {
+fn hide_private_nodes(window: Vec<WindowNode>, samples: &mut HashMap<i64, Vec<SampleTip>>) -> Vec<WindowNode> {
     use std::collections::HashSet;
     let private: HashSet<i64> = window.iter().filter(|n| is_private_node(&n.name)).map(|n| n.id).collect();
     if private.is_empty() {
@@ -522,7 +522,7 @@ fn hide_private_nodes(window: Vec<WindowNode>, samples: &mut HashMap<i64, Vec<St
 
 /// Nest the flat window into an `InNode` tree rooted at the depth-0 node. `samples` maps a node
 /// id to its directly-placed sample labels (rendered as leaf tips).
-fn build_root(window: &[WindowNode], samples: &HashMap<i64, Vec<String>>) -> Option<InNode> {
+fn build_root(window: &[WindowNode], samples: &HashMap<i64, Vec<SampleTip>>) -> Option<InNode> {
     let mut children_of: HashMap<i64, Vec<&WindowNode>> = HashMap::new();
     let mut root: Option<&WindowNode> = None;
     for n in window {
@@ -536,13 +536,13 @@ fn build_root(window: &[WindowNode], samples: &HashMap<i64, Vec<String>>) -> Opt
     Some(to_innode(root, &children_of, samples))
 }
 
-fn to_innode(n: &WindowNode, children_of: &HashMap<i64, Vec<&WindowNode>>, samples: &HashMap<i64, Vec<String>>) -> InNode {
+fn to_innode(n: &WindowNode, children_of: &HashMap<i64, Vec<&WindowNode>>, samples: &HashMap<i64, Vec<SampleTip>>) -> InNode {
     let children = children_of
         .get(&n.id)
         .map(|kids| kids.iter().map(|c| to_innode(c, children_of, samples)).collect())
         .unwrap_or_default();
     let all = samples.get(&n.id).map(Vec::as_slice).unwrap_or(&[]);
-    let tips: Vec<String> = all.iter().take(NODE_TIP_CAP).cloned().collect();
+    let tips: Vec<SampleTip> = all.iter().take(NODE_TIP_CAP).cloned().collect();
     let sample_overflow = (all.len() as i64 - tips.len() as i64).max(0);
     InNode {
         name: n.name.clone(),
@@ -630,7 +630,7 @@ fn short_genome(g: &str) -> &str {
 
 #[cfg(test)]
 mod tests {
-    use super::{hide_private_nodes, is_private_node, is_uuid_label};
+    use super::{hide_private_nodes, is_private_node, is_uuid_label, SampleTip};
     use axum::body::{to_bytes, Body};
     use axum::http::{Request, StatusCode};
     use du_db::haplogroup::WindowNode;
@@ -673,8 +673,9 @@ mod tests {
             win(11, "A-L987:n0", Some(10), 1),
             win(12, "A-M1", Some(11), 2),
         ];
-        let mut samples: HashMap<i64, Vec<String>> = HashMap::new();
-        samples.insert(11, vec!["HG02982".into(), "HG02984".into()]);
+        let mut samples: HashMap<i64, Vec<SampleTip>> = HashMap::new();
+        let tip = |s: &str| SampleTip { label: s.into(), slug: s.into() };
+        samples.insert(11, vec![tip("HG02982"), tip("HG02984")]);
 
         let out = hide_private_nodes(window, &mut samples);
         // Private node dropped.

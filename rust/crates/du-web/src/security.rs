@@ -97,6 +97,15 @@ fn csrf_cookie(req: &Request) -> Option<String> {
         .filter(|t| !t.is_empty())
 }
 
+/// Machine-authenticated intake endpoints (`X-API-Key`, not cookie sessions).
+/// CSRF — a browser cookie-forgery attack — does not apply: a cross-origin page
+/// can neither read nor set the secret `X-API-Key` header, and these endpoints
+/// ignore the session cookie entirely. They must be reachable by non-browser
+/// clients (Navigator, ops scripts) that cannot carry a double-submit token.
+fn is_machine_intake(path: &str) -> bool {
+    path == "/manage/curation/proposals" || path.starts_with("/manage/biosamples/")
+}
+
 /// Stateless double-submit CSRF protection for the cookie-session browser routes.
 ///
 /// Issues a random `csrf` cookie on first contact, then on every state-changing
@@ -105,10 +114,13 @@ fn csrf_cookie(req: &Request) -> Option<String> {
 /// set the header on a cross-site form post, so the two never match.
 ///
 /// **Exempt:** `/api/v1/*` — the JSON API is read-only or Ed25519-signature-authed
-/// (a forged request can't produce a valid signature), so CSRF does not apply.
+/// (a forged request can't produce a valid signature); and the `X-API-Key`
+/// machine-intake endpoints (see `is_machine_intake`), which are key-authed and
+/// carry no session cookie for CSRF to protect.
 pub async fn csrf_protect(req: Request, next: Next) -> Response {
     let cookie_token = csrf_cookie(&req);
-    let exempt = req.uri().path().starts_with("/api/v1/");
+    let path = req.uri().path();
+    let exempt = path.starts_with("/api/v1/") || is_machine_intake(path);
 
     if is_state_changing(req.method()) && !exempt && !csrf_disabled() {
         // Fast path: the `X-CSRF-Token` header (HTMX / hx-boost requests).
@@ -205,6 +217,8 @@ mod tests {
         Router::new()
             .route("/form", get(|| async { "ok" }).post(|| async { "posted" }))
             .route("/api/v1/thing", axum::routing::post(|| async { "api" }))
+            .route("/manage/curation/proposals", axum::routing::post(|| async { "intake" }))
+            .route("/manage/biosamples/:guid", axum::routing::patch(|| async { "patched" }))
             .layer(axum::middleware::from_fn(csrf_protect))
     }
 
@@ -264,5 +278,25 @@ mod tests {
     async fn api_v1_is_exempt() {
         // The Ed25519-signed / read-only JSON API does not require a CSRF token.
         assert_eq!(send(csrf_app(), "POST", "/api/v1/thing", None, None).await.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn machine_intake_is_exempt() {
+        // X-API-Key intake endpoints (curation proposals, biosample PATCH) carry no
+        // session cookie and can't present a double-submit token — CSRF must not block
+        // them (auth is enforced by the handler's key check instead).
+        assert_eq!(
+            send(csrf_app(), "POST", "/manage/curation/proposals", None, None).await.status(),
+            StatusCode::OK
+        );
+        assert_eq!(
+            send(csrf_app(), "PATCH", "/manage/biosamples/abc", None, None).await.status(),
+            StatusCode::OK
+        );
+        // A sibling cookie-authed /manage route is NOT exempt.
+        assert_eq!(
+            send(csrf_app(), "POST", "/form", None, None).await.status(),
+            StatusCode::FORBIDDEN
+        );
     }
 }

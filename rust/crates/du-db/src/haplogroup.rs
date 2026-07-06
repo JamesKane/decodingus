@@ -694,8 +694,24 @@ pub async fn variants_of(
     name: &str,
     dna_type: DnaType,
 ) -> Result<Vec<VariantInfo>, DbError> {
+    Ok(variants_of_chain(pool, std::slice::from_ref(&name.to_string()), dna_type)
+        .await?
+        .remove(name)
+        .unwrap_or_default())
+}
+
+/// Batched [`variants_of`]: defining SNPs for every named node in ONE query,
+/// grouped by haplogroup name. Backs the per-sample pathway (root→tip) so it
+/// resolves the whole lineage in a single round-trip instead of N (the N+1 that
+/// made deep-lineage sample pages take seconds).
+pub async fn variants_of_chain(
+    pool: &PgPool,
+    names: &[String],
+    dna_type: DnaType,
+) -> Result<std::collections::HashMap<String, Vec<VariantInfo>>, DbError> {
     #[derive(sqlx::FromRow)]
     struct Row {
+        hg_name: String,
         canonical_name: Option<String>,
         mutation_type: String,
         aliases: serde_json::Value,
@@ -712,7 +728,7 @@ pub async fn variants_of(
     // on the position keeps the per-row lookup cheap; it runs only for coordinate-named /
     // unnamed links.) See documents/proposals/denovo-ingest-confidence-flags.md.
     let rows: Vec<Row> = sqlx::query_as(
-        "SELECT COALESCE(named.nm, v.canonical_name) AS canonical_name, \
+        "SELECT h.name AS hg_name, COALESCE(named.nm, v.canonical_name) AS canonical_name, \
                 v.mutation_type::text AS mutation_type, v.aliases, v.coordinates, \
                 hv.ancestral_allele AS link_ancestral, hv.derived_allele AS link_derived, \
                 EXISTS (SELECT 1 FROM tree.haplogroup_variant hv2 \
@@ -734,16 +750,16 @@ pub async fn variants_of(
                       || greatest(translate(v.coordinates->'hs1'->>'ancestral','ACGT','TGCA'), translate(v.coordinates->'hs1'->>'derived','ACGT','TGCA')) ) \
             ORDER BY core.ysnp_name_rank(v2.canonical_name), v2.canonical_name LIMIT 1 \
          ) named ON v.canonical_name IS NULL OR v.canonical_name ~ '^chr[0-9A-Za-z]*:' \
-         WHERE h.name = $1 AND h.haplogroup_type::text = $2 AND h.valid_until IS NULL \
-         ORDER BY COALESCE(named.nm, v.canonical_name)",
+         WHERE h.name = ANY($1) AND h.haplogroup_type::text = $2 AND h.valid_until IS NULL \
+         ORDER BY h.name, COALESCE(named.nm, v.canonical_name)",
     )
-    .bind(name)
+    .bind(names)
     .bind(pg_enum_label(&dna_type)?)
     .fetch_all(pool)
     .await?;
-    Ok(rows
-        .into_iter()
-        .map(|r| VariantInfo {
+    let mut map: std::collections::HashMap<String, Vec<VariantInfo>> = std::collections::HashMap::new();
+    for r in rows {
+        map.entry(r.hg_name).or_default().push(VariantInfo {
             canonical_name: r.canonical_name,
             mutation_type: r.mutation_type,
             aliases: r.aliases,
@@ -751,8 +767,9 @@ pub async fn variants_of(
             link_ancestral: r.link_ancestral,
             link_derived: r.link_derived,
             recurrent: r.recurrent,
-        })
-        .collect())
+        });
+    }
+    Ok(map)
 }
 
 /// A node in a subtree fetch: the haplogroup plus its current parent (`None` at
@@ -1075,18 +1092,29 @@ pub async fn pathway(pool: &PgPool, called_name: &str, dna_type: DnaType) -> Res
     let mut chain = ancestors(pool, tip.id).await?;
     chain.push((tip.id, tip.name.clone()));
 
-    let mut steps = Vec::with_capacity(chain.len());
-    for (id, name) in chain {
-        // ages live on the node; the chain only carries id+name.
-        let node = get_by_id(pool, id).await?;
-        let defining_snps = variants_of(pool, &name, dna_type).await?;
-        steps.push(PathwayStep {
-            haplogroup_id: id,
-            name,
-            formed_ybp: node.as_ref().and_then(|h| h.formed_ybp),
-            tmrca_ybp: node.as_ref().and_then(|h| h.tmrca_ybp),
-            defining_snps,
-        });
-    }
+    // Resolve the WHOLE lineage in two queries (ages + defining SNPs) rather than
+    // an N+1 over the chain — deep Y lineages were ~2×depth sequential round-trips.
+    let ids: Vec<i64> = chain.iter().map(|(id, _)| id.0).collect();
+    let names: Vec<String> = chain.iter().map(|(_, n)| n.clone()).collect();
+    let ages: std::collections::HashMap<i64, (Option<i32>, Option<i32>)> =
+        sqlx::query_as::<_, (i64, Option<i32>, Option<i32>)>(
+            "SELECT id, formed_ybp, tmrca_ybp FROM tree.haplogroup WHERE id = ANY($1)",
+        )
+        .bind(&ids)
+        .fetch_all(pool)
+        .await?
+        .into_iter()
+        .map(|(id, f, t)| (id, (f, t)))
+        .collect();
+    let mut variants = variants_of_chain(pool, &names, dna_type).await?;
+
+    let steps = chain
+        .into_iter()
+        .map(|(id, name)| {
+            let (formed_ybp, tmrca_ybp) = ages.get(&id.0).copied().unwrap_or((None, None));
+            let defining_snps = variants.remove(&name).unwrap_or_default();
+            PathwayStep { haplogroup_id: id, name, formed_ybp, tmrca_ybp, defining_snps }
+        })
+        .collect();
     Ok(Pathway { dna_type, called_name: called_name.to_string(), resolved_name: Some(resolved), steps })
 }

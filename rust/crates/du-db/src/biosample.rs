@@ -61,7 +61,8 @@ pub async fn geo_points(pool: &PgPool) -> Result<Vec<GeoPoint>, DbError> {
         "SELECT ST_Y(d.geocoord) AS lat, ST_X(d.geocoord) AS lon, b.accession, \
          b.source::text AS source \
          FROM core.biosample b JOIN core.specimen_donor d ON d.id = b.donor_id \
-         WHERE d.geocoord IS NOT NULL AND b.deleted = false",
+         WHERE d.geocoord IS NOT NULL AND b.deleted = false \
+           AND NOT (abs(ST_X(d.geocoord)) < 1e-6 AND abs(ST_Y(d.geocoord)) < 1e-6)",
     )
     .fetch_all(pool)
     .await?;
@@ -219,6 +220,35 @@ pub struct SequencingRun {
     pub at_uri: String,
 }
 
+/// A downloadable data file for an academic sequencing run (`genomics.sequence_file`).
+/// These are public academic/ENA objects (CRAM/BAM/masterVar) with a resolvable URL
+/// and md5 — the run-manifest substrate the compute grid consumes.
+#[derive(Debug, Clone)]
+pub struct SequenceFile {
+    pub file_name: Option<String>,
+    pub file_format: Option<String>,
+    pub file_size_bytes: Option<i64>,
+    /// First public HTTP/FTP location for the object.
+    pub download_url: Option<String>,
+    /// md5 checksum, when recorded.
+    pub md5: Option<String>,
+    pub aligner: Option<String>,
+    pub target_reference: Option<String>,
+}
+
+/// An academic sequencing run migrated from the source study (`genomics.sequence_library`),
+/// keyed by `sample_guid` (NOT federated / not at:// based). Carries its data files.
+/// Coverage/calls are not present for these yet — the compute grid will backfill them.
+#[derive(Debug, Clone)]
+pub struct AcademicRun {
+    pub instrument: Option<String>,
+    pub reads: Option<i64>,
+    pub read_length: Option<i32>,
+    pub paired_end: Option<bool>,
+    pub run_date: Option<String>,
+    pub files: Vec<SequenceFile>,
+}
+
 #[derive(Debug, Clone)]
 pub struct CoverageSummary {
     pub reference_build: Option<String>,
@@ -299,6 +329,9 @@ pub struct SampleReport {
     pub mt: Option<HaplogroupCall>,
     pub sequencing: Vec<SequencingRun>,
     pub coverage: Vec<CoverageSummary>,
+    /// Academic sequencing runs + downloadable data files (`genomics.sequence_*`),
+    /// keyed by sample_guid. Distinct from federated `sequencing` (fed.sequencerun).
+    pub sequence_data: Vec<AcademicRun>,
     pub ancestry: Option<AncestryBreakdown>,
     pub publications: Vec<ReportPublication>,
 }
@@ -502,6 +535,72 @@ pub async fn report_by_guid(pool: &PgPool, guid: SampleGuid) -> Result<Option<Sa
                 .map(|n| plain(n, DnaType::MtDna, HaplogroupCallOrigin::Original))
         });
 
+    // ── Academic sequencing runs + data files (genomics.sequence_*, by guid) ──
+    // Keyed on sample_guid (not at://), so it surfaces for migrated academic samples
+    // that were never federated. md5 + first public URL extracted from the JSONB.
+    #[derive(sqlx::FromRow)]
+    struct SeqDataRow {
+        library_id: i64,
+        instrument: Option<String>,
+        reads: Option<i64>,
+        read_length: Option<i32>,
+        paired_end: Option<bool>,
+        run_date: Option<String>,
+        file_name: Option<String>,
+        file_format: Option<String>,
+        file_size_bytes: Option<i64>,
+        download_url: Option<String>,
+        md5: Option<String>,
+        aligner: Option<String>,
+        target_reference: Option<String>,
+    }
+    let seq_data_rows: Vec<SeqDataRow> = sqlx::query_as(
+        "SELECT sl.id AS library_id, sl.instrument, sl.reads, sl.read_length, sl.paired_end, \
+                sl.run_date::text AS run_date, \
+                sf.file_name, sf.file_format, sf.file_size_bytes, \
+                sf.http_locations->0->>'file_url' AS download_url, \
+                (SELECT c->>'checksum' FROM jsonb_array_elements(COALESCE(sf.checksums,'[]'::jsonb)) c \
+                 WHERE lower(c->>'algorithm') = 'md5' LIMIT 1) AS md5, \
+                sf.aligner, sf.target_reference \
+         FROM genomics.sequence_library sl \
+         LEFT JOIN genomics.sequence_file sf ON sf.library_id = sl.id \
+         WHERE sl.sample_guid = $1 \
+         ORDER BY sl.id, sf.id",
+    )
+    .bind(guid.0)
+    .fetch_all(pool)
+    .await?;
+    // Rows arrive ordered by library_id; fold the LEFT-JOINed file rows into one
+    // AcademicRun per library, skipping the synthetic null-file row of a fileless run.
+    let mut sequence_data: Vec<AcademicRun> = Vec::new();
+    let mut current_id: Option<i64> = None;
+    for r in seq_data_rows {
+        if current_id != Some(r.library_id) {
+            current_id = Some(r.library_id);
+            sequence_data.push(AcademicRun {
+                instrument: r.instrument,
+                reads: r.reads,
+                read_length: r.read_length,
+                paired_end: r.paired_end,
+                run_date: r.run_date,
+                files: Vec::new(),
+            });
+        }
+        if r.file_name.is_some() || r.download_url.is_some() {
+            if let Some(run) = sequence_data.last_mut() {
+                run.files.push(SequenceFile {
+                    file_name: r.file_name,
+                    file_format: r.file_format,
+                    file_size_bytes: r.file_size_bytes,
+                    download_url: r.download_url,
+                    md5: r.md5,
+                    aligner: r.aligner,
+                    target_reference: r.target_reference,
+                });
+            }
+        }
+    }
+
     // ── Q3/Q4/Q5: federated sequencing, coverage, ancestry (only when linked) ──
     let mut sequencing = Vec::new();
     let mut coverage = Vec::new();
@@ -647,7 +746,9 @@ pub async fn report_by_guid(pool: &PgPool, guid: SampleGuid) -> Result<Option<Sa
         .collect();
 
     let origin = match (idr.lat, idr.lon) {
-        (Some(lat), Some(lon)) => Some(LatLon { lat, lon }),
+        // Treat "null island" (0,0) as unknown — it's open ocean in the Gulf of
+        // Guinea, never a real sampling origin (a zeroed/missing geocoord).
+        (Some(lat), Some(lon)) if !(lat.abs() < 1e-6 && lon.abs() < 1e-6) => Some(LatLon { lat, lon }),
         _ => None,
     };
     let identity = ReportIdentity {
@@ -662,7 +763,7 @@ pub async fn report_by_guid(pool: &PgPool, guid: SampleGuid) -> Result<Option<Sa
         is_public: idr.is_public,
         is_federated,
     };
-    Ok(Some(SampleReport { identity, y, mt, sequencing, coverage, ancestry, publications }))
+    Ok(Some(SampleReport { identity, y, mt, sequencing, coverage, sequence_data, ancestry, publications }))
 }
 
 /// Resolve an identifier (slug/accession/alias/guid) and assemble its report.
@@ -685,6 +786,102 @@ pub async fn set_public(pool: &PgPool, guid: SampleGuid, value: bool) -> Result<
     .await?
     .rows_affected();
     Ok(affected > 0)
+}
+
+/// A partial update to a `core.biosample` row. Every `Some` field is written;
+/// `None` leaves that column untouched. Null-setting is intentionally not
+/// supported — this backs a curator field-correction API where every edit sets a
+/// concrete value (source reclassification, alias/accession/center remaps).
+#[derive(Debug, Default, Clone)]
+pub struct BiosamplePatch {
+    pub source: Option<BiosampleSource>,
+    pub is_public: Option<bool>,
+    pub accession: Option<String>,
+    pub alias: Option<String>,
+    pub center_name: Option<String>,
+    pub description: Option<String>,
+}
+
+impl BiosamplePatch {
+    pub fn is_empty(&self) -> bool {
+        self.source.is_none()
+            && self.is_public.is_none()
+            && self.accession.is_none()
+            && self.alias.is_none()
+            && self.center_name.is_none()
+            && self.description.is_none()
+    }
+}
+
+/// Apply a partial update to a live (non-deleted) biosample. Returns `Ok(true)`
+/// when a row was updated, `Ok(false)` when the patch was empty or no live row
+/// matched. A duplicate `accession` surfaces as `DbError::Conflict` (a 422 at the
+/// API), not a 500.
+pub async fn patch(pool: &PgPool, guid: SampleGuid, p: &BiosamplePatch) -> Result<bool, DbError> {
+    if p.is_empty() {
+        return Ok(false);
+    }
+    // Placeholders are numbered in the same order the binds are chained below.
+    // $1 is always the guid.
+    let mut sets: Vec<String> = Vec::new();
+    let mut n = 2u32;
+    if p.source.is_some() {
+        sets.push(format!("source = ${n}::core.biosample_source"));
+        n += 1;
+    }
+    if p.is_public.is_some() {
+        sets.push(format!("is_public = ${n}"));
+        n += 1;
+    }
+    if p.accession.is_some() {
+        sets.push(format!("accession = ${n}"));
+        n += 1;
+    }
+    if p.alias.is_some() {
+        sets.push(format!("alias = ${n}"));
+        n += 1;
+    }
+    if p.center_name.is_some() {
+        sets.push(format!("center_name = ${n}"));
+        n += 1;
+    }
+    if p.description.is_some() {
+        sets.push(format!("description = ${n}"));
+    }
+    let sql = format!(
+        "UPDATE core.biosample SET {}, updated_at = now() \
+         WHERE sample_guid = $1 AND deleted = false",
+        sets.join(", ")
+    );
+    let mut q = sqlx::query(&sql).bind(guid.0);
+    if let Some(s) = &p.source {
+        q = q.bind(s.label());
+    }
+    if let Some(b) = p.is_public {
+        q = q.bind(b);
+    }
+    if let Some(a) = &p.accession {
+        q = q.bind(a);
+    }
+    if let Some(a) = &p.alias {
+        q = q.bind(a);
+    }
+    if let Some(c) = &p.center_name {
+        q = q.bind(c);
+    }
+    if let Some(d) = &p.description {
+        q = q.bind(d);
+    }
+    match q.execute(pool).await {
+        Ok(r) => Ok(r.rows_affected() > 0),
+        Err(e) if e.as_database_error().and_then(|d| d.code()).as_deref() == Some("23505") => {
+            Err(DbError::Conflict(format!(
+                "accession already in use: {}",
+                p.accession.as_deref().unwrap_or("")
+            )))
+        }
+        Err(e) => Err(e.into()),
+    }
 }
 
 /// Lookup by accession or alias (the private biosample search).

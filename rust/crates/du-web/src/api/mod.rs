@@ -319,6 +319,30 @@ async fn sample_report(State(st): State<AppState>, Path(slug): Path<String>) -> 
                 conformance: c.conformance.clone(),
             })
             .collect(),
+        sequence_data: rep
+            .sequence_data
+            .iter()
+            .map(|r| AcademicRunDto {
+                instrument: r.instrument.clone(),
+                reads: r.reads,
+                read_length: r.read_length,
+                paired_end: r.paired_end,
+                run_date: r.run_date.clone(),
+                files: r
+                    .files
+                    .iter()
+                    .map(|f| SequenceFileDto {
+                        file_name: f.file_name.clone(),
+                        file_format: f.file_format.clone(),
+                        file_size_bytes: f.file_size_bytes,
+                        download_url: f.download_url.clone(),
+                        md5: f.md5.clone(),
+                        aligner: f.aligner.clone(),
+                        target_reference: f.target_reference.clone(),
+                    })
+                    .collect(),
+            })
+            .collect(),
         ancestry: rep.ancestry.as_ref().map(|a| AncestryDto {
             analysis_method: a.analysis_method.clone(),
             panel_type: a.panel_type.clone(),

@@ -416,6 +416,32 @@ pub struct SequencingRunDto {
     pub mean_insert_size: Option<f64>,
 }
 
+/// A downloadable academic data file (`genomics.sequence_file`).
+#[derive(Serialize, ToSchema)]
+pub struct SequenceFileDto {
+    pub file_name: Option<String>,
+    pub file_format: Option<String>,
+    pub file_size_bytes: Option<i64>,
+    /// Absolute download URL (public academic/ENA object).
+    pub download_url: Option<String>,
+    pub md5: Option<String>,
+    pub aligner: Option<String>,
+    pub target_reference: Option<String>,
+}
+
+/// An academic sequencing run + its data files (`genomics.sequence_*`), keyed by
+/// sample_guid. Distinct from federated `sequencing`; coverage/calls are backfilled
+/// by the compute grid.
+#[derive(Serialize, ToSchema)]
+pub struct AcademicRunDto {
+    pub instrument: Option<String>,
+    pub reads: Option<i64>,
+    pub read_length: Option<i32>,
+    pub paired_end: Option<bool>,
+    pub run_date: Option<String>,
+    pub files: Vec<SequenceFileDto>,
+}
+
 #[derive(Serialize, ToSchema)]
 pub struct CoverageSummaryDto {
     pub reference_build: Option<String>,
@@ -473,6 +499,8 @@ pub struct SampleReportDto {
     pub mt_haplogroup: Option<HaplogroupPathwayDto>,
     pub sequencing: Vec<SequencingRunDto>,
     pub coverage: Vec<CoverageSummaryDto>,
+    /// Academic sequencing runs + downloadable data files (`genomics.sequence_*`).
+    pub sequence_data: Vec<AcademicRunDto>,
     pub ancestry: Option<AncestryDto>,
     pub publications: Vec<SamplePublicationDto>,
 }
