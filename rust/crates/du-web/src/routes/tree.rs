@@ -732,9 +732,11 @@ mod tests {
         assert!(svg.contains("EX-1"), "the placed sample's label appears as a tip");
         assert!(!svg.contains("CIT-1"), "the D2C sample is not a tip");
 
-        // The sidebar lists the paper sample (with source) and not the D2C one.
+        // The sidebar shows the placed-sample count (YFull-style: a count under the node,
+        // not a per-sample list). The D2C sample is excluded at placement, so the count is
+        // just the one paper sample and the D2C accession never surfaces.
         let side = body(state.clone(), "/ytree/snp/R-M269").await;
-        assert!(side.contains("EX-1") && side.contains("EXTERNAL"), "sidebar lists the placed sample");
+        assert!(side.contains("Placed samples"), "sidebar shows the placed-sample count section");
         assert!(!side.contains("CIT-1"), "D2C sample never surfaces");
 
         // The curator triage queue is Curator-gated (unauth → redirect to login).

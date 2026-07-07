@@ -332,7 +332,8 @@ fn jaccard(a: &[i64], b: &[i64]) -> f64 {
 /// Deterministic seed-based clustering of one bucket's sample-sets. Sets are sorted
 /// (size desc, then min variant id, then guid) so the result is independent of DB
 /// row order. Each unassigned set seeds a cluster; later sets join if their Jaccard
-/// with the seed ≥ match; sets in [split, match) flag the seed for split review.
+/// with the seed ≥ match. A split-candidate post-pass then flags any cluster a
+/// non-member set partially overlaps (Jaccard in [split, match)) for curator review.
 fn cluster_bucket(mut sets: Vec<SampleSet>, th: &DnaThresholds) -> Vec<Cluster> {
     sets.sort_by(|a, b| {
         b.vset.len().cmp(&a.vset.len())
@@ -351,18 +352,14 @@ fn cluster_bucket(mut sets: Vec<SampleSet>, th: &DnaThresholds) -> Vec<Cluster> 
         let seed = sets[i].vset.clone();
         let mut members = vec![sets[i].sample_guid];
         let mut member_sets = vec![sets[i].vset.clone()];
-        let mut split = false;
         for (j, item) in sets.iter().enumerate().skip(i + 1) {
             if assigned[j] {
                 continue;
             }
-            let sim = jaccard(&seed, &item.vset);
-            if sim >= th.similarity_match_threshold {
+            if jaccard(&seed, &item.vset) >= th.similarity_match_threshold {
                 assigned[j] = true;
                 members.push(item.sample_guid);
                 member_sets.push(item.vset.clone());
-            } else if sim >= th.similarity_split_threshold {
-                split = true; // diverging peer — leave it to seed its own cluster
             }
         }
         // Union + per-variant support across cluster members.
@@ -379,7 +376,22 @@ fn cluster_bucket(mut sets: Vec<SampleSet>, th: &DnaThresholds) -> Vec<Cluster> 
         } else {
             member_sets.iter().map(|ms| ms.len() as f64 / union.len() as f64).sum::<f64>() / member_sets.len() as f64
         };
-        clusters.push(Cluster { members, union, counts, consistency, split });
+        clusters.push(Cluster { members, union, counts, consistency, split: false });
+    }
+
+    // Split-candidate post-pass, independent of seed order: a cluster is flagged when
+    // any non-member set partially overlaps its defining (union) set — Jaccard in
+    // [split, match). Detecting this inline against only the seed misses it whenever a
+    // larger, diverging outlier sorts ahead of the core and becomes the seed itself (its
+    // own singleton is then dropped below the consensus threshold, losing the signal).
+    for c in &mut clusters {
+        let members: std::collections::HashSet<Uuid> = c.members.iter().copied().collect();
+        c.split = sets.iter().any(|s| {
+            !members.contains(&s.sample_guid) && {
+                let sim = jaccard(&c.union, &s.vset);
+                sim >= th.similarity_split_threshold && sim < th.similarity_match_threshold
+            }
+        });
     }
     clusters
 }

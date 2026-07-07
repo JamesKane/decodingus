@@ -27,10 +27,13 @@ async fn combine_str_and_genealogical_gapfills_tmrca() {
             .await
             .expect("hg");
 
-    // Contributing STR term: 3000 ybp (95% CI 2400–3600 → σ≈306).
+    // Contributing STR term: 3000 ybp (95% CI 2400–3600 → σ≈306). A real STR_VARIANCE
+    // row carries sample_count (direct tips); the reconstruction fallback gates on the
+    // within-clade diversity floor (sample_count ≥ ystr::MIN_STR_TESTERS_FOR_COMBINE), so
+    // seed enough tips to clear it — otherwise the term is (correctly) excluded.
     sqlx::query(
-        "INSERT INTO tree.haplogroup_age_estimate (haplogroup_id, method, estimate_ybp, ci_low_ybp, ci_high_ybp) \
-         VALUES ($1,'STR_VARIANCE',3000,2400,3600)",
+        "INSERT INTO tree.haplogroup_age_estimate (haplogroup_id, method, estimate_ybp, ci_low_ybp, ci_high_ybp, sample_count) \
+         VALUES ($1,'STR_VARIANCE',3000,2400,3600,5)",
     )
     .bind(hg)
     .execute(&pool)
