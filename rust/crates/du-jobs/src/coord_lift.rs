@@ -233,6 +233,11 @@ pub async fn run(pool: &PgPool, cfg: &Config) -> Result<()> {
     }
 
     if cfg.apply && rep.variants_updated > 0 {
+        // A newly-lifted coordinate can fold a variant into a twin it now shares a build
+        // with (e.g. a GRCh38-only row that just gained hs1), so recompute the catalog
+        // representatives before the revision bump — else the browser keeps showing the
+        // now-collapsible rows separately until the next reconcile.
+        du_db::variant::recompute_catalog_representatives(pool).await?;
         du_db::tree_revision::bump(pool).await?;
     }
     tracing::info!(
