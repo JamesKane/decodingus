@@ -472,12 +472,14 @@ pub async fn search(
     let limit = page_size.clamp(1, 200);
     let term = query.map(str::trim).filter(|q| !q.is_empty());
 
-    // Matches canonical_name or any element of the alias arrays, case-insensitive.
-    // Unnamed variants (canonical_name IS NULL) are pre-publication — excluded
-    // from the public browser; they live in the naming queue (`du_db::naming`).
+    // Matches canonical_name or any element of the alias arrays (common_names / rs_ids),
+    // case-insensitive. The alias arms are folded into one `variant_alias_search_text`
+    // predicate so both it and canonical_name are served by trigram GIN indexes
+    // (mig 0061) — a BitmapOr instead of a 3.7M-row seq scan with per-row JSONB unnest.
+    // Unnamed variants (canonical_name IS NULL) are pre-publication — excluded from the
+    // public browser; they live in the naming queue (`du_db::naming`).
     const FILTER: &str = "WHERE canonical_name IS NOT NULL AND (canonical_name ILIKE $1 \
-        OR EXISTS (SELECT 1 FROM jsonb_array_elements_text(aliases->'common_names') a WHERE a ILIKE $1) \
-        OR EXISTS (SELECT 1 FROM jsonb_array_elements_text(aliases->'rs_ids') r WHERE r ILIKE $1))";
+        OR core.variant_alias_search_text(aliases) ILIKE $1)";
 
     let (total, rows): (i64, Vec<VariantRow>) = if let Some(t) = term {
         let like = format!("%{t}%");
@@ -495,9 +497,22 @@ pub async fn search(
         .await?;
         (total, rows)
     } else {
-        let total: i64 = sqlx::query_scalar("SELECT count(*) FROM core.variant WHERE canonical_name IS NOT NULL")
-            .fetch_one(pool)
-            .await?;
+        // Unfiltered browse: an exact count of the ~3.7M named variants is a ~1.5s scan
+        // and purely informational (you cannot meaningfully page a 150k-page list). Use
+        // the planner's row estimate — instant — and fall back to an exact count only when
+        // the table was never analyzed (estimate ≤ 0), e.g. immediately after a fresh load.
+        let est: i64 = sqlx::query_scalar(
+            "SELECT reltuples::bigint FROM pg_class WHERE oid = 'core.variant'::regclass",
+        )
+        .fetch_one(pool)
+        .await?;
+        let total: i64 = if est > 0 {
+            est
+        } else {
+            sqlx::query_scalar("SELECT count(*) FROM core.variant WHERE canonical_name IS NOT NULL")
+                .fetch_one(pool)
+                .await?
+        };
         let rows = sqlx::query_as(&format!(
             "{SELECT} WHERE canonical_name IS NOT NULL ORDER BY canonical_name LIMIT $1 OFFSET $2"
         ))
