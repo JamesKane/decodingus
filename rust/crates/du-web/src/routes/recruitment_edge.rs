@@ -177,7 +177,7 @@ mod tests {
             .unwrap();
         let tester = SigningKey::from_bytes(&[71u8; 32]);
         let tester_did = du_atproto::did::did_key_from_ed25519(&tester.verifying_key());
-        recruitment::deliver(&pool, cid, &[tester_did.clone()]).await.unwrap();
+        recruitment::deliver(&pool, cid, std::slice::from_ref(&tester_did)).await.unwrap();
 
         let state = crate::state::AppState { pool: pool.clone(), key: tower_cookies::Key::generate(), oauth: None };
         let send = |state: crate::state::AppState, method: &'static str, uri: String, body: Value| async move {

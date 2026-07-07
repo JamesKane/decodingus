@@ -189,10 +189,10 @@ pub fn established_name(aliases: &Value) -> Option<String> {
 
 /// **Adopt an established name**: ratify a variant's existing ISOGG/YBrowse name
 /// (a non-DU `common_names` alias) as its canonical name instead of minting a new
-/// `DU` identifier. This is the "named by definition" path — when a matching locus
-/// + mutation state already has a name in the source set, the authority reuses it.
-/// Sets `canonical_name` to that name and marks `NAMED`. Errors if the variant is
-/// already named or carries no established name.
+/// `DU` identifier. This is the "named by definition" path — when a matching
+/// locus + mutation state already has a name in the source set, the authority
+/// reuses it. Sets `canonical_name` to that name and marks `NAMED`. Errors if
+/// the variant is already named or carries no established name.
 pub async fn adopt_established_name(pool: &PgPool, id: i64) -> Result<String, DbError> {
     let mut tx = pool.begin().await?;
     let row: Option<(Option<String>, Value)> = sqlx::query_as(

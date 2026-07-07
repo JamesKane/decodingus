@@ -452,8 +452,9 @@ async fn build_clades(pool: &PgPool) -> Result<(Vec<Clade>, Vec<i64>), DbError> 
     // Branch (defining-SNP) denominator: the joint-call mask the ASR branch counts
     // were ascertained over (uniform region, region-consistent with the SNP-region
     // positive filter above). Testers do NOT use this — each carries its own bp.
-    for i in 0..ids.len() {
-        clades[i].callable_bp = mask_bp.filter(|b| *b > 0.0).unwrap_or(default_b);
+    let branch_bp = mask_bp.filter(|b| *b > 0.0).unwrap_or(default_b);
+    for clade in clades.iter_mut().take(ids.len()) {
+        clade.callable_bp = branch_bp;
     }
 
     Ok((clades, ids))
@@ -640,7 +641,9 @@ pub async fn recompute_combined_ages(pool: &PgPool) -> Result<CombineStats, DbEr
     // diversity floor as the propagated PDFs (sample_count ≥ MIN_STR_TESTERS_FOR_COMBINE)
     // so the fallback can't re-admit the reconstruction-collapsed nodes the
     // propagation path excluded — see ystr::MIN_STR_TESTERS_FOR_COMBINE.
-    let str_rows: Vec<(i64, i32, Option<i32>, Option<i32>, Option<i32>)> = sqlx::query_as(
+    // (haplogroup_id, estimate_ybp, ci_low_ybp, ci_high_ybp, sample_count)
+    type StrVarianceRow = (i64, i32, Option<i32>, Option<i32>, Option<i32>);
+    let str_rows: Vec<StrVarianceRow> = sqlx::query_as(
         "SELECT haplogroup_id, estimate_ybp, ci_low_ybp, ci_high_ybp, sample_count \
          FROM tree.haplogroup_age_estimate WHERE method='STR_VARIANCE' AND estimate_ybp IS NOT NULL",
     )

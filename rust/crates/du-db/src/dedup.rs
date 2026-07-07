@@ -28,7 +28,7 @@ use std::collections::HashMap;
 use uuid::Uuid;
 
 /// Advisory-lock key guarding concurrent recomputes (daily job vs. manual run).
-const DEDUP_ADVISORY_KEY: i64 = 0x4445_4455_50; // "DEDUP"
+const DEDUP_ADVISORY_KEY: i64 = 0x44_45_44_55_50; // "DEDUP"
 
 /// Tier-1 candidate-generation configuration.
 #[derive(Debug, Clone)]

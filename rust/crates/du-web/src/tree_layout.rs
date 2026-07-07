@@ -93,7 +93,6 @@ pub struct LaidNode {
     pub fill_class: &'static str,
     pub is_backbone: bool,
     pub is_recent: bool,
-    pub has_hidden: bool,
     /// For a depth-clipped (`has_hidden`) node: an SVG path drawing a short stub +
     /// chevron exiting the box in the growth direction — a "there's more below,
     /// click to expand" affordance. `None` for fully-expanded nodes.
@@ -268,7 +267,6 @@ impl Builder {
             fill_class: fill_class(node.is_backbone, node.is_recent),
             is_backbone: node.is_backbone,
             is_recent: node.is_recent,
-            has_hidden: node.has_hidden,
             more_stub: node.has_hidden.then(|| self.more_stub_path(cx, cy)),
             formed,
             tmrca,

@@ -1197,9 +1197,10 @@ mod tests {
             assert!((col - 1.0).abs() < 1e-4, "convolution P(·|m={m}) sums to {col}");
         }
         let mut max_gap = 0.0_f64;
-        for m in 0..=10 {
-            for g in 0..=10 {
-                max_gap = max_gap.max((global_pgm()[m][g] - TABLE1[g][m]).abs());
+        let pgm = global_pgm();
+        for (m, row) in pgm.iter().enumerate().take(11) {
+            for (g, &val) in row.iter().enumerate().take(11) {
+                max_gap = max_gap.max((val - TABLE1[g][m]).abs());
             }
         }
         assert!(max_gap < 0.12, "convolution vs Table 1 max gap {max_gap}");

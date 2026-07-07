@@ -5,7 +5,7 @@
 //! it. Values are space-padded and may be quoted (`" 13"`, `13`, `"13"`):
 //!   * simple repeat   — `13`            → {type:simple, repeats:13}
 //!   * multi-copy      — `11-15`, `15-15-16-17` (DYS385/DYS464/CDY/YCAII/…)
-//!                                        → {type:multiCopy, copies:[…]}
+//!     → {type:multiCopy, copies:[…]}
 //!   * missing         — `-` (or blank)  → omitted
 //!   * other (e.g. partial-repeat `10.2`) → {type:complex, raw:"…"} (preserved,
 //!     unscored — same treatment fed profiles give palindromic/complex values)

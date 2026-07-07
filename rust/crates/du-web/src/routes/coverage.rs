@@ -168,7 +168,7 @@ fn group_benchmarks(rows: Vec<du_domain::coverage::ContigBenchmark>) -> Vec<Benc
         groups.last_mut().unwrap().rows.push(to_contig_row(b));
     }
     for g in &mut groups {
-        g.rows.sort_by(|a, b| contig_key(&a.contig).cmp(&contig_key(&b.contig)));
+        g.rows.sort_by_key(|a| contig_key(&a.contig));
     }
     groups
 }
@@ -181,7 +181,7 @@ async fn benchmarks(
 ) -> Result<Response, AppError> {
     let options = du_db::coverage::contig_benchmark_options(&st.pool).await?;
     let mut contigs = options.contigs.clone();
-    contigs.sort_by(|a, b| contig_key(a).cmp(&contig_key(b)));
+    contigs.sort_by_key(|a| contig_key(a));
 
     // A first, param-less visit lands on a small, relevant slice (chrY on the CHM13
     // build — the Y-tree's reference) rather than every chromosome × lab × build. Once
@@ -225,7 +225,7 @@ mod tests {
         let mut got = vec![
             "chr1", "chr2", "chr9", "chrM", "chrX", "chrY", "chr10", "chr22", "chr21",
         ];
-        got.sort_by(|a, b| contig_key(a).cmp(&contig_key(b)));
+        got.sort_by_key(|a| contig_key(a));
         assert_eq!(
             got,
             vec!["chr1", "chr2", "chr9", "chr10", "chr21", "chr22", "chrX", "chrY", "chrM"]

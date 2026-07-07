@@ -685,7 +685,7 @@ mod tests {
         assert_eq!(child.parent_id, Some(10));
         // Its samples merged onto A-L987 (10).
         assert_eq!(samples.get(&10).map(Vec::len), Some(2));
-        assert!(samples.get(&11).is_none());
+        assert!(!samples.contains_key(&11));
     }
 
     /// The cladogram shows a node's cumulative placed-sample count, and the SNP sidebar lists
