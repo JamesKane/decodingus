@@ -342,30 +342,45 @@ pub async fn refresh_region_overlaps(pool: &PgPool) -> Result<u64, DbError> {
 }
 
 /// Recompute `catalog_representative`: exactly one row per physical variant is the
-/// entry the public Variant Browser lists. A variant's identity is `(hs1 position,
-/// strand-canonical ancestral/derived)` — the template (`defining_haplogroup_id IS
-/// NULL`, the base identity carrying the merged aliases/coordinates) and every
-/// branch-placement row of that same SNP fold to one. The representative is the
-/// template when present, else the best-ranked established name (`core.ysnp_name_rank`).
-/// Named rows with no hs1 coordinate (lift gaps) each stand alone. Unnamed rows
-/// (`canonical_name IS NULL` — pre-mint) are never representative: they wait for a
-/// reviewer to mint them. Churn-free: only rows whose flag changes are written.
-/// Returns the number of rows changed.
+/// entry the public Variant Browser lists. A variant's identity is its position +
+/// strand-canonical ancestral/derived (`core.ysnp_canon`) in ANY reference build, so
+/// the template (`defining_haplogroup_id IS NULL`, the base identity carrying the merged
+/// aliases/coordinates) and every branch-placement row of that same SNP fold to one —
+/// build-agnostically: rows collapse when they share a coordinate in any of GRCh37 /
+/// GRCh38 / hs1, so a GRCh38-only row still folds into an hs1-bearing twin.
+///
+/// A named variant is the representative unless it is out-ranked at some coordinate
+/// token it holds — ranked template-first, then best established name
+/// (`core.ysnp_name_rank`), then id. The reconcile-enriched template carries every
+/// build, so it shares a token with each member of its group and wins them all. Named
+/// rows with no coordinates each stand alone. Unnamed rows (`canonical_name IS NULL` —
+/// pre-mint) are never representative: they wait for a reviewer to mint them. Churn-free:
+/// only rows whose flag changes are written. Returns the number of rows changed.
 pub async fn recompute_catalog_representatives(pool: &PgPool) -> Result<u64, DbError> {
     let affected = sqlx::query(
-        "WITH ranked AS ( \
-           SELECT id, \
-             (row_number() OVER ( \
-                PARTITION BY COALESCE(coordinates->'hs1'->>'position', 'u' || id::text), \
-                             core.ysnp_canon(coordinates->'hs1'->>'ancestral', coordinates->'hs1'->>'derived') \
-                ORDER BY (defining_haplogroup_id IS NULL) DESC, \
-                         core.ysnp_name_rank(canonical_name), id) = 1) AS rep \
-           FROM core.variant WHERE canonical_name IS NOT NULL \
-         ) \
+        "WITH toks AS ( \
+           SELECT v.id, v.defining_haplogroup_id, v.canonical_name, \
+             b || ':' || (v.coordinates->b->>'position') || ':' || \
+               core.ysnp_canon(v.coordinates->b->>'ancestral', v.coordinates->b->>'derived') AS tok \
+           FROM core.variant v, unnest(ARRAY['GRCh37','GRCh38','hs1']) AS b \
+           WHERE v.canonical_name IS NOT NULL AND v.coordinates ? b \
+             AND v.coordinates->b->>'ancestral' IS NOT NULL AND v.coordinates->b->>'derived' IS NOT NULL \
+         ), \
+         tok_ranked AS ( \
+           SELECT id, row_number() OVER ( \
+                PARTITION BY tok \
+                ORDER BY (defining_haplogroup_id IS NULL) DESC, core.ysnp_name_rank(canonical_name), id) AS rnk \
+           FROM toks \
+         ), \
+         beaten AS (SELECT DISTINCT id FROM tok_ranked WHERE rnk > 1) \
          UPDATE core.variant v \
-         SET catalog_representative = COALESCE(r.rep, false) \
-         FROM core.variant vv LEFT JOIN ranked r ON r.id = vv.id \
-         WHERE v.id = vv.id AND v.catalog_representative IS DISTINCT FROM COALESCE(r.rep, false)",
+         SET catalog_representative = rep.want \
+         FROM ( \
+           SELECT vv.id, \
+             (vv.canonical_name IS NOT NULL AND NOT EXISTS (SELECT 1 FROM beaten WHERE beaten.id = vv.id)) AS want \
+           FROM core.variant vv \
+         ) rep \
+         WHERE rep.id = v.id AND v.catalog_representative IS DISTINCT FROM rep.want",
     )
     .execute(pool)
     .await?
