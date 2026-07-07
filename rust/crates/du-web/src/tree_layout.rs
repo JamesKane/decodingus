@@ -94,6 +94,10 @@ pub struct LaidNode {
     pub is_backbone: bool,
     pub is_recent: bool,
     pub has_hidden: bool,
+    /// For a depth-clipped (`has_hidden`) node: an SVG path drawing a short stub +
+    /// chevron exiting the box in the growth direction — a "there's more below,
+    /// click to expand" affordance. `None` for fully-expanded nodes.
+    pub more_stub: Option<String>,
     /// Formatted calendar year (e.g. "2400 BC"), if an age is set.
     pub formed: Option<String>,
     pub tmrca: Option<String>,
@@ -265,6 +269,7 @@ impl Builder {
             is_backbone: node.is_backbone,
             is_recent: node.is_recent,
             has_hidden: node.has_hidden,
+            more_stub: node.has_hidden.then(|| self.more_stub_path(cx, cy)),
             formed,
             tmrca,
             rect_x: cx - NODE_WIDTH / 2.0,
@@ -307,6 +312,40 @@ impl Builder {
                 let bus = (sy + (c_depth - NODE_HEIGHT / 2.0)) / 2.0;
                 let ty = c_depth - TIP_R;
                 format!("M {p_breadth:.1} {sy:.1} V {bus:.1} H {c_breadth:.1} V {ty:.1}")
+            }
+        }
+    }
+
+    /// A short stub + chevron exiting the box in the growth direction (down in
+    /// Vertical, right in Horizontal), given the box center `(cx, cy)` in SVG space.
+    /// Signals a depth-clipped node whose children are one click away.
+    fn more_stub_path(&self, cx: f64, cy: f64) -> String {
+        const STUB: f64 = 16.0;
+        const CHEV: f64 = 5.0;
+        match self.orientation {
+            // Children hang below: stub drops from the bottom edge, chevron points down.
+            Orientation::Vertical => {
+                let (sx, sy) = (cx, cy + NODE_HEIGHT / 2.0);
+                let ty = sy + STUB;
+                format!(
+                    "M {sx:.1} {sy:.1} V {ty:.1} M {:.1} {:.1} L {sx:.1} {ty:.1} L {:.1} {:.1}",
+                    sx - CHEV,
+                    ty - CHEV,
+                    sx + CHEV,
+                    ty - CHEV
+                )
+            }
+            // Children sit to the right: stub extends from the right edge, chevron points right.
+            Orientation::Horizontal => {
+                let (sx, sy) = (cx + NODE_WIDTH / 2.0, cy);
+                let tx = sx + STUB;
+                format!(
+                    "M {sx:.1} {sy:.1} H {tx:.1} M {:.1} {:.1} L {tx:.1} {sy:.1} L {:.1} {:.1}",
+                    tx - CHEV,
+                    sy - CHEV,
+                    tx - CHEV,
+                    sy + CHEV
+                )
             }
         }
     }
@@ -392,6 +431,23 @@ mod tests {
         assert!((root_node.cy - (a.cy + bb.cy) / 2.0).abs() < 0.01);
         // Children are one depth-step to the right of the root.
         assert!(a.cx > root_node.cx && bb.cx > root_node.cx);
+    }
+
+    #[test]
+    fn depth_clipped_node_gets_a_more_stub() {
+        // A leaf flagged has_hidden (children clipped by the depth window) should carry
+        // a "more below" stub; an ordinary leaf should not.
+        let clipped = InNode { has_hidden: true, ..leaf("Clipped") };
+        let root = InNode { children: vec![clipped, leaf("Plain")], ..leaf("R") };
+        let laid = layout(Some(&root), Orientation::Vertical).unwrap();
+        let clipped = laid.nodes.iter().find(|n| n.name == "Clipped").unwrap();
+        let plain = laid.nodes.iter().find(|n| n.name == "Plain").unwrap();
+        assert!(clipped.more_stub.is_some(), "clipped node should draw a stub");
+        assert!(plain.more_stub.is_none(), "fully-expanded node should not");
+        // Vertical growth: the stub drops below the box and stays within the SVG bounds.
+        let stub = clipped.more_stub.as_ref().unwrap();
+        assert!(stub.starts_with("M "));
+        assert!(clipped.cy + NODE_HEIGHT / 2.0 < laid.height);
     }
 
     #[test]

@@ -30,6 +30,18 @@ code { color: #495057; background-color: #f8f9fa; }
 
 .tree-link { fill: none; stroke: var(--bs-border-color, #ccc); stroke-width: 1.5; }
 
+/* "More below" affordance on depth-clipped nodes: a stub + chevron growing out of
+   the box so it's obvious the node re-roots into a deeper view. Cue only — the box
+   itself is the click target, so the stub never steals pointer events. */
+.tree-more-stub {
+  fill: none;
+  stroke: var(--bs-secondary-color, #6c757d);
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+
 .tree-node-rect {
   stroke: #888;
   stroke-width: 1;
@@ -84,3 +96,29 @@ code { color: #495057; background-color: #f8f9fa; }
 .legend-swatch.node-backbone { background: #d4edda; border-color: #2e7d32; }
 .legend-swatch.node-recent   { background: #ffeeba; border-color: #e65100; }
 .legend-swatch.node-default  { background: #f8f9fa; border-color: #6c757d; }
+
+/* ── Mobile layout ──────────────────────────────────────────────────────────
+   The footer is a `fixed-bottom` navbar. Below `lg` its links don't collapse, so
+   they wrap into a tall bar that overlaps `main` while `body`'s padding only
+   reserves one row's height — content gets hidden and you "can't scroll far
+   enough". On small screens let the footer flow after the content (static) and
+   drop the reserved padding, so nothing is ever trapped under it. Keep the links
+   as a compact centered wrap instead of a tall stacked column. */
+@media (max-width: 991.98px) {
+  body { padding-bottom: 0; }
+  footer .navbar.fixed-bottom {
+    position: static;
+  }
+  footer .navbar.fixed-bottom .navbar-nav {
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  footer .navbar.fixed-bottom .nav-link {
+    padding-left: .5rem;
+    padding-right: .5rem;
+  }
+  /* The nested tree canvas no longer competes with a fixed footer for the last
+     slice of viewport — give it more room and let the page scroll carry the rest. */
+  .tree-scroll-container { max-height: 88vh; }
+}

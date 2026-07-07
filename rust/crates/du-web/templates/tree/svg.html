@@ -45,12 +45,16 @@
     {% endfor %}
     {% for n in l.nodes %}
     <g class="tree-node">
+      {# Depth-clipped node: a stub "growing" out of the box hints there's more below — click to expand. #}
+      {% if let Some(stub) = n.more_stub %}
+      <path class="tree-more-stub" d="{{ stub }}"></path>
+      {% endif %}
       <rect class="tree-node-rect {{ n.fill_class }}" x="{{ n.rect_x }}" y="{{ n.rect_y }}"
             width="150" height="80" rx="5" ry="5" tabindex="0" role="button"
             hx-get="{{ base_path }}?root={{ n.name }}" hx-target="#tree-container" hx-push-url="true">
         <title>{{ n.name }}{% if let Some(tm) = n.tmrca %} · TMRCA {{ tm }}{% endif %}</title>
       </rect>
-      <text class="tree-node-name" x="{{ n.cx }}" y="{{ n.name_y }}">{% if n.is_backbone %}✓ {% else if n.is_recent %}★ {% endif %}{{ n.name }}{% if n.has_hidden %} +{% endif %}</text>
+      <text class="tree-node-name" x="{{ n.cx }}" y="{{ n.name_y }}">{% if n.is_backbone %}✓ {% else if n.is_recent %}★ {% endif %}{{ n.name }}</text>
       <text class="tree-variant-link" x="{{ n.cx }}" y="{{ n.count_y }}"
             hx-get="{{ base_path }}/snp/{{ n.name }}" hx-target="#snpSidebar">{{ n.variant_count }} {{ t.get("tree.variants") }} ▸</text>
       {% if let Some(f) = n.formed %}
