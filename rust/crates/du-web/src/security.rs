@@ -103,7 +103,9 @@ fn csrf_cookie(req: &Request) -> Option<String> {
 /// ignore the session cookie entirely. They must be reachable by non-browser
 /// clients (Navigator, ops scripts) that cannot carry a double-submit token.
 fn is_machine_intake(path: &str) -> bool {
-    path == "/manage/curation/proposals" || path.starts_with("/manage/biosamples/")
+    path == "/manage/curation/proposals"
+        || path.starts_with("/manage/biosamples/")
+        || path.starts_with("/manage/publications/")
 }
 
 /// Stateless double-submit CSRF protection for the cookie-session browser routes.

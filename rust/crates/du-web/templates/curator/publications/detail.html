@@ -41,7 +41,17 @@
               hx-target="#candidate-detail" hx-swap="innerHTML">{{ t.get("pc.defer") }}</button>
     </div>
     {% else %}
-    <p class="detail-empty small mb-0">{{ t.get("pc.accepted_note") }}</p>
+    <p class="detail-empty small mb-2">{{ t.get("pc.accepted_note") }}</p>
+    <form hx-post="/curator/publications/{{ c.id }}/projects"
+          hx-target="#candidate-detail" hx-swap="innerHTML" class="mt-2">
+      <label class="form-label small mb-1">{{ t.get("pc.projects.label") }}</label>
+      <div class="input-group input-group-sm">
+        <input type="text" name="projects" class="form-control"
+               placeholder="PRJEB11801 PRJNA230903" required>
+        <button class="btn btn-outline-primary" type="submit">{{ t.get("pc.projects.attach") }}</button>
+      </div>
+      <div class="form-text small">{{ t.get("pc.projects.help") }}</div>
+    </form>
     {% endif %}
   </div>
 </div>

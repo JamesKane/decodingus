@@ -109,17 +109,31 @@ pub async fn update_pubmed(pool: &PgPool, id: PublicationId, u: &PubMedUpdate) -
     Ok(affected > 0)
 }
 
-/// Enabled discovery search queries.
-pub async fn enabled_search_configs(pool: &PgPool) -> Result<Vec<String>, DbError> {
-    let rows: Vec<String> = sqlx::query_scalar(
-        "SELECT search_query FROM pubs.publication_search_config WHERE enabled = true AND search_query IS NOT NULL",
+/// An enabled discovery search plus its recency watermark (the max
+/// `publication_date` ingested so far; `None` until the first run completes).
+#[derive(Debug, Clone)]
+pub struct SearchConfig {
+    pub id: i64,
+    pub query: String,
+    pub last_publication_date: Option<NaiveDate>,
+}
+
+/// Enabled discovery searches, each with its incremental watermark.
+pub async fn enabled_search_configs(pool: &PgPool) -> Result<Vec<SearchConfig>, DbError> {
+    let rows: Vec<(i64, String, Option<NaiveDate>)> = sqlx::query_as(
+        "SELECT id, search_query, last_publication_date FROM pubs.publication_search_config \
+         WHERE enabled = true AND search_query IS NOT NULL ORDER BY id",
     )
     .fetch_all(pool)
     .await?;
-    Ok(rows)
+    Ok(rows
+        .into_iter()
+        .map(|(id, query, last_publication_date)| SearchConfig { id, query, last_publication_date })
+        .collect())
 }
 
 /// Upsert a discovery candidate by OpenAlex id (preserves curator status/review).
+/// Returns `true` when the row was newly inserted (vs an update of one already seen).
 #[allow(clippy::too_many_arguments)]
 pub async fn upsert_candidate(
     pool: &PgPool,
@@ -129,14 +143,16 @@ pub async fn upsert_candidate(
     abstract_summary: Option<&str>,
     publication_date: Option<NaiveDate>,
     journal_name: Option<&str>,
-) -> Result<(), DbError> {
-    sqlx::query(
+) -> Result<bool, DbError> {
+    // `xmax = 0` distinguishes a fresh INSERT from a DO UPDATE on conflict.
+    let inserted: bool = sqlx::query_scalar(
         "INSERT INTO pubs.publication_candidate \
            (openalex_id, doi, title, abstract, publication_date, journal_name, status) \
          VALUES ($1, $2, $3, $4, $5, $6, 'pending') \
          ON CONFLICT (openalex_id) DO UPDATE SET doi = EXCLUDED.doi, title = EXCLUDED.title, \
            abstract = EXCLUDED.abstract, publication_date = EXCLUDED.publication_date, \
-           journal_name = EXCLUDED.journal_name",
+           journal_name = EXCLUDED.journal_name \
+         RETURNING (xmax = 0)",
     )
     .bind(openalex_id)
     .bind(doi)
@@ -144,9 +160,93 @@ pub async fn upsert_candidate(
     .bind(abstract_summary)
     .bind(publication_date)
     .bind(journal_name)
+    .fetch_one(pool)
+    .await?;
+    Ok(inserted)
+}
+
+/// Advance a config's watermark after a completed run: bump `last_run_at` and raise
+/// `last_publication_date` to the newest date seen (`GREATEST` ignores NULLs, so a
+/// run that found nothing new leaves the existing mark intact).
+pub async fn advance_search_watermark(
+    pool: &PgPool,
+    config_id: i64,
+    max_publication_date: Option<NaiveDate>,
+) -> Result<(), DbError> {
+    sqlx::query(
+        "UPDATE pubs.publication_search_config \
+         SET last_run_at = now(), last_publication_date = GREATEST(last_publication_date, $2) \
+         WHERE id = $1",
+    )
+    .bind(config_id)
+    .bind(max_publication_date)
     .execute(pool)
     .await?;
     Ok(())
+}
+
+/// Record one discovery run (audit trail; `error` set only on failure).
+#[allow(clippy::too_many_arguments)]
+pub async fn record_search_run(
+    pool: &PgPool,
+    config_id: i64,
+    from_publication_date: NaiveDate,
+    pages_fetched: i32,
+    candidates_seen: i32,
+    candidates_new: i32,
+    error: Option<&str>,
+) -> Result<(), DbError> {
+    sqlx::query(
+        "INSERT INTO pubs.publication_search_run \
+           (config_id, from_publication_date, pages_fetched, candidates_seen, candidates_new, error) \
+         VALUES ($1, $2, $3, $4, $5, $6)",
+    )
+    .bind(config_id)
+    .bind(from_publication_date)
+    .bind(pages_fetched)
+    .bind(candidates_seen)
+    .bind(candidates_new)
+    .bind(error)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// Link a biosample to a publication (idempotent). Used by the project crawl to
+/// attach a study's imported samples to the paper(s) that study belongs to.
+pub async fn link_biosample(
+    pool: &PgPool,
+    publication_id: PublicationId,
+    sample_guid: Uuid,
+) -> Result<(), DbError> {
+    sqlx::query(
+        "INSERT INTO pubs.publication_biosample (publication_id, sample_guid) VALUES ($1, $2) \
+         ON CONFLICT DO NOTHING",
+    )
+    .bind(publication_id.0)
+    .bind(sample_guid)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// The promoted publication id for a candidate — the row `promote_candidate` would
+/// reuse (matched on OpenAlex id or DOI). `None` until the candidate is accepted.
+/// Lets the curator attach projects to a paper straight from the review panel.
+pub async fn publication_for_candidate(
+    pool: &PgPool,
+    candidate_id: i64,
+) -> Result<Option<PublicationId>, DbError> {
+    let id: Option<i64> = sqlx::query_scalar(
+        "SELECT p.id FROM pubs.publication_candidate c \
+         JOIN pubs.publication p \
+           ON p.open_alex_id = c.openalex_id OR (c.doi IS NOT NULL AND p.doi = c.doi) \
+         WHERE c.id = $1 LIMIT 1",
+    )
+    .bind(candidate_id)
+    .fetch_optional(pool)
+    .await?;
+    Ok(id.map(PublicationId))
 }
 
 /// Whether a publication with this DOI already exists in the catalog.

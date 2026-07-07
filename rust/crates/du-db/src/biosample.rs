@@ -7,6 +7,32 @@ use du_domain::ids::{PublicationId, SampleGuid};
 use sqlx::PgPool;
 use uuid::Uuid;
 
+/// Ensure a biosample exists for an external accession (ENA `SAMEA…`, NCBI
+/// `SAMN…`, …); returns its guid and whether it was newly created. Used by the
+/// project crawl to import a paper's cohort. Existing rows are returned untouched
+/// (the no-op `DO UPDATE` is only to make the guid returnable on conflict); dedup
+/// is on the partial unique index `biosample_accession_key`.
+pub async fn upsert_by_accession(
+    pool: &PgPool,
+    accession: &str,
+    source: &str,
+    center_name: Option<&str>,
+) -> Result<(SampleGuid, bool), DbError> {
+    let (guid, created): (Uuid, bool) = sqlx::query_as(
+        "INSERT INTO core.biosample (source, accession, center_name) \
+         VALUES ($1::core.biosample_source, $2, $3) \
+         ON CONFLICT (accession) WHERE accession IS NOT NULL \
+         DO UPDATE SET accession = EXCLUDED.accession \
+         RETURNING sample_guid, (xmax = 0)",
+    )
+    .bind(source)
+    .bind(accession.trim())
+    .bind(center_name)
+    .fetch_one(pool)
+    .await?;
+    Ok((SampleGuid(guid), created))
+}
+
 #[derive(sqlx::FromRow)]
 struct BiosampleRow {
     sample_guid: Uuid,

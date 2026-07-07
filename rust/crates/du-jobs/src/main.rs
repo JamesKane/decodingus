@@ -10,6 +10,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 mod coord_lift;
+mod crawl_project;
 mod ena;
 mod faidx;
 mod ftdna_str;
@@ -242,8 +243,19 @@ async fn main() -> anyhow::Result<()> {
                 let cfg = coord_lift::Config::from_env(&args);
                 coord_lift::run(&pool, &cfg).await?;
             }
+            // Crawl an ENA study / NCBI BioProject: enumerate its runs and link
+            // each sample's read files (creating biosamples as needed). With an
+            // accession arg, crawl just that project; otherwise drain the pending
+            // queue populated when a curator attaches a project to a publication.
+            "crawl-project" => {
+                let ena = du_external::ena::EnaClient::new();
+                match argv.next().filter(|a| !a.is_empty()) {
+                    Some(acc) => crawl_project::crawl_one_accession(&pool, &ena, &acc).await?,
+                    None => crawl_project::crawl_pending(&pool, &ena).await?,
+                }
+            }
             other => anyhow::bail!(
-                "unknown run-once job '{other}' (known: ybrowse, reconcile, variant-representatives, yregions, branch-age, ftdna-str, sequencer-consensus, discovery-consensus, coverage-norms, ibd-discovery-recompute, exchange-expire, tree-samples-recompute, dedup-candidates, consolidate-donors, link-federated-subjects, import-kit-identifiers, mt-rcrs-lift, variant-coord-lift)"
+                "unknown run-once job '{other}' (known: ybrowse, reconcile, variant-representatives, yregions, branch-age, ftdna-str, sequencer-consensus, discovery-consensus, coverage-norms, ibd-discovery-recompute, exchange-expire, tree-samples-recompute, dedup-candidates, consolidate-donors, link-federated-subjects, import-kit-identifiers, mt-rcrs-lift, variant-coord-lift, crawl-project)"
             ),
         }
         return Ok(());
@@ -324,6 +336,19 @@ async fn main() -> anyhow::Result<()> {
             async move { ena::enrich_studies(&pool, &client).await }
         }));
         tracing::info!("ena-study-enrichment registered");
+    }
+
+    // Project crawl drainer — materializes read-file links for studies a curator
+    // attached to a publication. Short interval so attaches surface quickly; the
+    // pending query is a cheap partial-index scan (usually empty). No credentials.
+    {
+        let pool = pool.clone();
+        let client = Arc::new(du_external::ena::EnaClient::new());
+        sched.register(Job::new("project-crawl", Duration::from_secs(600), move || {
+            let (pool, client) = (pool.clone(), client.clone());
+            async move { crawl_project::crawl_pending(&pool, &client).await }
+        }));
+        tracing::info!("project-crawl registered");
     }
 
     // Branch ages — recompute Y-STR modal signatures + STR-variance ages from the

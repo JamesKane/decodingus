@@ -12,10 +12,12 @@ use crate::render::html;
 use crate::state::AppState;
 use crate::extract::Query;
 use axum::extract::{Path, State};
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
-use axum::{Form, Router};
+use axum::{Form, Json, Router};
 use serde::Deserialize;
+use serde_json::json;
 
 const CHANGED: &str = "candidate-changed";
 
@@ -25,6 +27,95 @@ pub fn router() -> Router<AppState> {
         .route("/curator/publications/fragment", get(list))
         .route("/curator/publications/:id/panel", get(panel))
         .route("/curator/publications/:id/review", post(review))
+        // Curator (session): attach ENA/NCBI project(s) to an accepted candidate's paper.
+        .route("/curator/publications/:id/projects", post(attach_projects_curator))
+        // Machine (X-API-Key): attach project(s) to a publication by id (ops/scripts).
+        .route("/manage/publications/:id/projects", post(attach_projects_api))
+}
+
+/// Require the curation/ops API key (X-API-Key == DU_CURATION_API_KEY).
+fn check_api_key(headers: &HeaderMap) -> Result<(), AppError> {
+    match std::env::var("DU_CURATION_API_KEY").ok().filter(|s| !s.is_empty()) {
+        None => Err(AppError::Upstream("curation API not configured".into())),
+        Some(expected) => {
+            let provided = headers.get("x-api-key").and_then(|v| v.to_str().ok()).unwrap_or("");
+            if provided == expected {
+                Ok(())
+            } else {
+                Err(AppError::Forbidden)
+            }
+        }
+    }
+}
+
+/// Parse a free-form list of project accessions (comma/whitespace separated),
+/// upsert each study, link it to `publication_id`, and queue it for crawling.
+/// Returns the number of projects attached.
+async fn attach_projects(st: &AppState, publication_id: i64, raw: &str) -> Result<usize, AppError> {
+    let accs: Vec<String> = raw
+        .split(|c: char| c == ',' || c.is_whitespace())
+        .map(|s| s.trim().to_ascii_uppercase())
+        .filter(|s| !s.is_empty())
+        .collect();
+    if accs.is_empty() {
+        return Err(AppError::BadRequest("no project accessions supplied".into()));
+    }
+    // Fail loudly if the paper doesn't exist rather than FK-erroring mid-loop.
+    if du_db::publication::get_by_id(&st.pool, du_domain::ids::PublicationId(publication_id)).await?.is_none() {
+        return Err(AppError::NotFound(format!("publication {publication_id}")));
+    }
+    for acc in &accs {
+        let source = du_db::study::source_for_accession(acc);
+        let study_id = du_db::study::upsert_by_accession(&st.pool, acc, source).await?;
+        du_db::study::link_publication(&st.pool, publication_id, study_id).await?;
+        du_db::study::request_crawl(&st.pool, study_id).await?;
+    }
+    Ok(accs.len())
+}
+
+#[derive(Deserialize)]
+struct AttachProjectsApi {
+    /// Project accessions (ENA `PRJEB…`/`ERP…` or NCBI BioProject `PRJNA…`).
+    projects: Vec<String>,
+}
+
+/// `POST /manage/publications/:id/projects` — attach project(s) to a publication
+/// and queue the crawl. 403 without the key, 404 for an unknown publication.
+async fn attach_projects_api(
+    State(st): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<i64>,
+    Json(body): Json<AttachProjectsApi>,
+) -> Result<Response, AppError> {
+    check_api_key(&headers)?;
+    let attached = attach_projects(&st, id, &body.projects.join(" ")).await?;
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(json!({ "publication_id": id, "attached": attached, "crawl": "pending" })),
+    )
+        .into_response())
+}
+
+#[derive(Deserialize)]
+struct AttachForm {
+    projects: String,
+}
+
+/// Curator panel action: attach project(s) to the paper this (accepted) candidate
+/// was promoted to. Re-renders the panel with a notice.
+async fn attach_projects_curator(
+    _c: Curator,
+    State(st): State<AppState>,
+    locale: Locale,
+    Path(cand_id): Path<i64>,
+    Form(f): Form<AttachForm>,
+) -> Result<Response, AppError> {
+    let pub_id = du_db::publication::publication_for_candidate(&st.pool, cand_id)
+        .await?
+        .ok_or_else(|| AppError::BadRequest("accept the paper before attaching projects".into()))?;
+    let n = attach_projects(&st, pub_id.0, &f.projects).await?;
+    let notice = format!("{} ({n})", locale.t.get("pc.projects.queued"));
+    changed_response(&st, locale.t, cand_id, Some(notice)).await
 }
 
 // ── list ──────────────────────────────────────────────────────────────────────

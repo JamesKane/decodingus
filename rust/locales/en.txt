@@ -401,6 +401,10 @@ pc.accepted_note=Accepted — promoted to the references catalog.
 pc.notice.accepted=Accepted and promoted to references
 pc.notice.rejected=Rejected.
 pc.notice.deferred=Deferred for later.
+pc.projects.label=Attach data project(s)
+pc.projects.attach=Attach
+pc.projects.help=ENA study (PRJEB…/ERP…) or NCBI BioProject (PRJNA…) accessions. Samples and read files are crawled in the background.
+pc.projects.queued=Queued project(s) for crawling
 
 # Public DOI-submit form (references/submit)
 submit.cta=Suggest a paper
