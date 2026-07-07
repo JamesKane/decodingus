@@ -252,6 +252,16 @@ pub async fn reconcile(pool: &PgPool) -> Result<ReconcileReport, DbError> {
     // sequence). Idempotent and outside the tx — needs the committed rows.
     let region_flagged = crate::variant::refresh_region_overlaps(pool).await?;
 
+    // Refresh planner statistics on the freshly re-derived catalog — including the
+    // `variant_alias_search_text` functional-index expression (mig 0061). A bulk reload
+    // leaves core.variant with stale stats until autovacuum ANALYZEs it minutes later;
+    // in that window the Variant Browser's `ORDER BY canonical_name LIMIT` search
+    // misestimates the trigram predicates' selectivity and walks the name btree filtering
+    // millions of rows (the alias function per row) instead of using the trigram bitmap —
+    // pathologically slow. ANALYZE now so the catalog is search-ready the moment reconcile
+    // returns.
+    sqlx::query("ANALYZE core.variant").execute(pool).await?;
+
     // The reconcile re-derived core.variant from the snapshot (coords, naming,
     // enrichment) — bump the tree revision so Edge caches revalidate.
     crate::tree_revision::bump(pool).await?;
