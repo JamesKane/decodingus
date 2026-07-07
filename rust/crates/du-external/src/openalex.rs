@@ -64,6 +64,20 @@ struct Source {
 struct WorksPage {
     #[serde(default)]
     results: Vec<Work>,
+    meta: Option<Meta>,
+}
+
+#[derive(Deserialize)]
+struct Meta {
+    next_cursor: Option<String>,
+}
+
+/// One page of discovery results plus the cursor for the next page
+/// (`None` once the result set is exhausted).
+#[derive(Debug, Clone)]
+pub struct SearchPage {
+    pub candidates: Vec<Candidate>,
+    pub next_cursor: Option<String>,
 }
 
 fn parse_date(s: &Option<String>) -> Option<NaiveDate> {
@@ -137,16 +151,38 @@ impl OpenAlexClient {
         Ok(Some(work.into_meta()))
     }
 
-    /// Search works (publication discovery).
-    pub async fn search(&self, query: &str, per_page: u32) -> Result<Vec<Candidate>, ExternalError> {
+    /// Fetch one page of discovery results: works matching `query` published on or
+    /// after `from_publication_date`, sorted newest-first, cursor-paginated.
+    ///
+    /// Pass `"*"` as `cursor` for the first page, then the returned `next_cursor`
+    /// for each subsequent page until it is `None`. Sorting by publication date
+    /// (rather than OpenAlex's citation-weighted relevance) is what lets brand-new,
+    /// uncited papers surface — they never rank into a relevance-sorted top page.
+    pub async fn search_page(
+        &self,
+        query: &str,
+        from_publication_date: NaiveDate,
+        per_page: u32,
+        cursor: &str,
+    ) -> Result<SearchPage, ExternalError> {
         let url = format!("{}/works", self.base);
         let pp = per_page.clamp(1, 200).to_string();
-        let mut req = self.http.get(url).query(&[("search", query), ("per-page", pp.as_str())]);
+        let filter = format!("from_publication_date:{}", from_publication_date.format("%Y-%m-%d"));
+        let mut req = self.http.get(url).query(&[
+            ("search", query),
+            ("filter", filter.as_str()),
+            ("sort", "publication_date:desc"),
+            ("per-page", pp.as_str()),
+            ("cursor", cursor),
+        ]);
         if let Some(m) = &self.mailto {
             req = req.query(&[("mailto", m.as_str())]);
         }
         let page: WorksPage = req.send().await?.error_for_status()?.json().await?;
-        Ok(page.results.into_iter().filter_map(Work::into_candidate).collect())
+        Ok(SearchPage {
+            candidates: page.results.into_iter().filter_map(Work::into_candidate).collect(),
+            next_cursor: page.meta.and_then(|m| m.next_cursor),
+        })
     }
 }
 
