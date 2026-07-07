@@ -472,23 +472,33 @@ pub async fn search(
     let limit = page_size.clamp(1, 200);
     let term = query.map(str::trim).filter(|q| !q.is_empty());
 
-    // Matches canonical_name or any element of the alias arrays (common_names / rs_ids),
-    // case-insensitive. The alias arms are folded into one `variant_alias_search_text`
-    // predicate so both it and canonical_name are served by trigram GIN indexes
-    // (mig 0061) — a BitmapOr instead of a 3.7M-row seq scan with per-row JSONB unnest.
-    // Unnamed variants (canonical_name IS NULL) are pre-publication — excluded from the
-    // public browser; they live in the naming queue (`du_db::naming`).
+    // Full search (≥3 chars): match canonical_name OR any element of the alias arrays
+    // (common_names / rs_ids), case-insensitive. The alias arms are folded into one
+    // `variant_alias_search_text` predicate so both it and canonical_name are served by
+    // trigram GIN indexes (mig 0061) — a BitmapOr instead of a 3.7M-row seq scan with a
+    // per-row JSONB unnest. Unnamed variants (canonical_name IS NULL) are pre-publication —
+    // excluded from the public browser; they live in the naming queue (`du_db::naming`).
     const FILTER: &str = "WHERE canonical_name IS NOT NULL AND (canonical_name ILIKE $1 \
         OR core.variant_alias_search_text(aliases) ILIKE $1)";
+    // Short stub (1–2 chars): a substring `%t%` has no interior trigram, so it can't use
+    // the GIN index and would seq-scan all 3.7M rows (running the alias function per row).
+    // Match the canonical name by PREFIX instead — the trigram index serves an anchored
+    // `t%`, and a name-prefix hit is a more useful result for a short haplogroup stub than
+    // thousands of substring matches. (A NULL canonical_name never satisfies ILIKE.)
+    const PREFIX_FILTER: &str = "WHERE canonical_name ILIKE $1";
 
     let (total, rows): (i64, Vec<VariantRow>) = if let Some(t) = term {
-        let like = format!("%{t}%");
-        let total: i64 = sqlx::query_scalar(&format!("SELECT count(*) FROM core.variant {FILTER}"))
+        let (like, filter) = if t.len() < 3 {
+            (format!("{t}%"), PREFIX_FILTER)
+        } else {
+            (format!("%{t}%"), FILTER)
+        };
+        let total: i64 = sqlx::query_scalar(&format!("SELECT count(*) FROM core.variant {filter}"))
             .bind(&like)
             .fetch_one(pool)
             .await?;
         let rows = sqlx::query_as(&format!(
-            "{SELECT} {FILTER} ORDER BY canonical_name LIMIT $2 OFFSET $3"
+            "{SELECT} {filter} ORDER BY canonical_name LIMIT $2 OFFSET $3"
         ))
         .bind(&like)
         .bind(limit)
