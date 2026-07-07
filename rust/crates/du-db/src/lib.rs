@@ -37,6 +37,7 @@ pub mod publication;
 pub mod recruitment;
 pub mod reputation;
 pub mod research;
+pub mod sequence;
 pub mod test_type;
 pub mod sequencer;
 pub mod social;

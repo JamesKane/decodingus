@@ -26,6 +26,7 @@ pub fn router() -> Router<AppState> {
         .route("/sample/:slug", get(report))
         .route("/curator/samples/:slug/public", post(toggle_public))
         .route("/manage/biosamples/merge", post(merge_biosamples))
+        .route("/manage/biosamples/:guid/sequence-libraries", post(ingest_sequence_libraries))
         .route("/manage/biosamples/:guid", patch(patch_biosample))
 }
 
@@ -595,6 +596,95 @@ async fn patch_biosample(
         .await?
         .ok_or_else(|| AppError::NotFound(format!("biosample {}", guid.0)))?;
     Ok((StatusCode::OK, Json(row)).into_response())
+}
+
+/// One data file within a run posted by the ENA-linking ops driver.
+#[derive(Deserialize)]
+struct SeqFileIn {
+    file_name: String,
+    file_format: Option<String>,
+    file_size_bytes: Option<i64>,
+    file_url: String,
+    file_index_url: Option<String>,
+    md5: Option<String>,
+    aligner: Option<String>,
+    target_reference: Option<String>,
+}
+
+/// One sequencing run (a library + its files).
+#[derive(Deserialize)]
+struct SeqLibraryIn {
+    instrument: Option<String>,
+    reads: Option<i64>,
+    read_length: Option<i32>,
+    paired_end: Option<bool>,
+    /// ISO date (`YYYY-MM-DD`); tolerated absent.
+    run_date: Option<chrono::NaiveDate>,
+    /// Source run accession (ENA `ERR...`) — stored as provenance.
+    external_run_ref: String,
+    files: Vec<SeqFileIn>,
+}
+
+#[derive(Deserialize)]
+struct SeqIngestIn {
+    libraries: Vec<SeqLibraryIn>,
+}
+
+/// `POST /manage/biosamples/:guid/sequence-libraries` — materialize academic
+/// sequencing runs + data files (`genomics.sequence_*`) for a biosample that was
+/// loaded without them. Idempotent at sample granularity: if the sample already has
+/// any library the call is a no-op (`{"skipped": true}`). X-API-Key gated (CSRF-exempt
+/// via the `/manage/biosamples/` prefix). 422 on an unknown/deleted guid or empty body.
+async fn ingest_sequence_libraries(
+    State(st): State<AppState>,
+    headers: HeaderMap,
+    Path(guid): Path<Uuid>,
+    Json(body): Json<SeqIngestIn>,
+) -> Result<Response, AppError> {
+    check_api_key(&headers)?;
+    let libs: Vec<du_db::sequence::NewSeqLibrary> = body
+        .libraries
+        .into_iter()
+        .map(|l| du_db::sequence::NewSeqLibrary {
+            instrument: l.instrument,
+            reads: l.reads,
+            read_length: l.read_length,
+            paired_end: l.paired_end,
+            run_date: l.run_date,
+            external_run_ref: l.external_run_ref,
+            files: l
+                .files
+                .into_iter()
+                .map(|f| du_db::sequence::NewSeqFile {
+                    file_name: f.file_name,
+                    file_format: f.file_format,
+                    file_size_bytes: f.file_size_bytes,
+                    file_url: f.file_url,
+                    file_index_url: f.file_index_url,
+                    md5: f.md5,
+                    aligner: f.aligner,
+                    target_reference: f.target_reference,
+                })
+                .collect(),
+        })
+        .collect();
+
+    let rep = du_db::sequence::ingest_libraries(&st.pool, SampleGuid(guid), &libs)
+        .await
+        .map_err(|e| match e {
+            du_db::DbError::Decode(msg) => AppError::BadRequest(msg),
+            other => other.into(),
+        })?;
+    Ok((
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "skipped": rep.skipped_existing,
+            "libraries_created": rep.library_ids.len(),
+            "library_ids": rep.library_ids,
+            "files_created": rep.files_created,
+        })),
+    )
+        .into_response())
 }
 
 /// Merge one confirmed-duplicate biosample into another. `survivor` is the record
