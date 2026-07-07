@@ -43,6 +43,10 @@ async fn query_modules_against_live_db() {
     .await
     .expect("insert v2");
 
+    // The browser lists catalog representatives (one row per physical variant); reconcile
+    // maintains the flag, so recompute it here after seeding for `variant::search` to see them.
+    du_db::variant::recompute_catalog_representatives(&pool).await.expect("representatives");
+
     let root: i64 = sqlx::query_scalar(
         "INSERT INTO tree.haplogroup (name, haplogroup_type) \
          VALUES ('TESTQ-ROOT', 'Y_DNA'::core.dna_type) RETURNING id",

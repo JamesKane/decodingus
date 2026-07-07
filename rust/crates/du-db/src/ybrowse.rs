@@ -252,6 +252,11 @@ pub async fn reconcile(pool: &PgPool) -> Result<ReconcileReport, DbError> {
     // sequence). Idempotent and outside the tx — needs the committed rows.
     let region_flagged = crate::variant::refresh_region_overlaps(pool).await?;
 
+    // Collapse the catalog to one representative per physical variant (template +
+    // branch-placement rows of the same SNP fold to one) so the Variant Browser lists
+    // each variant once. Derived from the just-committed catalog; churn-free.
+    crate::variant::recompute_catalog_representatives(pool).await?;
+
     // Refresh planner statistics on the freshly re-derived catalog — including the
     // `variant_alias_search_text` functional-index expression (mig 0061). A bulk reload
     // leaves core.variant with stale stats until autovacuum ANALYZEs it minutes later;

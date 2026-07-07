@@ -341,6 +341,38 @@ pub async fn refresh_region_overlaps(pool: &PgPool) -> Result<u64, DbError> {
     Ok(affected)
 }
 
+/// Recompute `catalog_representative`: exactly one row per physical variant is the
+/// entry the public Variant Browser lists. A variant's identity is `(hs1 position,
+/// strand-canonical ancestral/derived)` — the template (`defining_haplogroup_id IS
+/// NULL`, the base identity carrying the merged aliases/coordinates) and every
+/// branch-placement row of that same SNP fold to one. The representative is the
+/// template when present, else the best-ranked established name (`core.ysnp_name_rank`).
+/// Named rows with no hs1 coordinate (lift gaps) each stand alone. Unnamed rows
+/// (`canonical_name IS NULL` — pre-mint) are never representative: they wait for a
+/// reviewer to mint them. Churn-free: only rows whose flag changes are written.
+/// Returns the number of rows changed.
+pub async fn recompute_catalog_representatives(pool: &PgPool) -> Result<u64, DbError> {
+    let affected = sqlx::query(
+        "WITH ranked AS ( \
+           SELECT id, \
+             (row_number() OVER ( \
+                PARTITION BY COALESCE(coordinates->'hs1'->>'position', 'u' || id::text), \
+                             core.ysnp_canon(coordinates->'hs1'->>'ancestral', coordinates->'hs1'->>'derived') \
+                ORDER BY (defining_haplogroup_id IS NULL) DESC, \
+                         core.ysnp_name_rank(canonical_name), id) = 1) AS rep \
+           FROM core.variant WHERE canonical_name IS NOT NULL \
+         ) \
+         UPDATE core.variant v \
+         SET catalog_representative = COALESCE(r.rep, false) \
+         FROM core.variant vv LEFT JOIN ranked r ON r.id = vv.id \
+         WHERE v.id = vv.id AND v.catalog_representative IS DISTINCT FROM COALESCE(r.rep, false)",
+    )
+    .execute(pool)
+    .await?
+    .rows_affected();
+    Ok(affected)
+}
+
 /// Upsert a variant by canonical name (the ingestion path, e.g. YBrowse).
 /// Updates mutation_type, aliases, and the multi-build coordinates; preserves
 /// the existing `naming_status` (curator-owned). Returns the variant id.
@@ -473,19 +505,20 @@ pub async fn search(
     let term = query.map(str::trim).filter(|q| !q.is_empty());
 
     // Full search (≥3 chars): match canonical_name OR any element of the alias arrays
-    // (common_names / rs_ids), case-insensitive. The alias arms are folded into one
-    // `variant_alias_search_text` predicate so both it and canonical_name are served by
-    // trigram GIN indexes (mig 0061) — a BitmapOr instead of a 3.7M-row seq scan with a
-    // per-row JSONB unnest. Unnamed variants (canonical_name IS NULL) are pre-publication —
-    // excluded from the public browser; they live in the naming queue (`du_db::naming`).
-    const FILTER: &str = "WHERE canonical_name IS NOT NULL AND (canonical_name ILIKE $1 \
+    // (common_names / rs_ids), case-insensitive, among catalog representatives — one row
+    // per physical variant (mig 0062), so a SNP that also has branch-placement rows shows
+    // once. The alias arms are folded into one `variant_alias_search_text` predicate so
+    // both it and canonical_name are served by trigram GIN indexes (mig 0061) — a BitmapOr
+    // instead of a seq scan with a per-row JSONB unnest. `catalog_representative` is only
+    // set on a named row, so pre-mint variants (naming queue) are excluded too.
+    const FILTER: &str = "WHERE catalog_representative AND (canonical_name ILIKE $1 \
         OR core.variant_alias_search_text(aliases) ILIKE $1)";
     // Short stub (1–2 chars): a substring `%t%` has no interior trigram, so it can't use
-    // the GIN index and would seq-scan all 3.7M rows (running the alias function per row).
+    // the GIN index and would seq-scan the table (running the alias function per row).
     // Match the canonical name by PREFIX instead — the trigram index serves an anchored
     // `t%`, and a name-prefix hit is a more useful result for a short haplogroup stub than
-    // thousands of substring matches. (A NULL canonical_name never satisfies ILIKE.)
-    const PREFIX_FILTER: &str = "WHERE canonical_name ILIKE $1";
+    // thousands of substring matches.
+    const PREFIX_FILTER: &str = "WHERE catalog_representative AND canonical_name ILIKE $1";
 
     let (total, rows): (i64, Vec<VariantRow>) = if let Some(t) = term {
         let (like, filter) = if t.len() < 3 {
@@ -507,24 +540,24 @@ pub async fn search(
         .await?;
         (total, rows)
     } else {
-        // Unfiltered browse: an exact count of the ~3.7M named variants is a ~1.5s scan
-        // and purely informational (you cannot meaningfully page a 150k-page list). Use
-        // the planner's row estimate — instant — and fall back to an exact count only when
-        // the table was never analyzed (estimate ≤ 0), e.g. immediately after a fresh load.
+        // Unfiltered browse: an exact count of the ~2.9M representatives is a ~1s scan and
+        // purely informational (you cannot meaningfully page a 100k-page list). Use the
+        // planner's row estimate for the partial representatives index (mig 0062) — instant —
+        // and fall back to an exact count only when it was never analyzed (estimate ≤ 0).
         let est: i64 = sqlx::query_scalar(
-            "SELECT reltuples::bigint FROM pg_class WHERE oid = 'core.variant'::regclass",
+            "SELECT reltuples::bigint FROM pg_class WHERE oid = 'core.variant_catalog_representative_idx'::regclass",
         )
         .fetch_one(pool)
         .await?;
         let total: i64 = if est > 0 {
             est
         } else {
-            sqlx::query_scalar("SELECT count(*) FROM core.variant WHERE canonical_name IS NOT NULL")
+            sqlx::query_scalar("SELECT count(*) FROM core.variant WHERE catalog_representative")
                 .fetch_one(pool)
                 .await?
         };
         let rows = sqlx::query_as(&format!(
-            "{SELECT} WHERE canonical_name IS NOT NULL ORDER BY canonical_name LIMIT $1 OFFSET $2"
+            "{SELECT} WHERE catalog_representative ORDER BY canonical_name LIMIT $1 OFFSET $2"
         ))
         .bind(limit)
         .bind(offset)

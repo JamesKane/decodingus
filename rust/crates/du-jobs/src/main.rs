@@ -80,6 +80,13 @@ async fn main() -> anyhow::Result<()> {
                     flagged = rec.flagged, region_flagged = rec.region_flagged, "reconcile complete"
                 );
             }
+            // Recompute the Variant Browser's per-physical-variant representative flag
+            // (mig 0062) without a full YBrowse reconcile — the backfill after adding the
+            // column, and a repair if branch-placement rows changed out of band.
+            "variant-representatives" => {
+                let changed = du_db::variant::recompute_catalog_representatives(&pool).await?;
+                tracing::info!(changed, "variant catalog representatives recomputed");
+            }
             // Load the T2T-CHM13v2.0 (hs1) Y structural regions (AZF/DYZ/
             // ampliconic/palindrome/inverted-repeat) into core.genome_region.
             // One-shot: the source BEDs are tiny + versioned, not a daily feed.
@@ -236,7 +243,7 @@ async fn main() -> anyhow::Result<()> {
                 coord_lift::run(&pool, &cfg).await?;
             }
             other => anyhow::bail!(
-                "unknown run-once job '{other}' (known: ybrowse, reconcile, yregions, branch-age, ftdna-str, sequencer-consensus, discovery-consensus, coverage-norms, ibd-discovery-recompute, exchange-expire, tree-samples-recompute, dedup-candidates, consolidate-donors, link-federated-subjects, import-kit-identifiers, mt-rcrs-lift, variant-coord-lift)"
+                "unknown run-once job '{other}' (known: ybrowse, reconcile, variant-representatives, yregions, branch-age, ftdna-str, sequencer-consensus, discovery-consensus, coverage-norms, ibd-discovery-recompute, exchange-expire, tree-samples-recompute, dedup-candidates, consolidate-donors, link-federated-subjects, import-kit-identifiers, mt-rcrs-lift, variant-coord-lift)"
             ),
         }
         return Ok(());
