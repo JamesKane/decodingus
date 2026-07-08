@@ -78,3 +78,48 @@ async fn candidate_review_and_promote() {
     assert_eq!(still_pending, 0, "no TESTPC pending left");
 
 }
+
+#[tokio::test]
+async fn bulk_system_reject_only_touches_pending() {
+    let Some(url) = database_url() else {
+        eprintln!("DATABASE_URL unset — skipping bulk_system_reject test");
+        return;
+    };
+    let db = du_db::testing::ephemeral_db(&url).await.expect("ephemeral db");
+    let pool = db.pool().clone();
+    let curator = test_user(&pool).await;
+
+    // Three pending candidates + one already accepted.
+    for oa in ["TESTPC-R1", "TESTPC-R2", "TESTPC-R3", "TESTPC-R4"] {
+        du_db::publication::upsert_candidate(&pool, oa, None, Some("t"), None, None, None)
+            .await.expect("upsert");
+    }
+    let r4 = du_db::publication::list_candidates(&pool, None, 1, 100)
+        .await.unwrap().items.into_iter().find(|c| c.openalex_id == "TESTPC-R4").unwrap();
+    du_db::publication::review_candidate(&pool, r4.id, "accepted", curator).await.unwrap();
+
+    // pending_candidate_ids returns exactly our three still-pending rows.
+    let pending = du_db::publication::pending_candidate_ids(&pool).await.expect("pending ids");
+    let ours: Vec<i64> = pending.iter()
+        .filter(|(_, oa)| oa.starts_with("TESTPC-R"))
+        .map(|(id, _)| *id)
+        .collect();
+    assert_eq!(ours.len(), 3, "R1..R3 pending (R4 is accepted)");
+
+    // Bulk-reject all four ids: only the three pending flip; the accepted one is safe.
+    let all_ids: Vec<i64> = [ours.clone(), vec![r4.id]].concat();
+    let n = du_db::publication::reject_candidates_system(&pool, &all_ids).await.expect("bulk reject");
+    assert_eq!(n, 3, "only the 3 pending rows were rejected");
+
+    let r4_after = du_db::publication::get_candidate(&pool, r4.id).await.unwrap().unwrap();
+    assert_eq!(r4_after.status, "accepted", "accepted candidate untouched");
+    for id in &ours {
+        let c = du_db::publication::get_candidate(&pool, *id).await.unwrap().unwrap();
+        assert_eq!(c.status, "rejected");
+    }
+
+    // Idempotent: a second run rejects nothing (no rows still pending).
+    let n2 = du_db::publication::reject_candidates_system(&pool, &all_ids).await.expect("re-reject");
+    assert_eq!(n2, 0, "nothing left to reject");
+    assert_eq!(du_db::publication::reject_candidates_system(&pool, &[]).await.unwrap(), 0, "empty is a no-op");
+}

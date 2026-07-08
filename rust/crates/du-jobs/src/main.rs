@@ -18,6 +18,7 @@ mod import_kit_identifiers;
 mod jetstream;
 mod publications;
 mod scheduler;
+mod topic_prune;
 mod ybrowse;
 mod yregions;
 use scheduler::{Job, Scheduler};
@@ -243,6 +244,18 @@ async fn main() -> anyhow::Result<()> {
                 let cfg = coord_lift::Config::from_env(&args);
                 coord_lift::run(&pool, &cfg).await?;
             }
+            // Retroactively apply the discovery topic whitelist (mig 0065) to the
+            // pending candidate queue: fetch each pending candidate's OpenAlex primary
+            // topic and reject the ones outside the enabled configs' whitelist(s).
+            // Cleans up the off-topic flood collected before the whitelist landed.
+            // Requires OPENALEX_MAILTO. Previews unless `--apply`.
+            "publication-topic-prune" => {
+                let cfg = publications::Config::from_env()
+                    .ok_or_else(|| anyhow::anyhow!("set OPENALEX_MAILTO"))?;
+                let client = du_external::openalex::OpenAlexClient::new(Some(cfg.mailto));
+                let args: Vec<String> = argv.collect();
+                topic_prune::run(&pool, &client, &topic_prune::Config::from_env(&args)).await?;
+            }
             // Crawl an ENA study / NCBI BioProject: enumerate its runs and link
             // each sample's read files (creating biosamples as needed). With an
             // accession arg, crawl just that project; otherwise drain the pending
@@ -255,7 +268,7 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
             other => anyhow::bail!(
-                "unknown run-once job '{other}' (known: ybrowse, reconcile, variant-representatives, yregions, branch-age, ftdna-str, sequencer-consensus, discovery-consensus, coverage-norms, ibd-discovery-recompute, exchange-expire, tree-samples-recompute, dedup-candidates, consolidate-donors, link-federated-subjects, import-kit-identifiers, mt-rcrs-lift, variant-coord-lift, crawl-project)"
+                "unknown run-once job '{other}' (known: ybrowse, reconcile, variant-representatives, yregions, branch-age, ftdna-str, sequencer-consensus, discovery-consensus, coverage-norms, ibd-discovery-recompute, exchange-expire, tree-samples-recompute, dedup-candidates, consolidate-donors, link-federated-subjects, import-kit-identifiers, mt-rcrs-lift, variant-coord-lift, crawl-project, publication-topic-prune)"
             ),
         }
         return Ok(());

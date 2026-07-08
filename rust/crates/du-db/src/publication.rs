@@ -173,6 +173,48 @@ pub async fn upsert_candidate(
     Ok(inserted)
 }
 
+/// The `topic_filter` fragments of every enabled config that has one — the active
+/// discovery whitelists. Used by the topic-prune backfill to retroactively test the
+/// pending candidate queue (which predates a whitelist) against the same filter.
+pub async fn enabled_topic_filters(pool: &PgPool) -> Result<Vec<String>, DbError> {
+    Ok(sqlx::query_scalar(
+        "SELECT topic_filter FROM pubs.publication_search_config \
+         WHERE enabled = true AND topic_filter IS NOT NULL AND topic_filter <> ''",
+    )
+    .fetch_all(pool)
+    .await?)
+}
+
+/// `(id, openalex_id)` of every candidate still awaiting review — the topic-prune
+/// backfill's work-list. Oldest first (the pre-fix backlog).
+pub async fn pending_candidate_ids(pool: &PgPool) -> Result<Vec<(i64, String)>, DbError> {
+    Ok(sqlx::query_as(
+        "SELECT id, openalex_id FROM pubs.publication_candidate \
+         WHERE status = 'pending' ORDER BY created_at, id",
+    )
+    .fetch_all(pool)
+    .await?)
+}
+
+/// Bulk-reject candidates by id **without** a reviewing curator (a system/backfill
+/// action — `reviewed_by` stays NULL to distinguish it from a curator decision).
+/// Only touches rows still `pending`, so a concurrent curator accept/defer wins.
+/// Returns the number of rows rejected.
+pub async fn reject_candidates_system(pool: &PgPool, ids: &[i64]) -> Result<u64, DbError> {
+    if ids.is_empty() {
+        return Ok(0);
+    }
+    let n = sqlx::query(
+        "UPDATE pubs.publication_candidate SET status = 'rejected' \
+         WHERE id = ANY($1) AND status = 'pending'",
+    )
+    .bind(ids)
+    .execute(pool)
+    .await?
+    .rows_affected();
+    Ok(n)
+}
+
 /// Advance a config's watermark after a completed run: bump `last_run_at` and raise
 /// `last_publication_date` to the newest date seen (`GREATEST` ignores NULLs, so a
 /// run that found nothing new leaves the existing mark intact).

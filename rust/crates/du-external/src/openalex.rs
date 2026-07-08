@@ -44,7 +44,13 @@ struct Work {
     cited_by_count: Option<i64>,
     open_access: Option<OpenAccess>,
     primary_location: Option<Location>,
+    primary_topic: Option<Topic>,
     abstract_inverted_index: Option<HashMap<String, Vec<i64>>>,
+}
+
+#[derive(Deserialize)]
+struct Topic {
+    id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -78,6 +84,22 @@ struct Meta {
 pub struct SearchPage {
     pub candidates: Vec<Candidate>,
     pub next_cursor: Option<String>,
+}
+
+/// Result of looking up a single work's OpenAlex primary topic.
+#[derive(Debug, Clone, PartialEq)]
+pub enum TopicLookup {
+    /// OpenAlex returned 404 — the work id is unknown (deleted/merged away).
+    Missing,
+    /// The work exists; `Some(id)` is its short primary-topic id (e.g. `T10751`),
+    /// `None` if OpenAlex has not assigned it a primary topic.
+    Topic(Option<String>),
+}
+
+/// Strip the `https://openalex.org/` prefix from an OpenAlex entity URL, yielding
+/// the bare id (`T10751`, `W123…`). Leaves an already-bare id untouched.
+fn short_id(url: &str) -> &str {
+    url.rsplit('/').next().unwrap_or(url)
 }
 
 fn parse_date(s: &Option<String>) -> Option<NaiveDate> {
@@ -151,6 +173,26 @@ impl OpenAlexClient {
         Ok(Some(work.into_meta()))
     }
 
+    /// Fetch a single work's primary-topic id (short form, e.g. `T10751`). Used by
+    /// the topic-prune backfill to retroactively test the pending candidate queue
+    /// against a config's `primary_topic.id` whitelist. `openalex_id` may be a bare
+    /// id or the full `https://openalex.org/W…` URL. Returns [`TopicLookup::Missing`]
+    /// on 404 (a deleted/merged work).
+    pub async fn work_topic(&self, openalex_id: &str) -> Result<TopicLookup, ExternalError> {
+        let url = format!("{}/works/{}", self.base, short_id(openalex_id.trim()));
+        let mut req = self.http.get(url).query(&[("select", "id,primary_topic")]);
+        if let Some(m) = &self.mailto {
+            req = req.query(&[("mailto", m.as_str())]);
+        }
+        let resp = req.send().await?;
+        if resp.status() == reqwest::StatusCode::NOT_FOUND {
+            return Ok(TopicLookup::Missing);
+        }
+        let work: Work = resp.error_for_status()?.json().await?;
+        let topic = work.primary_topic.and_then(|t| t.id).map(|id| short_id(&id).to_string());
+        Ok(TopicLookup::Topic(topic))
+    }
+
     /// Fetch one page of discovery results: works matching `query` published on or
     /// after `from_publication_date`, sorted newest-first, cursor-paginated.
     ///
@@ -216,6 +258,31 @@ mod tests {
         assert_eq!(meta.journal.as_deref(), Some("Nature"));
         assert_eq!(meta.publication_date, NaiveDate::from_ymd_opt(2021, 3, 15));
         assert_eq!(meta.abstract_summary.as_deref(), Some("Ancient European genomes"));
+    }
+
+    #[test]
+    fn short_id_strips_openalex_url() {
+        assert_eq!(short_id("https://openalex.org/T10751"), "T10751");
+        assert_eq!(short_id("T10751"), "T10751");
+        assert_eq!(short_id("https://openalex.org/W123"), "W123");
+    }
+
+    #[test]
+    fn parses_primary_topic_short_id() {
+        let json = r#"{
+            "id": "https://openalex.org/W1",
+            "primary_topic": { "id": "https://openalex.org/T10751", "display_name": "Forensic and Genetic Research" }
+        }"#;
+        let work: Work = serde_json::from_str(json).unwrap();
+        let topic = work.primary_topic.and_then(|t| t.id).map(|id| short_id(&id).to_string());
+        assert_eq!(topic.as_deref(), Some("T10751"));
+    }
+
+    #[test]
+    fn parses_work_with_no_primary_topic() {
+        let json = r#"{ "id": "https://openalex.org/W1", "title": "untagged" }"#;
+        let work: Work = serde_json::from_str(json).unwrap();
+        assert!(work.primary_topic.is_none());
     }
 
     #[test]
