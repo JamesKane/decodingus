@@ -108,30 +108,36 @@ pub async fn geo_points(pool: &PgPool) -> Result<Vec<GeoPoint>, DbError> {
 pub async fn for_publication(
     pool: &PgPool,
     publication_id: PublicationId,
+    query: Option<&str>,
     page: i64,
     page_size: i64,
 ) -> Result<Page<Biosample>, DbError> {
     let offset = Page::<()>::offset(page, page_size);
     let limit = page_size.clamp(1, 200);
+    // Optional filter on accession / alias (the identifying columns shown).
+    let like = query.map(str::trim).filter(|q| !q.is_empty()).map(|q| format!("%{q}%"));
+    const FILTER: &str = "AND ($2::text IS NULL OR b.accession ILIKE $2 OR b.alias ILIKE $2)";
 
-    let total: i64 = sqlx::query_scalar(
+    let total: i64 = sqlx::query_scalar(&format!(
         "SELECT count(*) FROM pubs.publication_biosample pb \
          JOIN core.biosample b ON b.sample_guid = pb.sample_guid \
-         WHERE pb.publication_id = $1 AND b.deleted = false",
-    )
+         WHERE pb.publication_id = $1 AND b.deleted = false {FILTER}"
+    ))
     .bind(publication_id.0)
+    .bind(&like)
     .fetch_one(pool)
     .await?;
 
-    let rows: Vec<BiosampleRow> = sqlx::query_as(
+    let rows: Vec<BiosampleRow> = sqlx::query_as(&format!(
         "SELECT b.sample_guid, b.source::text AS source, b.accession, b.alias, b.description, \
          b.center_name, b.locked, b.source_attrs, b.atproto \
          FROM pubs.publication_biosample pb \
          JOIN core.biosample b ON b.sample_guid = pb.sample_guid \
-         WHERE pb.publication_id = $1 AND b.deleted = false \
-         ORDER BY b.accession NULLS LAST, b.sample_guid LIMIT $2 OFFSET $3",
-    )
+         WHERE pb.publication_id = $1 AND b.deleted = false {FILTER} \
+         ORDER BY b.accession NULLS LAST, b.sample_guid LIMIT $3 OFFSET $4"
+    ))
     .bind(publication_id.0)
+    .bind(&like)
     .bind(limit)
     .bind(offset)
     .fetch_all(pool)

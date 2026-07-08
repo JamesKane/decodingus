@@ -31,9 +31,13 @@ struct ListQuery {
 }
 
 #[derive(Deserialize)]
-struct PageQuery {
+struct SamplesQuery {
+    /// Filter on accession / alias.
+    q: Option<String>,
     page: Option<i64>,
     page_size: Option<i64>,
+    /// When `1`, render only the inner table fragment (filter/pager swap).
+    rows: Option<u8>,
 }
 
 struct PubRow {
@@ -42,6 +46,11 @@ struct PubRow {
     journal: String,
     year: String,
     citations: Option<i32>,
+    authors: String,
+    doi: Option<String>,
+    pubmed_id: Option<String>,
+    open_access: bool,
+    abstract_text: String,
 }
 
 struct PubListView {
@@ -66,6 +75,16 @@ async fn load_list(st: &AppState, q: &ListQuery) -> Result<PubListView, AppError
             journal: p.journal.clone().unwrap_or_default(),
             year: p.publication_date.map(|d| d.format("%Y").to_string()).unwrap_or_default(),
             citations: p.cited_by_count,
+            authors: p.authors.clone().unwrap_or_default(),
+            doi: p.doi.clone(),
+            pubmed_id: p.pubmed_id.clone(),
+            // OpenAlex oa_status: gold/green/hybrid/bronze are open; "closed"/none are not.
+            open_access: p
+                .open_access_status
+                .as_deref()
+                .map(|s| !s.eq_ignore_ascii_case("closed"))
+                .unwrap_or(false),
+            abstract_text: p.abstract_summary.clone().unwrap_or_default(),
         })
         .collect();
     Ok(PubListView {
@@ -108,6 +127,21 @@ struct BiosamplesTemplate {
     pub_id: i64,
     pub_title: String,
     pub_doi: Option<String>,
+    query: String,
+    rows: Vec<BioRow>,
+    page: i64,
+    page_size: i64,
+    total: i64,
+    total_pages: i64,
+}
+
+/// Just the samples table + pager (target of the panel filter / pager swaps).
+#[derive(askama::Template)]
+#[template(path = "references/sample_table.html")]
+struct SampleTableTemplate {
+    t: T,
+    pub_id: i64,
+    query: String,
     rows: Vec<BioRow>,
     page: i64,
     page_size: i64,
@@ -138,16 +172,19 @@ async fn biosamples(
     State(st): State<AppState>,
     locale: Locale,
     Path(id): Path<i64>,
-    Query(q): Query<PageQuery>,
+    Query(q): Query<SamplesQuery>,
 ) -> Result<Response, AppError> {
     let pub_id = PublicationId(id);
-    let publication = du_db::publication::get_by_id(&st.pool, pub_id)
-        .await?
-        .ok_or_else(|| AppError::NotFound(format!("publication {id}")))?;
-    let result =
-        du_db::biosample::for_publication(&st.pool, pub_id, q.page.unwrap_or(1), q.page_size.unwrap_or(25))
-            .await?;
-    let rows = result
+    let query = q.q.clone().unwrap_or_default();
+    let result = du_db::biosample::for_publication(
+        &st.pool,
+        pub_id,
+        q.q.as_deref(),
+        q.page.unwrap_or(1),
+        q.page_size.unwrap_or(25),
+    )
+    .await?;
+    let rows: Vec<BioRow> = result
         .items
         .iter()
         .map(|b| BioRow {
@@ -157,17 +194,37 @@ async fn biosamples(
             description: b.description.clone().unwrap_or_default(),
         })
         .collect();
+    let (page, page_size, total, total_pages) =
+        (result.page, result.page_size, result.total, result.total_pages());
 
+    // Filter/pager swaps ask for just the inner table; the initial panel load
+    // (clicking a publication) renders the full card with header + filter.
+    if q.rows == Some(1) {
+        return Ok(html(&SampleTableTemplate {
+            t: locale.t,
+            pub_id: id,
+            query,
+            rows,
+            page,
+            page_size,
+            total,
+            total_pages,
+        }));
+    }
+    let publication = du_db::publication::get_by_id(&st.pool, pub_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("publication {id}")))?;
     Ok(html(&BiosamplesTemplate {
         t: locale.t,
         pub_id: id,
         pub_title: publication.title,
         pub_doi: publication.doi,
+        query,
         rows,
-        page: result.page,
-        page_size: result.page_size,
-        total: result.total,
-        total_pages: result.total_pages(),
+        page,
+        page_size,
+        total,
+        total_pages,
     }))
 }
 

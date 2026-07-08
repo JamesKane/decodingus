@@ -1,17 +1,27 @@
 {# Fragment: publication list + pager. Target of #references-table. #}
 <div class="list-group mb-3">
   {% for p in list.rows %}
-  <a class="list-group-item list-group-item-action tree-node"
-     href="/references/{{ p.id }}/biosamples"
-     hx-get="/references/{{ p.id }}/biosamples"
-     hx-target="#reference-detail">
-    <div class="fw-semibold">{{ p.title }}</div>
-    <small class="text-muted">
+  <div class="list-group-item list-group-item-action tree-node" role="button" tabindex="0"
+       style="cursor:pointer"
+       hx-get="/references/{{ p.id }}/biosamples"
+       hx-target="#reference-detail"
+       hx-trigger="click, keyup[key=='Enter']">
+    <div class="d-flex justify-content-between align-items-start gap-2">
+      <div class="fw-semibold">{{ p.title }}</div>
+      {% if p.open_access %}<span class="badge rounded-pill text-bg-success flex-shrink-0">{{ t.get("references.openAccess") }}</span>{% endif %}
+    </div>
+    {% if !p.authors.is_empty() %}<div class="small text-muted text-truncate">{{ p.authors }}</div>{% endif %}
+    <small class="text-muted d-block">
       {% if !p.journal.is_empty() %}{{ p.journal }}{% endif %}
       {% if !p.year.is_empty() %} · {{ p.year }}{% endif %}
       {% if let Some(c) = p.citations %} · {{ c }} {{ t.get("references.col.citations") }}{% endif %}
+      {% if let Some(doi) = p.doi %} · <a href="https://doi.org/{{ doi }}" target="_blank" rel="noopener" hx-boost="false" onclick="event.stopPropagation()">{{ t.get("references.viewDoi") }}</a>{% endif %}
+      {% if let Some(pmid) = p.pubmed_id %} · <a href="https://pubmed.ncbi.nlm.nih.gov/{{ pmid }}/" target="_blank" rel="noopener" hx-boost="false" onclick="event.stopPropagation()">PubMed</a>{% endif %}
     </small>
-  </a>
+    {% if !p.abstract_text.is_empty() %}
+    <div class="small text-body-secondary mt-1 ref-abstract">{{ p.abstract_text }}</div>
+    {% endif %}
+  </div>
   {% else %}
   <div class="list-group-item detail-empty">{{ t.get("references.none") }}</div>
   {% endfor %}

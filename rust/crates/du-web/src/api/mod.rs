@@ -205,6 +205,7 @@ async fn biosample_report(
     let page = du_db::biosample::for_publication(
         &st.pool,
         du_domain::ids::PublicationId(publication_id),
+        None,
         q.page.unwrap_or(1),
         q.page_size.unwrap_or(50),
     )
