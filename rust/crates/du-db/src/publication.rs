@@ -110,25 +110,33 @@ pub async fn update_pubmed(pool: &PgPool, id: PublicationId, u: &PubMedUpdate) -
 }
 
 /// An enabled discovery search plus its recency watermark (the max
-/// `publication_date` ingested so far; `None` until the first run completes).
+/// `publication_date` ingested so far; `None` until the first run completes) and
+/// an optional OpenAlex filter fragment (e.g. a `primary_topic.id:…` whitelist)
+/// appended to the date filter to keep discovery on-topic.
 #[derive(Debug, Clone)]
 pub struct SearchConfig {
     pub id: i64,
     pub query: String,
     pub last_publication_date: Option<NaiveDate>,
+    pub topic_filter: Option<String>,
 }
 
 /// Enabled discovery searches, each with its incremental watermark.
 pub async fn enabled_search_configs(pool: &PgPool) -> Result<Vec<SearchConfig>, DbError> {
-    let rows: Vec<(i64, String, Option<NaiveDate>)> = sqlx::query_as(
-        "SELECT id, search_query, last_publication_date FROM pubs.publication_search_config \
+    let rows: Vec<(i64, String, Option<NaiveDate>, Option<String>)> = sqlx::query_as(
+        "SELECT id, search_query, last_publication_date, topic_filter FROM pubs.publication_search_config \
          WHERE enabled = true AND search_query IS NOT NULL ORDER BY id",
     )
     .fetch_all(pool)
     .await?;
     Ok(rows
         .into_iter()
-        .map(|(id, query, last_publication_date)| SearchConfig { id, query, last_publication_date })
+        .map(|(id, query, last_publication_date, topic_filter)| SearchConfig {
+            id,
+            query,
+            last_publication_date,
+            topic_filter,
+        })
         .collect())
 }
 

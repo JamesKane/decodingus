@@ -162,12 +162,19 @@ impl OpenAlexClient {
         &self,
         query: &str,
         from_publication_date: NaiveDate,
+        extra_filter: Option<&str>,
         per_page: u32,
         cursor: &str,
     ) -> Result<SearchPage, ExternalError> {
         let url = format!("{}/works", self.base);
         let pp = per_page.clamp(1, 200).to_string();
-        let filter = format!("from_publication_date:{}", from_publication_date.format("%Y-%m-%d"));
+        let mut filter = format!("from_publication_date:{}", from_publication_date.format("%Y-%m-%d"));
+        // Append a config filter fragment (e.g. a `primary_topic.id:…` whitelist)
+        // as an additional comma-separated (AND'd) OpenAlex filter.
+        if let Some(extra) = extra_filter.map(str::trim).filter(|s| !s.is_empty()) {
+            filter.push(',');
+            filter.push_str(extra);
+        }
         let mut req = self.http.get(url).query(&[
             ("search", query),
             ("filter", filter.as_str()),

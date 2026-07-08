@@ -123,7 +123,7 @@ async fn run_search(
     let (mut pages, mut seen, mut new) = (0usize, 0usize, 0usize);
     let mut max_date = cfg.last_publication_date;
     loop {
-        let page = client.search_page(&cfg.query, from, PER_PAGE, &cursor).await?;
+        let page = client.search_page(&cfg.query, from, cfg.topic_filter.as_deref(), PER_PAGE, &cursor).await?;
         for c in &page.candidates {
             let inserted = du_db::publication::upsert_candidate(
                 pool,
