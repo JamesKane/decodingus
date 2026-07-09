@@ -1,12 +1,14 @@
 //! Y-DNA variant coordinate-lift backfill.
 //!
-//! Many `core.variant` rows carry only their source-build coordinate (usually GRCh38, from
-//! the YBrowse ingest) and are missing the other tracked builds — so the Variant Browser
-//! shows a single build. This job walks every Y variant that is missing a build and lifts
-//! its GRCh38 position onto the others via UCSC chains, then writes the merged multi-build
-//! `coordinates`. It corrects for reverse-strand chain blocks (Y has real assembly
-//! inversions between GRCh38 and hs1) by reverse-complementing the alleles, and validates
-//! each lift against the *target reference base* — which should be one of the two alleles.
+//! Many `core.variant` rows carry only their source-build coordinate and are missing the
+//! other tracked builds — so the Variant Browser shows a single build. This job walks every
+//! Y variant that is missing a build and fills the gaps via UCSC chains, pivoting through
+//! GRCh38: rows with GRCh38 lift forward to GRCh37/hs1, and de-novo hs1 calls or imported
+//! GRCh37 sites that arrived *without* GRCh38 (e.g. from the Jetstream ingest) are first
+//! reverse-lifted up to GRCh38 (via the `*ToHg38` chains) so the forward pass can complete
+//! them. It corrects for reverse-strand chain blocks (Y has real assembly inversions between
+//! GRCh38 and hs1) by reverse-complementing the alleles, and validates each lift against the
+//! *target reference base* — which should be one of the two alleles.
 //!
 //! Ancestral/derived are phylogenetic labels, so they are preserved across the lift (only
 //! reverse-complemented on an inverted block); we do NOT repolarize to the target reference.
@@ -89,24 +91,53 @@ struct Report {
     ref_mismatch: usize,
     /// no reference / indel allele — validation skipped.
     ref_unchecked: usize,
-    /// no GRCh38 source coordinate to pivot from.
+    /// no GRCh38 source coordinate to pivot from (and no reverse chain could establish one).
     no_source: usize,
+    /// GRCh38 pivots established by reverse-lifting an hs1/GRCh37-only variant up to GRCh38.
+    pivots_established: usize,
 }
 
 /// Load a chain file, trying known filenames (each also probed with a `.gz` suffix)
-/// and transparently decompressing gzipped chains.
-fn load_chain(dir: &Path, names: &[&str]) -> Result<Liftover> {
+/// and transparently decompressing gzipped chains. Returns None if none are present.
+fn load_chain_opt(dir: &Path, names: &[&str]) -> Result<Option<Liftover>> {
     for n in names {
         for name in [n.to_string(), format!("{n}.gz")] {
             let p = dir.join(&name);
             if p.exists() {
                 let text = crate::gzio::read_to_string(&p)
                     .with_context(|| format!("read {}", p.display()))?;
-                return Liftover::parse(&text).with_context(|| format!("parse {}", p.display()));
+                let lo = Liftover::parse(&text).with_context(|| format!("parse {}", p.display()))?;
+                return Ok(Some(lo));
             }
         }
     }
-    anyhow::bail!("no chain file found in {} (tried {:?}, each ±.gz)", dir.display(), names)
+    Ok(None)
+}
+
+/// Load a **required** chain — the forward pivot aborts the job if it's missing.
+fn load_chain(dir: &Path, names: &[&str]) -> Result<Liftover> {
+    load_chain_opt(dir, names)?.ok_or_else(|| {
+        anyhow::anyhow!("no chain file found in {} (tried {:?}, each ±.gz)", dir.display(), names)
+    })
+}
+
+/// Validate a lifted allele against the target reference base (which should equal one of the
+/// two alleles) and tally the outcome. Shared by the forward and reverse-pivot lifts.
+fn validate(rep: &mut Report, reference: Option<&Contig>, pos: i64, anc: &Option<String>, der: &Option<String>) {
+    match reference.and_then(|r| r.base_at(pos)) {
+        Some(rb) => {
+            let a = single_base(anc);
+            let d = single_base(der);
+            if a.is_none() && d.is_none() {
+                rep.ref_unchecked += 1; // indel / no alleles
+            } else if a == Some(rb) || d == Some(rb) {
+                rep.ref_validated += 1;
+            } else {
+                rep.ref_mismatch += 1;
+            }
+        }
+        None => rep.ref_unchecked += 1,
+    }
 }
 
 /// Load a reference contig for validation, trying known filenames/subdirs (the
@@ -133,6 +164,51 @@ fn load_ref_contig(dir: &Path, names: &[&str], contig: &str) -> Option<Contig> {
 
 fn single_base(a: &Option<String>) -> Option<u8> {
     a.as_deref().filter(|s| s.len() == 1).map(|s| s.as_bytes()[0].to_ascii_uppercase())
+}
+
+/// A non-GRCh38 build we can reverse-lift *into* GRCh38 to establish a pivot for a variant
+/// that arrived without a GRCh38 coordinate (de-novo hs1 calls, imported GRCh37 sites from
+/// the Jetstream ingest).
+struct Source {
+    build: ReferenceBuild,
+    /// `<build>` → GRCh38 chain (`hs1ToHg38` / `hg19ToHg38`).
+    chain: Liftover,
+}
+
+/// Reverse-lift the first available non-GRCh38 build up to GRCh38, mutating `coords` in place
+/// and returning the new GRCh38 coordinate. None if no source build maps (stays `no_source`).
+fn establish_grch38(
+    coords: &mut Coordinates,
+    sources: &[Source],
+    grch38_ref: Option<&Contig>,
+    rep: &mut Report,
+) -> Option<BuildCoordinate> {
+    for s in sources {
+        let Some(bc) = coords.get(s.build).cloned() else { continue };
+        // GRCh37 sites are sometimes stored with contig `Y`; the hg19→hg38 chain keys on `chrY`
+        // (same coordinates, different name). hs1 is already `chrY`.
+        let contig = if bc.contig == "Y" { "chrY" } else { bc.contig.as_str() };
+        let Some((_q, pos0, reverse)) = s.chain.lift_detail(contig, bc.position - 1) else {
+            continue;
+        };
+        let pos = pos0 + 1;
+        if reverse {
+            rep.reverse += 1;
+        }
+        let (anc, der) = if reverse {
+            (bc.ancestral.as_deref().map(revcomp), bc.derived.as_deref().map(revcomp))
+        } else {
+            (bc.ancestral.clone(), bc.derived.clone())
+        };
+        validate(rep, grch38_ref, pos, &anc, &der);
+        let g38 =
+            BuildCoordinate { contig: "chrY".into(), position: pos, ancestral: anc, derived: der };
+        coords.set(ReferenceBuild::GRCh38, g38.clone());
+        rep.lifted += 1;
+        rep.pivots_established += 1;
+        return Some(g38);
+    }
+    None
 }
 
 pub async fn run(pool: &PgPool, cfg: &Config) -> Result<()> {
@@ -165,9 +241,38 @@ pub async fn run(pool: &PgPool, cfg: &Config) -> Result<()> {
             ),
         },
     ];
+
+    // Reverse chains (optional): lift a de-novo hs1 call / imported GRCh37 site that has no
+    // GRCh38 coordinate *up* to GRCh38, so the forward pivot above can then complete it. Absent
+    // chains just mean those variants stay `no_source` (the pre-reverse-lift behavior). The
+    // GRCh38 reference validates the reverse lift (b38 is staged on prod).
+    let sources: Vec<Source> = [
+        (ReferenceBuild::Hs1, &["chm13v2.0-to-GRCh38.chain", "hs1ToHg38.over.chain"][..]),
+        (ReferenceBuild::GRCh37, &["GRCh37-to-GRCh38.chain", "hg19ToHg38.over.chain"][..]),
+    ]
+    .into_iter()
+    .filter_map(|(build, names)| match load_chain_opt(&cfg.liftover_dir, names) {
+        Ok(Some(chain)) => Some(Source { build, chain }),
+        Ok(None) => {
+            tracing::info!(?build, "no reverse chain — variants missing GRCh38 from this build stay unpivoted");
+            None
+        }
+        Err(e) => {
+            tracing::warn!(?build, error = %e, "reverse chain failed to load — skipping");
+            None
+        }
+    })
+    .collect();
+    let grch38_ref = load_ref_contig(
+        &cfg.reference_dir,
+        &["GRCh38.fa", "b38/Homo_sapiens_assembly38.fasta.gz", "Homo_sapiens_assembly38.fasta.gz"],
+        "chrY",
+    );
+
     tracing::info!(
         liftover = %cfg.liftover_dir.display(), reference = %cfg.reference_dir.display(),
-        targets = targets.len(), apply = cfg.apply, "variant-coord-lift starting"
+        targets = targets.len(), reverse_sources = sources.len(), apply = cfg.apply,
+        "variant-coord-lift starting"
     );
 
     let mut rep = Report::default();
@@ -185,13 +290,24 @@ pub async fn run(pool: &PgPool, cfg: &Config) -> Result<()> {
             after_id = id.0;
             rep.scanned += 1;
 
-            // Pivot from GRCh38 (what nearly every row has). Clone the source fields so we can
-            // mutate `coords` while lifting.
-            let Some(src) = coords.get(ReferenceBuild::GRCh38).cloned() else {
-                rep.no_source += 1;
-                continue;
-            };
+            // Pivot from GRCh38 (what nearly every row has). When it's absent — a de-novo hs1
+            // call or imported GRCh37 site — reverse-lift an available build up to GRCh38 first
+            // so the forward pass below can complete it. Clone the source so we can mutate
+            // `coords` while lifting.
             let mut changed = false;
+            let src = match coords.get(ReferenceBuild::GRCh38).cloned() {
+                Some(s) => s,
+                None => match establish_grch38(&mut coords, &sources, grch38_ref.as_ref(), &mut rep) {
+                    Some(g38) => {
+                        changed = true; // we just added GRCh38 — ensure the row is written back
+                        g38
+                    }
+                    None => {
+                        rep.no_source += 1;
+                        continue;
+                    }
+                },
+            };
             for t in &targets {
                 if coords.get(t.build).is_some() {
                     continue; // already present
@@ -212,20 +328,7 @@ pub async fn run(pool: &PgPool, cfg: &Config) -> Result<()> {
                 };
 
                 // Validate against the target reference base (should be one of the alleles).
-                match t.reference.as_ref().and_then(|r| r.base_at(pos)) {
-                    Some(rb) => {
-                        let a = single_base(&anc);
-                        let d = single_base(&der);
-                        if a.is_none() && d.is_none() {
-                            rep.ref_unchecked += 1; // indel / no alleles
-                        } else if a == Some(rb) || d == Some(rb) {
-                            rep.ref_validated += 1;
-                        } else {
-                            rep.ref_mismatch += 1;
-                        }
-                    }
-                    None => rep.ref_unchecked += 1,
-                }
+                validate(&mut rep, t.reference.as_ref(), pos, &anc, &der);
 
                 coords.set(
                     t.build,
@@ -261,9 +364,85 @@ pub async fn run(pool: &PgPool, cfg: &Config) -> Result<()> {
     tracing::info!(
         apply = cfg.apply, scanned = rep.scanned, variants_updated = rep.variants_updated,
         lifted = rep.lifted, reverse = rep.reverse, unmapped = rep.unmapped,
+        pivots_established = rep.pivots_established,
         ref_validated = rep.ref_validated, ref_mismatch = rep.ref_mismatch,
         ref_unchecked = rep.ref_unchecked, no_source = rep.no_source,
         "variant-coord-lift complete{}", if cfg.apply { "" } else { " (preview — pass --apply to write)" }
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn chain(text: &str) -> Liftover {
+        Liftover::parse(text).unwrap()
+    }
+
+    fn hs1_only(pos: i64, anc: &str, der: &str) -> Coordinates {
+        let mut c = Coordinates::default();
+        c.set(
+            ReferenceBuild::Hs1,
+            BuildCoordinate {
+                contig: "chrY".into(),
+                position: pos,
+                ancestral: Some(anc.into()),
+                derived: Some(der.into()),
+            },
+        );
+        c
+    }
+
+    // hs1 → GRCh38 identity chain over chrY.
+    const HS1_TO_HG38: &str = "chain 100 chrY 1000 + 0 1000 chrY 1000 + 0 1000 1\n1000\n";
+
+    #[test]
+    fn reverse_lift_establishes_grch38_pivot_from_hs1() {
+        let sources = vec![Source { build: ReferenceBuild::Hs1, chain: chain(HS1_TO_HG38) }];
+        let mut coords = hs1_only(500, "A", "G");
+        let mut rep = Report::default();
+
+        let g38 = establish_grch38(&mut coords, &sources, None, &mut rep);
+
+        assert!(g38.is_some(), "an hs1-only variant should gain a GRCh38 pivot");
+        let g38 = coords.get(ReferenceBuild::GRCh38).expect("GRCh38 now present");
+        assert_eq!(g38.contig, "chrY");
+        assert_eq!(g38.position, 500, "identity chain, 1-based round-trip");
+        assert_eq!(g38.ancestral.as_deref(), Some("A"));
+        assert_eq!(g38.derived.as_deref(), Some("G"));
+        assert_eq!(rep.pivots_established, 1);
+    }
+
+    #[test]
+    fn reverse_lift_without_matching_source_stays_no_source() {
+        // GRCh37-only variant, but only an hs1 reverse chain is configured → no pivot.
+        let sources = vec![Source { build: ReferenceBuild::Hs1, chain: chain(HS1_TO_HG38) }];
+        let mut coords = Coordinates::default();
+        coords.set(
+            ReferenceBuild::GRCh37,
+            BuildCoordinate { contig: "Y".into(), position: 500, ancestral: Some("A".into()), derived: Some("G".into()) },
+        );
+        let mut rep = Report::default();
+
+        assert!(establish_grch38(&mut coords, &sources, None, &mut rep).is_none());
+        assert!(coords.get(ReferenceBuild::GRCh38).is_none());
+        assert_eq!(rep.pivots_established, 0);
+    }
+
+    #[test]
+    fn reverse_lift_revcomps_alleles_on_inverted_block() {
+        // hs1 → GRCh38 reverse-strand block: alleles are reverse-complemented.
+        let rev = "chain 1 chrY 100 + 0 10 chrY 100 - 0 10 1\n10\n";
+        let sources = vec![Source { build: ReferenceBuild::Hs1, chain: chain(rev) }];
+        let mut coords = hs1_only(1, "A", "G"); // 1-based pos 1 → t_pos 0
+        let mut rep = Report::default();
+
+        establish_grch38(&mut coords, &sources, None, &mut rep).expect("pivot established");
+
+        let g38 = coords.get(ReferenceBuild::GRCh38).unwrap();
+        assert_eq!(g38.ancestral.as_deref(), Some("T"), "A reverse-complements to T");
+        assert_eq!(g38.derived.as_deref(), Some("C"), "G reverse-complements to C");
+        assert_eq!(rep.reverse, 1);
+    }
 }
