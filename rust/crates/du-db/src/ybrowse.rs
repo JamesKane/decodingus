@@ -190,15 +190,17 @@ pub async fn reconcile(pool: &PgPool) -> Result<ReconcileReport, DbError> {
 
     let clusters: i64 = sqlx::query_scalar("SELECT count(*) FROM _clv").fetch_one(&mut *tx).await?;
 
-    // New clusters (no existing match) → create one folded variant. Provisional-
-    // only clusters (best rank >= 90) get a minted DU name (NAMED); otherwise the
-    // best-ranked existing name is canonical (UNNAMED — has a working name).
+    // New clusters (no existing match) → create one folded variant, always with a real
+    // canonical name, so always NAMED. Provisional-only clusters (best rank >= 90) get a
+    // minted DU name; otherwise the best-ranked existing name (e.g. CTS4466) is canonical.
+    // Either branch yields a real name — only synthetic coordinate placeholders are UNNAMED,
+    // and reconcile never produces those.
     let created = sqlx::query(
         "INSERT INTO core.variant (canonical_name, mutation_type, naming_status, aliases, coordinates, evidence) \
          SELECT \
            CASE WHEN c.min_rank >= 90 THEN core.next_du_name() ELSE c.names[1] END, \
            core.ysnp_mutation_type(split_part(c.akey,'>',1), split_part(c.akey,'>',2))::core.mutation_type, \
-           CASE WHEN c.min_rank >= 90 THEN 'NAMED' ELSE 'UNNAMED' END::core.naming_status, \
+           'NAMED'::core.naming_status, \
            jsonb_build_object('common_names', to_jsonb( \
              CASE WHEN c.min_rank >= 90 THEN c.names ELSE c.names[2:] END)), \
            c.coords, c.evidence \

@@ -103,6 +103,21 @@ async fn main() -> anyhow::Result<()> {
                 let changed = du_db::variant::recompute_catalog_representatives(&pool).await?;
                 tracing::info!(changed, "variant catalog representatives recomputed");
             }
+            // One-time backfill: re-stamp naming_status so a real name = NAMED and only a
+            // coordinate placeholder (chr%:%)/NULL = UNNAMED. Batched (short UPDATEs) so it
+            // never long-locks the millions-row catalog. Idempotent — converges to 0.
+            "naming-status-normalize" => {
+                let mut total = 0u64;
+                loop {
+                    let n = du_db::variant::normalize_naming_status_batch(&pool, 10_000).await?;
+                    if n == 0 {
+                        break;
+                    }
+                    total += n;
+                    tracing::info!(fixed = total, "…normalizing naming_status");
+                }
+                tracing::info!(fixed = total, "naming-status-normalize complete");
+            }
             // Load the T2T-CHM13v2.0 (hs1) Y structural regions (AZF/DYZ/
             // ampliconic/palindrome/inverted-repeat) into core.genome_region.
             // One-shot: the source BEDs are tiny + versioned, not a daily feed.

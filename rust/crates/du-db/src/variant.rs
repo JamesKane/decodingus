@@ -233,6 +233,31 @@ pub async fn set_coordinates_batch(
     Ok(affected)
 }
 
+/// Fix one batch of mis-stamped `naming_status` rows and return how many were updated;
+/// the caller loops until it returns 0. The rule (mirrors [`crate::naming::is_placeholder_name`]):
+/// a real canonical name ⇒ NAMED; a NULL name or a synthetic coordinate placeholder
+/// (`chr%:%`) ⇒ UNNAMED. `PENDING_REVIEW` (curator workflow) is left untouched. Batched so a
+/// millions-row prod table is a series of short UPDATEs, not one long-locking full-table write.
+pub async fn normalize_naming_status_batch(pool: &PgPool, batch: i64) -> Result<u64, DbError> {
+    let affected = sqlx::query(
+        "UPDATE core.variant v SET \
+           naming_status = CASE WHEN v.canonical_name IS NULL OR v.canonical_name LIKE 'chr%:%' \
+                                THEN 'UNNAMED' ELSE 'NAMED' END::core.naming_status, \
+           updated_at = now() \
+         WHERE v.id IN ( \
+           SELECT id FROM core.variant \
+            WHERE naming_status <> 'PENDING_REVIEW' \
+              AND naming_status <> CASE WHEN canonical_name IS NULL OR canonical_name LIKE 'chr%:%' \
+                                        THEN 'UNNAMED' ELSE 'NAMED' END::core.naming_status \
+            ORDER BY id LIMIT $1)",
+    )
+    .bind(batch)
+    .execute(pool)
+    .await?
+    .rows_affected();
+    Ok(affected)
+}
+
 /// One tree branch a variant is assigned to (defines). Surfaced on the Variant Browser detail.
 #[derive(Debug, Clone)]
 pub struct BranchAssignment {
@@ -428,8 +453,11 @@ pub(crate) async fn ensure_base_variant_id(
     name: &str,
 ) -> Result<i64, DbError> {
     if let Some(id) = sqlx::query_scalar::<_, i64>(
+        // A real name is NAMED; only a synthetic coordinate placeholder (`chrY:pos…`,
+        // LIKE 'chr%:%') is UNNAMED. See du_db::naming::is_placeholder_name.
         "INSERT INTO core.variant (canonical_name, mutation_type, naming_status) \
-         VALUES ($1, 'SNP'::core.mutation_type, 'UNNAMED'::core.naming_status) \
+         VALUES ($1, 'SNP'::core.mutation_type, \
+           CASE WHEN $1 LIKE 'chr%:%' THEN 'UNNAMED' ELSE 'NAMED' END::core.naming_status) \
          ON CONFLICT (canonical_name, COALESCE(defining_haplogroup_id, -1)) WHERE canonical_name IS NOT NULL \
          DO NOTHING RETURNING id",
     )

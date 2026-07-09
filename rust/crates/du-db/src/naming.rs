@@ -95,10 +95,11 @@ pub async fn get(pool: &PgPool, id: i64) -> Result<Option<NamingItem>, DbError> 
 
 /// Whether a `canonical_name` is a **synthetic coordinate placeholder** written by
 /// the de-novo loader (`chrY:pos anc->der`) rather than a real, ratified name. The
-/// loader stamps every branch-defining variant `NAMED` with such a stand-in, so the
-/// authority must treat these as *unnamed* — they're eligible to mint/adopt, and
-/// must not display as "already named". Mirrors the SQL `canonical_name LIKE 'chr%:%'`
-/// the needs_name queue filters on. Real Y-SNP names never start with `chr`.
+/// loader stamps such a stand-in (naming_status UNNAMED) on any branch-defining variant
+/// that has no real name yet, so the authority treats these as *unnamed* — eligible to
+/// mint/adopt, and must not display as "already named". The needs_name queue keys on this
+/// name pattern (`canonical_name LIKE 'chr%:%'`), not on naming_status. Real Y-SNP names
+/// never start with `chr`.
 pub fn is_placeholder_name(name: &str) -> bool {
     name.starts_with("chr") && name.contains(':')
 }
