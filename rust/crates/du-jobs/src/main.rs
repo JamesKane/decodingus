@@ -1,13 +1,10 @@
-//! Background job runner (replaces the Pekko Quartz scheduler). Registers the
-//! scheduled workers and runs them until shutdown (Ctrl-C).
+//! Background job runner. Two modes:
+//!   - `jetstream` — the always-on reporting-mirror consumer (its own service).
+//!   - `run-once <job>` — one batch job to completion, driven by systemd timers.
 //!
-//! The five legacy jobs (publication update + discovery via OpenAlex, YBrowse
-//! variant ingest via du-bio, variant export, match discovery) are wired here as
-//! their external clients land (du-external) and ingestion is built (du-bio). A
-//! DB heartbeat is registered now to exercise the harness end-to-end.
-
-use std::sync::Arc;
-use std::time::Duration;
+//! The old no-arg interval scheduler is retired: it fired every job on startup and
+//! let same-period jobs overlap, spiking DB + memory. Automated jobs now run one at a
+//! time via `run-once`, serialized by a Postgres advisory lock (`DU_JOBS_LOCK`).
 
 mod coord_lift;
 mod crawl_project;
@@ -18,11 +15,9 @@ mod import_kit_identifiers;
 mod jetstream;
 mod publications;
 mod name_private_nodes;
-mod scheduler;
 mod topic_prune;
 mod ybrowse;
 mod yregions;
-use scheduler::{Job, Scheduler};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -68,6 +63,23 @@ async fn main() -> anyhow::Result<()> {
     // a full YBrowse GFF3 ingest + reconcile on demand, not on the 24h tick).
     if mode.as_deref() == Some("run-once") {
         let job = argv.next().unwrap_or_default();
+        // Serialize automated runs so jobs NEVER overlap (the concurrent in-process
+        // scheduler is retired; cron timers invoke `run-once` one at a time). Held for
+        // the whole job, released at process exit:
+        //   DU_JOBS_LOCK=wait  → queue behind any running job (nightly batch jobs)
+        //   DU_JOBS_LOCK=skip  → skip this tick if a job is already running (frequent pollers)
+        //   unset              → no lock (ad-hoc manual runs)
+        let _job_lock = match std::env::var("DU_JOBS_LOCK").ok().as_deref() {
+            Some("wait") => du_db::job_lock::acquire(&pool, true).await?,
+            Some("skip") => match du_db::job_lock::acquire(&pool, false).await? {
+                Some(g) => Some(g),
+                None => {
+                    tracing::info!(job = %job, "another job holds the run lock — skipping this tick");
+                    return Ok(());
+                }
+            },
+            _ => None,
+        };
         match job.as_str() {
             "ybrowse" => {
                 let cfg = ybrowse::Config::from_env()
@@ -277,288 +289,44 @@ async fn main() -> anyhow::Result<()> {
                     None => crawl_project::crawl_pending(&pool, &ena).await?,
                 }
             }
+            // External enrichment (formerly scheduled; now nightly run-once). OpenAlex
+            // by-DOI refresh, date-sorted discovery, and PubMed by-PMID gap-fill.
+            "publication-update" => {
+                let cfg = publications::Config::from_env().ok_or_else(|| anyhow::anyhow!("set OPENALEX_MAILTO"))?;
+                let client = du_external::openalex::OpenAlexClient::new(Some(cfg.mailto));
+                publications::update_all(&pool, &client).await?;
+            }
+            "publication-discovery" => {
+                let cfg = publications::Config::from_env().ok_or_else(|| anyhow::anyhow!("set OPENALEX_MAILTO"))?;
+                let client = du_external::openalex::OpenAlexClient::new(Some(cfg.mailto));
+                publications::discover(&pool, &client).await?;
+            }
+            "publication-pubmed-update" => {
+                let cfg = publications::NcbiConfig::from_env().ok_or_else(|| anyhow::anyhow!("set NCBI_EMAIL"))?;
+                let client = du_external::ncbi::NcbiClient::new(Some(cfg.email), cfg.api_key);
+                publications::pubmed_update_all(&pool, &client).await?;
+            }
+            // Fill study metadata gaps from the public ENA portal (no credentials).
+            "ena-study-enrichment" => {
+                let client = du_external::ena::EnaClient::new();
+                ena::enrich_studies(&pool, &client).await?;
+            }
             other => anyhow::bail!(
-                "unknown run-once job '{other}' (known: ybrowse, reconcile, variant-representatives, yregions, branch-age, ftdna-str, sequencer-consensus, discovery-consensus, coverage-norms, ibd-discovery-recompute, exchange-expire, tree-samples-recompute, dedup-candidates, consolidate-donors, link-federated-subjects, import-kit-identifiers, mt-rcrs-lift, variant-coord-lift, crawl-project, publication-topic-prune, name-private-nodes)"
+                "unknown run-once job '{other}' (known: ybrowse, reconcile, variant-representatives, yregions, branch-age, ftdna-str, sequencer-consensus, discovery-consensus, coverage-norms, ibd-discovery-recompute, exchange-expire, tree-samples-recompute, dedup-candidates, consolidate-donors, link-federated-subjects, import-kit-identifiers, mt-rcrs-lift, variant-coord-lift, crawl-project, publication-topic-prune, name-private-nodes, publication-update, publication-discovery, publication-pubmed-update, ena-study-enrichment)"
             ),
         }
         return Ok(());
     }
 
-    let mut sched = Scheduler::new();
-
-    // DB heartbeat — proves the harness; also a cheap liveness signal.
-    {
-        let pool = pool.clone();
-        sched.register(Job::new("db-heartbeat", Duration::from_secs(300), move || {
-            let pool = pool.clone();
-            async move {
-                let variants = du_db::variant::search(&pool, None, 1, 1).await?.total;
-                let publications = du_db::publication::search(&pool, None, 1, 1).await?.total;
-                tracing::info!(variants, publications, "heartbeat");
-                Ok(())
-            }
-        }));
-    }
-
-    // YBrowse variant ingest (GRCh38 VCF -> lift to GRCh37/hs1 -> core.variant).
-    // Registered only when configured (YBROWSE_GFF + chain paths).
-    if let Some(cfg) = ybrowse::Config::from_env() {
-        let pool = pool.clone();
-        sched.register(Job::new("ybrowse-variant-ingest", Duration::from_secs(86_400), move || {
-            let pool = pool.clone();
-            let cfg = cfg.clone();
-            async move { ybrowse::run(&pool, &cfg).await }
-        }));
-        tracing::info!("ybrowse-variant-ingest registered");
-    } else {
-        tracing::info!("ybrowse-variant-ingest not configured (set YBROWSE_GFF + chain paths)");
-    }
-
-    // Publication jobs (OpenAlex). Enabled when OPENALEX_MAILTO is set.
-    if let Some(cfg) = publications::Config::from_env() {
-        let client = Arc::new(du_external::openalex::OpenAlexClient::new(Some(cfg.mailto)));
-        {
-            let (pool, client) = (pool.clone(), client.clone());
-            sched.register(Job::new("publication-update", Duration::from_secs(86_400), move || {
-                let (pool, client) = (pool.clone(), client.clone());
-                async move { publications::update_all(&pool, &client).await }
-            }));
-        }
-        {
-            let (pool, client) = (pool.clone(), client.clone());
-            sched.register(Job::new("publication-discovery", Duration::from_secs(86_400), move || {
-                let (pool, client) = (pool.clone(), client.clone());
-                async move { publications::discover(&pool, &client).await }
-            }));
-        }
-        tracing::info!("publication jobs registered (OpenAlex)");
-    } else {
-        tracing::info!("publication jobs not configured (set OPENALEX_MAILTO)");
-    }
-
-    // PubMed (NCBI) enrichment by PMID — complements OpenAlex's by-DOI enrichment.
-    if let Some(cfg) = publications::NcbiConfig::from_env() {
-        let pool = pool.clone();
-        let client = Arc::new(du_external::ncbi::NcbiClient::new(Some(cfg.email), cfg.api_key));
-        sched.register(Job::new("publication-pubmed-update", Duration::from_secs(86_400), move || {
-            let (pool, client) = (pool.clone(), client.clone());
-            async move { publications::pubmed_update_all(&pool, &client).await }
-        }));
-        tracing::info!("publication-pubmed-update registered (NCBI)");
-    } else {
-        tracing::info!("publication-pubmed-update not configured (set NCBI_EMAIL)");
-    }
-
-    // ENA study enrichment — fills study metadata gaps from the public ENA
-    // portal (no credentials needed, so always on).
-    {
-        let pool = pool.clone();
-        let client = Arc::new(du_external::ena::EnaClient::new());
-        sched.register(Job::new("ena-study-enrichment", Duration::from_secs(86_400), move || {
-            let (pool, client) = (pool.clone(), client.clone());
-            async move { ena::enrich_studies(&pool, &client).await }
-        }));
-        tracing::info!("ena-study-enrichment registered");
-    }
-
-    // Project crawl drainer — materializes read-file links for studies a curator
-    // attached to a publication. Short interval so attaches surface quickly; the
-    // pending query is a cheap partial-index scan (usually empty). No credentials.
-    {
-        let pool = pool.clone();
-        let client = Arc::new(du_external::ena::EnaClient::new());
-        sched.register(Job::new("project-crawl", Duration::from_secs(600), move || {
-            let (pool, client) = (pool.clone(), client.clone());
-            async move { crawl_project::crawl_pending(&pool, &client).await }
-        }));
-        tracing::info!("project-crawl registered");
-    }
-
-    // Branch ages — recompute Y-STR modal signatures + STR-variance ages from the
-    // mirrored profiles, then the combined age (STR + SNP-Poisson + genealogical,
-    // gap-filling tmrca_ybp). One job to guarantee STR terms exist before the
-    // combine. Depends only on the DB; always on.
-    {
-        let pool = pool.clone();
-        sched.register(Job::new("branch-age-recompute", Duration::from_secs(86_400), move || {
-            let pool = pool.clone();
-            async move {
-                let s = du_db::ystr::recompute_signatures(&pool).await?;
-                let c = du_db::age::recompute_combined_ages(&pool).await?;
-                tracing::info!(
-                    haplogroups = s.haplogroups, markers = s.markers, str_ages = s.age_estimates,
-                    snp = c.snp, genealogical = c.genealogical, combined = c.combined,
-                    "branch-age-recompute done"
-                );
-                Ok(())
-            }
-        }));
-        tracing::info!("branch-age-recompute registered");
-    }
-
-    // Sequencer instrument→lab consensus: refresh observations from the federation
-    // and regenerate proposals for curator review. DB-only; always on.
-    {
-        let pool = pool.clone();
-        sched.register(Job::new("sequencer-consensus", Duration::from_secs(3_600), move || {
-            let pool = pool.clone();
-            async move {
-                let rep = du_db::sequencer::recompute_consensus(&pool, &du_db::sequencer::ConsensusConfig::default()).await?;
-                tracing::info!(
-                    instruments = rep.instruments, observations = rep.observations_upserted,
-                    proposals = rep.proposals_active, ready = rep.proposals_ready,
-                    conflicts = rep.conflicts, "sequencer-consensus done"
-                );
-                Ok(())
-            }
-        }));
-        tracing::info!("sequencer-consensus registered");
-    }
-
-    // Haplogroup-discovery consensus: materialize federated private variants and pool
-    // them into proposed branches by variant-set Jaccard for curator review. DB-only.
-    {
-        let pool = pool.clone();
-        sched.register(Job::new("discovery-consensus", Duration::from_secs(3_600), move || {
-            let pool = pool.clone();
-            async move {
-                let cfg = du_db::discovery::load_config(&pool).await?;
-                let rep = du_db::discovery::recompute_consensus(&pool, &cfg).await?;
-                tracing::info!(
-                    bpv = rep.bpv_upserted, proposals = rep.proposals_active,
-                    ready = rep.proposals_ready, split = rep.split_flagged,
-                    auto_promoted = rep.auto_promoted, "discovery-consensus done"
-                );
-                Ok(())
-            }
-        }));
-        tracing::info!("discovery-consensus registered");
-    }
-
-    // Empirical per-test-type coverage norms: derive the cohort median depth/coverage
-    // (+ typical marker counts) from the federated coverage for conformance checks.
-    {
-        let pool = pool.clone();
-        sched.register(Job::new("coverage-norms", Duration::from_secs(3_600), move || {
-            let pool = pool.clone();
-            async move {
-                let rep = du_db::coverage::recompute_norms(&pool).await?;
-                tracing::info!(test_types = rep.test_types, pruned = rep.pruned, "coverage-norms done");
-                Ok(())
-            }
-        }));
-        tracing::info!("coverage-norms registered");
-    }
-
-    // Federated-subject anchoring: mint a core.biosample anchor for every federated
-    // subject the Jetstream consumer mirrored into fed.biosample, so their runs /
-    // coverage / ancestry / haplogroups surface in the unified sample report (and
-    // feed the downstream IBD / dedup jobs). Hourly; idempotent.
-    {
-        let pool = pool.clone();
-        sched.register(Job::new("link-federated-subjects", Duration::from_secs(3_600), move || {
-            let pool = pool.clone();
-            async move {
-                let rep = du_db::fed_subject::link_federated_subjects(&pool, true).await?;
-                tracing::info!(
-                    unlinked = rep.unlinked, biosamples_created = rep.biosamples_created,
-                    donors_created = rep.donors_created, "link-federated-subjects done"
-                );
-                Ok(())
-            }
-        }));
-        tracing::info!("link-federated-subjects registered");
-    }
-
-    // IBD candidate generation: mine introduction candidates from fed.* ancestry +
-    // the match graph into ibd.match_suggestion (block + top-K; no genotypes). Daily.
-    {
-        let pool = pool.clone();
-        sched.register(Job::new("ibd-discovery-recompute", Duration::from_secs(86_400), move || {
-            let pool = pool.clone();
-            async move {
-                let rep = du_db::ibd::recompute_suggestions(&pool, &du_db::ibd::IbdConfig::default()).await?;
-                tracing::info!(
-                    samples = rep.samples, blocks = rep.blocks, suggestions = rep.suggestions_written,
-                    "ibd-discovery-recompute done"
-                );
-                Ok(())
-            }
-        }));
-        tracing::info!("ibd-discovery-recompute registered");
-    }
-
-    // Biosample duplicate candidates (Tier 1): block by terminal Y + mt, refine by
-    // private-variant Jaccard into dedup.duplicate_candidate. Candidates only —
-    // autosomal Tier-2 confirms (and is what separates duplicates from siblings). Daily.
-    {
-        let pool = pool.clone();
-        sched.register(Job::new("dedup-candidates", Duration::from_secs(86_400), move || {
-            let pool = pool.clone();
-            async move {
-                let rep = du_db::dedup::recompute_candidates(&pool, &du_db::dedup::DedupConfig::default()).await?;
-                tracing::info!(
-                    males = rep.males, multi_blocks = rep.multi_blocks,
-                    written = rep.candidates_written, pruned = rep.candidates_pruned,
-                    "dedup-candidates done"
-                );
-                Ok(())
-            }
-        }));
-        tracing::info!("dedup-candidates registered");
-    }
-
-    // YFull-style leaf placement: resolve each non-D2C biosample's published Y call to a tree
-    // node into tree.haplogroup_sample (counts + leaf lists). Daily safety net; also run-once
-    // after an ETL tree/biosample load. (mt added when the mt tree lands.)
-    {
-        let pool = pool.clone();
-        sched.register(Job::new("tree-samples-recompute", Duration::from_secs(86_400), move || {
-            let pool = pool.clone();
-            async move {
-                let rep = du_db::tree_sample::recompute_placements(&pool, du_domain::enums::DnaType::YDna).await?;
-                tracing::info!(placed = rep.placed, unplaced = rep.unplaced, "tree-samples-recompute done (Y)");
-                Ok(())
-            }
-        }));
-        tracing::info!("tree-samples-recompute registered");
-    }
-
-    // Exchange relay TTL cleanup: drop expired ciphertext envelopes + sessions.
-    {
-        let pool = pool.clone();
-        sched.register(Job::new("exchange-expire", Duration::from_secs(3_600), move || {
-            let pool = pool.clone();
-            async move {
-                let (envelopes, sessions) = du_db::exchange::expire(&pool).await?;
-                tracing::info!(envelopes, sessions, "exchange-expire done");
-                Ok(())
-            }
-        }));
-        tracing::info!("exchange-expire registered");
-    }
-
-    // TODO(jobs): variant-export to a file artifact (the /api/v1/variants/export
-    // endpoint already streams CSV live). match-discovery is out of scope (IBD
-    // not in production).
-
-    // Jetstream coverage-mirror consumer — a long-lived websocket stream (not an
-    // interval job), so it runs as its own task beside the scheduler. Mirrors
-    // published alignment coverage summaries into fed.coverage_summary.
-    let jetstream = jetstream::Config::from_env().map(|cfg| {
-        tracing::info!(url = %cfg.url, collections = ?cfg.collections, "jetstream coverage-mirror consumer registered");
-        tokio::spawn(jetstream::run(pool.clone(), cfg))
-    });
-    if jetstream.is_none() {
-        tracing::info!("jetstream consumer not configured (set JETSTREAM_URL)");
-    }
-
-    let shutdown = async {
-        let _ = tokio::signal::ctrl_c().await;
-    };
-    sched.run_until(shutdown).await;
-    if let Some(handle) = jetstream {
-        handle.abort();
-    }
+    // The concurrent in-process interval scheduler is RETIRED: it fired every job on
+    // startup and let same-period jobs overlap, spiking DB + memory. Automated jobs now
+    // run one at a time via systemd timers calling `run-once <job>`, serialized by the
+    // DU_JOBS_LOCK advisory lock (see rust/scripts/nightly-maintenance.sh). The always-on
+    // reporting ingest is the separate `jetstream` mode.
+    tracing::warn!(
+        "no-arg scheduler mode is retired — automated jobs now run via `run-once <job>` \
+         (cron/systemd timers) and ingest via the `jetstream` mode. Disable the \
+         decodingus-scheduler service; nothing to do here."
+    );
     Ok(())
 }
