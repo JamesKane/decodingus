@@ -15,20 +15,20 @@
 # Usage:
 #   DATABASE_URL=postgres://... rust/scripts/resync-ybrowse.sh [--full]
 #
-# Env overrides (sensible ~/.decodingus defaults):
-#   YBROWSE_GFF_DIR   dir holding snps_hg38.gff3 (+ .prev)   [~/.decodingus/ysnp]
+# Env overrides (defaults are the production /var/lib/decodingus layout):
+#   YBROWSE_GFF_DIR   dir holding snps_hg38.gff3 (+ .prev)   [/var/lib/decodingus/ybrowse]
 #   YBROWSE_GFF_URL   source URL                             [ybrowse.org snps_hg38.gff3]
-#   YBROWSE_CHAIN_HS1 GRCh38->hs1 UCSC chain (needed so new  [~/.decodingus/liftover/hg38ToHs1.over.chain]
-#                     SNPs get hs1 coords that fold onto the de-novo tree's sites)
-#   YBROWSE_CHAIN_GRCH37 GRCh38->GRCh37 chain                [~/.decodingus/liftover/GRCh38-to-GRCh37.chain]
+#   YBROWSE_CHAIN_HS1 GRCh38->hs1 UCSC chain (needed so new  [/var/lib/decodingus/chains/hg38ToHs1.over.chain.gz]
+#                     SNPs get hs1 coords that fold onto the de-novo tree's sites; gzip read transparently)
+#   YBROWSE_CHAIN_GRCH37 GRCh38->GRCh37 chain (UCSC hg19)    [/var/lib/decodingus/chains/hg38ToHg19.over.chain.gz]
 #   DECODINGUS_JOBS_BIN  prebuilt jobs binary to run instead of `cargo run` (prod)  [unset -> cargo run]
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-GFF_DIR="${YBROWSE_GFF_DIR:-$HOME/.decodingus/ysnp}"
+GFF_DIR="${YBROWSE_GFF_DIR:-/var/lib/decodingus/ybrowse}"
 URL="${YBROWSE_GFF_URL:-https://ybrowse.org/gbrowse2/gff/snps_hg38.gff3}"
-CHAIN_HS1="${YBROWSE_CHAIN_HS1:-$HOME/.decodingus/liftover/hg38ToHs1.over.chain}"
-CHAIN_GRCH37="${YBROWSE_CHAIN_GRCH37:-$HOME/.decodingus/liftover/GRCh38-to-GRCh37.chain}"
+CHAIN_HS1="${YBROWSE_CHAIN_HS1:-/var/lib/decodingus/chains/hg38ToHs1.over.chain.gz}"
+CHAIN_GRCH37="${YBROWSE_CHAIN_GRCH37:-/var/lib/decodingus/chains/hg38ToHg19.over.chain.gz}"
 FULL=0; [ "${1:-}" = "--full" ] && FULL=1
 
 : "${DATABASE_URL:?set DATABASE_URL to the target Postgres}"
