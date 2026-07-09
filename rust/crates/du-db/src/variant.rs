@@ -258,6 +258,28 @@ pub async fn normalize_naming_status_batch(pool: &PgPool, batch: i64) -> Result<
     Ok(affected)
 }
 
+/// Drive [`normalize_naming_status_batch`] to completion, then `ANALYZE` the catalog and
+/// return the total rows re-stamped. The ANALYZE is essential: a bulk UPDATE leaves
+/// `core.variant` with stale planner stats, and in that window the Variant Browser's
+/// `ORDER BY canonical_name LIMIT` search misestimates the trigram predicates and walks the
+/// name btree filtering millions of rows instead of using the trigram bitmap — pathologically
+/// slow (the same reason `ybrowse::reconcile` ANALYZEs after its bulk reload).
+pub async fn normalize_naming_status(pool: &PgPool) -> Result<u64, DbError> {
+    let mut total = 0u64;
+    loop {
+        let n = normalize_naming_status_batch(pool, 10_000).await?;
+        if n == 0 {
+            break;
+        }
+        total += n;
+        tracing::info!(fixed = total, "…normalizing naming_status");
+    }
+    if total > 0 {
+        sqlx::query("ANALYZE core.variant").execute(pool).await?;
+    }
+    Ok(total)
+}
+
 /// One tree branch a variant is assigned to (defines). Surfaced on the Variant Browser detail.
 #[derive(Debug, Clone)]
 pub struct BranchAssignment {
