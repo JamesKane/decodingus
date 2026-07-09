@@ -17,6 +17,7 @@ mod ftdna_str;
 mod import_kit_identifiers;
 mod jetstream;
 mod publications;
+mod name_private_nodes;
 mod scheduler;
 mod topic_prune;
 mod ybrowse;
@@ -244,6 +245,15 @@ async fn main() -> anyhow::Result<()> {
                 let cfg = coord_lift::Config::from_env(&args);
                 coord_lift::run(&pool, &cfg).await?;
             }
+            // Backfill real names onto de-novo private placeholder nodes
+            // (`<parent>:n<k>`) whose defining sites have since gained a public SNP
+            // name (e.g. after a YBrowse resync). Renames each to the lowest
+            // natural-sort namable SNP it carries, old id kept as an alias. Previews
+            // unless `--apply` (which also bumps the tree revision).
+            "name-private-nodes" => {
+                let args: Vec<String> = argv.collect();
+                name_private_nodes::run(&pool, &name_private_nodes::Config::from_env(&args)).await?;
+            }
             // Retroactively apply the discovery topic whitelist (mig 0065) to the
             // pending candidate queue: fetch each pending candidate's OpenAlex primary
             // topic and reject the ones outside the enabled configs' whitelist(s).
@@ -268,7 +278,7 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
             other => anyhow::bail!(
-                "unknown run-once job '{other}' (known: ybrowse, reconcile, variant-representatives, yregions, branch-age, ftdna-str, sequencer-consensus, discovery-consensus, coverage-norms, ibd-discovery-recompute, exchange-expire, tree-samples-recompute, dedup-candidates, consolidate-donors, link-federated-subjects, import-kit-identifiers, mt-rcrs-lift, variant-coord-lift, crawl-project, publication-topic-prune)"
+                "unknown run-once job '{other}' (known: ybrowse, reconcile, variant-representatives, yregions, branch-age, ftdna-str, sequencer-consensus, discovery-consensus, coverage-norms, ibd-discovery-recompute, exchange-expire, tree-samples-recompute, dedup-candidates, consolidate-donors, link-federated-subjects, import-kit-identifiers, mt-rcrs-lift, variant-coord-lift, crawl-project, publication-topic-prune, name-private-nodes)"
             ),
         }
         return Ok(());

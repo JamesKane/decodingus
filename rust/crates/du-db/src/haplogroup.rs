@@ -175,6 +175,97 @@ pub async fn update(
     Ok(affected > 0)
 }
 
+// ── private-node naming backfill ────────────────────────────────────────────
+
+/// A private de-novo placeholder node (`<parent>:n<k>` name) that now has ≥1
+/// namable SNP at one of its defining sites, plus the candidate names found.
+#[derive(Debug, Clone)]
+pub struct PrivateNodeNaming {
+    pub id: i64,
+    pub current_name: String,
+    pub dna_label: String,
+    /// Distinct namable SNP names sitting on this node's defining sites (unsorted).
+    pub candidates: Vec<String>,
+}
+
+/// Every current private placeholder node (`name ~ ':n[0-9]+$'`) that carries at
+/// least one namable SNP, with its candidate names. Naming is resolved **by site**,
+/// not by the stored defining-variant link: for each defining variant we look for a
+/// co-located named `core.variant` at the same hs1 coordinate+alleles. This matters
+/// because YBrowse names a site *after* the de-novo tree already linked its coord
+/// row — the link still points at the unnamed coord variant, but the name is now a
+/// sibling row at the same site. Excluded as non-names: coordinate/placeholder-synthetic
+/// names (anything containing a colon or whitespace — `chrY:pos…`, `CP086569.2:pos A->G`,
+/// `(hs1)chrY:pos …`) and recurrent-region markers (heterochromatin / inverted-repeat),
+/// mirroring the ytree stage-88 relabel rules. Rows come grouped per node; the caller
+/// picks the lowest natural-sort non-colliding candidate.
+pub async fn private_nodes_needing_names(pool: &PgPool) -> Result<Vec<PrivateNodeNaming>, DbError> {
+    let mask = crate::variant::recurrent_region_mask_sql("nv");
+    let sql = format!(
+        "SELECT h.id, h.name, h.haplogroup_type::text AS dna, nv.canonical_name \
+         FROM tree.haplogroup h \
+         JOIN tree.haplogroup_variant hv ON hv.haplogroup_id = h.id AND hv.valid_until IS NULL \
+         JOIN core.variant v ON v.id = hv.variant_id \
+         JOIN core.variant nv ON \
+              nv.coordinates @> jsonb_build_object('hs1', jsonb_build_object( \
+                'contig', v.coordinates->'hs1'->>'contig', \
+                'position', (v.coordinates->'hs1'->>'position')::bigint)) \
+          AND nv.defining_haplogroup_id IS NULL \
+          AND nv.canonical_name IS NOT NULL \
+          AND nv.canonical_name !~ '[[:space:]:]' \
+          AND ( (nv.coordinates->'hs1'->>'ancestral' = v.coordinates->'hs1'->>'ancestral' \
+                 AND nv.coordinates->'hs1'->>'derived' = v.coordinates->'hs1'->>'derived') \
+             OR (nv.coordinates->'hs1'->>'ancestral' = v.coordinates->'hs1'->>'derived' \
+                 AND nv.coordinates->'hs1'->>'derived' = v.coordinates->'hs1'->>'ancestral') ) \
+          AND {mask} \
+         WHERE h.valid_until IS NULL AND h.name ~ ':n[0-9]+$' \
+         ORDER BY h.id, nv.canonical_name"
+    );
+    let rows: Vec<(i64, String, String, String)> = sqlx::query_as(&sql).fetch_all(pool).await?;
+    let mut out: Vec<PrivateNodeNaming> = Vec::new();
+    for (id, name, dna, cand) in rows {
+        match out.last_mut() {
+            Some(n) if n.id == id => n.candidates.push(cand),
+            _ => out.push(PrivateNodeNaming { id, current_name: name, dna_label: dna, candidates: vec![cand] }),
+        }
+    }
+    Ok(out)
+}
+
+/// The set of names currently in use by live haplogroups of a given `dna_label`
+/// (`Y`/`MT`), for collision-checking a proposed rename.
+pub async fn live_names(pool: &PgPool, dna_label: &str) -> Result<Vec<String>, DbError> {
+    Ok(sqlx::query_scalar(
+        "SELECT name FROM tree.haplogroup WHERE haplogroup_type::text = $1 AND valid_until IS NULL",
+    )
+    .bind(dna_label)
+    .fetch_all(pool)
+    .await?)
+}
+
+/// Rename a haplogroup, preserving the old (placeholder) name in `provenance.aliases`
+/// (deduped). Only touches the live row. Returns whether a row changed. Generic over
+/// the executor so the backfill can batch renames + the revision bump in one txn.
+pub async fn rename_with_alias<'e, E>(executor: E, id: i64, new_name: &str, old_name: &str) -> Result<bool, DbError>
+where
+    E: sqlx::PgExecutor<'e>,
+{
+    let n = sqlx::query(
+        "UPDATE tree.haplogroup SET name = $2, \
+           provenance = jsonb_set(provenance, '{aliases}', \
+             to_jsonb(ARRAY(SELECT DISTINCT e FROM jsonb_array_elements_text( \
+               COALESCE(provenance->'aliases','[]'::jsonb) || to_jsonb($3::text)) e)), true) \
+         WHERE id = $1 AND valid_until IS NULL",
+    )
+    .bind(id)
+    .bind(new_name)
+    .bind(old_name)
+    .execute(executor)
+    .await?
+    .rows_affected();
+    Ok(n > 0)
+}
+
 /// Whether the haplogroup participates in any current relationship (a guard the
 /// curator UI uses before allowing deletion).
 pub async fn has_current_edges(pool: &PgPool, id: HaplogroupId) -> Result<bool, DbError> {
