@@ -38,7 +38,7 @@
       {% for st in pv.steps %}
       <li class="list-group-item d-flex justify-content-between align-items-start">
         <div class="ms-2 me-auto">
-          <a class="fw-semibold" href="{{ st.href }}" hx-boost="false">{{ st.name }}</a>
+          <a class="fw-semibold" href="{{ st.href }}" hx-boost="false" rel="nofollow">{{ st.name }}</a>
           {% if !st.snps.is_empty() %}
           <div class="small text-muted font-monospace">{{ st.snps|join(", ") }}</div>
           {% endif %}

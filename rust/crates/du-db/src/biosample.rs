@@ -73,6 +73,24 @@ pub async fn get_by_guid(pool: &PgPool, guid: SampleGuid) -> Result<Option<Biosa
     row.map(BiosampleRow::into_domain).transpose()
 }
 
+/// Canonical `/sample/:slug` identifiers for every public, non-deleted biosample —
+/// the sitemap discovery channel. Mirrors the tree-tip slug (accession, then alias,
+/// then guid) so every URL resolves. Bounded so an outsized catalog can't blow a
+/// single sitemap file's 50k-URL limit; the caller logs when it truncates.
+pub async fn public_sample_slugs(pool: &PgPool, limit: i64) -> Result<Vec<String>, DbError> {
+    let rows: Vec<(String,)> = sqlx::query_as(
+        "SELECT COALESCE(b.accession, b.alias, b.sample_guid::text) AS slug \
+         FROM core.biosample b \
+         WHERE b.is_public = true AND b.deleted = false \
+         ORDER BY b.accession NULLS LAST, b.sample_guid \
+         LIMIT $1",
+    )
+    .bind(limit)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows.into_iter().map(|(s,)| s).collect())
+}
+
 /// All mappable biosample locations. PostGIS `ST_X`/`ST_Y` extract lon/lat from
 /// the donor's `geocoord` (geometry Point, 4326). Backs the biosample map.
 pub async fn geo_points(pool: &PgPool) -> Result<Vec<GeoPoint>, DbError> {

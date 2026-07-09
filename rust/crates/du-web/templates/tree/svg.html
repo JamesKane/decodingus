@@ -8,7 +8,7 @@
     <li class="breadcrumb-item active" aria-current="page">{{ c.name }}</li>
     {% else %}
     <li class="breadcrumb-item">
-      <a href="{{ c.href }}" hx-get="{{ c.href }}" hx-target="#tree-container" hx-push-url="true">{{ c.name }}</a>
+      <a href="{{ c.href }}" rel="nofollow" hx-get="{{ c.href }}" hx-target="#tree-container" hx-push-url="true">{{ c.name }}</a>
     </li>
     {% endif %}
     {% endfor %}
@@ -30,7 +30,7 @@
       <text x="{{ tip.label_x }}" y="{{ tip.cy }}" dominant-baseline="central" font-size="11" fill="#6c757d">{{ tip.label }}</text>
     </g>
     {% else if let Some(slug) = tip.slug %}
-    <a href="/sample/{{ slug }}" hx-boost="false" class="tree-tip-link">
+    <a href="/sample/{{ slug }}" hx-boost="false" rel="nofollow" class="tree-tip-link">
       <g class="tree-tip">
         <circle cx="{{ tip.cx }}" cy="{{ tip.cy }}" r="4" fill="#2e7d32" stroke="#1b5e20"></circle>
         <text x="{{ tip.label_x }}" y="{{ tip.cy }}" dominant-baseline="central" font-size="11" fill="#2e7d32" font-family="monospace" text-decoration="underline">{{ tip.label }}</text>

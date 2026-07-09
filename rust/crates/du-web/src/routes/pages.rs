@@ -31,6 +31,7 @@ pub fn router() -> Router<AppState> {
         .route("/cookies", get(|l, u| page("cookies", l, u)))
         .route("/reputation", get(|l, u| page("reputation", l, u)))
         .route("/sitemap.xml", get(sitemap))
+        .route("/sitemap-samples.xml", get(sitemap_samples))
         .route("/robots.txt", get(robots))
         .route("/cookie-consent", post(cookie_consent))
         .route("/profile", get(profile_page).post(profile_update))
@@ -67,6 +68,16 @@ const PUBLIC_PATHS: &[&str] =
     &["/", "/ytree", "/mtree", "/variants", "/references", "/coverage-benchmarks", "/about", "/contact",
       "/reputation", "/terms", "/privacy", "/cookies", "/faq"];
 
+/// Max sample URLs in one sitemap file. The spec ceiling is 50,000; if the public
+/// catalog ever exceeds this we log and this becomes a sitemap-index split.
+const SITEMAP_MAX_URLS: i64 = 50_000;
+
+/// XML-escape a `<loc>` value. Slugs are accessions/aliases (`SAMEA…`, `HG…`), but
+/// escape defensively so a stray `&`/`<` can't produce malformed XML.
+fn xml_escape(s: &str) -> String {
+    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+}
+
 async fn sitemap() -> Response {
     let base = base_url();
     let mut xml = String::from("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
@@ -78,10 +89,53 @@ async fn sitemap() -> Response {
     ([(header::CONTENT_TYPE, "application/xml; charset=utf-8")], xml).into_response()
 }
 
+/// Per-sample report URLs. This is the *controlled* discovery channel: search
+/// engines index `/sample/…` at their own gentle pace from here instead of
+/// fanning out across the thousands of `rel="nofollow"` tree-tip links (which is
+/// what turned into the memory-spiking bulk crawl).
+async fn sitemap_samples(State(st): State<AppState>) -> Response {
+    let slugs = match du_db::biosample::public_sample_slugs(&st.pool, SITEMAP_MAX_URLS).await {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::error!(error = %e, "sitemap-samples query failed");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "sitemap error").into_response();
+        }
+    };
+    if slugs.len() as i64 >= SITEMAP_MAX_URLS {
+        tracing::warn!(
+            cap = SITEMAP_MAX_URLS,
+            "sitemap-samples hit the URL cap — some public samples are omitted; split into a sitemap index"
+        );
+    }
+    let base = base_url();
+    let mut xml = String::from("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
+    xml.push_str("<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n");
+    for slug in &slugs {
+        xml.push_str(&format!("  <url><loc>{base}/sample/{}</loc></url>\n", xml_escape(slug)));
+    }
+    xml.push_str("</urlset>\n");
+    ([(header::CONTENT_TYPE, "application/xml; charset=utf-8")], xml).into_response()
+}
+
 async fn robots() -> Response {
+    // Crawl-shaping. Sample reports stay indexable — but only via the sample sitemap
+    // (a controlled, gentle-pace discovery channel), NOT by fanning out across the
+    // thousands of `rel="nofollow"` tree-tip links, which is what spiked memory when
+    // GPTBot & friends bulk-crawled the tree ↔ sample cycle. The one thing we fully
+    // close is the `?root=` re-root: it turns every internal node into its own tree
+    // permutation, a pure combinatorial trap with no indexable value.
+    // `Crawl-delay` is honored by Bing/others; Google & GPTBot ignore it (hence the
+    // sitemap-not-fanout strategy + `rel="nofollow"` as the real controls).
+    let base = base_url();
     let body = format!(
-        "User-agent: *\nAllow: /\nDisallow: /curator\nDisallow: /api\nSitemap: {}/sitemap.xml\n",
-        base_url()
+        "User-agent: *\n\
+         Allow: /\n\
+         Disallow: /curator\n\
+         Disallow: /api\n\
+         Disallow: /*?root=\n\
+         Crawl-delay: 10\n\
+         Sitemap: {base}/sitemap.xml\n\
+         Sitemap: {base}/sitemap-samples.xml\n",
     );
     ([(header::CONTENT_TYPE, "text/plain; charset=utf-8")], body).into_response()
 }
