@@ -46,7 +46,8 @@ impl Config {
 fn load_target(build: ReferenceBuild, path: &Option<String>) -> anyhow::Result<Option<LiftTarget>> {
     match path {
         Some(p) => {
-            let text = std::fs::read_to_string(p)?;
+            // Chains may be gzipped on disk (`*.over.chain.gz`); decompress on read.
+            let text = crate::gzio::read_to_string(std::path::Path::new(p))?;
             Ok(Some(LiftTarget { build, chain: Liftover::parse(&text)? }))
         }
         None => Ok(None),

@@ -27,6 +27,7 @@ chrono = { workspace = true }
 uuid = { workspace = true }
 tokio-tungstenite = { workspace = true }
 futures-util = { workspace = true }
+flate2 = { workspace = true }
 
 [dev-dependencies]
 # Paused-time scheduler tests.

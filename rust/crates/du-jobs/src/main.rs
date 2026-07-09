@@ -11,6 +11,7 @@ mod crawl_project;
 mod ena;
 mod faidx;
 mod ftdna_str;
+mod gzio;
 mod import_kit_identifiers;
 mod jetstream;
 mod publications;

@@ -29,6 +29,9 @@ struct FaidxEntry {
 pub struct Reference {
     fasta: PathBuf,
     index: HashMap<String, FaidxEntry>,
+    /// The FASTA is bgzipped (`.fasta.gz` + `.gzi`) — read via block-indexed random
+    /// access rather than a direct file seek.
+    bgzf: bool,
 }
 
 impl Reference {
@@ -55,7 +58,9 @@ impl Reference {
                 index.insert(f[0].to_string(), FaidxEntry { length, offset, linebases, linewidth });
             }
         }
-        Ok(Reference { fasta: fasta.to_path_buf(), index })
+        let bgzf = crate::gzio::is_gzip(fasta)
+            .with_context(|| format!("sniff {}", fasta.display()))?;
+        Ok(Reference { fasta: fasta.to_path_buf(), index, bgzf })
     }
 
     /// Whether the reference has the given contig.
@@ -71,17 +76,23 @@ impl Reference {
             .index
             .get(name)
             .with_context(|| format!("contig {name} not in {}", self.fasta.display()))?;
-        let mut file = File::open(&self.fasta)
-            .with_context(|| format!("open {}", self.fasta.display()))?;
-        file.seek(SeekFrom::Start(e.offset))?;
         // Bytes spanning the whole contig incl. newlines: full lines + the (possibly short)
         // final line. linewidth - linebases is the newline width (1 for \n, 2 for \r\n).
         let full_lines = e.length / e.linebases;
         let rem = e.length % e.linebases;
         let nl = e.linewidth.saturating_sub(e.linebases);
-        let raw_len = full_lines * e.linewidth + if rem > 0 { rem + nl } else { 0 };
-        let mut raw = vec![0u8; raw_len as usize];
-        file.read_exact(&mut raw)?;
+        let raw_len = (full_lines * e.linewidth + if rem > 0 { rem + nl } else { 0 }) as usize;
+        // A bgzipped FASTA needs `.gzi`-indexed block access; a plain FASTA is a direct seek.
+        let raw = if self.bgzf {
+            crate::gzio::BgzfReader::open(&self.fasta)?.read_at(e.offset, raw_len)?
+        } else {
+            let mut file = File::open(&self.fasta)
+                .with_context(|| format!("open {}", self.fasta.display()))?;
+            file.seek(SeekFrom::Start(e.offset))?;
+            let mut raw = vec![0u8; raw_len];
+            file.read_exact(&mut raw)?;
+            raw
+        };
         let mut seq = Vec::with_capacity(e.length as usize);
         for b in raw {
             if b == b'\n' || b == b'\r' {

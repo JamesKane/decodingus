@@ -1442,6 +1442,7 @@ dependencies = [
  "du-db",
  "du-domain",
  "du-external",
+ "flate2",
  "futures-util",
  "reqwest",
  "serde",

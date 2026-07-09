@@ -93,33 +93,42 @@ struct Report {
     no_source: usize,
 }
 
-/// Load a chain file, trying a couple of known filenames.
+/// Load a chain file, trying known filenames (each also probed with a `.gz` suffix)
+/// and transparently decompressing gzipped chains.
 fn load_chain(dir: &Path, names: &[&str]) -> Result<Liftover> {
     for n in names {
-        let p = dir.join(n);
-        if p.exists() {
-            let text = std::fs::read_to_string(&p).with_context(|| format!("read {}", p.display()))?;
-            return Liftover::parse(&text).with_context(|| format!("parse {}", p.display()));
+        for name in [n.to_string(), format!("{n}.gz")] {
+            let p = dir.join(&name);
+            if p.exists() {
+                let text = crate::gzio::read_to_string(&p)
+                    .with_context(|| format!("read {}", p.display()))?;
+                return Liftover::parse(&text).with_context(|| format!("parse {}", p.display()));
+            }
         }
     }
-    anyhow::bail!("no chain file found in {} (tried {:?})", dir.display(), names)
+    anyhow::bail!("no chain file found in {} (tried {:?}, each ±.gz)", dir.display(), names)
 }
 
-/// Load a reference contig for validation; returns None (with a warning) if the reference
-/// file is absent, so the job still lifts positions without base-level checks.
-fn load_ref_contig(dir: &Path, fasta: &str, contig: &str) -> Option<Contig> {
-    let p = dir.join(fasta);
-    if !p.exists() {
-        tracing::warn!(path = %p.display(), "reference absent — skipping base validation for this build");
-        return None;
-    }
-    match Reference::open(&p).and_then(|r| r.load_contig(contig)) {
-        Ok(c) => Some(c),
-        Err(e) => {
-            tracing::warn!(path = %p.display(), error = %e, "reference load failed — skipping base validation");
-            None
+/// Load a reference contig for validation, trying known filenames/subdirs (the
+/// faidx reader transparently handles bgzipped `.fasta.gz`). Returns None (with a
+/// warning) when none are present, so the job still lifts positions without
+/// base-level checks.
+fn load_ref_contig(dir: &Path, names: &[&str], contig: &str) -> Option<Contig> {
+    for n in names {
+        let p = dir.join(n);
+        if !p.exists() {
+            continue;
         }
+        return match Reference::open(&p).and_then(|r| r.load_contig(contig)) {
+            Ok(c) => Some(c),
+            Err(e) => {
+                tracing::warn!(path = %p.display(), error = %e, "reference load failed — skipping base validation");
+                None
+            }
+        };
     }
+    tracing::warn!(dir = %dir.display(), contig, "no reference FASTA found — skipping base validation");
+    None
 }
 
 fn single_base(a: &Option<String>) -> Option<u8> {
@@ -136,15 +145,24 @@ pub async fn run(pool: &PgPool, cfg: &Config) -> Result<()> {
     let targets = vec![
         Target {
             build: ReferenceBuild::GRCh37,
-            chain: load_chain(&cfg.liftover_dir, &["GRCh38-to-GRCh37.chain"])?,
+            // UCSC `hg38ToHg19` == GRCh38→GRCh37. b37's chrY is the `Y` contig.
+            chain: load_chain(&cfg.liftover_dir, &["GRCh38-to-GRCh37.chain", "hg38ToHg19.over.chain"])?,
             stored_contig: "chrY".into(),
-            reference: load_ref_contig(&cfg.reference_dir, "GRCh37.fa", "Y"),
+            reference: load_ref_contig(
+                &cfg.reference_dir,
+                &["GRCh37.fa", "b37/human_g1k_v37.fasta.gz", "human_g1k_v37.fasta.gz"],
+                "Y",
+            ),
         },
         Target {
             build: ReferenceBuild::Hs1,
             chain: load_chain(&cfg.liftover_dir, &["GRCh38-to-chm13v2.0.chain", "hg38ToHs1.over.chain"])?,
             stored_contig: "chrY".into(),
-            reference: load_ref_contig(&cfg.reference_dir, "chm13v2.0.fa", "chrY"),
+            reference: load_ref_contig(
+                &cfg.reference_dir,
+                &["chm13v2.0.fa", "hs1/chm13v2.0.fa.gz", "chm13v2.0.fa.gz"],
+                "chrY",
+            ),
         },
     ];
     tracing::info!(

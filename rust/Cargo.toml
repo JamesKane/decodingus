@@ -88,6 +88,9 @@ clap = { version = "4", features = ["derive"] }
 # Errors / logging / config
 thiserror = "2"
 anyhow = "1"
+# Transparent gzip/BGZF decompression for compressed bioinformatics intakes
+# (UCSC `.over.chain.gz`, samtools-bgzipped reference `.fasta.gz`).
+flate2 = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
