@@ -46,7 +46,7 @@
             </a>
             <ul class="dropdown-menu dropdown-menu-end">
               {% for o in t.languages() %}
-              <li><a class="dropdown-item{% if o.active %} active{% endif %}" href="/language/{{ o.code }}?next={{ next }}">{{ o.label }}</a></li>
+              <li><a class="dropdown-item{% if o.active %} active{% endif %}" rel="nofollow" href="/language/{{ o.code }}?next={{ next }}">{{ o.label }}</a></li>
               {% endfor %}
             </ul>
           </li>

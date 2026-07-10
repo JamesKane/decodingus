@@ -124,16 +124,29 @@ async fn robots() -> Response {
     // GPTBot & friends bulk-crawled the tree ↔ sample cycle. The one thing we fully
     // close is the `?root=` re-root: it turns every internal node into its own tree
     // permutation, a pure combinatorial trap with no indexable value.
-    // `Crawl-delay` is honored by Bing/others; Google & GPTBot ignore it (hence the
-    // sitemap-not-fanout strategy + `rel="nofollow"` as the real controls).
+    //
+    // `/language/:lang` is the language switcher — a 303 that just sets the `lang`
+    // cookie and redirects to `?next=`. It has no indexable content, and the three
+    // languages serve the same URLs (language is cookie-driven, not path-driven), so
+    // crawling it only produces duplicate content. Worse, GPTBot was observed using it
+    // to tunnel *through* the `?root=` trap: the re-root URL rides in the switcher's
+    // `next=` param percent-encoded (`root%3D…`), so `Disallow: /*?root=` never matches
+    // it. Blocking `/language` cuts the fan-out (3 languages × every tree permutation)
+    // off at the source. GPTBot is called out explicitly (it's the repeat offender and
+    // ignores `Crawl-delay`); the `*` group carries the same rules for every other bot.
     let base = base_url();
-    let body = format!(
-        "User-agent: *\n\
-         Allow: /\n\
+    let rules = "Allow: /\n\
          Disallow: /curator\n\
          Disallow: /api\n\
-         Disallow: /*?root=\n\
+         Disallow: /language\n\
+         Disallow: /*?root=\n";
+    let body = format!(
+        "User-agent: GPTBot\n\
+         {rules}\n\
+         User-agent: *\n\
+         {rules}\
          Crawl-delay: 10\n\
+         \n\
          Sitemap: {base}/sitemap.xml\n\
          Sitemap: {base}/sitemap-samples.xml\n",
     );
@@ -346,4 +359,31 @@ async fn contact_submit(
     )
     .await?;
     Ok(render(true, None))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::body::to_bytes;
+
+    #[tokio::test]
+    async fn robots_blocks_language_switcher_for_gptbot_and_all() {
+        let res = robots().await;
+        let body = to_bytes(res.into_body(), usize::MAX).await.unwrap();
+        let txt = std::str::from_utf8(&body).unwrap();
+
+        // Named-out repeat offender gets its own group (it ignores Crawl-delay).
+        assert!(txt.contains("User-agent: GPTBot"));
+        assert!(txt.contains("User-agent: *"));
+        // The language switcher is disallowed — the fan-out (3 langs × tree perms) and the
+        // `?root=` tunnel both ride through it. Both groups must carry the rule (a specific
+        // group makes the crawler ignore `*`).
+        assert_eq!(txt.matches("Disallow: /language").count(), 2);
+        // The existing controls remain.
+        assert!(txt.contains("Disallow: /*?root="));
+        assert!(txt.contains("Disallow: /curator"));
+        assert!(txt.contains("Disallow: /api"));
+        assert!(txt.contains("Crawl-delay: 10"));
+        assert!(txt.contains("Sitemap: "));
+    }
 }
