@@ -7,7 +7,7 @@
 //! Not part of the public OpenAPI document (Edge protocol, not the read API).
 
 use crate::error::AppError;
-use crate::sig::verify_signed;
+use crate::sig::{verify_signed, verify_signed_fresh};
 use crate::state::AppState;
 use axum::extract::{Query, State};
 use axum::routing::{get, post};
@@ -48,11 +48,13 @@ struct KeyBody {
     /// Standard base64 of the 32-byte X25519 public key.
     x25519_pub: String,
     key_uri: Option<String>,
+    /// Unix seconds; framed into the signed message and replay-guarded.
+    ts: i64,
     signature: String,
 }
 
 async fn publish_key(State(st): State<AppState>, Json(b): Json<KeyBody>) -> Result<Json<Value>, AppError> {
-    verify_signed(&st.pool, &b.did, &messages::publickey(&b.did, &b.x25519_pub, b.key_uri.as_deref()), &b.signature).await?;
+    verify_signed_fresh(&st.pool, &b.did, b.ts, &messages::publickey(&b.did, &b.x25519_pub, b.key_uri.as_deref()), &b.signature).await?;
     let bytes = STANDARD.decode(b.x25519_pub.trim()).map_err(|_| AppError::BadRequest("x25519_pub base64".into()))?;
     if bytes.len() != 32 {
         return Err(AppError::BadRequest("x25519_pub must be 32 bytes".into()));
@@ -85,12 +87,13 @@ struct RequestBody {
     purpose: String,
     scope: Option<String>,
     details: Option<Value>,
+    ts: i64,
     signature: String,
 }
 
 async fn create_request(State(st): State<AppState>, Json(b): Json<RequestBody>) -> Result<Json<Value>, AppError> {
     let msg = messages::request(&b.request_uri, &b.initiator_did, &b.partner_did, &b.purpose, b.scope.as_deref());
-    verify_signed(&st.pool, &b.initiator_did, &msg, &b.signature).await?;
+    verify_signed_fresh(&st.pool, &b.initiator_did, b.ts, &msg, &b.signature).await?;
     // D5 ACL: a project-scoped request requires the initiator be a live team member.
     if let Some(pid) = project_scope_id(b.scope.as_deref()) {
         if !du_db::research::is_team_member(&st.pool, pid, &b.initiator_did).await? {
@@ -144,11 +147,12 @@ struct ConsentBody {
     consenting_did: String,
     consent_given: bool,
     consent_uri: Option<String>,
+    ts: i64,
     signature: String,
 }
 
 async fn consent(State(st): State<AppState>, Json(b): Json<ConsentBody>) -> Result<Json<Value>, AppError> {
-    verify_signed(&st.pool, &b.consenting_did, &messages::consent(&b.request_uri, &b.consenting_did, b.consent_given), &b.signature).await?;
+    verify_signed_fresh(&st.pool, &b.consenting_did, b.ts, &messages::consent(&b.request_uri, &b.consenting_did, b.consent_given), &b.signature).await?;
     // D5 ACL: consenting into a project-scoped exchange requires team membership.
     if let Some(meta) = exchange::request_meta(&st.pool, &b.request_uri).await? {
         if let Some(pid) = project_scope_id(meta.scope.as_deref()) {
@@ -233,6 +237,7 @@ struct RelayBody {
     seq: i32,
     /// Standard base64 of the opaque AES-GCM ciphertext envelope.
     blob: String,
+    ts: i64,
     signature: String,
 }
 
@@ -243,7 +248,7 @@ async fn relay_post(State(st): State<AppState>, Json(b): Json<RelayBody>) -> Res
     }
     let hash = STANDARD.encode(Sha256::digest(&bytes));
     let msg = messages::relay(&b.session_id.to_string(), &b.from_did, &b.to_did, b.seq, &hash);
-    verify_signed(&st.pool, &b.from_did, &msg, &b.signature).await?;
+    verify_signed_fresh(&st.pool, &b.from_did, b.ts, &msg, &b.signature).await?;
     let id = exchange::post_envelope(&st.pool, b.session_id, &b.from_did, &b.to_did, b.seq, &bytes).await?;
     Ok(Json(json!({ "id": id })))
 }
@@ -271,11 +276,12 @@ async fn relay_pull(State(st): State<AppState>, Query(q): Query<PullQuery>) -> R
 struct AckBody {
     envelope_id: i64,
     did: String,
+    ts: i64,
     signature: String,
 }
 
 async fn relay_ack(State(st): State<AppState>, Json(b): Json<AckBody>) -> Result<Json<Value>, AppError> {
-    verify_signed(&st.pool, &b.did, &messages::ack(&b.did, b.envelope_id), &b.signature).await?;
+    verify_signed_fresh(&st.pool, &b.did, b.ts, &messages::ack(&b.did, b.envelope_id), &b.signature).await?;
     if exchange::ack_envelope(&st.pool, b.envelope_id, &b.did).await? {
         Ok(Json(json!({ "status": "acked" })))
     } else {
@@ -307,12 +313,13 @@ mod tests {
         let did = du_atproto::did::did_key_from_ed25519(&sk.verifying_key());
         let partner = "did:key:zPartnerPlaceholder";
         let req_uri = "at://did:key:z.../com.decodingus.exchange.request/1";
-        let msg = du_db::exchange::messages::request(req_uri, &did, partner, "GENEALOGY_PII", None);
-        let sig = STANDARD.encode(sk.sign(msg.as_bytes()).to_bytes());
+        let ts = chrono::Utc::now().timestamp();
+        let base = du_db::exchange::messages::request(req_uri, &did, partner, "GENEALOGY_PII", None);
+        let sig = STANDARD.encode(sk.sign(crate::sig::fresh_message(ts, &base).as_bytes()).to_bytes());
 
         let body = serde_json::json!({
             "request_uri": req_uri, "initiator_did": did, "partner_did": partner,
-            "purpose": "GENEALOGY_PII", "signature": sig,
+            "purpose": "GENEALOGY_PII", "ts": ts, "signature": sig,
         });
         let app = crate::routes::app(state.clone());
         let r = app
@@ -323,6 +330,16 @@ mod tests {
         assert_eq!(r.status(), StatusCode::OK);
         let v: serde_json::Value = serde_json::from_slice(&to_bytes(r.into_body(), usize::MAX).await.unwrap()).unwrap();
         assert_eq!(v["status"], "PENDING");
+
+        // Replaying the identical signed request (same ts + signature) is rejected — the
+        // signature is single-use within the freshness window.
+        let replay = crate::routes::app(state.clone());
+        let rr = replay
+            .oneshot(Request::builder().method("POST").uri("/api/v1/exchange/request")
+                .header("content-type", "application/json").body(Body::from(body.to_string())).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(rr.status(), StatusCode::FORBIDDEN, "replay of a used signature → 403");
 
         // The request notifies the partner via the SYSTEM rail (the D1 producer). The
         // partner DID is bridged into ident.users on demand; a GENEALOGY_PII request
@@ -370,11 +387,12 @@ mod tests {
         let req = |state: crate::state::AppState, sk: &SigningKey, uri_n: u8| {
             let did = du_atproto::did::did_key_from_ed25519(&sk.verifying_key());
             let req_uri = format!("at://{did}/exchange/{uri_n}");
-            let msg = du_db::exchange::messages::request(&req_uri, &did, "did:key:zPartner", "GENEALOGY_PII", Some(&scope));
-            let sig = STANDARD.encode(sk.sign(msg.as_bytes()).to_bytes());
+            let ts = chrono::Utc::now().timestamp();
+            let base = du_db::exchange::messages::request(&req_uri, &did, "did:key:zPartner", "GENEALOGY_PII", Some(&scope));
+            let sig = STANDARD.encode(sk.sign(crate::sig::fresh_message(ts, &base).as_bytes()).to_bytes());
             let body = serde_json::json!({
                 "request_uri": req_uri, "initiator_did": did, "partner_did": "did:key:zPartner",
-                "purpose": "GENEALOGY_PII", "scope": scope, "signature": sig,
+                "purpose": "GENEALOGY_PII", "scope": scope, "ts": ts, "signature": sig,
             });
             async move {
                 crate::routes::app(state)

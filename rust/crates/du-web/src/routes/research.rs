@@ -7,7 +7,7 @@
 //! subject's steward. Not part of the public OpenAPI document.
 
 use crate::error::AppError;
-use crate::sig::verify_signed;
+use crate::sig::{verify_signed, verify_signed_fresh};
 use crate::state::AppState;
 use axum::extract::{Query, State};
 use axum::routing::{get, post};
@@ -38,13 +38,15 @@ struct RegisterBody {
     project_id: i64,
     /// Present when the subject id was agreed via a D1 id-exchange; omit to mint one.
     subject_id: Option<Uuid>,
+    ts: i64,
     signature: String,
 }
 
 async fn register(State(st): State<AppState>, Json(b): Json<RegisterBody>) -> Result<Json<Value>, AppError> {
-    verify_signed(
+    verify_signed_fresh(
         &st.pool,
         &b.steward_did,
+        b.ts,
         &messages::register(&b.steward_did, b.project_id, b.subject_id.map(|u| u.to_string()).as_deref()),
         &b.signature,
     )
@@ -64,13 +66,15 @@ struct MergeBody {
     retire: Uuid,
     method: String,
     confidence: Option<f64>,
+    ts: i64,
     signature: String,
 }
 
 async fn merge(State(st): State<AppState>, Json(b): Json<MergeBody>) -> Result<Json<Value>, AppError> {
-    verify_signed(
+    verify_signed_fresh(
         &st.pool,
         &b.asserted_by_did,
+        b.ts,
         &messages::merge(&b.asserted_by_did, &b.keep.to_string(), &b.retire.to_string(), &b.method),
         &b.signature,
     )
@@ -90,13 +94,15 @@ struct CustodyBody {
     steward_did: String,
     subject_id: Uuid,
     custody_did: String,
+    ts: i64,
     signature: String,
 }
 
 async fn custody(State(st): State<AppState>, Json(b): Json<CustodyBody>) -> Result<Json<Value>, AppError> {
-    verify_signed(
+    verify_signed_fresh(
         &st.pool,
         &b.steward_did,
+        b.ts,
         &messages::custody(&b.steward_did, &b.subject_id.to_string(), &b.custody_did),
         &b.signature,
     )
@@ -142,11 +148,12 @@ struct AddMemberBody {
     member_did: String,
     role: String,
     permissions: Option<Vec<String>>,
+    ts: i64,
     signature: String,
 }
 
 async fn add_member(State(st): State<AppState>, Json(b): Json<AddMemberBody>) -> Result<Json<Value>, AppError> {
-    verify_signed(&st.pool, &b.actor_did, &messages::add_member(&b.actor_did, b.project_id, &b.member_did, &b.role), &b.signature).await?;
+    verify_signed_fresh(&st.pool, &b.actor_did, b.ts, &messages::add_member(&b.actor_did, b.project_id, &b.member_did, &b.role), &b.signature).await?;
     if !research::can(&st.pool, b.project_id, &b.actor_did, research::Capability::ManageRoles).await? {
         return Err(AppError::Forbidden);
     }
@@ -160,11 +167,12 @@ struct RevokeMemberBody {
     actor_did: String,
     project_id: i64,
     member_did: String,
+    ts: i64,
     signature: String,
 }
 
 async fn revoke_member(State(st): State<AppState>, Json(b): Json<RevokeMemberBody>) -> Result<Json<Value>, AppError> {
-    verify_signed(&st.pool, &b.actor_did, &messages::revoke_member(&b.actor_did, b.project_id, &b.member_did), &b.signature).await?;
+    verify_signed_fresh(&st.pool, &b.actor_did, b.ts, &messages::revoke_member(&b.actor_did, b.project_id, &b.member_did), &b.signature).await?;
     if !research::can(&st.pool, b.project_id, &b.actor_did, research::Capability::ManageRoles).await? {
         return Err(AppError::Forbidden);
     }
@@ -206,14 +214,16 @@ struct AssertBody {
     supersedes_id: Option<i64>,
     /// Author asserts the free-text value carries no PII (required for `NOTE`).
     pii_cleared: Option<bool>,
+    ts: i64,
     signature: String,
 }
 
 async fn assert(State(st): State<AppState>, Json(b): Json<AssertBody>) -> Result<Json<Value>, AppError> {
     let scope = if b.public.unwrap_or(false) { "PUBLIC".to_string() } else { format!("PROJECT:{}", b.project_id) };
-    verify_signed(
+    verify_signed_fresh(
         &st.pool,
         &b.author_did,
+        b.ts,
         &messages::assert(&b.author_did, &b.subject_id.to_string(), &b.predicate, &scope),
         &b.signature,
     )
@@ -243,11 +253,12 @@ struct RetractBody {
     assertion_id: i64,
     /// The ACL context for the dispute-resolution path (non-authors need ResolveDispute).
     project_id: i64,
+    ts: i64,
     signature: String,
 }
 
 async fn retract(State(st): State<AppState>, Json(b): Json<RetractBody>) -> Result<Json<Value>, AppError> {
-    verify_signed(&st.pool, &b.actor_did, &messages::retract(&b.actor_did, b.assertion_id), &b.signature).await?;
+    verify_signed_fresh(&st.pool, &b.actor_did, b.ts, &messages::retract(&b.actor_did, b.assertion_id), &b.signature).await?;
     let meta = research::assertion_meta(&st.pool, b.assertion_id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("live assertion {}", b.assertion_id)))?;
@@ -269,11 +280,12 @@ struct ResolveBody {
     /// A live `SAME_PERSON_AS` assertion to accept → drives the D2 merge.
     assertion_id: i64,
     project_id: i64,
+    ts: i64,
     signature: String,
 }
 
 async fn resolve(State(st): State<AppState>, Json(b): Json<ResolveBody>) -> Result<Json<Value>, AppError> {
-    verify_signed(&st.pool, &b.actor_did, &messages::resolve(&b.actor_did, b.assertion_id), &b.signature).await?;
+    verify_signed_fresh(&st.pool, &b.actor_did, b.ts, &messages::resolve(&b.actor_did, b.assertion_id), &b.signature).await?;
     if !research::can(&st.pool, b.project_id, &b.actor_did, research::Capability::ResolveDispute).await? {
         return Err(AppError::Forbidden);
     }
@@ -345,9 +357,10 @@ mod tests {
         };
 
         // Owner-signed → 200 + a minted subject.
-        let msg = du_db::research::messages::register(&owner_did, project_id, None);
+        let ts = chrono::Utc::now().timestamp();
+        let msg = crate::sig::fresh_message(ts, &du_db::research::messages::register(&owner_did, project_id, None));
         let sig = STANDARD.encode(owner.sign(msg.as_bytes()).to_bytes());
-        let ok = post(state.clone(), serde_json::json!({ "steward_did": owner_did, "project_id": project_id, "signature": sig })).await;
+        let ok = post(state.clone(), serde_json::json!({ "steward_did": owner_did, "project_id": project_id, "ts": ts, "signature": sig })).await;
         assert_eq!(ok.status(), StatusCode::OK);
         let v: serde_json::Value = serde_json::from_slice(&to_bytes(ok.into_body(), usize::MAX).await.unwrap()).unwrap();
         assert!(v["research_subject_id"].as_str().is_some());
@@ -355,13 +368,14 @@ mod tests {
         // A non-owner with a VALID signature is rejected by the owner gate (403).
         let other = SigningKey::from_bytes(&[12u8; 32]);
         let other_did = du_atproto::did::did_key_from_ed25519(&other.verifying_key());
-        let omsg = du_db::research::messages::register(&other_did, project_id, None);
+        let ots = chrono::Utc::now().timestamp();
+        let omsg = crate::sig::fresh_message(ots, &du_db::research::messages::register(&other_did, project_id, None));
         let osig = STANDARD.encode(other.sign(omsg.as_bytes()).to_bytes());
-        let r403 = post(state.clone(), serde_json::json!({ "steward_did": other_did, "project_id": project_id, "signature": osig })).await;
+        let r403 = post(state.clone(), serde_json::json!({ "steward_did": other_did, "project_id": project_id, "ts": ots, "signature": osig })).await;
         assert_eq!(r403.status(), StatusCode::FORBIDDEN);
 
         // A tampered signature (owner did, wrong sig) → 403.
-        let bad = post(state, serde_json::json!({ "steward_did": owner_did, "project_id": project_id, "signature": "AAAA" })).await;
+        let bad = post(state, serde_json::json!({ "steward_did": owner_did, "project_id": project_id, "ts": chrono::Utc::now().timestamp(), "signature": "AAAA" })).await;
         assert_eq!(bad.status(), StatusCode::FORBIDDEN);
     }
 
@@ -395,20 +409,22 @@ mod tests {
         };
 
         // Owner (ADMIN) adds a CO_ADMIN → 200.
-        let m = du_db::research::messages::add_member(&owner_did, project_id, "did:key:zNew", "CO_ADMIN");
+        let ts = chrono::Utc::now().timestamp();
+        let m = crate::sig::fresh_message(ts, &du_db::research::messages::add_member(&owner_did, project_id, "did:key:zNew", "CO_ADMIN"));
         let sig = STANDARD.encode(owner.sign(m.as_bytes()).to_bytes());
         let ok = post(state.clone(), serde_json::json!({
-            "actor_did": owner_did, "project_id": project_id, "member_did": "did:key:zNew", "role": "CO_ADMIN", "signature": sig,
+            "actor_did": owner_did, "project_id": project_id, "member_did": "did:key:zNew", "role": "CO_ADMIN", "ts": ts, "signature": sig,
         })).await;
         assert_eq!(ok.status(), StatusCode::OK);
 
         // A non-admin (valid signature, but no ManageRoles) → 403.
         let outsider = SigningKey::from_bytes(&[22u8; 32]);
         let out_did = du_atproto::did::did_key_from_ed25519(&outsider.verifying_key());
-        let m2 = du_db::research::messages::add_member(&out_did, project_id, "did:key:zEvil", "ADMIN");
+        let ts2 = chrono::Utc::now().timestamp();
+        let m2 = crate::sig::fresh_message(ts2, &du_db::research::messages::add_member(&out_did, project_id, "did:key:zEvil", "ADMIN"));
         let sig2 = STANDARD.encode(outsider.sign(m2.as_bytes()).to_bytes());
         let r403 = post(state, serde_json::json!({
-            "actor_did": out_did, "project_id": project_id, "member_did": "did:key:zEvil", "role": "ADMIN", "signature": sig2,
+            "actor_did": out_did, "project_id": project_id, "member_did": "did:key:zEvil", "role": "ADMIN", "ts": ts2, "signature": sig2,
         })).await;
         assert_eq!(r403.status(), StatusCode::FORBIDDEN);
     }
@@ -451,37 +467,41 @@ mod tests {
         let scope = format!("PROJECT:{project_id}");
 
         // Owner (ADMIN ⇒ WriteAssertions) records a HAPLOGROUP_IS → 200.
-        let m = du_db::research::messages::assert(&owner_did, &subject.to_string(), "HAPLOGROUP_IS", &scope);
+        let ts = chrono::Utc::now().timestamp();
+        let m = crate::sig::fresh_message(ts, &du_db::research::messages::assert(&owner_did, &subject.to_string(), "HAPLOGROUP_IS", &scope));
         let sig = STANDARD.encode(owner.sign(m.as_bytes()).to_bytes());
         let ok = post(state.clone(), "/api/v1/research/assertion", serde_json::json!({
             "author_did": owner_did, "subject_id": subject, "project_id": project_id,
-            "predicate": "HAPLOGROUP_IS", "value": {"haplogroup": "R-M269"}, "signature": sig,
+            "predicate": "HAPLOGROUP_IS", "value": {"haplogroup": "R-M269"}, "ts": ts, "signature": sig,
         })).await;
         assert_eq!(ok.status(), StatusCode::OK);
 
         // A PII predicate (MDKA_IS) is rejected at the store boundary → 422.
-        let mp = du_db::research::messages::assert(&owner_did, &subject.to_string(), "MDKA_IS", &scope);
+        let pts = chrono::Utc::now().timestamp();
+        let mp = crate::sig::fresh_message(pts, &du_db::research::messages::assert(&owner_did, &subject.to_string(), "MDKA_IS", &scope));
         let psig = STANDARD.encode(owner.sign(mp.as_bytes()).to_bytes());
         let pii = post(state.clone(), "/api/v1/research/assertion", serde_json::json!({
             "author_did": owner_did, "subject_id": subject, "project_id": project_id,
-            "predicate": "MDKA_IS", "value": {"ancestor_name": "Jane"}, "signature": psig,
+            "predicate": "MDKA_IS", "value": {"ancestor_name": "Jane"}, "ts": pts, "signature": psig,
         })).await;
         assert_eq!(pii.status(), StatusCode::UNPROCESSABLE_ENTITY);
 
         // A MODERATOR (valid signature, no WriteAssertions) → 403.
-        let mm = du_db::research::messages::assert(&mod_did, &subject.to_string(), "HAPLOGROUP_IS", &scope);
+        let mts = chrono::Utc::now().timestamp();
+        let mm = crate::sig::fresh_message(mts, &du_db::research::messages::assert(&mod_did, &subject.to_string(), "HAPLOGROUP_IS", &scope));
         let msig = STANDARD.encode(mods.sign(mm.as_bytes()).to_bytes());
         let r403 = post(state.clone(), "/api/v1/research/assertion", serde_json::json!({
             "author_did": mod_did, "subject_id": subject, "project_id": project_id,
-            "predicate": "HAPLOGROUP_IS", "value": {"haplogroup": "R-L21"}, "signature": msig,
+            "predicate": "HAPLOGROUP_IS", "value": {"haplogroup": "R-L21"}, "ts": mts, "signature": msig,
         })).await;
         assert_eq!(r403.status(), StatusCode::FORBIDDEN);
 
         // Resolve is ResolveDispute-gated: the MODERATOR is refused before any merge → 403.
-        let mr = du_db::research::messages::resolve(&mod_did, 1);
+        let rts = chrono::Utc::now().timestamp();
+        let mr = crate::sig::fresh_message(rts, &du_db::research::messages::resolve(&mod_did, 1));
         let rsig = STANDARD.encode(mods.sign(mr.as_bytes()).to_bytes());
         let rr = post(state, "/api/v1/research/assertion/resolve", serde_json::json!({
-            "actor_did": mod_did, "assertion_id": 1, "project_id": project_id, "signature": rsig,
+            "actor_did": mod_did, "assertion_id": 1, "project_id": project_id, "ts": rts, "signature": rsig,
         })).await;
         assert_eq!(rr.status(), StatusCode::FORBIDDEN);
     }

@@ -24,6 +24,7 @@ pub mod device_key;
 pub mod feed;
 pub mod instrument_observation;
 pub mod private_variant;
+pub mod signed_request;
 pub mod str_profile;
 
 // Collection NSIDs the AppView ingests for reporting. The records Navigator computes +

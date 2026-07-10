@@ -16,11 +16,50 @@ use du_db::PgPool;
 /// Replay window for signed Edge requests: the signed `ts` must be within ±5 min of now.
 const SIGNED_TS_SKEW_SECS: i64 = 300;
 
+/// How long an accepted signature is kept in the replay guard: the freshness window plus
+/// headroom for clock skew. Inside this window a replayed signature collides and is
+/// rejected; past it, [`ensure_fresh_ts`] alone rejects the stale `ts`, so the recorded
+/// signature is no longer needed.
+const REPLAY_TTL_SECS: i64 = 2 * SIGNED_TS_SKEW_SECS;
+
 /// Reject a signed request whose timestamp is outside the replay window (a `400`). Every
-/// signed Edge endpoint calls this before [`verify_signed`] as its replay guard.
+/// signed Edge read endpoint calls this before [`verify_signed`]; mutating endpoints go
+/// through [`verify_signed_fresh`], which calls it.
 pub fn ensure_fresh_ts(ts: i64) -> Result<(), AppError> {
     if (chrono::Utc::now().timestamp() - ts).abs() > SIGNED_TS_SKEW_SECS {
         return Err(AppError::BadRequest("stale timestamp".into()));
+    }
+    Ok(())
+}
+
+/// Canonical replay-guarded framing for a **mutating** signed request: the caller's
+/// timestamp prefixed to the base message (`{ts}\n{base}`). The Navigator signer mirrors
+/// this byte-for-byte, so one signature binds both the timestamp (freshness) and the
+/// operation (the base message). Keep this format stable — it is a cross-repo contract.
+pub fn fresh_message(ts: i64, base_message: &str) -> String {
+    format!("{ts}\n{base_message}")
+}
+
+/// Verify a **mutating** signed Edge request with replay protection. The signature must
+/// cover [`fresh_message(ts, base_message)`](fresh_message), `ts` must be within the
+/// freshness window, and the exact signature must not have been accepted before
+/// (single-use within the window — a replay of the identical signed bytes is rejected).
+/// A stale `ts` → 400; a bad signature or a replay → 403.
+///
+/// A legitimate client that retries re-signs with a fresh `ts` (a new signature), so
+/// retries are not mistaken for replays; the mutating handlers are also idempotent.
+pub async fn verify_signed_fresh(
+    pool: &PgPool,
+    did: &str,
+    ts: i64,
+    base_message: &str,
+    signature: &str,
+) -> Result<(), AppError> {
+    ensure_fresh_ts(ts)?;
+    verify_signed(pool, did, &fresh_message(ts, base_message), signature).await?;
+    // Authenticated → burn the signature so an identical replay within the window collides.
+    if !du_db::fed::signed_request::reserve(pool, signature, did, REPLAY_TTL_SECS).await? {
+        return Err(AppError::Forbidden);
     }
     Ok(())
 }
@@ -46,7 +85,25 @@ pub async fn verify_signed(pool: &PgPool, did: &str, message: &str, signature: &
 
 #[cfg(test)]
 mod tests {
-    use super::verify_signed;
+    use super::{fresh_message, verify_signed, REPLAY_TTL_SECS, SIGNED_TS_SKEW_SECS};
+
+    /// The replay-guarded framing is exactly `{ts}\n{base}` — the cross-repo contract the
+    /// Navigator `DeviceKey::sign_fresh` mirrors byte-for-byte.
+    #[test]
+    fn fresh_message_prefixes_ts() {
+        assert_eq!(
+            fresh_message(1_700_000_000, "exchange-consent\nurn:x\ndid:key:zA\ntrue"),
+            "1700000000\nexchange-consent\nurn:x\ndid:key:zA\ntrue"
+        );
+    }
+
+    /// The replay guard must retain an accepted signature at least as long as the freshness
+    /// window, or a replay could outlive its guard entry while its `ts` is still fresh.
+    #[test]
+    fn replay_ttl_covers_the_freshness_window() {
+        assert!(REPLAY_TTL_SECS >= 2 * SIGNED_TS_SKEW_SECS);
+    }
+
     use base64::engine::general_purpose::STANDARD;
     use base64::Engine;
     use ed25519_dalek::{Signer, SigningKey};

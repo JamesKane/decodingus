@@ -164,7 +164,8 @@ async fn main() -> anyhow::Result<()> {
             }
             "exchange-expire" => {
                 let (envelopes, sessions) = du_db::exchange::expire(&pool).await?;
-                tracing::info!(envelopes, sessions, "exchange-expire complete");
+                let replay_guards = du_db::fed::signed_request::purge_expired(&pool).await?;
+                tracing::info!(envelopes, sessions, replay_guards, "exchange-expire complete");
             }
             // Tier-1 biosample duplicate candidates: block by terminal Y + mt and
             // refine with private-variant Jaccard into dedup.duplicate_candidate.

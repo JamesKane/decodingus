@@ -9,7 +9,7 @@
 //! a signature, and message bodies the user chose to send the team cross the wire.
 
 use crate::error::AppError;
-use crate::sig::{ensure_fresh_ts, verify_signed};
+use crate::sig::{ensure_fresh_ts, verify_signed, verify_signed_fresh};
 use crate::state::AppState;
 use axum::extract::{Path, Query, State};
 use axum::routing::{get, post};
@@ -46,13 +46,15 @@ struct ThreadBody {
     conversation_id: Option<Uuid>,
     subject: Option<String>,
     body: String,
+    ts: i64,
     signature: String,
 }
 
 async fn thread_write(State(st): State<AppState>, Json(b): Json<ThreadBody>) -> Result<Json<Value>, AppError> {
-    verify_signed(
+    verify_signed_fresh(
         &st.pool,
         &b.did,
+        b.ts,
         &messages::thread(&b.did, b.conversation_id.map(|u| u.to_string()).as_deref()),
         &b.signature,
     )
@@ -142,13 +144,15 @@ struct PostBody {
     topic: Option<String>,
     /// Set to reply to an existing post.
     parent_post_id: Option<Uuid>,
+    ts: i64,
     signature: String,
 }
 
 async fn feed_post(State(st): State<AppState>, Json(b): Json<PostBody>) -> Result<Json<Value>, AppError> {
-    verify_signed(
+    verify_signed_fresh(
         &st.pool,
         &b.did,
+        b.ts,
         &messages::post(&b.did, b.parent_post_id.map(|u| u.to_string()).as_deref()),
         &b.signature,
     )
@@ -289,17 +293,18 @@ mod tests {
         };
 
         // Open a thread (signed over did + "new").
-        let msg = messages::thread(&tester_did, None);
+        let tts = chrono::Utc::now().timestamp();
+        let msg = crate::sig::fresh_message(tts, &messages::thread(&tester_did, None));
         let sig = STANDARD.encode(tester.sign(msg.as_bytes()).to_bytes());
         let resp = send(state.clone(), "POST", "/api/v1/social/thread".into(),
-            json!({ "did": tester_did, "subject": "hi", "body": "first message", "signature": sig })).await;
+            json!({ "did": tester_did, "subject": "hi", "body": "first message", "ts": tts, "signature": sig })).await;
         assert_eq!(resp.status(), StatusCode::OK);
         let v: Value = serde_json::from_slice(&to_bytes(resp.into_body(), usize::MAX).await.unwrap()).unwrap();
         let conv = v["conversation_id"].as_str().unwrap().to_string();
 
         // Forged signature → 403.
         let bad = send(state.clone(), "POST", "/api/v1/social/thread".into(),
-            json!({ "did": tester_did, "body": "x", "signature": "AAAA" })).await;
+            json!({ "did": tester_did, "body": "x", "ts": chrono::Utc::now().timestamp(), "signature": "AAAA" })).await;
         assert_eq!(bad.status(), StatusCode::FORBIDDEN);
 
         // The team replies (out of band, via the db layer the curator UI uses).

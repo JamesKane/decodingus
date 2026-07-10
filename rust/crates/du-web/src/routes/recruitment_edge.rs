@@ -14,7 +14,7 @@
 //! PII-free throughout: DIDs, signatures, and the campaign's public targeting fields only.
 
 use crate::error::AppError;
-use crate::sig::{ensure_fresh_ts, verify_signed};
+use crate::sig::{ensure_fresh_ts, verify_signed, verify_signed_fresh};
 use crate::state::AppState;
 use axum::extract::{Query, State};
 use axum::routing::{get, post};
@@ -62,6 +62,7 @@ struct RespondBody {
     did: String,
     campaign_id: i64,
     accept: bool,
+    ts: i64,
     signature: String,
 }
 
@@ -69,9 +70,10 @@ struct RespondBody {
 /// the member is awarded reputation and the campaign owner is notified. Returns whether the
 /// response changed anything.
 async fn respond(State(st): State<AppState>, Json(b): Json<RespondBody>) -> Result<Json<Value>, AppError> {
-    verify_signed(
+    verify_signed_fresh(
         &st.pool,
         &b.did,
+        b.ts,
         &messages::respond(&b.did, b.campaign_id, b.accept),
         &b.signature,
     )
@@ -112,6 +114,7 @@ struct CreateBody {
     message: String,
     target_haplogroup: String,
     lineage: String,
+    ts: i64,
     signature: String,
 }
 
@@ -119,9 +122,10 @@ struct CreateBody {
 /// reputation floor on the project (the same gate the web `recruiter_ctx` enforces), then runs
 /// the shared cohort compute/deliver/notify. Returns the new campaign id.
 async fn create(State(st): State<AppState>, Json(b): Json<CreateBody>) -> Result<Json<Value>, AppError> {
-    verify_signed(
+    verify_signed_fresh(
         &st.pool,
         &b.did,
+        b.ts,
         &messages::create(&b.did, b.project_id, &b.target_haplogroup, &b.lineage),
         &b.signature,
     )
@@ -207,12 +211,13 @@ mod tests {
         assert_eq!(send(state.clone(), "GET", bad, json!({})).await.status(), StatusCode::FORBIDDEN);
 
         // Accept (signed) → changed, and the target is now ACCEPTED.
-        let rsig = STANDARD.encode(tester.sign(messages::respond(&tester_did, cid, true).as_bytes()).to_bytes());
+        let rts = chrono::Utc::now().timestamp();
+        let rsig = STANDARD.encode(tester.sign(crate::sig::fresh_message(rts, &messages::respond(&tester_did, cid, true)).as_bytes()).to_bytes());
         let resp = send(
             state.clone(),
             "POST",
             "/api/v1/recruitment/respond".into(),
-            json!({ "did": tester_did, "campaign_id": cid, "accept": true, "signature": rsig }),
+            json!({ "did": tester_did, "campaign_id": cid, "accept": true, "ts": rts, "signature": rsig }),
         )
         .await;
         assert_eq!(resp.status(), StatusCode::OK);
@@ -274,10 +279,11 @@ mod tests {
         assert_eq!(body["items"][0]["project_id"].as_i64(), Some(project));
 
         // Create a campaign (signed over the structural fields). A forged signature is rejected.
-        let csig = STANDARD.encode(researcher.sign(messages::create(&researcher_did, project, "R-M269", "Y_DNA").as_bytes()).to_bytes());
+        let cts = chrono::Utc::now().timestamp();
+        let csig = STANDARD.encode(researcher.sign(crate::sig::fresh_message(cts, &messages::create(&researcher_did, project, "R-M269", "Y_DNA")).as_bytes()).to_bytes());
         let make_body = |sig: &str| {
             json!({ "did": researcher_did, "project_id": project, "title": "Join",
-                    "message": "Help us", "target_haplogroup": "R-M269", "lineage": "Y_DNA", "signature": sig })
+                    "message": "Help us", "target_haplogroup": "R-M269", "lineage": "Y_DNA", "ts": cts, "signature": sig })
         };
         assert_eq!(
             send(state.clone(), "POST", "/api/v1/recruitment/campaign".into(), make_body("Zm9v")).await.status(),

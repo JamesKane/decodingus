@@ -10,7 +10,7 @@
 //! the public OpenAPI document.
 
 use crate::error::AppError;
-use crate::sig::verify_signed;
+use crate::sig::{verify_signed, verify_signed_fresh};
 use crate::state::AppState;
 use axum::extract::{Query, State};
 use axum::routing::{get, post};
@@ -58,6 +58,7 @@ async fn suggestions(State(st): State<AppState>, Query(q): Query<SuggestionsQuer
 struct IntroduceBody {
     did: String,
     suggested_sample_guid: Uuid,
+    ts: i64,
     signature: String,
 }
 
@@ -65,7 +66,7 @@ struct IntroduceBody {
 /// DID is resolved server-side and **never returned**; the caller learns it only after
 /// mutual consent opens a session (`exchange::pending_for`).
 async fn introduce(State(st): State<AppState>, Json(b): Json<IntroduceBody>) -> Result<Json<Value>, AppError> {
-    verify_signed(&st.pool, &b.did, &messages::introduce(&b.did, &b.suggested_sample_guid.to_string()), &b.signature).await?;
+    verify_signed_fresh(&st.pool, &b.did, b.ts, &messages::introduce(&b.did, &b.suggested_sample_guid.to_string()), &b.signature).await?;
     // Authorize + pick the exchange purpose from the suggestion's dominant signal (the caller
     // may only introduce to its own genuine candidate).
     let purpose = ibd::introduction_purpose(&st.pool, &b.did, b.suggested_sample_guid)
@@ -102,12 +103,13 @@ async fn introduce(State(st): State<AppState>, Json(b): Json<IntroduceBody>) -> 
 struct DismissBody {
     did: String,
     suggested_sample_guid: Uuid,
+    ts: i64,
     signature: String,
 }
 
 /// Dismiss a candidate so the engine stops suggesting it (preserved across recomputes).
 async fn dismiss(State(st): State<AppState>, Json(b): Json<DismissBody>) -> Result<Json<Value>, AppError> {
-    verify_signed(&st.pool, &b.did, &messages::dismiss(&b.did, &b.suggested_sample_guid.to_string()), &b.signature).await?;
+    verify_signed_fresh(&st.pool, &b.did, b.ts, &messages::dismiss(&b.did, &b.suggested_sample_guid.to_string()), &b.signature).await?;
     let n = ibd::dismiss_suggestion(&st.pool, &b.did, b.suggested_sample_guid).await?;
     if n == 0 {
         return Err(AppError::NotFound(format!("no active suggestion for {}", b.suggested_sample_guid)));
@@ -130,6 +132,7 @@ struct AttestBody {
     attestation_type: String,
     #[serde(default)]
     notes: Option<String>,
+    ts: i64,
     signature: String,
 }
 
@@ -152,7 +155,7 @@ async fn attest(State(st): State<AppState>, Json(b): Json<AttestBody>) -> Result
         &b.region_type,
         &cm,
     );
-    verify_signed(&st.pool, &b.did, &msg, &b.signature).await?;
+    verify_signed_fresh(&st.pool, &b.did, b.ts, &msg, &b.signature).await?;
 
     let outcome = ibd::record_attestation(
         &st.pool,
@@ -281,10 +284,11 @@ mod tests {
         assert_eq!(stale.status(), StatusCode::UNPROCESSABLE_ENTITY);
 
         // Introduce to the genuine candidate → brokers a PENDING request, counterpart hidden.
-        let im = du_db::ibd::messages::introduce(&owner_did, &suggested.to_string());
+        let its = chrono::Utc::now().timestamp();
+        let im = crate::sig::fresh_message(its, &du_db::ibd::messages::introduce(&owner_did, &suggested.to_string()));
         let isig = STANDARD.encode(owner.sign(im.as_bytes()).to_bytes());
         let intro = post(state.clone(), serde_json::json!({
-            "did": owner_did, "suggested_sample_guid": suggested, "signature": isig,
+            "did": owner_did, "suggested_sample_guid": suggested, "ts": its, "signature": isig,
         })).await;
         assert_eq!(intro.status(), StatusCode::OK);
         let iv: Value = serde_json::from_slice(&to_bytes(intro.into_body(), usize::MAX).await.unwrap()).unwrap();
@@ -316,10 +320,11 @@ mod tests {
 
         // Introduce to a sample that is NOT the caller's candidate → 403.
         let stranger = fed_sample(&pool, "did:plc:stranger").await;
-        let bm = du_db::ibd::messages::introduce(&owner_did, &stranger.to_string());
+        let bts = chrono::Utc::now().timestamp();
+        let bm = crate::sig::fresh_message(bts, &du_db::ibd::messages::introduce(&owner_did, &stranger.to_string()));
         let bsig = STANDARD.encode(owner.sign(bm.as_bytes()).to_bytes());
         let bad = post(state.clone(), serde_json::json!({
-            "did": owner_did, "suggested_sample_guid": stranger, "signature": bsig,
+            "did": owner_did, "suggested_sample_guid": stranger, "ts": bts, "signature": bsig,
         })).await;
         assert_eq!(bad.status(), StatusCode::FORBIDDEN);
 
@@ -334,12 +339,13 @@ mod tests {
         .execute(&pool)
         .await
         .unwrap();
-        let dm = du_db::ibd::messages::dismiss(&owner_did, &other.to_string());
+        let dmts = chrono::Utc::now().timestamp();
+        let dm = crate::sig::fresh_message(dmts, &du_db::ibd::messages::dismiss(&owner_did, &other.to_string()));
         let dsig = STANDARD.encode(owner.sign(dm.as_bytes()).to_bytes());
         let dres = crate::routes::app(state.clone())
             .oneshot(Request::builder().method("POST").uri("/api/v1/ibd/dismiss")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::json!({ "did": owner_did, "suggested_sample_guid": other, "signature": dsig }).to_string())).unwrap())
+                .body(Body::from(serde_json::json!({ "did": owner_did, "suggested_sample_guid": other, "ts": dmts, "signature": dsig }).to_string())).unwrap())
             .await
             .unwrap();
         assert_eq!(dres.status(), StatusCode::OK);
@@ -388,11 +394,12 @@ mod tests {
 
         // Signed happy path: alice's first report → 200, PENDING (awaiting bob).
         let cm = format!("{:.1}", 250.0);
-        let msg = du_db::ibd::messages::attest(&alice_did, "urn:web:ab", &sa.to_string(), &sb.to_string(), "AUTOSOMAL", &cm);
-        let sig = STANDARD.encode(alice.sign(msg.as_bytes()).to_bytes());
+        let ats = chrono::Utc::now().timestamp();
+        let base = du_db::ibd::messages::attest(&alice_did, "urn:web:ab", &sa.to_string(), &sb.to_string(), "AUTOSOMAL", &cm);
+        let sig = STANDARD.encode(alice.sign(crate::sig::fresh_message(ats, &base).as_bytes()).to_bytes());
         let ok = post(state.clone(), serde_json::json!({
             "did": alice_did, "request_uri": "urn:web:ab", "claimed_sample": sa, "counterpart_sample": sb,
-            "region_type": "AUTOSOMAL", "total_shared_cm": 250.0, "signature": sig,
+            "region_type": "AUTOSOMAL", "total_shared_cm": 250.0, "ts": ats, "signature": sig,
         })).await;
         assert_eq!(ok.status(), StatusCode::OK);
         let ov: Value = serde_json::from_slice(&to_bytes(ok.into_body(), usize::MAX).await.unwrap()).unwrap();
@@ -402,7 +409,7 @@ mod tests {
         // Tampered signature → 403.
         let bad = post(state.clone(), serde_json::json!({
             "did": alice_did, "request_uri": "urn:web:ab", "claimed_sample": sa, "counterpart_sample": sb,
-            "region_type": "AUTOSOMAL", "total_shared_cm": 250.0, "signature": "AAAA",
+            "region_type": "AUTOSOMAL", "total_shared_cm": 250.0, "ts": chrono::Utc::now().timestamp(), "signature": "AAAA",
         })).await;
         assert_eq!(bad.status(), StatusCode::FORBIDDEN);
 
@@ -416,11 +423,12 @@ mod tests {
         .execute(&pool)
         .await
         .unwrap();
-        let pmsg = du_db::ibd::messages::attest(&alice_did, "urn:web:pending", &sa.to_string(), &sb.to_string(), "AUTOSOMAL", &cm);
-        let psig = STANDARD.encode(alice.sign(pmsg.as_bytes()).to_bytes());
+        let pts = chrono::Utc::now().timestamp();
+        let pbase = du_db::ibd::messages::attest(&alice_did, "urn:web:pending", &sa.to_string(), &sb.to_string(), "AUTOSOMAL", &cm);
+        let psig = STANDARD.encode(alice.sign(crate::sig::fresh_message(pts, &pbase).as_bytes()).to_bytes());
         let pending = post(state, serde_json::json!({
             "did": alice_did, "request_uri": "urn:web:pending", "claimed_sample": sa, "counterpart_sample": sb,
-            "region_type": "AUTOSOMAL", "total_shared_cm": 250.0, "signature": psig,
+            "region_type": "AUTOSOMAL", "total_shared_cm": 250.0, "ts": pts, "signature": psig,
         })).await;
         assert_eq!(pending.status(), StatusCode::FORBIDDEN);
     }
