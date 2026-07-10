@@ -250,9 +250,13 @@ pub async fn post_envelope(
     if from_did == to_did || !parties.contains(&from_did) || !parties.contains(&to_did) {
         return Err(DbError::Conflict("not a session participant".into()));
     }
-    let id: i64 = sqlx::query_scalar(
+    // A sender's (session_id, seq) slot is unique (migration 0066): a replayed/retried
+    // envelope collides instead of inserting a duplicate. On conflict, return the id of
+    // the row already stored so the post stays idempotent.
+    let inserted: Option<i64> = sqlx::query_scalar(
         "INSERT INTO exchange.relay_envelope (session_id, from_did, to_did, seq, size_bytes, blob, expires_at) \
          VALUES ($1, $2, $3, $4, $5, $6, (SELECT expires_at FROM exchange.exchange_session WHERE session_id = $1)) \
+         ON CONFLICT (session_id, from_did, seq) DO NOTHING \
          RETURNING id",
     )
     .bind(session_id)
@@ -261,8 +265,21 @@ pub async fn post_envelope(
     .bind(seq)
     .bind(blob.len() as i32)
     .bind(blob)
-    .fetch_one(&mut *tx)
+    .fetch_optional(&mut *tx)
     .await?;
+    let id: i64 = match inserted {
+        Some(id) => id,
+        None => {
+            sqlx::query_scalar(
+                "SELECT id FROM exchange.relay_envelope WHERE session_id = $1 AND from_did = $2 AND seq = $3",
+            )
+            .bind(session_id)
+            .bind(from_did)
+            .bind(seq)
+            .fetch_one(&mut *tx)
+            .await?
+        }
+    };
     sqlx::query("UPDATE exchange.exchange_session SET status = 'ACTIVE' WHERE session_id = $1 AND status = 'ESTABLISHING'")
         .bind(session_id)
         .execute(&mut *tx)

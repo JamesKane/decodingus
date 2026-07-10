@@ -10,8 +10,9 @@
 //! forms use). Moving the inline scripts to files + a per-request nonce is the
 //! follow-up that would let us drop `'unsafe-inline'` from `script-src`.
 
+use crate::error::AppError;
 use axum::extract::Request;
-use axum::http::{header, HeaderName, HeaderValue, Method, StatusCode};
+use axum::http::{header, HeaderMap, HeaderName, HeaderValue, Method, StatusCode};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use uuid::Uuid;
@@ -172,6 +173,40 @@ async fn finish(req: Request, next: Next, issue: bool) -> Response {
     res
 }
 
+// ── machine-intake API key ──────────────────────────────────────────────────
+
+/// Constant-time byte-slice equality. Avoids the early-exit timing side channel a
+/// plain `==` on a secret would leak (the length is not itself secret).
+fn ct_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
+/// Require the curation/ops API key (`X-API-Key == DU_CURATION_API_KEY`), compared in
+/// constant time. The single gate shared by every machine-intake endpoint (curation
+/// proposals, biosample PATCH/merge/sequence-libraries, publication project attach);
+/// see [`is_machine_intake`], which exempts these same paths from CSRF. Missing env →
+/// `Upstream` (not configured); wrong/absent key → `Forbidden`.
+pub fn require_curation_key(headers: &HeaderMap) -> Result<(), AppError> {
+    match std::env::var("DU_CURATION_API_KEY").ok().filter(|s| !s.is_empty()) {
+        None => Err(AppError::Upstream("curation API not configured".into())),
+        Some(expected) => {
+            let provided = headers.get("x-api-key").and_then(|v| v.to_str().ok()).unwrap_or("");
+            if ct_eq(provided.as_bytes(), expected.as_bytes()) {
+                Ok(())
+            } else {
+                Err(AppError::Forbidden)
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -180,6 +215,15 @@ mod tests {
     use axum::routing::get;
     use axum::Router;
     use tower::ServiceExt;
+
+    #[test]
+    fn ct_eq_matches_only_identical_slices() {
+        assert!(ct_eq(b"s3cret-key", b"s3cret-key"));
+        assert!(!ct_eq(b"s3cret-key", b"s3cret-keY")); // one-byte diff
+        assert!(!ct_eq(b"s3cret-key", b"s3cret-key-extra")); // length diff
+        assert!(!ct_eq(b"", b"x"));
+        assert!(ct_eq(b"", b"")); // empty == empty (env-unset key never reaches here)
+    }
 
     #[tokio::test]
     async fn headers_present_on_every_response() {

@@ -442,6 +442,7 @@ async fn callback(
         user_id: user_id.0,
         display_name: display_name.unwrap_or(display),
         roles,
+        issued_at: chrono::Utc::now().timestamp(),
     };
     let mut sc = Cookie::new(SESSION_COOKIE, serde_json::to_string(&session).unwrap());
     sc.set_path("/");

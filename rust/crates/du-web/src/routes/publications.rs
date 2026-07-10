@@ -33,21 +33,6 @@ pub fn router() -> Router<AppState> {
         .route("/manage/publications/:id/projects", post(attach_projects_api))
 }
 
-/// Require the curation/ops API key (X-API-Key == DU_CURATION_API_KEY).
-fn check_api_key(headers: &HeaderMap) -> Result<(), AppError> {
-    match std::env::var("DU_CURATION_API_KEY").ok().filter(|s| !s.is_empty()) {
-        None => Err(AppError::Upstream("curation API not configured".into())),
-        Some(expected) => {
-            let provided = headers.get("x-api-key").and_then(|v| v.to_str().ok()).unwrap_or("");
-            if provided == expected {
-                Ok(())
-            } else {
-                Err(AppError::Forbidden)
-            }
-        }
-    }
-}
-
 /// Parse a free-form list of project accessions (comma/whitespace separated),
 /// upsert each study, link it to `publication_id`, and queue it for crawling.
 /// Returns the number of projects attached.
@@ -87,7 +72,7 @@ async fn attach_projects_api(
     Path(id): Path<i64>,
     Json(body): Json<AttachProjectsApi>,
 ) -> Result<Response, AppError> {
-    check_api_key(&headers)?;
+    crate::security::require_curation_key(&headers)?;
     let attached = attach_projects(&st, id, &body.projects.join(" ")).await?;
     Ok((
         StatusCode::ACCEPTED,

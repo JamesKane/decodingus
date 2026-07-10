@@ -539,21 +539,6 @@ async fn toggle_public(
 // `prod/decodingus/api`), the same machine-auth as the curation-proposal intake.
 // Becomes an OAuth bearer once the Edge handshake is live.
 
-/// Require the curation/ops API key (X-API-Key == DU_CURATION_API_KEY).
-fn check_api_key(headers: &HeaderMap) -> Result<(), AppError> {
-    match std::env::var("DU_CURATION_API_KEY").ok().filter(|s| !s.is_empty()) {
-        None => Err(AppError::Upstream("curation API not configured".into())),
-        Some(expected) => {
-            let provided = headers.get("x-api-key").and_then(|v| v.to_str().ok()).unwrap_or("");
-            if provided == expected {
-                Ok(())
-            } else {
-                Err(AppError::Forbidden)
-            }
-        }
-    }
-}
-
 /// Partial biosample update. Only the fields present in the JSON body are written;
 /// omitted fields are left untouched. `source` accepts the wire enum
 /// (`STANDARD`/`CITIZEN`/`PGP`/`EXTERNAL`/`ANCIENT`).
@@ -576,7 +561,7 @@ async fn patch_biosample(
     Path(guid): Path<Uuid>,
     Json(body): Json<BiosamplePatchIn>,
 ) -> Result<Response, AppError> {
-    check_api_key(&headers)?;
+    crate::security::require_curation_key(&headers)?;
     let p = BiosamplePatch {
         source: body.source,
         is_public: body.is_public,
@@ -641,7 +626,7 @@ async fn ingest_sequence_libraries(
     Path(guid): Path<Uuid>,
     Json(body): Json<SeqIngestIn>,
 ) -> Result<Response, AppError> {
-    check_api_key(&headers)?;
+    crate::security::require_curation_key(&headers)?;
     let libs: Vec<du_db::sequence::NewSeqLibrary> = body
         .libraries
         .into_iter()
@@ -707,7 +692,7 @@ async fn merge_biosamples(
     headers: HeaderMap,
     Json(body): Json<MergeIn>,
 ) -> Result<Response, AppError> {
-    check_api_key(&headers)?;
+    crate::security::require_curation_key(&headers)?;
     let merged_by = body.merged_by.unwrap_or_else(|| "ops-merge-api".to_string());
     let evidence = body.evidence.unwrap_or_else(|| serde_json::json!({ "via": "ops merge api" }));
     let rep = du_db::dedup::merge_biosamples(&st.pool, body.survivor, body.merged, &merged_by, None, evidence)

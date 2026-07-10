@@ -51,27 +51,12 @@ fn parse_dna(s: Option<&str>) -> DnaType {
     }
 }
 
-/// Require the curation API key (X-API-Key == DU_CURATION_API_KEY).
-fn check_api_key(headers: &HeaderMap) -> Result<(), AppError> {
-    match std::env::var("DU_CURATION_API_KEY").ok().filter(|s| !s.is_empty()) {
-        None => Err(AppError::Upstream("curation intake not configured".into())),
-        Some(expected) => {
-            let provided = headers.get("x-api-key").and_then(|v| v.to_str().ok()).unwrap_or("");
-            if provided == expected {
-                Ok(())
-            } else {
-                Err(AppError::Forbidden)
-            }
-        }
-    }
-}
-
 async fn intake(
     State(st): State<AppState>,
     headers: HeaderMap,
     Json(body): Json<ProposalIn>,
 ) -> Result<Response, AppError> {
-    check_api_key(&headers)?;
+    crate::security::require_curation_key(&headers)?;
     if body.proposed_name.trim().is_empty() {
         return Err(AppError::BadRequest("proposed_name is required".into()));
     }
