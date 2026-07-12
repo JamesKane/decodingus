@@ -111,10 +111,88 @@ fn http_date(ts: chrono::DateTime<chrono::Utc>) -> String {
     ts.format("%a, %d %b %Y %H:%M:%S GMT").to_string()
 }
 
+/// Directory holding the on-disk tree cache. `DU_TREE_CACHE_DIR` overrides it
+/// (set to a scratch volume in prod); defaults to a subdir of the system temp dir.
+fn cache_dir() -> std::path::PathBuf {
+    std::env::var_os("DU_TREE_CACHE_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::env::temp_dir().join("du-tree-cache"))
+}
+
+/// A per-database prefix for cache filenames, so two databases (e.g. parallel test
+/// ephemeral DBs, which restart `revision` at 1) never read each other's files. In a
+/// real deployment this is a single constant value; `revision` alone is authoritative
+/// within one database.
+fn cache_namespace(pool: &du_db::PgPool) -> String {
+    let name = pool.connect_options().get_database().unwrap_or("db").to_string();
+    name.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' }).collect()
+}
+
+/// Cache-file prefix shared by every revision of one (namespace, shape, dna) —
+/// `sweep_stale` uses it to find prior-revision siblings.
+fn cache_prefix(ns: &str, full: bool, dna: DnaType) -> String {
+    let shape = if full { "full" } else { "plain" };
+    let dna = if matches!(dna, DnaType::YDna) { "y" } else { "mt" };
+    format!("{ns}-tree-{shape}-{dna}-r")
+}
+
+/// Cache file for the whole-tree (rootless) response at `revision`. The revision is
+/// in the name so a bump lands on a fresh path and stale files can be swept.
+fn cache_file(ns: &str, full: bool, dna: DnaType, revision: i64) -> std::path::PathBuf {
+    cache_dir().join(format!("{}{revision}.json", cache_prefix(ns, full, dna)))
+}
+
+/// Build the payload once and write it to `path` (atomically, via a temp file +
+/// rename), sweeping any older-revision siblings for the same shape/dna so the cache
+/// dir only ever holds the current revision. Returns the serialized bytes so the
+/// caller can serve this first request without a re-read.
+async fn build_and_cache(st: &AppState, dna: DnaType, full: bool, prefix: &str, path: &std::path::Path) -> Result<Vec<u8>, AppError> {
+    let dto = if full { build_tree_full(st, dna, None).await? } else { build_tree(st, dna, None).await? };
+    let bytes = serde_json::to_vec(&dto).map_err(|e| AppError::Internal(e.to_string()))?;
+    let dir = cache_dir();
+    tokio::fs::create_dir_all(&dir).await.map_err(|e| AppError::Internal(e.to_string()))?;
+    // Unique temp name (pid + a process-local counter) so concurrent builders never
+    // clobber each other's partial file; the rename onto `path` is atomic, so a reader
+    // sees all-or-nothing.
+    static TMP_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let seq = TMP_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let base = path.file_name().and_then(|n| n.to_str()).unwrap_or("tree");
+    let tmp = dir.join(format!("{base}.tmp{}-{seq}", std::process::id()));
+    tokio::fs::write(&tmp, &bytes).await.map_err(|e| AppError::Internal(e.to_string()))?;
+    tokio::fs::rename(&tmp, path).await.map_err(|e| AppError::Internal(e.to_string()))?;
+    sweep_stale(&dir, prefix, path).await;
+    Ok(bytes)
+}
+
+/// Remove prior-revision files for this (namespace, shape, dna) — every entry sharing
+/// `prefix` except the just-written `keep`. Scoping to `prefix` means a sweep never
+/// touches another database's or shape's files. Best-effort: failures are ignored
+/// (they'll be overwritten or swept next time).
+async fn sweep_stale(dir: &std::path::Path, prefix: &str, keep: &std::path::Path) {
+    let Ok(mut rd) = tokio::fs::read_dir(dir).await else { return };
+    while let Ok(Some(entry)) = rd.next_entry().await {
+        let p = entry.path();
+        if p != keep && p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with(prefix) && n.ends_with(".json")) {
+            let _ = tokio::fs::remove_file(&p).await;
+        }
+    }
+}
+
+/// Stream `path` as the response body: a small read buffer per connection, so the
+/// process never holds the whole ~60 MB payload — the OS page cache keeps the file
+/// resident while it's hot and evicts it when it isn't.
+async fn stream_file(path: &std::path::Path, cache_headers: [(header::HeaderName, String); 4]) -> Option<Response> {
+    let file = tokio::fs::File::open(path).await.ok()?;
+    let stream = tokio_util::io::ReaderStream::new(file);
+    Some((StatusCode::OK, cache_headers, axum::body::Body::from_stream(stream)).into_response())
+}
+
 /// Conditional GET for a tree endpoint: read the cheap revision marker, build the
-/// ETag, and short-circuit to **304** when `If-None-Match` matches — *before* the
-/// expensive tree query/serialization. Otherwise build the payload and attach the
-/// `ETag` / `Last-Modified` / `Cache-Control: no-cache` headers.
+/// ETag, and short-circuit to **304** when `If-None-Match` matches — *before* any
+/// tree query/serialization. Otherwise serve the whole-tree payload from the on-disk
+/// cache (built once per revision, streamed from a page-cached file), attaching the
+/// `ETag` / `Last-Modified` / `Cache-Control: no-cache` headers. `?root=` subtrees are
+/// not cached — they're built and served directly.
 async fn tree_conditional(
     st: &AppState,
     headers: &HeaderMap,
@@ -126,6 +204,7 @@ async fn tree_conditional(
     let etag = tree_etag(full, dna, root, revision);
     let last_modified = http_date(updated_at);
     let cache_headers = [
+        (header::CONTENT_TYPE, "application/json".to_string()),
         (header::ETAG, etag.clone()),
         (header::LAST_MODIFIED, last_modified),
         (header::CACHE_CONTROL, "no-cache".to_string()),
@@ -133,8 +212,21 @@ async fn tree_conditional(
     if if_none_match(headers, &etag) {
         return Ok((StatusCode::NOT_MODIFIED, cache_headers).into_response());
     }
-    let dto = if full { build_tree_full(st, dna, root).await? } else { build_tree(st, dna, root).await? };
-    Ok((StatusCode::OK, cache_headers, Json(dto)).into_response())
+    // Subtree (`?root=`) responses aren't cached — build and serve directly.
+    let Some(()) = root.is_none().then_some(()) else {
+        let dto = if full { build_tree_full(st, dna, root).await? } else { build_tree(st, dna, root).await? };
+        return Ok((StatusCode::OK, cache_headers, Json(dto)).into_response());
+    };
+    let ns = cache_namespace(&st.pool);
+    let path = cache_file(&ns, full, dna, revision);
+    // Fast path: stream the already-built file for this revision.
+    if let Some(resp) = stream_file(&path, cache_headers.clone()).await {
+        return Ok(resp);
+    }
+    // Miss: build once (writes the file for subsequent requests) and serve the bytes
+    // we already have in hand rather than re-reading them back off disk.
+    let bytes = build_and_cache(st, dna, full, &cache_prefix(&ns, full, dna), &path).await?;
+    Ok((StatusCode::OK, cache_headers, bytes).into_response())
 }
 
 /// The `/…-tree/version` body: revision + the full-tree ETag, so the Edge can

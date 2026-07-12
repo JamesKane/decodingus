@@ -11,6 +11,8 @@ pub enum AppError {
     BadRequest(String),
     /// An upstream/federation call failed (DID resolution, PDS, OAuth) — 502.
     Upstream(String),
+    /// An unexpected server-side failure (e.g. response serialization) — 500.
+    Internal(String),
 }
 
 impl From<du_db::DbError> for AppError {
@@ -43,6 +45,10 @@ impl IntoResponse for AppError {
             AppError::Upstream(msg) => {
                 tracing::warn!(error = %msg, "upstream/federation error");
                 (StatusCode::BAD_GATEWAY, "upstream error").into_response()
+            }
+            AppError::Internal(msg) => {
+                tracing::error!(error = %msg, "internal error");
+                (StatusCode::INTERNAL_SERVER_ERROR, "internal server error").into_response()
             }
         }
     }

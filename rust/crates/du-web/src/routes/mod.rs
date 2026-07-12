@@ -12,6 +12,7 @@ use axum::routing::get;
 use axum::Router;
 use serde::Deserialize;
 use tower_cookies::CookieManagerLayer;
+use tower_http::compression::CompressionLayer;
 use tower_http::services::ServeDir;
 
 pub mod auth_routes;
@@ -90,6 +91,9 @@ pub fn app(state: AppState) -> Router {
         .merge(crate::oauth::router())
         .merge(crate::api::router())
         .nest_service("/assets", ServeDir::new(assets_dir()))
+        // gzip large text/JSON bodies (the /y-tree/full payload is ~60 MB uncompressed).
+        // Compresses only when the client sends Accept-Encoding: gzip.
+        .layer(CompressionLayer::new())
         .layer(CookieManagerLayer::new())
         // Double-submit CSRF on the browser routes (exempts /api/v1/*).
         .layer(axum::middleware::from_fn(crate::security::csrf_protect))
