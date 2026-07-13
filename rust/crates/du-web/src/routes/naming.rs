@@ -230,10 +230,15 @@ async fn build_detail(st: &AppState, id: i64, notice: Option<String>) -> Result<
     // "already named".
     let placeholder = i.canonical_name.as_deref().is_some_and(du_db::naming::is_placeholder_name);
     let can_assign = i.naming_status != "NAMED" || placeholder;
-    // "Named by definition": the variant already carries an established (non-DU)
-    // name for its locus+mutation-state — reuse it rather than mint a new DU id.
+    // "Named by definition": a real name for this locus + mutation state already exists —
+    // on the variant's own aliases, or on the catalog row at the same site. Reuse it rather
+    // than mint a DU id. Sourced from `adoptable_name` (not `established_name`) so that the
+    // offer is backed by the same lookup as the dedup warning above: a de-novo coordinate
+    // row has no aliases, so the aliases-only source left the curator staring at "a named
+    // variant already exists" with no button that could reuse it, and Mint DU name — which
+    // would fork the marker's identity — as the only action on screen.
     let established = if can_assign && (i.canonical_name.is_none() || placeholder) {
-        du_db::naming::established_name(&i.aliases)
+        du_db::naming::adoptable_name(&st.pool, id, &i.aliases).await?
     } else {
         None
     };

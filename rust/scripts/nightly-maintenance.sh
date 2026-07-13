@@ -29,7 +29,14 @@ step() { echo ">>> $*" >&2; if "$@"; then echo "<<< ok" >&2; else echo "!!! FAIL
 job()  { step "${JOBS[@]}" run-once "$@"; }
 
 # 1. YBrowse catalog refresh (diff-based) + name the de-novo nodes it made namable.
+#    variant-name-reconcile sits BETWEEN the two on purpose. A refresh that names a marker
+#    the de-novo loader had already minted as a coordinate row (chrY:10249542C>G) leaves that
+#    row unnamed and sitting in the curator naming queue, where the only offered action would
+#    mint a DU id and fork the marker's identity. The reconcile folds it onto the name YBrowse
+#    just published — and it must run before name-private-nodes, which picks node names from
+#    the variants on a branch and can only see a name once the variant actually carries it.
 step "$HERE/resync-ybrowse.sh"
+job variant-name-reconcile
 job name-private-nodes --apply
 
 # 2. External metadata enrichment (OpenAlex + PubMed + ENA). Skipped internally if the
