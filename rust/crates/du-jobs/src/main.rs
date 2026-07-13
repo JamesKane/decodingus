@@ -111,6 +111,26 @@ async fn main() -> anyhow::Result<()> {
                 let fixed = du_db::variant::normalize_naming_status(&pool).await?;
                 tracing::info!(fixed, "naming-status-normalize complete");
             }
+            // Fold de-novo coordinate-placeholder variants (chrY:10249542C>G) onto the
+            // name a catalog row already carries at the same hs1 site + mutation state.
+            // These are the loader's duplicates for markers YBrowse had already named;
+            // without this they sit in the curator naming queue looking like novel
+            // discoveries whose only offered action would fork the marker's identity.
+            // Idempotent — re-run after any ybrowse ingest that names a marker post-load.
+            "variant-name-reconcile" => {
+                let r = du_db::naming::reconcile_placeholder_names(&pool, 5_000).await?;
+                tracing::info!(
+                    scanned = r.scanned, matched = r.matched, adopted = r.adopted,
+                    conflicted = r.conflicted, "variant-name-reconcile complete"
+                );
+                if r.conflicted > 0 {
+                    tracing::warn!(
+                        conflicted = r.conflicted,
+                        "placeholders whose name is already canonical on their branch — \
+                         left for merge review (duplicate or unmodelled recurrence)"
+                    );
+                }
+            }
             // Load the T2T-CHM13v2.0 (hs1) Y structural regions (AZF/DYZ/
             // ampliconic/palindrome/inverted-repeat) into core.genome_region.
             // One-shot: the source BEDs are tiny + versioned, not a daily feed.
@@ -322,7 +342,7 @@ async fn main() -> anyhow::Result<()> {
                 ena::enrich_studies(&pool, &client).await?;
             }
             other => anyhow::bail!(
-                "unknown run-once job '{other}' (known: ybrowse, reconcile, variant-representatives, yregions, branch-age, ftdna-str, sequencer-consensus, discovery-consensus, coverage-norms, ibd-discovery-recompute, exchange-expire, tree-samples-recompute, dedup-candidates, consolidate-donors, link-federated-subjects, import-kit-identifiers, mt-rcrs-lift, variant-coord-lift, crawl-project, publication-topic-prune, name-private-nodes, publication-update, publication-discovery, publication-pubmed-update, ena-study-enrichment)"
+                "unknown run-once job '{other}' (known: ybrowse, reconcile, variant-representatives, naming-status-normalize, variant-name-reconcile, yregions, branch-age, ftdna-str, sequencer-consensus, discovery-consensus, coverage-norms, ibd-discovery-recompute, exchange-expire, tree-samples-recompute, dedup-candidates, consolidate-donors, link-federated-subjects, import-kit-identifiers, mt-rcrs-lift, variant-coord-lift, crawl-project, publication-topic-prune, name-private-nodes, publication-update, publication-discovery, publication-pubmed-update, ena-study-enrichment)"
             ),
         }
         return Ok(());

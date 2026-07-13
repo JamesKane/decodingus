@@ -165,9 +165,36 @@ fn confidence(support: Option<i32>) -> &'static str {
     }
 }
 
+/// Named Y catalog rows that carry **no `hs1` coordinate**. This is a load-blocking
+/// precondition, not a statistic: [`resolve_variant`] / [`prefill_vcache`] reuse a
+/// catalog row only by matching `coordinates @> {'hs1': …}`, so a named variant that
+/// hasn't been lifted to hs1 yet is *invisible* to the match — and the loader quietly
+/// mints a second, coordinate-named row for a marker YBrowse already named.
+///
+/// The failure is silent and permanent: the duplicate is what gets linked to the branch,
+/// so the marker's real name is stranded on an unlinked catalog row and the branch row
+/// lands in the curator naming queue as if it were a novel discovery. Getting this wrong
+/// once produced ~130k such duplicates (ybrowse-ingest → de-novo load → variant-coord-lift,
+/// when the lift has to come *second*).
+pub async fn unlifted_y_catalog_count(pool: &PgPool) -> Result<i64, DbError> {
+    Ok(sqlx::query_scalar(
+        "SELECT count(*) FROM core.variant \
+         WHERE defining_haplogroup_id IS NULL \
+           AND canonical_name IS NOT NULL AND canonical_name NOT LIKE 'chr%:%' \
+           AND NOT (coordinates ? 'hs1') \
+           AND (coordinates->'GRCh38'->>'contig' = 'chrY' \
+             OR coordinates->'GRCh37'->>'contig' = 'chrY')",
+    )
+    .fetch_one(pool)
+    .await?)
+}
+
 /// Load a de-novo tree document as the tree foundation. Assumes `tree.*` is
 /// already cleared (greenfield). Commits the topology, then recomputes backbone
 /// and bumps the tree revision.
+///
+/// A Y load **refuses to start** unless the Y catalog is fully hs1-lifted — see
+/// [`unlifted_y_catalog_count`]. Run `du-jobs run-once variant-coord-lift` first.
 pub async fn load(pool: &PgPool, doc: &DenovoTree, keep_private: bool) -> Result<LoadReport, DbError> {
     let dna: DnaType = match doc.haplogroup_type.as_str() {
         "Y_DNA" => DnaType::YDna,
@@ -176,6 +203,18 @@ pub async fn load(pool: &PgPool, doc: &DenovoTree, keep_private: bool) -> Result
     };
     let dna_label = pg_enum_label(&dna)?;
     let mut rep = LoadReport::default();
+
+    if matches!(dna, DnaType::YDna) {
+        let unlifted = unlifted_y_catalog_count(pool).await?;
+        if unlifted > 0 {
+            return Err(DbError::Conflict(format!(
+                "{unlifted} named Y catalog variants have no hs1 coordinate — the de-novo \
+                 catalog match is hs1-only, so loading now would mint a duplicate \
+                 coordinate-named row for each of them instead of reusing its name. \
+                 Run `du-jobs run-once variant-coord-lift` first, then re-run this load."
+            )));
+        }
+    }
 
     let mut tx = pool.begin().await?;
 

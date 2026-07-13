@@ -51,6 +51,135 @@ async fn mk_variant(
     .expect("insert variant")
 }
 
+/// An **hs1**-framed variant — the frame the de-novo loader and the site match work in.
+async fn mk_hs1_variant(
+    pool: &PgPool,
+    name: Option<&str>,
+    status: &str,
+    pos: i64,
+    anc: &str,
+    der: &str,
+    defining: Option<i64>,
+) -> i64 {
+    let coords = serde_json::json!({
+        "hs1": { "contig": "chrY", "position": pos, "ancestral": anc, "derived": der }
+    });
+    sqlx::query_scalar(
+        "INSERT INTO core.variant (canonical_name, mutation_type, naming_status, coordinates, defining_haplogroup_id) \
+         VALUES ($1, 'SNP'::core.mutation_type, $2::core.naming_status, $3, $4) RETURNING id",
+    )
+    .bind(name)
+    .bind(status)
+    .bind(coords)
+    .bind(defining)
+    .fetch_one(pool)
+    .await
+    .expect("insert hs1 variant")
+}
+
+/// The real-world shape the authority got wrong: one physical SNP stored as **two rows** —
+/// a named, branch-less catalog row (YBrowse) and the de-novo loader's coordinate-named
+/// branch row, which carries *no aliases at all*. The name lives only on the sibling.
+///
+/// Regression cover for three defects: the dedup warning offering a placeholder as a
+/// "named variant"; the Reuse button never appearing for exactly the rows the warning
+/// fires on (aliases-only name source ⇒ Mint DU name, which forks the marker's identity,
+/// was the only action on screen); and no bulk path to fold the ~130k such rows a single
+/// mis-ordered load produced.
+#[tokio::test]
+async fn adopts_name_from_site_twin_not_just_aliases() {
+    let Some(url) = database_url() else {
+        eprintln!("DATABASE_URL unset — skipping site-twin naming test");
+        return;
+    };
+    let db = du_db::testing::ephemeral_db(&url).await.expect("ephemeral db");
+    let pool = db.pool().clone();
+
+    let branch = mk_hg(&pool, "TEST-TWIN-A").await;
+    let branch2 = mk_hg(&pool, "TEST-TWIN-B").await;
+    let branch3 = mk_hg(&pool, "TEST-TWIN-C").await;
+
+    // The catalog row: named, defines no branch (YBrowse reference data).
+    let catalog = mk_hs1_variant(&pool, Some("TESTFT186008"), "NAMED", 10249542, "C", "G", None).await;
+    // The de-novo row: same site + mutation state, placeholder name, empty aliases,
+    // and it is the one actually wired to the branch.
+    let denovo =
+        mk_hs1_variant(&pool, Some("chrY:10249542C>G"), "UNNAMED", 10249542, "C", "G", Some(branch)).await;
+    // A same-position, different-state SNP must never be treated as the same marker.
+    let other_state =
+        mk_hs1_variant(&pool, Some("TESTOTHER"), "NAMED", 10249542, "C", "T", None).await;
+
+    // The de-novo row is naming work…
+    let q = du_db::naming::queue(&pool, "needs_name", 1, 500).await.expect("queue");
+    assert!(q.items.iter().any(|i| i.id == denovo), "placeholder branch row is in the queue");
+
+    // …and the site match finds its real name on the sibling row.
+    let dups = du_db::naming::dedup_by_site(&pool, denovo).await.expect("dedup");
+    assert!(
+        dups.iter().any(|(id, n)| *id == catalog && n == "TESTFT186008"),
+        "site twin found: {dups:?}"
+    );
+    assert!(!dups.iter().any(|(id, _)| *id == other_state), "different mutation state is not a twin");
+    // A placeholder is not a name and must never be reported as one.
+    assert!(
+        !dups.iter().any(|(_, n)| du_db::naming::is_placeholder_name(n)),
+        "dedup must not offer a coordinate placeholder as an existing name: {dups:?}"
+    );
+
+    // The row has no aliases, so the old aliases-only lookup found nothing to reuse…
+    let d = du_db::naming::get(&pool, denovo).await.unwrap().unwrap();
+    assert!(du_db::naming::established_name(&d.aliases).is_none(), "no aliases on a de-novo row");
+    // …but the name is adoptable all the same, because the twin has it.
+    let offer = du_db::naming::adoptable_name(&pool, denovo, &d.aliases).await.expect("adoptable");
+    assert_eq!(offer.as_deref(), Some("TESTFT186008"), "the Reuse offer is backed by the site twin");
+
+    // Adopting writes that name — no DU identifier is minted for a marker already named.
+    let adopted = du_db::naming::adopt_established_name(&pool, denovo).await.expect("adopt");
+    assert_eq!(adopted, "TESTFT186008");
+    let d = du_db::naming::get(&pool, denovo).await.unwrap().unwrap();
+    assert_eq!(d.canonical_name.as_deref(), Some("TESTFT186008"));
+    assert_eq!(d.naming_status, "NAMED");
+    // (name + defining branch) is the canonical identity: the same name on the branch-less
+    // catalog row and on branch A coexist by design.
+    let q = du_db::naming::queue(&pool, "needs_name", 1, 500).await.expect("queue");
+    assert!(!q.items.iter().any(|i| i.id == denovo), "adopted row leaves the queue");
+
+    // ── bulk fold ────────────────────────────────────────────────────────────────
+    // Two more de-novo duplicates: one adoptable, one whose name is already canonical on
+    // its own branch (a true duplicate / unmodelled recurrence — must NOT be overwritten).
+    let dn2 =
+        mk_hs1_variant(&pool, Some("chrY:10249542C>G"), "UNNAMED", 10249542, "C", "G", Some(branch2)).await;
+    let taken =
+        mk_hs1_variant(&pool, Some("TESTFT186008"), "NAMED", 10249542, "C", "G", Some(branch3)).await;
+    let dn3 =
+        mk_hs1_variant(&pool, Some("chrY:10249542C>G"), "UNNAMED", 10249542, "C", "G", Some(branch3)).await;
+
+    let r = du_db::naming::reconcile_placeholder_names(&pool, 2).await.expect("reconcile");
+    assert!(r.adopted >= 1, "folded the adoptable duplicate: {r:?}");
+    assert!(r.conflicted >= 1, "left the already-taken name for merge review: {r:?}");
+
+    let g2 = du_db::naming::get(&pool, dn2).await.unwrap().unwrap();
+    assert_eq!(g2.canonical_name.as_deref(), Some("TESTFT186008"), "dn2 folded onto the catalog name");
+    assert_eq!(g2.naming_status, "NAMED");
+    let g3 = du_db::naming::get(&pool, dn3).await.unwrap().unwrap();
+    assert_eq!(
+        g3.canonical_name.as_deref(),
+        Some("chrY:10249542C>G"),
+        "dn3's name is already canonical on branch3 — left alone, not silently overwritten"
+    );
+
+    // Idempotent: a second pass finds nothing new to adopt.
+    let again = du_db::naming::reconcile_placeholder_names(&pool, 2).await.expect("reconcile again");
+    assert_eq!(again.adopted, 0, "re-running adopts nothing: {again:?}");
+
+    for id in [denovo, dn2, dn3, taken, catalog, other_state] {
+        let _ = sqlx::query("DELETE FROM core.variant WHERE id = $1").bind(id).execute(&pool).await;
+    }
+    for hg in [branch, branch2, branch3] {
+        let _ = sqlx::query("DELETE FROM tree.haplogroup WHERE id = $1").bind(hg).execute(&pool).await;
+    }
+}
+
 #[tokio::test]
 async fn variant_naming_authority_flow() {
     let Some(url) = database_url() else {
