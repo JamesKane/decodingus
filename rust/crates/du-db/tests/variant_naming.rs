@@ -110,7 +110,7 @@ async fn adopts_name_from_site_twin_not_just_aliases() {
         mk_hs1_variant(&pool, Some("TESTOTHER"), "NAMED", 10249542, "C", "T", None).await;
 
     // The de-novo row is naming work…
-    let q = du_db::naming::queue(&pool, "needs_name", 1, 500).await.expect("queue");
+    let q = du_db::naming::queue(&pool, "needs_name", "all", 1, 500).await.expect("queue");
     assert!(q.items.iter().any(|i| i.id == denovo), "placeholder branch row is in the queue");
 
     // …and the site match finds its real name on the sibling row.
@@ -141,7 +141,7 @@ async fn adopts_name_from_site_twin_not_just_aliases() {
     assert_eq!(d.naming_status, "NAMED");
     // (name + defining branch) is the canonical identity: the same name on the branch-less
     // catalog row and on branch A coexist by design.
-    let q = du_db::naming::queue(&pool, "needs_name", 1, 500).await.expect("queue");
+    let q = du_db::naming::queue(&pool, "needs_name", "all", 1, 500).await.expect("queue");
     assert!(!q.items.iter().any(|i| i.id == denovo), "adopted row leaves the queue");
 
     // ── bulk fold ────────────────────────────────────────────────────────────────
@@ -202,7 +202,7 @@ async fn variant_naming_authority_flow() {
     let ids = [unnamed, named_same, named_diff, working];
 
     // The default "needs a name" queue = defines a branch AND has no real name yet.
-    let q = du_db::naming::queue(&pool, "needs_name", 1, 200).await.expect("queue");
+    let q = du_db::naming::queue(&pool, "needs_name", "all", 1, 200).await.expect("queue");
     assert!(q.items.iter().any(|i| i.id == unnamed && i.canonical_name.is_none()), "unnamed in queue");
     assert!(q.items.iter().any(|i| i.id == working), "pending-review in queue");
     // A branch-less named catalog row is NOT naming work.
@@ -259,7 +259,7 @@ async fn variant_naming_authority_flow() {
         .bind(ph).execute(&pool).await.unwrap();
     assert!(du_db::naming::is_placeholder_name("chrY:9999999 A->G"), "coordinate string is a placeholder");
     assert!(!du_db::naming::is_placeholder_name("Z12335"), "a real SNP name is not a placeholder");
-    let qph = du_db::naming::queue(&pool, "needs_name", 1, 500).await.expect("queue");
+    let qph = du_db::naming::queue(&pool, "needs_name", "all", 1, 500).await.expect("queue");
     assert!(qph.items.iter().any(|i| i.id == ph), "placeholder-named variant is naming work");
     // No established name to adopt — the only alias is the placeholder itself.
     let phi = du_db::naming::get(&pool, ph).await.unwrap().unwrap();

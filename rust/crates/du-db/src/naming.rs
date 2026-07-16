@@ -60,23 +60,46 @@ fn mode_predicate(mode: &str) -> &'static str {
     }
 }
 
+/// The SQL predicate for a `mutation_type` filter. Whitelisted against the
+/// `core.mutation_type` enum — the value is interpolated straight into the SQL
+/// (like [`mode_predicate`]), so an unknown value must fall through to the
+/// no-op `TRUE` rather than ever reach the database. `all` (default) is every
+/// type; the actionable filter is `SNP` (the high-value markers curators name
+/// first) vs `INDEL` (the fiddly length-changing ones to defer).
+fn type_predicate(vtype: &str) -> &'static str {
+    match vtype {
+        "SNP" => "v.mutation_type = 'SNP'::core.mutation_type",
+        "INDEL" => "v.mutation_type = 'INDEL'::core.mutation_type",
+        "STR" => "v.mutation_type = 'STR'::core.mutation_type",
+        "DEL" => "v.mutation_type = 'DEL'::core.mutation_type",
+        "INS" => "v.mutation_type = 'INS'::core.mutation_type",
+        "MNP" => "v.mutation_type = 'MNP'::core.mutation_type",
+        _ => "TRUE",
+    }
+}
+
 /// Paginated naming queue. `mode` ∈ {needs_name (default), PENDING_REVIEW, NAMED,
-/// UNNAMED (named-but-unratified backlog), all}. Unnamed first, then by name.
+/// UNNAMED (named-but-unratified backlog), all}. `vtype` filters by mutation type
+/// (`all` = no filter, else an enum value like `SNP`/`INDEL`). Unnamed first, then
+/// by name.
 pub async fn queue(
     pool: &PgPool,
     mode: &str,
+    vtype: &str,
     page: i64,
     page_size: i64,
 ) -> Result<Page<NamingItem>, DbError> {
     let offset = Page::<()>::offset(page, page_size);
     let limit = page_size.clamp(1, 200);
     let pred = mode_predicate(mode);
+    let tpred = type_predicate(vtype);
 
-    let total: i64 = sqlx::query_scalar(&format!("SELECT count(*) FROM core.variant v WHERE {pred}"))
-        .fetch_one(pool)
-        .await?;
+    let total: i64 =
+        sqlx::query_scalar(&format!("SELECT count(*) FROM core.variant v WHERE ({pred}) AND ({tpred})"))
+            .fetch_one(pool)
+            .await?;
     let items: Vec<NamingItem> = sqlx::query_as(&format!(
-        "SELECT {ITEM_COLS} FROM core.variant v WHERE {pred} \
+        "SELECT {ITEM_COLS} FROM core.variant v WHERE ({pred}) AND ({tpred}) \
          ORDER BY v.canonical_name NULLS FIRST, v.id LIMIT $1 OFFSET $2"
     ))
     .bind(limit)
@@ -298,6 +321,103 @@ const SITE_TWIN_SQL: &str = "WITH b AS ( \
 /// **Dedup check** before naming — see [`SITE_TWIN_SQL`].
 pub async fn dedup_by_site(pool: &PgPool, id: i64) -> Result<Vec<(i64, String)>, DbError> {
     Ok(sqlx::query_as(SITE_TWIN_SQL).bind(id).fetch_all(pool).await?)
+}
+
+/// A **named site-twin that already defines the same branch** — the exact collision the
+/// naming queue can neither mint nor adopt its way out of. `id` is an unnamed coordinate
+/// placeholder (`chrY:…`, or no name) that DEFINES a branch, and a really-named variant
+/// exists at the same locus + mutation state whose `defining_haplogroup_id` is that same
+/// branch.
+///
+/// This is the residue of a GRCh38 catalog variant that wasn't lifted at tree-load time:
+/// the de-novo loader minted a `chrY:…` placeholder for the hs1 locus and linked *it* to
+/// the branch; once the catalog row is later lifted to hs1 it becomes a site-twin that
+/// already defines that branch. Now minting `id` forks a second identity, and adopting hits
+/// the "already canonical for this branch" guard in [`adopt_established_name`] — the curator
+/// is stuck. The placeholder is simply redundant: the twin covers the branch, so `id` should
+/// be **hard-deleted** ([`delete_erroneous_duplicate`]), not named.
+///
+/// Returns the twin's `(id, canonical_name)`, or `None` when `id` doesn't qualify — in which
+/// case it must be named/adopted, never deleted. The *shared branch* is the safety property:
+/// it guarantees deleting `id` cannot leave a branch undefined.
+const ERRONEOUS_DUP_SQL: &str = "WITH b AS ( \
+       SELECT CASE WHEN coordinates ? 'hs1' THEN 'hs1' \
+                   WHEN coordinates ? 'GRCh38' THEN 'GRCh38' END AS build \
+       FROM core.variant WHERE id = $1), \
+     me AS ( \
+       SELECT b.build, v.defining_haplogroup_id AS branch, v.canonical_name AS name, \
+              v.coordinates->b.build->>'contig'    AS c, \
+              v.coordinates->b.build->>'position'  AS p, \
+              v.coordinates->b.build->>'ancestral' AS a, \
+              v.coordinates->b.build->>'derived'   AS d \
+       FROM core.variant v, b WHERE v.id = $1) \
+     SELECT v.id, v.canonical_name FROM core.variant v, me \
+     WHERE v.id <> $1 \
+       AND me.branch IS NOT NULL \
+       AND (me.name IS NULL OR me.name LIKE 'chr%:%') \
+       AND v.defining_haplogroup_id = me.branch \
+       AND v.canonical_name IS NOT NULL \
+       AND v.canonical_name NOT LIKE 'chr%:%' \
+       AND me.build IS NOT NULL AND me.c IS NOT NULL AND me.p IS NOT NULL \
+       AND v.coordinates->me.build->>'contig'    = me.c \
+       AND v.coordinates->me.build->>'position'  = me.p \
+       AND v.coordinates->me.build->>'ancestral' IS NOT DISTINCT FROM me.a \
+       AND v.coordinates->me.build->>'derived'   IS NOT DISTINCT FROM me.d \
+     ORDER BY v.catalog_representative DESC, v.canonical_name \
+     LIMIT 1";
+
+/// See [`ERRONEOUS_DUP_SQL`]. `Some((twin_id, twin_name))` ⇒ `id` is a redundant placeholder
+/// safe to hard-delete; `None` ⇒ it is not, and must be named/adopted instead.
+pub async fn erroneous_duplicate_twin(pool: &PgPool, id: i64) -> Result<Option<(i64, String)>, DbError> {
+    Ok(sqlx::query_as(ERRONEOUS_DUP_SQL).bind(id).fetch_optional(pool).await?)
+}
+
+/// Every table with a (non-cascading) FK to `core.variant(id)`. A hard delete must clear
+/// each of these before the row will drop. Kept in one place so a new referencing table
+/// added to the schema is a compile-visible thing to revisit here.
+const VARIANT_FK_TABLES: [&str; 4] = [
+    "tree.haplogroup_variant",
+    "tree.wip_haplogroup_variant",
+    "tree.biosample_private_variant",
+    "tree.proposed_branch_variant",
+];
+
+/// **Hard-delete an erroneous duplicate placeholder.** Only for the collision
+/// [`erroneous_duplicate_twin`] identifies: an unnamed coordinate placeholder whose branch
+/// is already defined by a really-named site-twin. Purges the variant's FK references (none
+/// cascade) and deletes the row, all in one transaction.
+///
+/// The guard is **re-checked inside the transaction** (the UI button is only advisory): if
+/// `id` no longer qualifies — it was named in the meantime, or has no covering twin — nothing
+/// is deleted and a `Conflict` is returned. This is the one path in the module that discards a
+/// variant outright, so it refuses to run unless the twin guarantees no branch is orphaned.
+/// Returns the covering twin's name (for the confirmation notice).
+pub async fn delete_erroneous_duplicate(pool: &PgPool, id: i64) -> Result<String, DbError> {
+    let mut tx = pool.begin().await?;
+    // Lock the row so the guard can't be invalidated between check and delete.
+    sqlx::query("SELECT 1 FROM core.variant WHERE id = $1 FOR UPDATE")
+        .bind(id)
+        .fetch_optional(&mut *tx)
+        .await?;
+    let twin: Option<(i64, String)> =
+        sqlx::query_as(ERRONEOUS_DUP_SQL).bind(id).fetch_optional(&mut *tx).await?;
+    let (_twin_id, name) = twin.ok_or_else(|| {
+        DbError::Conflict(
+            "not an erroneous duplicate: no named variant defines this branch at the same \
+             locus and mutation state — name or adopt this variant instead of deleting it"
+                .into(),
+        )
+    })?;
+    for t in VARIANT_FK_TABLES {
+        // Table names are compile-time literals from VARIANT_FK_TABLES, not user input.
+        sqlx::query(&format!("DELETE FROM {t} WHERE variant_id = $1"))
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+    }
+    sqlx::query("DELETE FROM core.variant WHERE id = $1").bind(id).execute(&mut *tx).await?;
+    tx.commit().await?;
+    Ok(name)
 }
 
 /// The name this variant would **adopt**, from the two places a real name can live:

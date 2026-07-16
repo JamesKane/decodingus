@@ -26,6 +26,14 @@
     </div>
     {% endif %}
 
+    {% if let Some(twin) = v.deletable_twin %}
+    {# Erroneous duplicate: this placeholder's branch is already defined by a named
+       site-twin, so neither minting nor reusing is correct — delete the redundant row. #}
+    <div class="alert alert-danger py-2 px-3 small mb-3">
+      {{ t.get("nm.delete.hint") }} <code>{{ twin }}</code>.
+    </div>
+    {% endif %}
+
     {% if v.can_assign %}
     <div class="d-flex gap-2 flex-wrap">
       {% if let Some(name) = v.established %}
@@ -50,6 +58,11 @@
       <button class="btn btn-sm btn-outline-secondary"
               hx-post="/curator/naming/{{ v.id }}/status" hx-vals='{"status":"UNNAMED"}'
               hx-target="#naming-detail" hx-swap="innerHTML">{{ t.get("nm.unflag") }}</button>
+      {% endif %}
+      {% if let Some(twin) = v.deletable_twin %}
+      <button class="btn btn-sm btn-outline-danger ms-auto"
+              hx-post="/curator/naming/{{ v.id }}/delete" hx-target="#naming-detail" hx-swap="innerHTML"
+              hx-confirm="{{ t.get("nm.delete.confirm") }} {{ twin }}?">{{ t.get("nm.delete") }}</button>
       {% endif %}
     </div>
     {% else %}

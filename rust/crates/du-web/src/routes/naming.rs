@@ -26,6 +26,7 @@ pub fn router() -> Router<AppState> {
         .route("/curator/naming/:id/panel", get(panel))
         .route("/curator/naming/:id/assign", post(assign))
         .route("/curator/naming/:id/adopt", post(adopt))
+        .route("/curator/naming/:id/delete", post(delete_dup))
         .route("/curator/naming/:id/status", post(status))
 }
 
@@ -107,6 +108,7 @@ struct Row {
 
 struct ListView {
     mode: String,
+    vtype: String,
     rows: Vec<Row>,
     page: i64,
     total: i64,
@@ -116,12 +118,15 @@ struct ListView {
 #[derive(Deserialize)]
 struct ListQuery {
     mode: Option<String>,
+    /// Mutation-type filter: `all` (default), or an enum value like `SNP`/`INDEL`.
+    vtype: Option<String>,
     page: Option<i64>,
 }
 
 async fn load_list(st: &AppState, q: &ListQuery) -> Result<ListView, AppError> {
     let mode = q.mode.clone().unwrap_or_else(|| "needs_name".into());
-    let result = du_db::naming::queue(&st.pool, &mode, q.page.unwrap_or(1), 25).await?;
+    let vtype = q.vtype.clone().unwrap_or_else(|| "all".into());
+    let result = du_db::naming::queue(&st.pool, &mode, &vtype, q.page.unwrap_or(1), 25).await?;
     let (page, total, total_pages) = (result.page, result.total, result.total_pages());
     let rows = result
         .items
@@ -143,7 +148,7 @@ async fn load_list(st: &AppState, q: &ListQuery) -> Result<ListView, AppError> {
             }
         })
         .collect();
-    Ok(ListView { mode, rows, page, total, total_pages })
+    Ok(ListView { mode, vtype, rows, page, total, total_pages })
 }
 
 #[derive(askama::Template)]
@@ -206,6 +211,10 @@ struct DetailView {
     can_assign: bool,
     /// Established (non-DU) name to reuse, if this variant is named by definition.
     established: Option<String>,
+    /// Set when this row is an erroneous duplicate placeholder whose branch is already
+    /// defined by this named site-twin — the one case where the right action is to
+    /// hard-delete the row rather than name it. Carries the covering twin's name.
+    deletable_twin: Option<String>,
     notice: Option<String>,
 }
 
@@ -242,6 +251,14 @@ async fn build_detail(st: &AppState, id: i64, notice: Option<String>) -> Result<
     } else {
         None
     };
+    // The stuck-mint collision: an unnamed placeholder whose branch is already defined by a
+    // named site-twin. Neither Mint (forks an identity) nor Reuse (branch-name conflict) is
+    // right here — the row is redundant and should be hard-deleted.
+    let deletable_twin = if can_assign && (i.canonical_name.is_none() || placeholder) {
+        du_db::naming::erroneous_duplicate_twin(&st.pool, id).await?.map(|(_, n)| n)
+    } else {
+        None
+    };
     Ok(DetailView {
         id: i.id,
         name: if placeholder { None } else { i.canonical_name.clone() },
@@ -255,6 +272,7 @@ async fn build_detail(st: &AppState, id: i64, notice: Option<String>) -> Result<
         dedup,
         can_assign,
         established,
+        deletable_twin,
         notice,
     })
 }
@@ -308,6 +326,33 @@ async fn adopt(
         Err(e) => return Err(e.into()),
     };
     changed_response(&st, locale.t, id, Some(notice)).await
+}
+
+#[derive(askama::Template)]
+#[template(path = "curator/naming/deleted.html")]
+struct DeletedTemplate {
+    msg: String,
+}
+
+/// Hard-delete an erroneous duplicate placeholder (see
+/// `du_db::naming::delete_erroneous_duplicate`). On success the variant no longer exists,
+/// so the panel is replaced with a confirmation rather than a re-rendered detail, and the
+/// list is refreshed (the row drops out of the queue). A `Conflict` — the row no longer
+/// qualifies for deletion — re-renders the detail with that notice instead.
+async fn delete_dup(
+    _c: Curator,
+    State(st): State<AppState>,
+    locale: Locale,
+    Path(id): Path<i64>,
+) -> Result<Response, AppError> {
+    match du_db::naming::delete_erroneous_duplicate(&st.pool, id).await {
+        Ok(name) => {
+            let msg = format!("{} {name}.", locale.t.get("nm.notice.deleted"));
+            Ok((HxHeaders::new().trigger(CHANGED), html(&DeletedTemplate { msg })).into_response())
+        }
+        Err(du_db::DbError::Conflict(m)) => changed_response(&st, locale.t, id, Some(m)).await,
+        Err(e) => Err(e.into()),
+    }
 }
 
 #[derive(Deserialize)]

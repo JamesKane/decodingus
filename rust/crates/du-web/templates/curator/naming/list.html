@@ -23,8 +23,9 @@
 </table>
 {% if list.total_pages > 1 %}
 <nav class="d-flex justify-content-between align-items-center">
-  {# Only `page` in the URL — `mode` is supplied by the inherited hx-include="#nm-mode"
-     on #naming-table. Putting mode here too duplicates the query key (400). #}
+  {# Only `page` in the URL — `mode`/`vtype` are supplied by the inherited
+     hx-include="#nm-mode, #nm-vtype" on #naming-table. Putting them here too
+     duplicates the query key (400). #}
   <button class="btn btn-sm btn-outline-secondary{% if list.page <= 1 %} disabled{% endif %}"
           hx-get="/curator/naming/fragment?page={{ list.page - 1 }}" hx-target="#naming-table">{{ t.get("pagination.previous") }}</button>
   <small class="text-muted">{{ t.get("pagination.page") }} {{ list.page }} {{ t.get("pagination.of") }} {{ list.total_pages }} ({{ list.total }})</small>

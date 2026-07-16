@@ -5,18 +5,29 @@
 <p class="text-muted small mb-3">{{ t.get("nm.intro") }}</p>
 <div class="row">
   <div class="col-lg-6">
-    <select name="mode" class="form-select form-select-sm w-auto mb-3" id="nm-mode"
-            hx-get="/curator/naming/fragment" hx-target="#naming-table" hx-trigger="change">
-      <option value="needs_name"{% if list.mode == "needs_name" %} selected{% endif %}>{{ t.get("nm.mode.needs") }}</option>
-      <option value="PENDING_REVIEW"{% if list.mode == "PENDING_REVIEW" %} selected{% endif %}>{{ t.get("nm.mode.pending") }}</option>
-      <option value="NAMED"{% if list.mode == "NAMED" %} selected{% endif %}>{{ t.get("nm.mode.named") }}</option>
-      <option value="UNNAMED"{% if list.mode == "UNNAMED" %} selected{% endif %}>{{ t.get("nm.mode.backlog") }}</option>
-      <option value="all"{% if list.mode == "all" %} selected{% endif %}>{{ t.get("nm.mode.all") }}</option>
-    </select>
+    <div class="d-flex gap-2 mb-3">
+      <select name="mode" class="form-select form-select-sm w-auto" id="nm-mode"
+              hx-get="/curator/naming/fragment" hx-target="#naming-table" hx-trigger="change"
+              hx-include="#nm-mode, #nm-vtype">
+        <option value="needs_name"{% if list.mode == "needs_name" %} selected{% endif %}>{{ t.get("nm.mode.needs") }}</option>
+        <option value="PENDING_REVIEW"{% if list.mode == "PENDING_REVIEW" %} selected{% endif %}>{{ t.get("nm.mode.pending") }}</option>
+        <option value="NAMED"{% if list.mode == "NAMED" %} selected{% endif %}>{{ t.get("nm.mode.named") }}</option>
+        <option value="UNNAMED"{% if list.mode == "UNNAMED" %} selected{% endif %}>{{ t.get("nm.mode.backlog") }}</option>
+        <option value="all"{% if list.mode == "all" %} selected{% endif %}>{{ t.get("nm.mode.all") }}</option>
+      </select>
+      <select name="vtype" class="form-select form-select-sm w-auto" id="nm-vtype"
+              hx-get="/curator/naming/fragment" hx-target="#naming-table" hx-trigger="change"
+              hx-include="#nm-mode, #nm-vtype">
+        <option value="all"{% if list.vtype == "all" %} selected{% endif %}>{{ t.get("nm.vtype.all") }}</option>
+        <option value="SNP"{% if list.vtype == "SNP" %} selected{% endif %}>{{ t.get("nm.vtype.snp") }}</option>
+        <option value="INDEL"{% if list.vtype == "INDEL" %} selected{% endif %}>{{ t.get("nm.vtype.indel") }}</option>
+        <option value="MNP"{% if list.vtype == "MNP" %} selected{% endif %}>{{ t.get("nm.vtype.mnp") }}</option>
+      </select>
+    </div>
     <div id="naming-table"
          hx-get="/curator/naming/fragment"
          hx-trigger="load, naming-changed from:body"
-         hx-include="#nm-mode">
+         hx-include="#nm-mode, #nm-vtype">
       {% include "curator/naming/list.html" %}
     </div>
   </div>

@@ -456,6 +456,10 @@ nm.mode.pending=Pending review
 nm.mode.named=Named (DU)
 nm.mode.backlog=Unnamed backlog
 nm.mode.all=All
+nm.vtype.all=All types
+nm.vtype.snp=SNP only
+nm.vtype.indel=INDEL only
+nm.vtype.mnp=MNP only
 nm.select=Select a variant to name.
 nm.none=No variants match.
 nm.unnamed=(unnamed)
@@ -480,6 +484,10 @@ nm.unflag=Back to unnamed
 nm.named_note=Already named — DU identifier assigned.
 nm.notice.minted=Minted
 nm.notice.adopted=Adopted established name
+nm.delete=Delete duplicate
+nm.delete.hint=This branch is already defined at this locus and mutation state by a named variant — this row is a redundant coordinate placeholder left by an unlifted variant. Delete it rather than minting a second identity for
+nm.delete.confirm=Hard-delete this erroneous duplicate? Its branch stays defined by
+nm.notice.deleted=Deleted erroneous duplicate; branch remains defined by
 
 # Curator YBrowse reconcile-flag review (curator/reconcile-flags)
 curator.tool.reconcile_flags=Reconcile flags
