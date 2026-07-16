@@ -1,0 +1,28 @@
+{# Batch-mint control (fragment): mint every genuine de-novo discovery of the selected
+   mutation type — no established name to adopt — one DU name per site (recurrences share a
+   name). Bounded per click; target of #nm-batch. Renders nothing when there is no work and
+   no result to report, so the panel stays out of the way. #}
+{% if batch.notice.is_some() || batch.sites > 0 %}
+<div class="card mb-3 border-primary-subtle">
+  <div class="card-body py-2 px-3">
+    {% if let Some(msg) = batch.notice %}
+    <div class="alert alert-success py-1 px-2 small mb-2">{{ msg }}</div>
+    {% endif %}
+    {% if batch.sites > 0 %}
+    <div class="d-flex justify-content-between align-items-center gap-3">
+      <div class="small">
+        <strong>{{ batch.sites }}</strong> {{ t.get("nm.batch.sites") }}
+        <span class="text-muted">· {{ batch.rows }} {{ t.get("nm.batch.rows") }} · {{ batch.vtype }}</span>
+        <div class="text-muted">{{ t.get("nm.batch.hint") }}</div>
+      </div>
+      <button class="btn btn-sm btn-primary text-nowrap"
+              hx-post="/curator/naming/mint-batch" hx-include="#nm-vtype"
+              hx-target="#nm-batch" hx-swap="innerHTML"
+              hx-confirm="{{ t.get("nm.batch.confirm") }}">{{ t.get("nm.batch.mint") }} {{ batch.next_n }}</button>
+    </div>
+    {% else %}
+    <div class="small text-muted mb-0">{{ t.get("nm.batch.none") }}</div>
+    {% endif %}
+  </div>
+</div>
+{% endif %}

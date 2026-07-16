@@ -131,6 +131,36 @@ async fn main() -> anyhow::Result<()> {
                     );
                 }
             }
+            // Batch-mint DU names for genuine de-novo discoveries: branch-defining Y
+            // coordinate placeholders (chrY:…) with no name to adopt (no established alias,
+            // no named site-twin). One name PER SITE — a variant recurring on several
+            // branches shares the name (the (name+branch) model). Args:
+            //   --type SNP|DEL|INS|MNP|all  (default SNP — high-value markers first; INDELs deferred)
+            //   --dry-run                   (preview counts, mint nothing)
+            //   --limit N                   (cap sites per statement; default drains fully)
+            // Idempotent — a minted row leaves the queue, so re-running names the rest.
+            "mint-batch" => {
+                let args: Vec<String> = argv.collect();
+                let vtype = args
+                    .iter()
+                    .position(|a| a == "--type")
+                    .and_then(|i| args.get(i + 1))
+                    .map(String::as_str)
+                    .unwrap_or("SNP");
+                if args.iter().any(|a| a == "--dry-run") {
+                    let p = du_db::naming::mint_batch_preview(&pool, vtype).await?;
+                    tracing::info!(vtype, sites = p.sites, rows = p.rows, "mint-batch dry-run (nothing minted)");
+                } else {
+                    let batch = args
+                        .iter()
+                        .position(|a| a == "--limit")
+                        .and_then(|i| args.get(i + 1))
+                        .and_then(|s| s.parse::<i64>().ok())
+                        .unwrap_or(50_000);
+                    let r = du_db::naming::mint_all(&pool, vtype, batch).await?;
+                    tracing::info!(vtype, sites = r.sites_minted, rows = r.rows_minted, "mint-batch complete");
+                }
+            }
             // Load the T2T-CHM13v2.0 (hs1) Y structural regions (AZF/DYZ/
             // ampliconic/palindrome/inverted-repeat) into core.genome_region.
             // One-shot: the source BEDs are tiny + versioned, not a daily feed.
@@ -342,7 +372,7 @@ async fn main() -> anyhow::Result<()> {
                 ena::enrich_studies(&pool, &client).await?;
             }
             other => anyhow::bail!(
-                "unknown run-once job '{other}' (known: ybrowse, reconcile, variant-representatives, naming-status-normalize, variant-name-reconcile, yregions, branch-age, ftdna-str, sequencer-consensus, discovery-consensus, coverage-norms, ibd-discovery-recompute, exchange-expire, tree-samples-recompute, dedup-candidates, consolidate-donors, link-federated-subjects, import-kit-identifiers, mt-rcrs-lift, variant-coord-lift, crawl-project, publication-topic-prune, name-private-nodes, publication-update, publication-discovery, publication-pubmed-update, ena-study-enrichment)"
+                "unknown run-once job '{other}' (known: ybrowse, reconcile, variant-representatives, naming-status-normalize, variant-name-reconcile, mint-batch, yregions, branch-age, ftdna-str, sequencer-consensus, discovery-consensus, coverage-norms, ibd-discovery-recompute, exchange-expire, tree-samples-recompute, dedup-candidates, consolidate-donors, link-federated-subjects, import-kit-identifiers, mt-rcrs-lift, variant-coord-lift, crawl-project, publication-topic-prune, name-private-nodes, publication-update, publication-discovery, publication-pubmed-update, ena-study-enrichment)"
             ),
         }
         return Ok(());

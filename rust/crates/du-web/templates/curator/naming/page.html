@@ -20,10 +20,18 @@
               hx-include="#nm-mode, #nm-vtype">
         <option value="all"{% if list.vtype == "all" %} selected{% endif %}>{{ t.get("nm.vtype.all") }}</option>
         <option value="SNP"{% if list.vtype == "SNP" %} selected{% endif %}>{{ t.get("nm.vtype.snp") }}</option>
-        <option value="INDEL"{% if list.vtype == "INDEL" %} selected{% endif %}>{{ t.get("nm.vtype.indel") }}</option>
+        <option value="DEL"{% if list.vtype == "DEL" %} selected{% endif %}>{{ t.get("nm.vtype.del") }}</option>
+        <option value="INS"{% if list.vtype == "INS" %} selected{% endif %}>{{ t.get("nm.vtype.ins") }}</option>
         <option value="MNP"{% if list.vtype == "MNP" %} selected{% endif %}>{{ t.get("nm.vtype.mnp") }}</option>
       </select>
     </div>
+    {# Batch-mint control: mints all de-novo discoveries of the selected type in bounded
+       clicks. Reflects the #nm-vtype filter; refreshes on load + type change. It does NOT
+       listen for naming-changed (its own POST re-renders it with the result notice). #}
+    <div id="nm-batch"
+         hx-get="/curator/naming/mint-batch"
+         hx-trigger="load, change from:#nm-vtype"
+         hx-include="#nm-vtype" hx-swap="innerHTML"></div>
     <div id="naming-table"
          hx-get="/curator/naming/fragment"
          hx-trigger="load, naming-changed from:body"

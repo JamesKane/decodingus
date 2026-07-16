@@ -458,6 +458,8 @@ nm.mode.backlog=Unnamed backlog
 nm.mode.all=All
 nm.vtype.all=All types
 nm.vtype.snp=SNP only
+nm.vtype.del=DEL only
+nm.vtype.ins=INS only
 nm.vtype.indel=INDEL only
 nm.vtype.mnp=MNP only
 nm.select=Select a variant to name.
@@ -488,6 +490,13 @@ nm.delete=Delete duplicate
 nm.delete.hint=This variant's SNP is already named, and that name already defines this branch — so this row is a redundant duplicate (the residue of an unlifted coordinate placeholder). Delete it rather than minting a second, conflicting identity for
 nm.delete.confirm=Hard-delete this erroneous duplicate? Its branch stays defined by
 nm.notice.deleted=Deleted erroneous duplicate; branch remains defined by
+nm.batch.sites=sites ready to mint
+nm.batch.rows=rows
+nm.batch.hint=Genuine de-novo discoveries with no established name to adopt — one DU identifier per site (a variant recurring on several branches shares its name).
+nm.batch.mint=Mint next
+nm.batch.confirm=Mint DU names for the next batch of de-novo discoveries? This assigns permanent identifiers and cannot be undone.
+nm.batch.minted=Minted
+nm.batch.none=No unnamed de-novo discoveries of this type remain.
 
 # Curator YBrowse reconcile-flag review (curator/reconcile-flags)
 curator.tool.reconcile_flags=Reconcile flags

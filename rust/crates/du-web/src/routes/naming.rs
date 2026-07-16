@@ -28,7 +28,13 @@ pub fn router() -> Router<AppState> {
         .route("/curator/naming/:id/adopt", post(adopt))
         .route("/curator/naming/:id/delete", post(delete_dup))
         .route("/curator/naming/:id/status", post(status))
+        .route("/curator/naming/mint-batch", get(batch_panel).post(mint_batch_run))
 }
+
+/// Sites minted per "Mint next" click. Bounded so the request stays responsive (one atomic
+/// statement over a few thousand rows) and the curator keeps control — click again for the
+/// next batch. The CLI job (`run-once mint-batch`) drains the whole queue instead.
+const BATCH_CLICK: i64 = 2000;
 
 // ── helpers ─────────────────────────────────────────────────────────────────
 
@@ -376,4 +382,142 @@ async fn status(
     };
     du_db::naming::set_status(&st.pool, id, new_status).await?;
     changed_response(&st, locale.t, id, None).await
+}
+
+// ── batch mint ────────────────────────────────────────────────────────────────
+
+/// The batch-mint control: how many genuine de-novo discoveries of the selected mutation
+/// type have no name to adopt and are ready to mint, plus what the next click will do.
+struct BatchView {
+    /// Distinct sites ready to mint (each gets one DU name).
+    sites: i64,
+    /// Rows those sites cover (≥ sites — recurrences share a name).
+    rows: i64,
+    /// Mutation-type filter this reflects (mirrors the `#nm-vtype` selector).
+    vtype: String,
+    /// How many sites the button mints this click (min of [`BATCH_CLICK`] and `sites`).
+    next_n: i64,
+    /// Result of a just-completed mint, if any.
+    notice: Option<String>,
+}
+
+#[derive(askama::Template)]
+#[template(path = "curator/naming/batch.html")]
+struct BatchTemplate {
+    t: T,
+    batch: BatchView,
+}
+
+async fn batch_view(st: &AppState, vtype: String, notice: Option<String>) -> Result<BatchView, AppError> {
+    let p = du_db::naming::mint_batch_preview(&st.pool, &vtype).await?;
+    Ok(BatchView { sites: p.sites, rows: p.rows, vtype, next_n: p.sites.min(BATCH_CLICK), notice })
+}
+
+/// Normalize the vtype from the `#nm-vtype` selector to what the mint predicate understands.
+/// The selector offers a coarse `INDEL` bucket; the mint splits by concrete enum, so `INDEL`
+/// is not itself a `core.mutation_type` — leave `all`/SNP/DEL/INS/MNP through, else `all`.
+fn batch_vtype(raw: Option<String>) -> String {
+    match raw.as_deref() {
+        Some(v @ ("SNP" | "DEL" | "INS" | "MNP" | "all")) => v.to_string(),
+        _ => "all".into(),
+    }
+}
+
+#[derive(Deserialize)]
+struct BatchQuery {
+    vtype: Option<String>,
+}
+
+/// GET: render the batch-mint control for the currently-selected type (no side effects).
+async fn batch_panel(
+    _c: Curator,
+    State(st): State<AppState>,
+    locale: Locale,
+    Query(q): Query<BatchQuery>,
+) -> Result<Response, AppError> {
+    let batch = batch_view(&st, batch_vtype(q.vtype), None).await?;
+    Ok(html(&BatchTemplate { t: locale.t, batch }))
+}
+
+#[derive(Deserialize)]
+struct BatchForm {
+    vtype: Option<String>,
+}
+
+/// POST: mint the next [`BATCH_CLICK`] sites of the selected type, then re-render the control
+/// with the outcome and the refreshed count. Triggers `naming-changed` so the queue list
+/// refreshes (the minted rows leave it). The panel itself is swapped by this response, so it
+/// does NOT listen for `naming-changed` — that would clobber the success notice.
+async fn mint_batch_run(
+    _c: Curator,
+    State(st): State<AppState>,
+    locale: Locale,
+    Form(f): Form<BatchForm>,
+) -> Result<Response, AppError> {
+    let vtype = batch_vtype(f.vtype);
+    let r = du_db::naming::mint_batch(&st.pool, &vtype, BATCH_CLICK).await?;
+    let notice = format!(
+        "{} {} ({} {})",
+        locale.t.get("nm.batch.minted"),
+        r.sites_minted,
+        r.rows_minted,
+        locale.t.get("nm.batch.rows")
+    );
+    let batch = batch_view(&st, vtype, Some(notice)).await?;
+    Ok((HxHeaders::new().trigger(CHANGED), html(&BatchTemplate { t: locale.t, batch })).into_response())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::i18n::Lang;
+    use askama::Template;
+
+    fn t() -> T {
+        T::new(Lang::En)
+    }
+
+    #[test]
+    fn batch_vtype_only_accepts_concrete_enum_values() {
+        assert_eq!(batch_vtype(Some("SNP".into())), "SNP");
+        assert_eq!(batch_vtype(Some("DEL".into())), "DEL");
+        assert_eq!(batch_vtype(Some("INS".into())), "INS");
+        // The selector's old coarse "INDEL" bucket has no rows (data is DEL/INS) and is not a
+        // valid mint target; anything unrecognized falls back to the safe `all`.
+        assert_eq!(batch_vtype(Some("INDEL".into())), "all");
+        assert_eq!(batch_vtype(None), "all");
+    }
+
+    #[test]
+    fn batch_panel_renders_count_and_mint_button() {
+        let v = BatchView { sites: 6235, rows: 6244, vtype: "SNP".into(), next_n: 2000, notice: None };
+        let html = BatchTemplate { t: t(), batch: v }.render().unwrap();
+        assert!(html.contains("6235"), "shows the site count");
+        assert!(html.contains("6244"), "shows the row count");
+        assert!(html.contains("hx-post=\"/curator/naming/mint-batch\""), "posts to the mint route");
+        assert!(html.contains("hx-include=\"#nm-vtype\""), "carries the type filter");
+        assert!(html.contains("2000"), "labels the next batch size");
+    }
+
+    #[test]
+    fn batch_panel_is_empty_when_no_work_and_no_result() {
+        let v = BatchView { sites: 0, rows: 0, vtype: "SNP".into(), next_n: 0, notice: None };
+        let html = BatchTemplate { t: t(), batch: v }.render().unwrap();
+        assert!(html.trim().is_empty(), "nothing to show → renders nothing");
+    }
+
+    #[test]
+    fn batch_panel_shows_result_notice_after_mint() {
+        let v = BatchView {
+            sites: 0,
+            rows: 0,
+            vtype: "SNP".into(),
+            next_n: 0,
+            notice: Some("Minted 2000 (2000 rows)".into()),
+        };
+        let html = BatchTemplate { t: t(), batch: v }.render().unwrap();
+        assert!(html.contains("Minted 2000"), "shows the mint result");
+        assert!(html.contains("alert-success"), "as a success alert");
+        assert!(html.contains(t().get("nm.batch.none")), "and that none of this type remain");
+    }
 }

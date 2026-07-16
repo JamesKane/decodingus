@@ -644,3 +644,128 @@ pub async fn reconcile_placeholder_names(
     }
     Ok(rep)
 }
+
+// ── batch minting ─────────────────────────────────────────────────────────────
+
+/// The rows the **batch mint** may name: branch-defining **Y** coordinate placeholders
+/// (`chrY:…`) with **no name to adopt** — neither an established alias nor a named site-twin
+/// — i.e. genuine de-novo discoveries. Excluding the adoptable ones is the safety property:
+/// a marker a source already named must Reuse (the reconcile job / adopt button), never get a
+/// second DU identity minted. Aliased `v`; embedded in the preview and the mint statement.
+///
+/// (The `defining_haplogroup_id IS NOT NULL` + `chr%:%` head is served by the partial index
+/// `variant_placeholder_branch_idx`, and the site-twin `NOT EXISTS` by `variant_hs1_site_named_idx`.)
+const NOVEL_MINTABLE_PRED: &str = "\
+    v.defining_haplogroup_id IS NOT NULL \
+    AND EXISTS (SELECT 1 FROM tree.haplogroup h \
+                WHERE h.id = v.defining_haplogroup_id AND h.haplogroup_type = 'Y_DNA'::core.dna_type) \
+    AND v.canonical_name LIKE 'chr%:%' AND v.coordinates ? 'hs1' \
+    AND NOT EXISTS (SELECT 1 \
+                    FROM jsonb_array_elements_text(COALESCE(v.aliases->'common_names', '[]'::jsonb)) cn \
+                    WHERE cn NOT LIKE 'DU%' AND cn NOT LIKE 'chr%:%' AND btrim(cn) <> '') \
+    AND NOT EXISTS (SELECT 1 FROM core.variant n \
+                    WHERE n.id <> v.id AND n.canonical_name IS NOT NULL \
+                      AND n.canonical_name NOT LIKE 'chr%:%' AND n.coordinates ? 'hs1' \
+                      AND n.coordinates->'hs1'->>'contig'    = v.coordinates->'hs1'->>'contig' \
+                      AND n.coordinates->'hs1'->>'position'  = v.coordinates->'hs1'->>'position' \
+                      AND n.coordinates->'hs1'->>'ancestral' = v.coordinates->'hs1'->>'ancestral' \
+                      AND n.coordinates->'hs1'->>'derived'   = v.coordinates->'hs1'->>'derived')";
+
+/// [`NOVEL_MINTABLE_PRED`] AND the [`type_predicate`] mutation-type filter, so a batch mints
+/// exactly the type the curator is looking at (`SNP` first; the fiddly `DEL`/`INS` deferred).
+fn novel_mintable_pred(vtype: &str) -> String {
+    format!("({NOVEL_MINTABLE_PRED}) AND ({})", type_predicate(vtype))
+}
+
+/// How much work a batch mint of a given `vtype` would do: distinct **sites** (each gets one
+/// DU name) and total **rows** (≥ sites — a recurrent SNP shares its name across branches).
+#[derive(Debug, Default, Clone)]
+pub struct MintPreview {
+    pub sites: i64,
+    pub rows: i64,
+}
+
+/// Preview [`mint_batch`] without writing — the count behind the UI's "N ready to mint".
+pub async fn mint_batch_preview(pool: &PgPool, vtype: &str) -> Result<MintPreview, DbError> {
+    let pred = novel_mintable_pred(vtype);
+    let sql = format!(
+        "SELECT count(DISTINCT (v.coordinates->'hs1'->>'contig', v.coordinates->'hs1'->>'position', \
+                                v.coordinates->'hs1'->>'ancestral', v.coordinates->'hs1'->>'derived'))::bigint AS sites, \
+                count(*)::bigint AS rows \
+         FROM core.variant v WHERE {pred}"
+    );
+    let (sites, rows): (i64, i64) = sqlx::query_as(&sql).fetch_one(pool).await?;
+    Ok(MintPreview { sites, rows })
+}
+
+/// Result of one [`mint_batch`] call.
+#[derive(Debug, Default, Clone)]
+pub struct MintReport {
+    /// Distinct DU names assigned (one per recurrence site).
+    pub sites_minted: i64,
+    /// Variant rows named (≥ `sites_minted`; recurrences share a name).
+    pub rows_minted: i64,
+}
+
+/// Mint up to `max_sites` recurrence sites of `vtype`, in **one atomic statement**.
+///
+/// The unit is a **site** (contig + position + ancestral + derived), not a row: canonical
+/// identity is (name + branch), so a variant that recurs on several branches is several rows
+/// that must share ONE name. `next_du_name()` is therefore drawn once **per site** — the
+/// `named` CTE is `MATERIALIZED` so the sequence value is stable across the join, and every
+/// row at that site is set to the same name (each keeps its own branch). Sites with two rows
+/// on the *same* branch are skipped by the `count(*) = count(DISTINCT b)` guard (that is a
+/// duplicate for merge review, and minting both would violate `variant_canonical_name_key`).
+///
+/// Idempotent: a minted row is no longer `chr%:%`, so it leaves the set — re-running names the
+/// next sites. See [`mint_all`] for the drain-to-empty loop the job uses.
+pub async fn mint_batch(pool: &PgPool, vtype: &str, max_sites: i64) -> Result<MintReport, DbError> {
+    let max_sites = max_sites.clamp(1, 50_000);
+    let pred = novel_mintable_pred(vtype);
+    let sql = format!(
+        "WITH sites AS MATERIALIZED ( \
+           SELECT c, p, a, d FROM ( \
+             SELECT v.coordinates->'hs1'->>'contig' AS c, v.coordinates->'hs1'->>'position' AS p, \
+                    v.coordinates->'hs1'->>'ancestral' AS a, v.coordinates->'hs1'->>'derived' AS d, \
+                    v.defining_haplogroup_id AS b \
+             FROM core.variant v WHERE {pred}) g \
+           GROUP BY c, p, a, d HAVING count(*) = count(DISTINCT b) \
+           ORDER BY c, p, a, d LIMIT $1), \
+         named AS MATERIALIZED (SELECT c, p, a, d, core.next_du_name() AS du FROM sites), \
+         upd AS ( \
+           UPDATE core.variant v \
+           SET canonical_name = named.du, naming_status = 'NAMED', \
+               aliases = jsonb_set(COALESCE(v.aliases, '{{}}'::jsonb), '{{common_names}}', \
+                 COALESCE((SELECT jsonb_agg(x) \
+                           FROM jsonb_array_elements_text(COALESCE(v.aliases->'common_names', '[]'::jsonb)) x \
+                           WHERE x NOT LIKE 'chr%:%'), '[]'::jsonb), true), \
+               updated_at = now() \
+           FROM named \
+           WHERE {pred} \
+             AND v.coordinates->'hs1'->>'contig'    = named.c \
+             AND v.coordinates->'hs1'->>'position'  = named.p \
+             AND v.coordinates->'hs1'->>'ancestral' = named.a \
+             AND v.coordinates->'hs1'->>'derived'   = named.d \
+           RETURNING 1) \
+         SELECT (SELECT count(*) FROM named)::bigint, (SELECT count(*) FROM upd)::bigint"
+    );
+    let (sites_minted, rows_minted): (i64, i64) =
+        sqlx::query_as(&sql).bind(max_sites).fetch_one(pool).await?;
+    Ok(MintReport { sites_minted, rows_minted })
+}
+
+/// Drain the whole `vtype` novel-mint queue in `batch`-sized statements (each atomic, so the
+/// catalog is never long-locked). Loops [`mint_batch`] until a batch names nothing. This is
+/// the job form; the curator UI calls [`mint_batch`] once with a per-click bound.
+pub async fn mint_all(pool: &PgPool, vtype: &str, batch: i64) -> Result<MintReport, DbError> {
+    let mut total = MintReport::default();
+    loop {
+        let r = mint_batch(pool, vtype, batch).await?;
+        if r.sites_minted == 0 {
+            break;
+        }
+        total.sites_minted += r.sites_minted;
+        total.rows_minted += r.rows_minted;
+    }
+    Ok(total)
+}
