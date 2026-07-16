@@ -51,6 +51,20 @@ async fn mk_variant(
     .expect("insert variant")
 }
 
+/// Link a variant to a haplogroup as a current (`valid_until IS NULL`) defining edge —
+/// the way the de-novo loader records "this SNP defines this branch" (the
+/// `defining_haplogroup_id` column is a separate, often-unset denorm).
+async fn link_variant(pool: &PgPool, variant_id: i64, haplogroup_id: i64) {
+    sqlx::query(
+        "INSERT INTO tree.haplogroup_variant (haplogroup_id, variant_id) VALUES ($1, $2)",
+    )
+    .bind(haplogroup_id)
+    .bind(variant_id)
+    .execute(pool)
+    .await
+    .expect("link variant to haplogroup");
+}
+
 /// An **hs1**-framed variant — the frame the de-novo loader and the site match work in.
 async fn mk_hs1_variant(
     pool: &PgPool,
@@ -284,4 +298,72 @@ async fn variant_naming_authority_flow() {
     for hg in [branch, branch2] {
         let _ = sqlx::query("DELETE FROM tree.haplogroup WHERE id = $1").bind(hg).execute(&pool).await;
     }
+}
+
+/// The stuck-mint collision the Delete-duplicate action exists for, in the shape it actually
+/// occurs: the covering name is **split across two rows**. A placeholder defines a branch; a
+/// same-site named row carries the SNP's real name but no branch (so it is offered as Reuse);
+/// a *different-site* named row carries that same name on the branch (the un-lifted-coordinate
+/// drift residue). No single row is both same-site and same-branch — so Reuse hits the branch
+/// guard, Mint would fork an identity, and the only correct action is to delete the redundant
+/// placeholder.
+#[tokio::test]
+async fn deletes_split_covering_duplicate() {
+    let Some(url) = database_url() else { return };
+    let pool = PgPool::connect(&url).await.expect("connect");
+
+    let branch = mk_hg(&pool, "R-SPLITTEST").await;
+
+    // The placeholder: coordinate-named, defines the branch via a tree edge (not the column).
+    let ph = mk_hs1_variant(&pool, Some("chrY:20000043T>C"), "UNNAMED", 20000043, "T", "C", None).await;
+    link_variant(&pool, ph, branch).await;
+    // Same-site named twin, no branch — this is what dedup/Reuse offers.
+    let same_site = mk_hs1_variant(&pool, Some("SPLIT1"), "NAMED", 20000043, "T", "C", None).await;
+    // Different-site named twin carrying that name ON the branch (both the column — to satisfy
+    // the (name, branch) unique key against `same_site` — and a tree edge). This is the row
+    // that makes the placeholder redundant and keeps the branch defined after deletion.
+    let on_branch = mk_hs1_variant(&pool, Some("SPLIT1"), "NAMED", 20000047, "T", "C", Some(branch)).await;
+    link_variant(&pool, on_branch, branch).await;
+
+    // The placeholder's adoptable name is the same-site twin's — SPLIT1.
+    let phi = du_db::naming::get(&pool, ph).await.unwrap().unwrap();
+    let adoptable = du_db::naming::adoptable_name(&pool, ph, &phi.aliases).await.expect("adoptable");
+    assert_eq!(adoptable.as_deref(), Some("SPLIT1"), "adopts the same-site twin's name");
+
+    // That name is already canonical on the shared branch via the tree-linked twin ⇒ deletable.
+    let cov = du_db::naming::branch_covering_twin(&pool, ph, "SPLIT1").await.expect("covering");
+    assert_eq!(cov.map(|(id, n)| (id, n)), Some((on_branch, "SPLIT1".into())), "on-branch twin covers it");
+
+    // A row whose adoptable name is NOT yet on its branch is NOT deletable (adopt/mint instead).
+    assert!(
+        du_db::naming::branch_covering_twin(&pool, same_site, "NOPE").await.expect("covering").is_none(),
+        "no covering twin ⇒ not deletable"
+    );
+
+    // The hard delete: succeeds, reports the covering name, and the placeholder is gone…
+    let name = du_db::naming::delete_erroneous_duplicate(&pool, ph).await.expect("delete");
+    assert_eq!(name, "SPLIT1");
+    assert!(du_db::naming::get(&pool, ph).await.unwrap().is_none(), "placeholder deleted");
+    // …while the branch stays defined by the covering twin (not orphaned).
+    let still_defined: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM tree.haplogroup_variant WHERE haplogroup_id = $1 AND valid_until IS NULL)",
+    )
+    .bind(branch)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(still_defined, "branch remains defined after deleting the placeholder");
+
+    // Re-deleting (or deleting a non-duplicate) is refused, not a 500.
+    assert!(
+        du_db::naming::delete_erroneous_duplicate(&pool, on_branch).await.is_err(),
+        "a really-named row is never an erroneous duplicate"
+    );
+
+    // cleanup
+    for id in [same_site, on_branch] {
+        let _ = sqlx::query("DELETE FROM tree.haplogroup_variant WHERE variant_id = $1").bind(id).execute(&pool).await;
+        let _ = sqlx::query("DELETE FROM core.variant WHERE id = $1").bind(id).execute(&pool).await;
+    }
+    let _ = sqlx::query("DELETE FROM tree.haplogroup WHERE id = $1").bind(branch).execute(&pool).await;
 }

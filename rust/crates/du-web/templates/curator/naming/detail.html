@@ -18,7 +18,15 @@
       {% endif %}
     </dl>
 
-    {% if !v.dedup.is_empty() %}
+    {% if let Some(twin) = v.deletable_twin %}
+    {# Erroneous duplicate: the name this placeholder would adopt is already canonical on a
+       branch it defines, via the named twin below — so neither minting (forks an identity)
+       nor reusing (branch-name conflict) works. Delete the redundant row. This supersedes
+       the dedup warning, whose "reuse this name" hint would be misleading here. #}
+    <div class="alert alert-danger py-2 px-3 small mb-3">
+      {{ t.get("nm.delete.hint") }} <code>{{ twin }}</code>.
+    </div>
+    {% else if !v.dedup.is_empty() %}
     <div class="alert alert-warning py-2 px-3 small mb-3">
       {{ t.get("nm.dedup.warn") }}
       {% for c in v.dedup %}<code>{{ c.name }}</code>{% if !loop.last %}, {% endif %}{% endfor %}
@@ -26,17 +34,15 @@
     </div>
     {% endif %}
 
-    {% if let Some(twin) = v.deletable_twin %}
-    {# Erroneous duplicate: this placeholder's branch is already defined by a named
-       site-twin, so neither minting nor reusing is correct — delete the redundant row. #}
-    <div class="alert alert-danger py-2 px-3 small mb-3">
-      {{ t.get("nm.delete.hint") }} <code>{{ twin }}</code>.
-    </div>
-    {% endif %}
-
     {% if v.can_assign %}
     <div class="d-flex gap-2 flex-wrap">
-      {% if let Some(name) = v.established %}
+      {% if let Some(twin) = v.deletable_twin %}
+      {# The only correct action: delete. Reuse would hit the branch-name guard, Mint would
+         fork a second identity. #}
+      <button class="btn btn-sm btn-danger"
+              hx-post="/curator/naming/{{ v.id }}/delete" hx-target="#naming-detail" hx-swap="innerHTML"
+              hx-confirm="{{ t.get("nm.delete.confirm") }} {{ twin }}?">{{ t.get("nm.delete") }}</button>
+      {% else if let Some(name) = v.established %}
       {# Named by definition: an established (ISOGG/YBrowse) name exists for this
          locus + mutation state — reuse it rather than mint a new DU identifier. #}
       <button class="btn btn-sm btn-success"
@@ -58,11 +64,6 @@
       <button class="btn btn-sm btn-outline-secondary"
               hx-post="/curator/naming/{{ v.id }}/status" hx-vals='{"status":"UNNAMED"}'
               hx-target="#naming-detail" hx-swap="innerHTML">{{ t.get("nm.unflag") }}</button>
-      {% endif %}
-      {% if let Some(twin) = v.deletable_twin %}
-      <button class="btn btn-sm btn-outline-danger ms-auto"
-              hx-post="/curator/naming/{{ v.id }}/delete" hx-target="#naming-detail" hx-swap="innerHTML"
-              hx-confirm="{{ t.get("nm.delete.confirm") }} {{ twin }}?">{{ t.get("nm.delete") }}</button>
       {% endif %}
     </div>
     {% else %}

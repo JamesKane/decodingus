@@ -239,16 +239,26 @@ pub async fn adopt_established_name(pool: &PgPool, id: i64) -> Result<String, Db
     }
     let name = match established_name(&aliases) {
         Some(n) => n,
-        None => sqlx::query_as::<_, (i64, String)>(SITE_TWIN_SQL)
-            .bind(id)
-            .fetch_all(&mut *tx)
-            .await?
-            .into_iter()
-            .next()
-            .map(|(_, n)| n)
-            .ok_or_else(|| {
-                DbError::Conflict("variant has no established name to adopt".into())
-            })?,
+        None => {
+            // Same site match as `dedup_by_site`, but inside this tx — build-literal so it
+            // uses `variant_hs1_site_named_idx` rather than a full scan (see `site_twin_sql`).
+            let build: Option<String> = sqlx::query_scalar(PREFERRED_BUILD_SQL)
+                .bind(id)
+                .fetch_optional(&mut *tx)
+                .await?
+                .flatten();
+            let head = match build_literal(build.as_deref()) {
+                Some(b) => sqlx::query_as::<_, (i64, String)>(&site_twin_sql(b))
+                    .bind(id)
+                    .fetch_all(&mut *tx)
+                    .await?
+                    .into_iter()
+                    .next()
+                    .map(|(_, n)| n),
+                None => None,
+            };
+            head.ok_or_else(|| DbError::Conflict("variant has no established name to adopt".into()))?
+        }
     };
     // Canonical identity is (name + defining branch) — the recurrence model that
     // replaces ISOGG's L270.1/L270.2 suffixing: the same SNP name is canonical on
@@ -281,96 +291,120 @@ pub async fn adopt_established_name(pool: &PgPool, id: i64) -> Result<String, Db
     Ok(name)
 }
 
-/// Other **named** variants at the same locus **and mutation state** — contig +
-/// position + ancestral + derived — on this variant's preferred build (`hs1` first,
-/// else `GRCh38`). Matching by locus alone is wrong: two distinct SNPs can share a
-/// position with different alleles (e.g. Z12236 A>C vs Y17125 A>G), so a
-/// same-position-different-allele variant is NOT a duplicate.
-///
-/// Coordinate placeholders (`chrY:…`) are excluded: a placeholder is not a name, and
-/// without this filter the authority reports "a named variant already exists at this
-/// locus: `chrY:10249542C>G`" — contradicting every other path in this module, which
-/// treats that string as *unnamed* (see [`is_placeholder_name`]).
-///
-/// The ordering **is the adoption preference** — the head of this list is what
-/// [`adopt_established_name`] ratifies: the catalog representative first, then an
-/// external name over one of our own `DU` mints, then alphabetical for determinism.
-const SITE_TWIN_SQL: &str = "WITH b AS ( \
-       SELECT CASE WHEN coordinates ? 'hs1' THEN 'hs1' \
-                   WHEN coordinates ? 'GRCh38' THEN 'GRCh38' END AS build \
-       FROM core.variant WHERE id = $1), \
-     me AS ( \
-       SELECT b.build, \
-              v.coordinates->b.build->>'contig'    AS c, \
-              v.coordinates->b.build->>'position'  AS p, \
-              v.coordinates->b.build->>'ancestral' AS a, \
-              v.coordinates->b.build->>'derived'   AS d \
-       FROM core.variant v, b WHERE v.id = $1) \
-     SELECT v.id, v.canonical_name FROM core.variant v, me \
-     WHERE v.id <> $1 AND v.canonical_name IS NOT NULL \
-       AND v.canonical_name NOT LIKE 'chr%:%' \
-       AND me.build IS NOT NULL \
-       AND me.c IS NOT NULL AND me.p IS NOT NULL \
-       AND v.coordinates->me.build->>'contig'    = me.c \
-       AND v.coordinates->me.build->>'position'  = me.p \
-       AND v.coordinates->me.build->>'ancestral' IS NOT DISTINCT FROM me.a \
-       AND v.coordinates->me.build->>'derived'   IS NOT DISTINCT FROM me.d \
-     ORDER BY v.catalog_representative DESC, (v.canonical_name LIKE 'DU%'), v.canonical_name \
-     LIMIT 10";
+/// This variant's **preferred build** — `hs1` if it carries hs1 coordinates, else `GRCh38`,
+/// else NULL. The site match works in whichever build the variant is framed in.
+const PREFERRED_BUILD_SQL: &str = "SELECT CASE WHEN coordinates ? 'hs1' THEN 'hs1' \
+     WHEN coordinates ? 'GRCh38' THEN 'GRCh38' END FROM core.variant WHERE id = $1";
 
-/// **Dedup check** before naming — see [`SITE_TWIN_SQL`].
+/// Whitelist a build string to a **static literal** before it is interpolated into
+/// [`site_twin_sql`]. Only `hs1`/`GRCh38` reach the SQL; anything else is `None`.
+fn build_literal(build: Option<&str>) -> Option<&'static str> {
+    match build {
+        Some("hs1") => Some("hs1"),
+        Some("GRCh38") => Some("GRCh38"),
+        _ => None,
+    }
+}
+
+/// The site-twin lookup, with `build` as a **whitelisted literal** (`hs1`/`GRCh38`) baked
+/// into the coordinate path expressions rather than read from a runtime `me.build` column.
+///
+/// This is not cosmetic: the partial expression index `variant_hs1_site_named_idx`
+/// (migration 0068) is on `coordinates -> 'hs1' ->> …` *literals*, and Postgres only matches
+/// an expression index when the query's expression is character-identical. The old
+/// `v.coordinates -> me.build ->> …` form — `me.build` being a CTE column — never matched it,
+/// so every panel load and every adopt did a full ~3M-row sequential scan (~1.7 s). With the
+/// literal build the same lookup is an index scan (~0.3 ms). `build` MUST come from
+/// [`build_literal`] so only vetted literals are interpolated.
+///
+/// Ordering **is the adoption preference** — the head is what [`adopt_established_name`]
+/// ratifies: catalog representative first, external name over our own `DU` mint, then
+/// alphabetical for determinism.
+fn site_twin_sql(build: &str) -> String {
+    format!(
+        "SELECT v.id, v.canonical_name FROM core.variant v, \
+           (SELECT coordinates->'{build}'->>'contig'    AS c, \
+                   coordinates->'{build}'->>'position'  AS p, \
+                   coordinates->'{build}'->>'ancestral' AS a, \
+                   coordinates->'{build}'->>'derived'   AS d \
+            FROM core.variant WHERE id = $1 AND coordinates ? '{build}') me \
+         WHERE v.id <> $1 AND v.canonical_name IS NOT NULL \
+           AND v.canonical_name NOT LIKE 'chr%:%' \
+           AND v.coordinates ? '{build}' \
+           AND me.c IS NOT NULL AND me.p IS NOT NULL \
+           AND v.coordinates->'{build}'->>'contig'    = me.c \
+           AND v.coordinates->'{build}'->>'position'  = me.p \
+           AND v.coordinates->'{build}'->>'ancestral' IS NOT DISTINCT FROM me.a \
+           AND v.coordinates->'{build}'->>'derived'   IS NOT DISTINCT FROM me.d \
+         ORDER BY v.catalog_representative DESC, (v.canonical_name LIKE 'DU%'), v.canonical_name \
+         LIMIT 10"
+    )
+}
+
+/// Named site-twins of `id` — other **named** variants at the same locus **and mutation
+/// state** (contig + position + ancestral + derived) on this variant's preferred build.
+/// Matching by locus alone is wrong: two distinct SNPs can share a position with different
+/// alleles (e.g. Z12236 A>C vs Y17125 A>G), so a same-position-different-allele variant is
+/// NOT a duplicate. Coordinate placeholders (`chrY:…`) are excluded — a placeholder is not a
+/// name (see [`is_placeholder_name`]). See [`site_twin_sql`] for the index note.
 pub async fn dedup_by_site(pool: &PgPool, id: i64) -> Result<Vec<(i64, String)>, DbError> {
-    Ok(sqlx::query_as(SITE_TWIN_SQL).bind(id).fetch_all(pool).await?)
+    let build: Option<String> =
+        sqlx::query_scalar(PREFERRED_BUILD_SQL).bind(id).fetch_optional(pool).await?.flatten();
+    let Some(build) = build_literal(build.as_deref()) else { return Ok(vec![]) };
+    Ok(sqlx::query_as(&site_twin_sql(build)).bind(id).fetch_all(pool).await?)
 }
 
-/// A **named site-twin that already defines the same branch** — the exact collision the
-/// naming queue can neither mint nor adopt its way out of. `id` is an unnamed coordinate
-/// placeholder (`chrY:…`, or no name) that DEFINES a branch, and a really-named variant
-/// exists at the same locus + mutation state whose `defining_haplogroup_id` is that same
-/// branch.
+/// A really-named, **tree-linked** variant that already carries `name` on a branch this
+/// placeholder also defines — the row that makes an unnamed placeholder a redundant
+/// duplicate. `id` is a placeholder (`chrY:…`/no name); `name` is the name it would adopt
+/// (its site-twin's or alias's name — see [`adoptable_name`]).
 ///
-/// This is the residue of a GRCh38 catalog variant that wasn't lifted at tree-load time:
-/// the de-novo loader minted a `chrY:…` placeholder for the hs1 locus and linked *it* to
-/// the branch; once the catalog row is later lifted to hs1 it becomes a site-twin that
-/// already defines that branch. Now minting `id` forks a second identity, and adopting hits
-/// the "already canonical for this branch" guard in [`adopt_established_name`] — the curator
-/// is stuck. The placeholder is simply redundant: the twin covers the branch, so `id` should
-/// be **hard-deleted** ([`delete_erroneous_duplicate`]), not named.
+/// This is the collision the naming queue can neither mint nor adopt its way out of, and it
+/// is why the earlier "one row, same site AND same branch" test failed to fire: the covering
+/// name is routinely **split across two rows** — a same-site catalog row with no branch
+/// (offered as Reuse), and a branch-defining row a few bp away (the drift residue of an
+/// un-lifted catalog variant). Neither row alone is both same-site and same-branch, so the
+/// curator is stuck: Reuse hits the "already canonical for this branch" guard in
+/// [`adopt_established_name`], and Mint would fork a second identity.
 ///
-/// Returns the twin's `(id, canonical_name)`, or `None` when `id` doesn't qualify — in which
-/// case it must be named/adopted, never deleted. The *shared branch* is the safety property:
-/// it guarantees deleting `id` cannot leave a branch undefined.
-const ERRONEOUS_DUP_SQL: &str = "WITH b AS ( \
-       SELECT CASE WHEN coordinates ? 'hs1' THEN 'hs1' \
-                   WHEN coordinates ? 'GRCh38' THEN 'GRCh38' END AS build \
-       FROM core.variant WHERE id = $1), \
-     me AS ( \
-       SELECT b.build, v.defining_haplogroup_id AS branch, v.canonical_name AS name, \
-              v.coordinates->b.build->>'contig'    AS c, \
-              v.coordinates->b.build->>'position'  AS p, \
-              v.coordinates->b.build->>'ancestral' AS a, \
-              v.coordinates->b.build->>'derived'   AS d \
-       FROM core.variant v, b WHERE v.id = $1) \
-     SELECT v.id, v.canonical_name FROM core.variant v, me \
-     WHERE v.id <> $1 \
-       AND me.branch IS NOT NULL \
-       AND (me.name IS NULL OR me.name LIKE 'chr%:%') \
-       AND v.defining_haplogroup_id = me.branch \
-       AND v.canonical_name IS NOT NULL \
-       AND v.canonical_name NOT LIKE 'chr%:%' \
-       AND me.build IS NOT NULL AND me.c IS NOT NULL AND me.p IS NOT NULL \
-       AND v.coordinates->me.build->>'contig'    = me.c \
-       AND v.coordinates->me.build->>'position'  = me.p \
-       AND v.coordinates->me.build->>'ancestral' IS NOT DISTINCT FROM me.a \
-       AND v.coordinates->me.build->>'derived'   IS NOT DISTINCT FROM me.d \
-     ORDER BY v.catalog_representative DESC, v.canonical_name \
+/// Keying on the **name already being canonical on a shared *tree* branch** (not on the
+/// `defining_haplogroup_id` column, which the loader leaves unset — the branch lives in
+/// `tree.haplogroup_variant`) matches both what the panel displays and the real stuck state.
+/// The returned row is the safety property twofold: it proves the SNP is already named on
+/// this branch, and — being itself tree-linked to that branch — it guarantees deleting the
+/// placeholder ([`delete_erroneous_duplicate`]) cannot leave the branch undefined.
+///
+/// `Some((twin_id, twin_name))` ⇒ `id` is a redundant placeholder safe to delete; `None` ⇒
+/// it is not, and must be named/adopted instead.
+const BRANCH_COVERING_SQL: &str = "SELECT y.id, y.canonical_name \
+     FROM core.variant y \
+     JOIN tree.haplogroup_variant yhv ON yhv.variant_id = y.id AND yhv.valid_until IS NULL \
+     WHERE y.id <> $1 AND y.canonical_name = $2 AND y.canonical_name NOT LIKE 'chr%:%' \
+       AND EXISTS (SELECT 1 FROM tree.haplogroup_variant phv \
+                   WHERE phv.variant_id = $1 AND phv.valid_until IS NULL \
+                     AND phv.haplogroup_id = yhv.haplogroup_id) \
+     ORDER BY y.catalog_representative DESC, y.id LIMIT 1";
+
+/// See [`BRANCH_COVERING_SQL`]. `name` is the placeholder's adoptable name.
+pub async fn branch_covering_twin(
+    pool: &PgPool,
+    id: i64,
+    name: &str,
+) -> Result<Option<(i64, String)>, DbError> {
+    Ok(sqlx::query_as(BRANCH_COVERING_SQL).bind(id).bind(name).fetch_optional(pool).await?)
+}
+
+/// Does deleting `id` leave any branch it defines with **no other** current defining variant?
+/// A placeholder normally defines exactly one branch (covered by [`BRANCH_COVERING_SQL`]), but
+/// this is the general safety net: if `id` is the *last* `tree.haplogroup_variant` edge for any
+/// branch, deletion would orphan that tree node, and must be refused. Returns a row iff such a
+/// branch exists.
+const WOULD_ORPHAN_BRANCH_SQL: &str = "SELECT 1 FROM tree.haplogroup_variant phv \
+     WHERE phv.variant_id = $1 AND phv.valid_until IS NULL \
+       AND NOT EXISTS (SELECT 1 FROM tree.haplogroup_variant ohv \
+                       WHERE ohv.haplogroup_id = phv.haplogroup_id \
+                         AND ohv.valid_until IS NULL AND ohv.variant_id <> $1) \
      LIMIT 1";
-
-/// See [`ERRONEOUS_DUP_SQL`]. `Some((twin_id, twin_name))` ⇒ `id` is a redundant placeholder
-/// safe to hard-delete; `None` ⇒ it is not, and must be named/adopted instead.
-pub async fn erroneous_duplicate_twin(pool: &PgPool, id: i64) -> Result<Option<(i64, String)>, DbError> {
-    Ok(sqlx::query_as(ERRONEOUS_DUP_SQL).bind(id).fetch_optional(pool).await?)
-}
 
 /// Every table with a (non-cascading) FK to `core.variant(id)`. A hard delete must clear
 /// each of these before the row will drop. Kept in one place so a new referencing table
@@ -383,31 +417,81 @@ const VARIANT_FK_TABLES: [&str; 4] = [
 ];
 
 /// **Hard-delete an erroneous duplicate placeholder.** Only for the collision
-/// [`erroneous_duplicate_twin`] identifies: an unnamed coordinate placeholder whose branch
-/// is already defined by a really-named site-twin. Purges the variant's FK references (none
-/// cascade) and deletes the row, all in one transaction.
+/// [`branch_covering_twin`] identifies: an unnamed placeholder whose adoptable name is
+/// already canonical on a branch it defines, via a really-named, tree-linked twin. Purges the
+/// variant's FK references (none cascade) and deletes the row, all in one transaction.
 ///
-/// The guard is **re-checked inside the transaction** (the UI button is only advisory): if
-/// `id` no longer qualifies — it was named in the meantime, or has no covering twin — nothing
-/// is deleted and a `Conflict` is returned. This is the one path in the module that discards a
-/// variant outright, so it refuses to run unless the twin guarantees no branch is orphaned.
-/// Returns the covering twin's name (for the confirmation notice).
+/// The guard is **re-checked inside the transaction** (the UI button is only advisory), and in
+/// three parts, all of which must hold: `id` is still a placeholder (not named in the
+/// meantime); its adoptable name is still canonical on a shared branch via a covering twin; and
+/// deleting it would not orphan any branch it defines ([`WOULD_ORPHAN_BRANCH_SQL`]). Otherwise
+/// nothing is deleted and a `Conflict` is returned. This is the one path in the module that
+/// discards a variant outright. Returns the covering twin's name (for the confirmation notice).
 pub async fn delete_erroneous_duplicate(pool: &PgPool, id: i64) -> Result<String, DbError> {
     let mut tx = pool.begin().await?;
     // Lock the row so the guard can't be invalidated between check and delete.
-    sqlx::query("SELECT 1 FROM core.variant WHERE id = $1 FOR UPDATE")
-        .bind(id)
-        .fetch_optional(&mut *tx)
-        .await?;
-    let twin: Option<(i64, String)> =
-        sqlx::query_as(ERRONEOUS_DUP_SQL).bind(id).fetch_optional(&mut *tx).await?;
-    let (_twin_id, name) = twin.ok_or_else(|| {
+    let row: Option<(Option<String>, Value)> =
+        sqlx::query_as("SELECT canonical_name, aliases FROM core.variant WHERE id = $1 FOR UPDATE")
+            .bind(id)
+            .fetch_optional(&mut *tx)
+            .await?;
+    let (canon, aliases) =
+        row.ok_or_else(|| DbError::Conflict(format!("variant {id} not found")))?;
+    // Only a placeholder / unnamed row may be deleted — a real name is data to name or merge,
+    // never to discard.
+    if canon.as_deref().is_some_and(|n| !is_placeholder_name(n)) {
+        return Err(DbError::Conflict(
+            "variant has a real canonical name — name or merge it, do not delete".into(),
+        ));
+    }
+    // The name this placeholder would adopt: its own established alias, else its site-twin's.
+    let adopt = match established_name(&aliases) {
+        Some(n) => Some(n),
+        None => {
+            let build: Option<String> = sqlx::query_scalar(PREFERRED_BUILD_SQL)
+                .bind(id)
+                .fetch_optional(&mut *tx)
+                .await?
+                .flatten();
+            match build_literal(build.as_deref()) {
+                Some(b) => sqlx::query_as::<_, (i64, String)>(&site_twin_sql(b))
+                    .bind(id)
+                    .fetch_all(&mut *tx)
+                    .await?
+                    .into_iter()
+                    .next()
+                    .map(|(_, n)| n),
+                None => None,
+            }
+        }
+    };
+    let adopt = adopt.ok_or_else(|| {
         DbError::Conflict(
-            "not an erroneous duplicate: no named variant defines this branch at the same \
-             locus and mutation state — name or adopt this variant instead of deleting it"
+            "not an erroneous duplicate: no established name to adopt — mint or flag it instead"
                 .into(),
         )
     })?;
+    // That name must already be canonical on a shared branch via a really-named, tree-linked
+    // twin: proof the row is redundant, and that the branch stays defined after deletion.
+    let covering: Option<(i64, String)> =
+        sqlx::query_as(BRANCH_COVERING_SQL).bind(id).bind(&adopt).fetch_optional(&mut *tx).await?;
+    let (_twin_id, name) = covering.ok_or_else(|| {
+        DbError::Conflict(
+            "not an erroneous duplicate: its name is not yet canonical on a branch this row \
+             defines — adopt or mint it instead of deleting"
+                .into(),
+        )
+    })?;
+    // Final safety net: never drop the last defining variant of a branch.
+    let would_orphan: Option<i32> =
+        sqlx::query_scalar(WOULD_ORPHAN_BRANCH_SQL).bind(id).fetch_optional(&mut *tx).await?;
+    if would_orphan.is_some() {
+        return Err(DbError::Conflict(
+            "deleting this row would leave a branch with no defining variant — resolve in \
+             merge review instead"
+                .into(),
+        ));
+    }
     for t in VARIANT_FK_TABLES {
         // Table names are compile-time literals from VARIANT_FK_TABLES, not user input.
         sqlx::query(&format!("DELETE FROM {t} WHERE variant_id = $1"))

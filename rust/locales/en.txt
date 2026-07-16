@@ -485,7 +485,7 @@ nm.named_note=Already named — DU identifier assigned.
 nm.notice.minted=Minted
 nm.notice.adopted=Adopted established name
 nm.delete=Delete duplicate
-nm.delete.hint=This branch is already defined at this locus and mutation state by a named variant — this row is a redundant coordinate placeholder left by an unlifted variant. Delete it rather than minting a second identity for
+nm.delete.hint=This variant's SNP is already named, and that name already defines this branch — so this row is a redundant duplicate (the residue of an unlifted coordinate placeholder). Delete it rather than minting a second, conflicting identity for
 nm.delete.confirm=Hard-delete this erroneous duplicate? Its branch stays defined by
 nm.notice.deleted=Deleted erroneous duplicate; branch remains defined by
 

@@ -229,11 +229,10 @@ async fn build_detail(st: &AppState, id: i64, notice: Option<String>) -> Result<
     let i = du_db::naming::get(&st.pool, id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("variant {id}")))?;
-    let dedup = du_db::naming::dedup_by_site(&st.pool, id)
-        .await?
-        .into_iter()
-        .map(|(_, name)| Candidate { name })
-        .collect();
+    // One site-twin lookup feeds both the dedup warning and the adopt offer below (it used to
+    // run twice per panel — once here, once inside `adoptable_name`).
+    let twins = du_db::naming::dedup_by_site(&st.pool, id).await?;
+    let dedup = twins.iter().map(|(_, name)| Candidate { name: name.clone() }).collect();
     // A synthetic coordinate placeholder (`chrY:…`) counts as unnamed even though the
     // loader marked it NAMED — the variant is still nameable, and must not display as
     // "already named".
@@ -247,17 +246,20 @@ async fn build_detail(st: &AppState, id: i64, notice: Option<String>) -> Result<
     // variant already exists" with no button that could reuse it, and Mint DU name — which
     // would fork the marker's identity — as the only action on screen.
     let established = if can_assign && (i.canonical_name.is_none() || placeholder) {
-        du_db::naming::adoptable_name(&st.pool, id, &i.aliases).await?
+        // Same resolution order as `adoptable_name`: own established alias, else the head
+        // site-twin (already fetched above — no second query).
+        du_db::naming::established_name(&i.aliases).or_else(|| twins.first().map(|(_, n)| n.clone()))
     } else {
         None
     };
-    // The stuck-mint collision: an unnamed placeholder whose branch is already defined by a
-    // named site-twin. Neither Mint (forks an identity) nor Reuse (branch-name conflict) is
-    // right here — the row is redundant and should be hard-deleted.
-    let deletable_twin = if can_assign && (i.canonical_name.is_none() || placeholder) {
-        du_db::naming::erroneous_duplicate_twin(&st.pool, id).await?.map(|(_, n)| n)
-    } else {
-        None
+    // The stuck-mint collision: the name this placeholder would adopt is already canonical on a
+    // branch it defines (via a really-named, tree-linked twin). Neither Mint (forks an identity)
+    // nor Reuse (branch-name conflict) is right — the row is redundant and should be deleted.
+    let deletable_twin = match established.as_deref() {
+        Some(name) => {
+            du_db::naming::branch_covering_twin(&st.pool, id, name).await?.map(|(_, n)| n)
+        }
+        None => None,
     };
     Ok(DetailView {
         id: i.id,
