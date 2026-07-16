@@ -131,6 +131,16 @@ async fn main() -> anyhow::Result<()> {
                     );
                 }
             }
+            // One-time legacy cleanup: realign coordinate-placeholder names prefixed with the
+            // contig ACCESSION (e.g. CP086569.2:11242278 C->A, the GenBank id for the hs1 Y)
+            // to the chromosome label their coordinates carry (chrY). The ETL/cutover minted
+            // these; they match neither chr%:% nor is_placeholder_name, so the naming authority
+            // (queue/adopt/batch-mint) is blind to them and their branch-defining members can
+            // never be named. Idempotent. Run before mint-batch to surface the hidden rows.
+            "normalize-placeholder-contig" => {
+                let n = du_db::naming::normalize_placeholder_contig(&pool, 20_000).await?;
+                tracing::info!(rewritten = n, "normalize-placeholder-contig complete");
+            }
             // Batch-mint DU names for genuine de-novo discoveries: branch-defining Y
             // coordinate placeholders (chrY:…) with no name to adopt (no established alias,
             // no named site-twin). One name PER SITE — a variant recurring on several
@@ -372,7 +382,7 @@ async fn main() -> anyhow::Result<()> {
                 ena::enrich_studies(&pool, &client).await?;
             }
             other => anyhow::bail!(
-                "unknown run-once job '{other}' (known: ybrowse, reconcile, variant-representatives, naming-status-normalize, variant-name-reconcile, mint-batch, yregions, branch-age, ftdna-str, sequencer-consensus, discovery-consensus, coverage-norms, ibd-discovery-recompute, exchange-expire, tree-samples-recompute, dedup-candidates, consolidate-donors, link-federated-subjects, import-kit-identifiers, mt-rcrs-lift, variant-coord-lift, crawl-project, publication-topic-prune, name-private-nodes, publication-update, publication-discovery, publication-pubmed-update, ena-study-enrichment)"
+                "unknown run-once job '{other}' (known: ybrowse, reconcile, variant-representatives, naming-status-normalize, variant-name-reconcile, normalize-placeholder-contig, mint-batch, yregions, branch-age, ftdna-str, sequencer-consensus, discovery-consensus, coverage-norms, ibd-discovery-recompute, exchange-expire, tree-samples-recompute, dedup-candidates, consolidate-donors, link-federated-subjects, import-kit-identifiers, mt-rcrs-lift, variant-coord-lift, crawl-project, publication-topic-prune, name-private-nodes, publication-update, publication-discovery, publication-pubmed-update, ena-study-enrichment)"
             ),
         }
         return Ok(());

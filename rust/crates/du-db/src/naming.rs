@@ -769,3 +769,59 @@ pub async fn mint_all(pool: &PgPool, vtype: &str, batch: i64) -> Result<MintRepo
     }
     Ok(total)
 }
+
+// ── legacy placeholder-name normalization ─────────────────────────────────────
+
+/// Realign **legacy coordinate placeholders whose name is prefixed with the contig
+/// accession** to the chromosome label their coordinates already carry. The ETL/cutover
+/// minted names like `CP086569.2:11242278 C->A` (`CP086569.2` = the GenBank accession for the
+/// hs1/CHM13v2.0 Y) while the row's `coordinates` store `contig: chrY`; the current de-novo
+/// loader derives the placeholder from the coordinates' contig, so this does not recur.
+///
+/// Such names match neither `chr%:%` nor `is_placeholder_name` (both assume a `chr` prefix),
+/// so the entire naming authority — queue, adopt, batch mint — is blind to them: a
+/// branch-defining one can never be named. This rewrites the name's contig prefix (and any
+/// coordinate-shaped `common_names` alias) to the coordinates' preferred-build contig (hs1,
+/// else GRCh38), after which they flow through every path unchanged.
+///
+/// Safe + idempotent: touches only coordinate-shaped names (`^[^:]+:[0-9]`) whose prefix
+/// differs from their coordinates' contig — a fixed row then matches and drops out, and real
+/// names contain no `:`. The rewritten string keeps the legacy `pos ref->alt` body, which
+/// differs from the loader's `posref>alt`, so it cannot collide with an existing `chrY:` row.
+/// Batched (fixed rows leave the set each pass); returns the number of names rewritten.
+const NORMALIZE_CONTIG_SQL: &str = "WITH tgt AS ( \
+       SELECT id, COALESCE(coordinates->'hs1'->>'contig', coordinates->'GRCh38'->>'contig') AS contig \
+       FROM core.variant \
+       WHERE canonical_name ~ '^[^:]+:[0-9]' \
+         AND COALESCE(coordinates->'hs1'->>'contig', coordinates->'GRCh38'->>'contig') IS NOT NULL \
+         AND split_part(canonical_name, ':', 1) \
+             IS DISTINCT FROM COALESCE(coordinates->'hs1'->>'contig', coordinates->'GRCh38'->>'contig') \
+       LIMIT $1), \
+     upd AS ( \
+       UPDATE core.variant v \
+       SET canonical_name = regexp_replace(v.canonical_name, '^[^:]+:', tgt.contig || ':'), \
+           aliases = CASE WHEN v.aliases ? 'common_names' THEN \
+             jsonb_set(v.aliases, '{common_names}', \
+               COALESCE((SELECT jsonb_agg(CASE WHEN x ~ '^[^:]+:[0-9]' \
+                                               THEN regexp_replace(x, '^[^:]+:', tgt.contig || ':') ELSE x END) \
+                         FROM jsonb_array_elements_text(v.aliases->'common_names') x), '[]'::jsonb), true) \
+             ELSE v.aliases END, \
+           updated_at = now() \
+       FROM tgt WHERE v.id = tgt.id \
+       RETURNING 1) \
+     SELECT count(*)::bigint FROM upd";
+
+/// Rewrite legacy accession-prefixed placeholder names to their coordinates' contig. See
+/// [`NORMALIZE_CONTIG_SQL`]. Batched to `batch` rows per statement; loops until none remain.
+pub async fn normalize_placeholder_contig(pool: &PgPool, batch: i64) -> Result<i64, DbError> {
+    let batch = batch.clamp(1, 50_000);
+    let mut total = 0i64;
+    loop {
+        let n: i64 = sqlx::query_scalar(NORMALIZE_CONTIG_SQL).bind(batch).fetch_one(pool).await?;
+        total += n;
+        if n == 0 {
+            break;
+        }
+    }
+    Ok(total)
+}
