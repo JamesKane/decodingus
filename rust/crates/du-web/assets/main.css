@@ -106,6 +106,48 @@ code { color: #495057; background-color: #f8f9fa; }
 .legend-swatch.node-recent   { background: #ffeeba; border-color: #e65100; }
 .legend-swatch.node-default  { background: #f8f9fa; border-color: #6c757d; }
 
+/* ── Clade "Geography & Time" panel (in the SNP off-canvas) ──────────────────── */
+/* Give the off-canvas enough room for a usable map + full-width time axis. */
+#snpOffcanvas { --bs-offcanvas-width: min(94vw, 480px); }
+
+.clade-map {
+  height: 240px;
+  border-radius: .375rem;
+  border: 1px solid var(--bs-border-color);
+  background: var(--bs-tertiary-bg, #f8f9fa);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--bs-secondary-color, #6c757d);
+  font-size: .8rem;
+}
+
+.clade-time-axis { display: block; width: 100%; height: auto; }
+.cta-grid   { stroke: rgba(0,0,0,.08); stroke-width: 1; }
+.cta-tick   { font-size: 9px; fill: var(--bs-secondary-color, #6c757d); }
+.cta-axis-label { font-size: 9px; fill: var(--bs-secondary-color, #6c757d); }
+.cta-branch { stroke: #6c757d; stroke-width: 2; stroke-linecap: round; }
+.cta-ci     { fill: rgba(27,94,32,.18); stroke: #1b5e20; stroke-width: .75; }
+.cta-tmrca  { fill: #1b5e20; stroke: #fff; stroke-width: 1; }
+.cta-formed { stroke: #6c757d; stroke-width: 1.5; stroke-linecap: round; }
+.cta-whisker { stroke: #8a4b12; stroke-width: 1; }
+.cta-anchor  { fill: #e08a3c; stroke: #8a4b12; stroke-width: 1; }
+
+/* Clade-map legend dots. */
+.clade-geo-legend { display: flex; flex-wrap: wrap; align-items: center; }
+.cg-dot, .cg-diamond {
+  display: inline-block;
+  width: .75rem; height: .75rem;
+  vertical-align: -1px;
+  margin-right: .2rem;
+}
+.cg-dot { border-radius: 50%; border: 1px solid; }
+.cg-modern  { background: #0d6efd; border-color: #0d6efd; }
+.cg-ancient { background: #e08a3c; border-color: #8a4b12; }
+.cg-tmrca   { background: rgba(27,94,32,.35); border-color: #1b5e20; border-radius: 2px; }
+.cg-diamond { transform: rotate(45deg); }
+.cg-anchor  { background: #e08a3c; border: 1px solid #8a4b12; }
+
 /* ── Mobile layout ──────────────────────────────────────────────────────────
    The footer is a `fixed-bottom` navbar. Below `lg` its links don't collapse, so
    they wrap into a tall bar that overlaps `main` while `body`'s padding only

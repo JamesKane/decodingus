@@ -1,0 +1,21 @@
+{# Clade sample-origin map, loaded into #cladeGeo inside the SNP off-canvas. A Leaflet
+   map of the clade's placed-sample donor coordinates, modern vs ancient. The branch age
+   / time axis lives in the always-visible Age block of the sidebar, not here. See
+   routes/tree.rs::clade_geo. #}
+<div class="clade-geo">
+  <div class="text-uppercase text-muted fw-semibold mb-1" style="font-size:.7rem;letter-spacing:.04em;">
+    {{ t.get("tree.geo.title") }} · {{ name }}
+  </div>
+
+  {# Leaflet island; clade-geo.js initializes on swap and fetches data-geo-url. #}
+  <div id="clade-map" class="clade-map" data-geo-url="{{ geo_data_url }}"
+       data-loading="{{ t.get("tree.geo.loading") }}">{{ t.get("tree.geo.loading") }}</div>
+  <div class="small text-muted mt-1">
+    {% if total > 0 %}<strong>{{ mapped }}</strong> / {{ total }} {{ t.get("tree.geo.mapped") }}{% else %}{{ t.get("tree.geo.nocoords") }}{% endif %}
+  </div>
+
+  <div class="clade-geo-legend small text-muted mt-1">
+    <span class="cg-dot cg-modern"></span> {{ t.get("tree.geo.legend.modern") }}
+    <span class="cg-dot cg-ancient ms-2"></span> {{ t.get("tree.geo.legend.ancient") }}
+  </div>
+</div>

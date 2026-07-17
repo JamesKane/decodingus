@@ -25,25 +25,57 @@
       <dt class="col-5 text-muted fw-normal">{{ t.get("tree.prov.updated") }}</dt>
       <dd class="col-7 mb-0">{{ u }}</dd>
       {% endif %}
-      {% if let Some(f) = p.formed_ybp %}
-      <dt class="col-5 text-muted fw-normal">{{ t.get("hg.field.formed") }}</dt>
-      <dd class="col-7 mb-0">{{ f }}</dd>
-      {% endif %}
-      {% if let Some(tm) = p.tmrca_ybp %}
-      <dt class="col-5 text-muted fw-normal">{{ t.get("hg.field.tmrca") }}</dt>
-      <dd class="col-7 mb-0">{{ tm }}{% if let Some(ci) = p.tmrca_ci %} <span class="text-muted">({{ t.get("tree.prov.ci") }} {{ ci.0 }}–{{ ci.1 }})</span>{% endif %}</dd>
-      {% endif %}
-      {% if let Some(n) = p.sample_count %}
-      <dt class="col-5 text-muted fw-normal">{{ t.get("tree.prov.samples") }}</dt>
-      <dd class="col-7 mb-0">{{ n }}</dd>
-      {% endif %}
     </dl>
-    {% if p.formed_ybp.is_some() || p.tmrca_ybp.is_some() %}
-    <div class="text-muted mt-2" style="font-size:.68rem; line-height:1.35;">
+  </div>
+  {% endif %}
+
+  {# Age — the single, consolidated representation: the branch TMRCA/formed on a time
+     axis (present → past, years before present) with any dated ancient-DNA anchors,
+     plus a glanceable numeric caption. Replaces the old textual provenance age rows. #}
+  {% if let Some(a) = age %}
+  <div class="card-body py-2 border-bottom small">
+    <div class="text-uppercase text-muted fw-semibold mb-1" style="font-size:.7rem;letter-spacing:.04em;">{{ t.get("tree.geo.age") }}</div>
+    <svg class="clade-time-axis" viewBox="0 0 {{ a.axis.width }} {{ a.axis.height }}"
+         role="img" aria-label="{{ t.get("tree.geo.age") }}">
+      {% for tk in a.axis.ticks %}
+      <line class="cta-grid" x1="{{ tk.x }}" y1="{{ a.axis.grid_y1 }}" x2="{{ tk.x }}" y2="{{ a.axis.baseline_y }}"></line>
+      <text class="cta-tick" x="{{ tk.x }}" y="{{ tk.label_y }}" text-anchor="middle">{{ tk.label }}</text>
+      {% endfor %}
+      <line class="cta-branch" x1="{{ a.axis.branch_x1 }}" y1="{{ a.axis.baseline_y }}" x2="{{ a.axis.branch_x2 }}" y2="{{ a.axis.baseline_y }}"></line>
+      {% if let Some(ci) = a.axis.ci %}
+      <rect class="cta-ci" x="{{ ci.x }}" y="{{ ci.y }}" width="{{ ci.width }}" height="{{ ci.height }}" rx="3">
+        <title>{{ t.get("tree.geo.legend.tmrca") }}: {{ ci.label }}</title>
+      </rect>
+      {% endif %}
+      {% if let Some(f) = a.axis.formed %}
+      <line class="cta-formed" x1="{{ f.x }}" y1="{{ f.y1 }}" x2="{{ f.x }}" y2="{{ f.y2 }}">
+        <title>{{ t.get("tree.geo.formed") }}: {{ f.label }}</title>
+      </line>
+      {% endif %}
+      {% if let Some(tm) = a.axis.tmrca %}
+      <circle class="cta-tmrca" cx="{{ tm.x }}" cy="{{ a.axis.baseline_y }}" r="4">
+        <title>{{ t.get("tree.geo.tmrca") }}: {{ tm.label }}</title>
+      </circle>
+      {% endif %}
+      {% for an in a.axis.anchors %}
+      <line class="cta-whisker" x1="{{ an.wx1 }}" y1="{{ an.wy }}" x2="{{ an.wx2 }}" y2="{{ an.wy }}"></line>
+      <path class="cta-anchor" d="{{ an.diamond_d }}"><title>{{ an.name }} · {{ an.label }}</title></path>
+      {% endfor %}
+      <text class="cta-axis-label" x="{{ a.axis.axis_label_x }}" y="{{ a.axis.axis_label_y }}" text-anchor="middle">{{ t.get("tree.geo.axis") }}</text>
+    </svg>
+    <div class="text-muted" style="font-size:.72rem; line-height:1.4;">
+      {% if let Some(tm) = a.tmrca_ybp %}{{ t.get("hg.field.tmrca") }} <span class="fw-semibold">{{ tm }}</span>{% if let Some(cal) = a.tmrca_cal %} ({{ cal }}){% endif %}{% if let Some(ci) = a.tmrca_ci %} · {{ t.get("tree.prov.ci") }} {{ ci.0 }}–{{ ci.1 }}{% endif %}{% endif %}
+      {% if let Some(f) = a.formed_ybp %} · {{ t.get("hg.field.formed") }} {{ f }}{% endif %}
+      {% if let Some(n) = a.sample_count %} · {{ t.get("tree.prov.samples") }} {{ n }}{% endif %}
+    </div>
+    <div class="clade-geo-legend text-muted mt-1" style="font-size:.72rem;">
+      <span class="cg-dot cg-tmrca"></span> {{ t.get("tree.geo.legend.tmrca") }}
+      {% if !a.axis.anchors.is_empty() %}<span class="cg-diamond cg-anchor ms-2"></span> {{ t.get("tree.geo.legend.anchor") }}{% endif %}
+    </div>
+    <div class="text-muted mt-1" style="font-size:.68rem; line-height:1.35;">
       {{ t.get("tree.prov.agecredit") }}
       <a href="https://doi.org/10.3390/genes12060862" target="_blank" rel="noopener noreferrer">McDonald (2021)</a>.
     </div>
-    {% endif %}
   </div>
   {% endif %}
 
@@ -100,6 +132,16 @@
   <div class="card-body py-2 border-top">
     <div class="text-uppercase text-muted fw-semibold mb-1" style="font-size:.7rem;letter-spacing:.04em;">{{ t.get("tree.samples.title") }}</div>
     <span class="fw-semibold">{{ sample_count }}</span>
+
+    {# Lazy-loaded map of the clade's sample origins (modern vs ancient). The branch age
+       / time axis is shown above in the always-visible Age block. #}
+    <button class="btn btn-sm btn-outline-primary w-100 mt-2"
+            hx-get="{{ geo_href }}" hx-target="#cladeGeo" hx-swap="innerHTML"
+            hx-indicator="#cladeGeoSpin">
+      <i class="bi bi-geo-alt me-1"></i>{{ t.get("tree.geo.open") }}
+      <span id="cladeGeoSpin" class="htmx-indicator spinner-border spinner-border-sm ms-1"></span>
+    </button>
+    <div id="cladeGeo" class="mt-2"></div>
   </div>
   {% endif %}
 </div>

@@ -24,6 +24,7 @@ use axum::{Json, Router};
 use serde_json::{json, Value};
 use du_db::haplogroup::WindowNode;
 use du_domain::enums::DnaType;
+use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
 use serde::Deserialize;
 use std::collections::HashMap;
 
@@ -44,6 +45,12 @@ pub fn router() -> Router<AppState> {
         .route("/mtree", get(mtree))
         .route("/ytree/snp/:name", get(ysnp))
         .route("/mtree/snp/:name", get(mtsnp))
+        // Clade "Geography & Time" infographic: HTML fragment (map + time axis)
+        // and its clade-scoped GeoJSON, lazy-loaded from the SNP off-canvas.
+        .route("/ytree/node/:name/geo", get(y_clade_geo))
+        .route("/mtree/node/:name/geo", get(mt_clade_geo))
+        .route("/ytree/node/:name/geo-data", get(y_clade_geo_data))
+        .route("/mtree/node/:name/geo-data", get(mt_clade_geo_data))
         // Curator triage for sample leaves whose published call didn't resolve to a node.
         .route("/manage/tree-sample/unplaced", get(unplaced))
         .route("/manage/tree-sample/place", post(place))
@@ -146,7 +153,12 @@ struct SvgFragment {
 struct SnpSidebar {
     t: T,
     name: String,
+    /// URL of this node's sample-map panel fragment (lazy-loaded on click).
+    geo_href: String,
     provenance: Option<Provenance>,
+    /// The consolidated age block: the branch TMRCA/formed on a time axis (with any
+    /// ancient-DNA anchors). Replaces the old textual formed/TMRCA provenance rows.
+    age: Option<AgeBlock>,
     variants: Vec<VariantRow>,
     /// Reconstructed ancestral Y-STR motif (phylogenetic ASR): the markers that
     /// mutated on the branch leading into this node (parent→node), headlined.
@@ -190,6 +202,13 @@ struct Provenance {
     updated: Option<String>,
     /// Curator-adopted backbone (a `provenance.backbone_source` marker).
     backbone: bool,
+}
+
+/// The node's age, consolidated into one block: the numeric formed/TMRCA/CI plus the
+/// time-axis visualization (which also carries any dated ancient-DNA anchors). This is
+/// the single home for the age — the SNP sidebar no longer repeats it as text rows and
+/// the sample-map panel no longer draws its own copy of the axis.
+struct AgeBlock {
     formed_ybp: Option<i32>,
     tmrca_ybp: Option<i32>,
     /// 95% CI (low, high ybp) of the combined TMRCA, when an estimate exists.
@@ -197,6 +216,9 @@ struct Provenance {
     /// Number of tester samples whose private SNPs measured this node's age (the
     /// SNP-Poisson "population size"). `None`/0 for nodes dated only by propagation.
     sample_count: Option<i32>,
+    /// ybp→calendar for the TMRCA (e.g. "2550 BC"), for a glanceable caption.
+    tmrca_cal: Option<String>,
+    axis: TimeAxis,
 }
 
 // ── Handlers ────────────────────────────────────────────────────────────────
@@ -355,9 +377,11 @@ async fn snp_sidebar(
         })
         .collect();
 
-    // Branch provenance: source, cross-source aliases, last-updated, backbone, age.
+    // Branch provenance (source, aliases, last-updated, backbone) and the single age
+    // block: the numeric formed/TMRCA/CI consolidated onto the time axis, which also
+    // carries any dated ancient-DNA anchors in the subtree.
     let hg = du_db::haplogroup::get_by_name(&st.pool, &name, dna_type).await?;
-    let provenance = match hg {
+    let (provenance, age) = match hg {
         Some(h) => {
             // Age-estimate inputs behind the displayed TMRCA: the combined 95% CI and
             // the SNP-Poisson tester count ("population size").
@@ -376,8 +400,8 @@ async fn snp_sidebar(
                 None
             };
             let p = &h.provenance;
-            Some(Provenance {
-                source: h.source.unwrap_or_else(|| "—".into()),
+            let provenance = Provenance {
+                source: h.source.clone().unwrap_or_else(|| "—".into()),
                 aliases: p
                     .get("aliases")
                     .and_then(serde_json::Value::as_array)
@@ -386,13 +410,22 @@ async fn snp_sidebar(
                 // Stored like "2025-05-24T13:58:48…[Etc/UTC]" — keep the date.
                 updated: p.get("source_updated").and_then(|v| v.as_str()).and_then(|s| s.split('T').next()).map(str::to_string),
                 backbone: p.get("backbone_source").is_some(),
+            };
+            // Consolidated age: the time axis is the single representation. Build it from
+            // this node's formed/TMRCA and the subtree's ancient anchors; present only
+            // when the node actually has an age to plot.
+            let anchors = du_db::age::ancient_anchors_under(&st.pool, &name, dna_type).await?;
+            let age = build_time_axis(h.formed_ybp, h.tmrca_ybp, tmrca_ci, &anchors).map(|axis| AgeBlock {
                 formed_ybp: h.formed_ybp,
                 tmrca_ybp: h.tmrca_ybp,
                 tmrca_ci,
                 sample_count,
-            })
+                tmrca_cal: h.tmrca_ybp.map(tree_layout::format_ybp),
+                axis,
+            });
+            (Some(provenance), age)
         }
-        None => None,
+        None => (None, None),
     };
 
     // Reconstructed ancestral Y-STR motif (Y only) — the per-marker mutations on
@@ -416,15 +449,314 @@ async fn snp_sidebar(
     // Count of placed non-D2C sample leaves at or below this node (shown instead of the list).
     let sample_count = du_db::tree_sample::count_under(&st.pool, &name, dna_type).await?;
 
+    let geo_href = format!(
+        "{}/node/{}/geo",
+        base_path_for(dna_type),
+        utf8_percent_encode(&name, NON_ALPHANUMERIC)
+    );
     Ok(html(&SnpSidebar {
         t: locale.t,
         name,
+        geo_href,
         provenance,
+        age,
         variants,
         str_changes,
         str_motif_markers,
         sample_count,
     }))
+}
+
+/// The public tree base path for a lineage.
+fn base_path_for(dna_type: DnaType) -> &'static str {
+    match dna_type {
+        DnaType::YDna => "/ytree",
+        DnaType::MtDna => "/mtree",
+    }
+}
+
+// ── Clade "Geography & Time" infographic ─────────────────────────────────────
+
+async fn y_clade_geo(st: State<AppState>, locale: Locale, name: Path<String>) -> Result<Response, AppError> {
+    clade_geo(st, locale, name, DnaType::YDna).await
+}
+
+async fn mt_clade_geo(st: State<AppState>, locale: Locale, name: Path<String>) -> Result<Response, AppError> {
+    clade_geo(st, locale, name, DnaType::MtDna).await
+}
+
+async fn y_clade_geo_data(st: State<AppState>, name: Path<String>) -> Result<Json<Value>, AppError> {
+    clade_geo_data(st, name, DnaType::YDna).await
+}
+
+async fn mt_clade_geo_data(st: State<AppState>, name: Path<String>) -> Result<Json<Value>, AppError> {
+    clade_geo_data(st, name, DnaType::MtDna).await
+}
+
+/// Clade-scoped GeoJSON of placed samples' donor coordinates, styled client-side by
+/// `source` (ancient vs modern). Mirrors [`crate::routes::maps`]'s FeatureCollection.
+async fn clade_geo_data(
+    State(st): State<AppState>,
+    Path(name): Path<String>,
+    dna_type: DnaType,
+) -> Result<Json<Value>, AppError> {
+    let points = du_db::tree_sample::geo_points_under(&st.pool, &name, dna_type).await?;
+    let features: Vec<Value> = points
+        .into_iter()
+        .map(|p| {
+            json!({
+                "type": "Feature",
+                "geometry": { "type": "Point", "coordinates": [p.lon, p.lat] },
+                "properties": {
+                    "accession": p.accession,
+                    "source": p.source.label(),
+                    "ancient": matches!(p.source, du_domain::enums::BiosampleSource::Ancient),
+                },
+            })
+        })
+        .collect();
+    Ok(Json(json!({ "type": "FeatureCollection", "features": features })))
+}
+
+/// The "Geography & Time" panel fragment: a Leaflet map target (client fetches the
+/// GeoJSON above) plus a server-rendered SVG time axis of the clade's TMRCA/CI with any
+/// dated ancient-DNA anchors in the subtree.
+async fn clade_geo(
+    State(st): State<AppState>,
+    locale: Locale,
+    Path(name): Path<String>,
+    dna_type: DnaType,
+) -> Result<Response, AppError> {
+    let base_path = base_path_for(dna_type);
+    // Validate the node exists (404 otherwise); the age/time axis now lives in the SNP
+    // sidebar, so this panel only needs the map.
+    if du_db::haplogroup::get_by_name(&st.pool, &name, dna_type).await?.is_none() {
+        return Err(AppError::NotFound(format!("no haplogroup {name}")));
+    }
+
+    // Total placed samples vs. those with a mappable donor coordinate.
+    let total = du_db::tree_sample::count_under(&st.pool, &name, dna_type).await?;
+    let mapped = du_db::tree_sample::geo_points_under(&st.pool, &name, dna_type)
+        .await?
+        .len() as i64;
+
+    let enc = utf8_percent_encode(&name, NON_ALPHANUMERIC).to_string();
+    Ok(html(&GeoPanel {
+        t: locale.t,
+        name,
+        geo_data_url: format!("{base_path}/node/{enc}/geo-data"),
+        mapped,
+        total,
+    }))
+}
+
+#[derive(askama::Template)]
+#[template(path = "tree/geo_panel.html")]
+struct GeoPanel {
+    t: T,
+    name: String,
+    /// Clade-scoped GeoJSON endpoint the Leaflet island fetches.
+    geo_data_url: String,
+    /// Placed samples with a mappable donor coordinate, and the total placed count —
+    /// shown as "N of M mapped" so sparse geocoord coverage is explicit.
+    mapped: i64,
+    total: i64,
+}
+
+// ── Time-axis geometry ───────────────────────────────────────────────────────
+// A horizontal ybp axis (present at right → past at left) with the clade's branch,
+// its TMRCA + 95% CI band, and any dated ancient-DNA anchors in the subtree. Computed
+// in Rust (like `tree_layout`) so the template just emits an inline <svg>.
+
+const AXIS_W: f64 = 560.0;
+const AXIS_H: f64 = 150.0;
+const AXIS_PAD_L: f64 = 40.0;
+const AXIS_PAD_R: f64 = 16.0;
+const AXIS_BASELINE_Y: f64 = 96.0;
+const AXIS_ANCHOR_Y: f64 = 52.0;
+
+// All coordinates are precomputed here so the template does no arithmetic.
+struct TimeAxis {
+    width: f64,
+    height: f64,
+    baseline_y: f64,
+    /// Top of the tick gridlines.
+    grid_y1: f64,
+    /// Branch segment: older end → present.
+    branch_x1: f64,
+    branch_x2: f64,
+    axis_label_x: f64,
+    axis_label_y: f64,
+    ci: Option<CiBand>,
+    tmrca: Option<AxisMark>,
+    formed: Option<FormedMark>,
+    ticks: Vec<AxisTick>,
+    anchors: Vec<AxisAnchor>,
+}
+
+struct CiBand {
+    x: f64,
+    width: f64,
+    y: f64,
+    height: f64,
+    label: String,
+}
+
+struct AxisMark {
+    x: f64,
+    label: String,
+}
+
+/// The "formed" tick: a short vertical mark at `x` from `y1` to `y2`.
+struct FormedMark {
+    x: f64,
+    y1: f64,
+    y2: f64,
+    label: String,
+}
+
+struct AxisTick {
+    x: f64,
+    label: String,
+    label_y: f64,
+}
+
+struct AxisAnchor {
+    /// Uncertainty whisker endpoints (older, younger) and its y; equal x when unknown.
+    wx1: f64,
+    wx2: f64,
+    wy: f64,
+    /// Precomputed diamond marker path centered on the anchor's date.
+    diamond_d: String,
+    name: String,
+    label: String,
+}
+
+fn r1(v: f64) -> f64 {
+    (v * 10.0).round() / 10.0
+}
+
+/// A "nice" round step (1/2/2.5/5 × 10ⁿ) at least `rough`.
+fn nice_step(rough: f64) -> f64 {
+    if rough <= 0.0 {
+        return 1.0;
+    }
+    let mag = 10f64.powf(rough.log10().floor());
+    for m in [1.0, 2.0, 2.5, 5.0, 10.0] {
+        if m * mag >= rough {
+            return m * mag;
+        }
+    }
+    10.0 * mag
+}
+
+/// ybp → "k"-abbreviated years-before-present tick label.
+fn tick_label(ybp: i64) -> String {
+    if ybp == 0 {
+        "0".into()
+    } else if ybp % 1000 == 0 {
+        format!("{}k", ybp / 1000)
+    } else {
+        ybp.to_string()
+    }
+}
+
+fn build_time_axis(
+    formed_ybp: Option<i32>,
+    tmrca_ybp: Option<i32>,
+    tmrca_ci: Option<(i32, i32)>,
+    anchors: &[du_db::age::AncientAnchor],
+) -> Option<TimeAxis> {
+    // Need at least a formed or TMRCA age to anchor the branch.
+    let older = formed_ybp.or(tmrca_ybp)?;
+
+    let anchor_pts: Vec<(i32, i32, &du_db::age::AncientAnchor)> = anchors
+        .iter()
+        .filter_map(|a| {
+            let ybp = a.ybp()?;
+            let unc = a.uncertainty_years.unwrap_or(0.0).max(0.0) as i32;
+            Some((ybp, unc, a))
+        })
+        .collect();
+
+    // Domain = 0 (present) .. oldest thing shown, rounded to a nice ceiling.
+    let raw_max = std::iter::once(older as f64)
+        .chain(tmrca_ci.map(|(_, hi)| hi as f64))
+        .chain(anchor_pts.iter().map(|(ybp, unc, _)| (ybp + unc) as f64))
+        .fold(0.0_f64, f64::max)
+        .max(1.0);
+    let step = nice_step(raw_max * 1.08 / 4.0);
+    let domain_max = ((raw_max * 1.08 / step).ceil() * step).max(step);
+
+    let x0 = AXIS_PAD_L;
+    let x1 = AXIS_W - AXIS_PAD_R;
+    let x = |ybp: f64| -> f64 { r1(x1 - (ybp / domain_max) * (x1 - x0)) };
+
+    let ci = tmrca_ci.map(|(lo, hi)| {
+        let bx = x(hi as f64);
+        CiBand {
+            x: bx,
+            width: r1(x(lo as f64) - bx),
+            y: AXIS_BASELINE_Y - 7.0,
+            height: 14.0,
+            label: format!("{lo}–{hi} ybp"),
+        }
+    });
+
+    let mut ticks = Vec::new();
+    let step_i = step as i64;
+    let mut t = 0i64;
+    while (t as f64) <= domain_max + 0.5 {
+        ticks.push(AxisTick {
+            x: x(t as f64),
+            label: tick_label(t),
+            label_y: AXIS_BASELINE_Y + 22.0,
+        });
+        t += step_i.max(1);
+    }
+
+    let anchors_out = anchor_pts
+        .iter()
+        .map(|(ybp, unc, a)| {
+            let ax = x(*ybp as f64);
+            let ay = AXIS_ANCHOR_Y;
+            AxisAnchor {
+                wx1: x((ybp + unc) as f64),
+                wx2: x((ybp - unc).max(0) as f64),
+                wy: ay,
+                diamond_d: format!(
+                    "M {ax} {} L {} {ay} L {ax} {} L {} {ay} Z",
+                    r1(ay - 5.0),
+                    r1(ax + 5.0),
+                    r1(ay + 5.0),
+                    r1(ax - 5.0),
+                ),
+                name: a.haplogroup_name.clone(),
+                label: tree_layout::format_ybp(*ybp),
+            }
+        })
+        .collect();
+
+    Some(TimeAxis {
+        width: AXIS_W,
+        height: AXIS_H,
+        baseline_y: AXIS_BASELINE_Y,
+        grid_y1: 16.0,
+        branch_x1: x(older as f64),
+        branch_x2: x(0.0),
+        axis_label_x: AXIS_W / 2.0,
+        axis_label_y: AXIS_H - 4.0,
+        ci,
+        tmrca: tmrca_ybp.map(|v| AxisMark { x: x(v as f64), label: tree_layout::format_ybp(v) }),
+        formed: formed_ybp.map(|v| FormedMark {
+            x: x(v as f64),
+            y1: AXIS_BASELINE_Y - 9.0,
+            y2: AXIS_BASELINE_Y + 9.0,
+            label: tree_layout::format_ybp(v),
+        }),
+        ticks,
+        anchors: anchors_out,
+    })
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────

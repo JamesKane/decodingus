@@ -6,8 +6,8 @@
 //! kept `UNPLACED` for curator triage. Mirrors the advisory-locked declarative-recompute
 //! discipline of the coverage/IBD engines.
 
-use crate::{pg_enum_label, DbError};
-use du_domain::enums::DnaType;
+use crate::{parse_pg_enum, pg_enum_label, DbError};
+use du_domain::enums::{BiosampleSource, DnaType};
 use serde_json::Value;
 use sqlx::PgPool;
 use std::collections::HashMap;
@@ -313,6 +313,69 @@ pub async fn samples_under(pool: &PgPool, node_name: &str, dna_type: DnaType) ->
     .bind(pg_enum_label(&dna_type)?)
     .fetch_all(pool)
     .await?)
+}
+
+/// A placed sample under a clade that carries a donor geocoord — the input to the
+/// clade "Geography & Time" map. `source` drives modern-vs-ancient marker styling.
+#[derive(Debug, Clone)]
+pub struct CladeGeoPoint {
+    pub lat: f64,
+    pub lon: f64,
+    pub accession: Option<String>,
+    pub source: BiosampleSource,
+}
+
+/// Geocoords of placed samples at-or-below `node_name`: the [`samples_under`] subtree
+/// joined to the donor `geocoord` (extracted via PostGIS `ST_Y`/`ST_X`), with the
+/// null-island `(0,0)` sentinel dropped — mirroring [`crate::biosample::geo_points`].
+/// Only samples whose donor has a real coordinate come back, so the length is the
+/// "mapped" count against [`count_under`]'s total.
+pub async fn geo_points_under(
+    pool: &PgPool,
+    node_name: &str,
+    dna_type: DnaType,
+) -> Result<Vec<CladeGeoPoint>, DbError> {
+    #[derive(sqlx::FromRow)]
+    struct GeoRow {
+        lat: f64,
+        lon: f64,
+        accession: Option<String>,
+        source: String,
+    }
+    let rows: Vec<GeoRow> = sqlx::query_as(
+        "WITH RECURSIVE sub AS ( \
+            SELECT id FROM tree.haplogroup \
+            WHERE name = $1 AND haplogroup_type::text = $2 AND valid_until IS NULL \
+            UNION ALL \
+            SELECT r.child_haplogroup_id FROM tree.haplogroup_relationship r \
+            JOIN sub ON r.parent_haplogroup_id = sub.id \
+            WHERE r.valid_until IS NULL \
+         ) \
+         SELECT ST_Y(d.geocoord) AS lat, ST_X(d.geocoord) AS lon, b.accession, \
+                b.source::text AS source \
+         FROM tree.haplogroup_sample hs \
+         JOIN sub ON sub.id = hs.haplogroup_id \
+         JOIN core.biosample b ON b.sample_guid = hs.sample_guid \
+         JOIN core.specimen_donor d ON d.id = b.donor_id \
+         WHERE hs.dna_type::text = $2 AND hs.status IN ('PLACED','CURATED') AND b.deleted = false \
+           AND d.geocoord IS NOT NULL \
+           AND NOT (abs(ST_X(d.geocoord)) < 1e-6 AND abs(ST_Y(d.geocoord)) < 1e-6) \
+         ORDER BY b.accession NULLS LAST, b.sample_guid",
+    )
+    .bind(node_name)
+    .bind(pg_enum_label(&dna_type)?)
+    .fetch_all(pool)
+    .await?;
+    rows.into_iter()
+        .map(|r| {
+            Ok(CladeGeoPoint {
+                lat: r.lat,
+                lon: r.lon,
+                accession: r.accession,
+                source: parse_pg_enum(&r.source, "source")?,
+            })
+        })
+        .collect()
 }
 
 /// Count of placed samples at-or-below a node — the same subtree/filters as [`samples_under`]

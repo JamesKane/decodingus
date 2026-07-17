@@ -165,6 +165,115 @@ async fn places_non_d2c_samples_and_records_unplaced() {
     assert_eq!(curated, "CURATED", "curator placement preserved across recompute");
 }
 
+/// A donor with a WGS84 geocoord; returns its id. `None` coords → no donor point.
+async fn donor_at(pool: &PgPool, lon: f64, lat: f64) -> i64 {
+    sqlx::query_scalar(
+        "INSERT INTO core.specimen_donor (geocoord) \
+         VALUES (ST_SetSRID(ST_MakePoint($1, $2), 4326)) RETURNING id",
+    )
+    .bind(lon)
+    .bind(lat)
+    .fetch_one(pool)
+    .await
+    .expect("insert donor")
+}
+
+/// A non-D2C biosample linked to a geocoded donor, carrying a Y call.
+async fn sample_at(pool: &PgPool, source: &str, accession: &str, y_call: &str, lon: f64, lat: f64) -> Uuid {
+    let donor = donor_at(pool, lon, lat).await;
+    sqlx::query_scalar(
+        "INSERT INTO core.biosample (source, accession, donor_id, original_haplogroups) \
+         VALUES ($1::core.biosample_source, $2, $3, $4) RETURNING sample_guid",
+    )
+    .bind(source)
+    .bind(accession)
+    .bind(donor)
+    .bind(json!([{ "y": y_call }]))
+    .fetch_one(pool)
+    .await
+    .expect("insert geocoded sample")
+}
+
+/// `geo_points_under` rolls the whole subtree, filters the (0,0) null-island sentinel
+/// and coordinate-less donors, and carries the source through for ancient/modern
+/// styling. `ancient_anchors_under` returns only ANCIENT_DNA anchors in the subtree,
+/// with ybp derived from either the carbon date or the calendar `date_ce`.
+#[tokio::test]
+async fn clade_geo_points_and_ancient_anchors() {
+    let Some(url) = database_url() else {
+        eprintln!("DATABASE_URL unset — skipping clade-geo test");
+        return;
+    };
+    let db = du_db::testing::ephemeral_db(&url).await.expect("ephemeral db");
+    let pool = db.pool().clone();
+
+    // Tree: R-M269 (parent) → R-L21 (child).
+    let parent = node(&pool, "R-M269", &[]).await;
+    let child = node(&pool, "R-L21", &[]).await;
+    edge(&pool, parent, child).await;
+
+    // Modern under child (mapped), ancient under parent (mapped, distinct source),
+    // a null-island point under child (filtered), and a coordinate-less sample under
+    // parent (excluded — no donor).
+    let _modern = sample_at(&pool, "EXTERNAL", "GEO-MODERN", "R-L21", 10.0, 50.0).await;
+    let _ancient = sample_at(&pool, "ANCIENT", "GEO-ANCIENT", "R-M269", 20.0, 60.0).await;
+    let _nullisland = sample_at(&pool, "STANDARD", "GEO-NULL", "R-L21", 0.0, 0.0).await;
+    let _nogeo = sample(&pool, "EXTERNAL", "GEO-NONE", "R-M269").await;
+
+    tree_sample::recompute_placements(&pool, DnaType::YDna).await.unwrap();
+
+    // Subtree of R-M269: modern + ancient = 2 (null-island & coordinate-less dropped).
+    let under_parent = tree_sample::geo_points_under(&pool, "R-M269", DnaType::YDna).await.unwrap();
+    assert_eq!(under_parent.len(), 2, "null-island + no-donor excluded");
+    let ancient_count = under_parent
+        .iter()
+        .filter(|p| matches!(p.source, du_domain::enums::BiosampleSource::Ancient))
+        .count();
+    assert_eq!(ancient_count, 1, "one ANCIENT-source point carried through");
+    assert!(under_parent.iter().any(|p| (p.lat - 60.0).abs() < 1e-6 && (p.lon - 20.0).abs() < 1e-6));
+
+    // Subtree of R-L21: only the modern point (null-island filtered).
+    let under_child = tree_sample::geo_points_under(&pool, "R-L21", DnaType::YDna).await.unwrap();
+    assert_eq!(under_child.len(), 1);
+    assert_eq!(under_child[0].accession.as_deref(), Some("GEO-MODERN"));
+
+    // Ancient-DNA anchors: carbon-dated on the child, calendar-dated on the parent, and
+    // a non-ancient anchor on the parent that must be ignored.
+    sqlx::query(
+        "INSERT INTO tree.genealogical_anchor (haplogroup_id, anchor_type, carbon_date_bp, details) \
+         VALUES ($1, 'ANCIENT_DNA', 5000, jsonb_build_object('uncertainty_years', 100))",
+    )
+    .bind(child)
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO tree.genealogical_anchor (haplogroup_id, anchor_type, date_ce) \
+         VALUES ($1, 'ANCIENT_DNA', -1050)", // 1050 BC → 3000 ybp
+    )
+    .bind(parent)
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO tree.genealogical_anchor (haplogroup_id, anchor_type, date_ce) VALUES ($1, 'KNOWN_MRCA', 500)")
+        .bind(parent)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let anchors = du_db::age::ancient_anchors_under(&pool, "R-M269", DnaType::YDna).await.unwrap();
+    assert_eq!(anchors.len(), 2, "only ANCIENT_DNA anchors in the subtree");
+    let ybps: Vec<i32> = anchors.iter().filter_map(|a| a.ybp()).collect();
+    assert!(ybps.contains(&5000), "carbon date used directly");
+    assert!(ybps.contains(&3000), "date_ce -1050 → 3000 ybp");
+
+    // Subtree of R-L21 sees only the child's carbon-dated anchor.
+    let child_anchors = du_db::age::ancient_anchors_under(&pool, "R-L21", DnaType::YDna).await.unwrap();
+    assert_eq!(child_anchors.len(), 1);
+    assert_eq!(child_anchors[0].ybp(), Some(5000));
+    assert_eq!(child_anchors[0].uncertainty_years, Some(100.0));
+}
+
 /// A de-novo tree tip is placed by the loader by topology (no published call). The
 /// call-based recompute must NOT prune or overwrite it — the biosample's
 /// `source_attrs->>'denovo' = 'true'` marker protects it, like CURATED. Regression for

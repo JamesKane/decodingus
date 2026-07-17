@@ -16,7 +16,8 @@
 //! extends to the full combined age as that data lands.
 
 use crate::pdf::Pdf;
-use crate::DbError;
+use crate::{pg_enum_label, DbError};
+use du_domain::enums::DnaType;
 use sqlx::PgPool;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
@@ -518,6 +519,64 @@ pub async fn estimates_for(pool: &PgPool, haplogroup_id: i64) -> Result<Vec<AgeE
                               WHEN 'GENEALOGICAL' THEN 2 ELSE 3 END",
     )
     .bind(haplogroup_id)
+    .fetch_all(pool)
+    .await?)
+}
+
+/// A dated ancient-DNA anchor sitting on some node in a clade's subtree. Backs the
+/// clade "Geography & Time" time axis: a dated ancient sample plotted against the
+/// branch's TMRCA reinforces (or challenges) the age estimate. `date_ce`/
+/// `carbon_date_bp` are the two date conventions stored on `tree.genealogical_anchor`
+/// (carbon date takes precedence); `uncertainty_years` (from `details`) drives the
+/// whisker.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct AncientAnchor {
+    /// The node in the subtree this anchor constrains.
+    pub haplogroup_name: String,
+    pub date_ce: Option<i32>,
+    pub carbon_date_bp: Option<i32>,
+    pub confidence: Option<f64>,
+    pub uncertainty_years: Option<f64>,
+}
+
+impl AncientAnchor {
+    /// Years-before-present for the anchor: the carbon date if present, else derived
+    /// from the calendar `date_ce` against the 1950 radiocarbon reference year.
+    pub fn ybp(&self) -> Option<i32> {
+        self.carbon_date_bp.or_else(|| self.date_ce.map(|ce| PRESENT_YEAR - ce))
+    }
+}
+
+/// `ANCIENT_DNA` genealogical anchors sitting anywhere in the subtree at-or-below
+/// `node_name` — dated ancient samples to plot on the clade time axis. Resolves the
+/// subtree by `(name, dna_type)` then joins `tree.genealogical_anchor` (which is keyed
+/// only by `haplogroup_id`), oldest first.
+pub async fn ancient_anchors_under(
+    pool: &PgPool,
+    node_name: &str,
+    dna_type: DnaType,
+) -> Result<Vec<AncientAnchor>, DbError> {
+    Ok(sqlx::query_as(
+        "WITH RECURSIVE sub AS ( \
+            SELECT id, name FROM tree.haplogroup \
+            WHERE name = $1 AND haplogroup_type::text = $2 AND valid_until IS NULL \
+            UNION ALL \
+            SELECT c.id, c.name FROM tree.haplogroup c \
+            JOIN tree.haplogroup_relationship r \
+              ON r.child_haplogroup_id = c.id AND r.valid_until IS NULL \
+            JOIN sub ON sub.id = r.parent_haplogroup_id \
+            WHERE c.valid_until IS NULL \
+         ) \
+         SELECT sub.name AS haplogroup_name, ga.date_ce, ga.carbon_date_bp, \
+                ga.confidence::float8 AS confidence, \
+                (ga.details->>'uncertainty_years')::float8 AS uncertainty_years \
+         FROM tree.genealogical_anchor ga \
+         JOIN sub ON sub.id = ga.haplogroup_id \
+         WHERE ga.anchor_type = 'ANCIENT_DNA' \
+         ORDER BY COALESCE(ga.carbon_date_bp, 1950 - ga.date_ce) DESC NULLS LAST",
+    )
+    .bind(node_name)
+    .bind(pg_enum_label(&dna_type)?)
     .fetch_all(pool)
     .await?)
 }

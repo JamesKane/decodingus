@@ -149,7 +149,7 @@ pub struct Laid {
 }
 
 /// ybp → "<year> AD" / "<year> BC" (mirrors the Scala `formatYbp`).
-fn format_ybp(ybp: i32) -> String {
+pub(crate) fn format_ybp(ybp: i32) -> String {
     let year = PRESENT_YEAR - ybp;
     if year < 0 {
         format!("{} BC", -year)
