@@ -315,6 +315,9 @@ fn p_g_given_m(g: i64, m: i64) -> f64 {
 #[derive(Clone)]
 pub struct MarkerModel {
     pub mu_per_gen: f64,
+    /// Provenance of `mu_per_gen`: `PUBLISHED`/`DERIVED` from the rate row, or
+    /// `DEFAULT` for the [`DEFAULT_STR_RATE`] fallback used where no rate exists.
+    pub method: String,
     omega_pgm: Option<Arc<Vec<Vec<f64>>>>,
 }
 
@@ -394,7 +397,7 @@ pub fn compute_str_age(
     if modal_simple.is_empty() {
         return None;
     }
-    let default = MarkerModel { mu_per_gen: DEFAULT_STR_RATE, omega_pgm: None };
+    let default = MarkerModel { mu_per_gen: DEFAULT_STR_RATE, method: "DEFAULT".into(), omega_pgm: None };
     // Per-marker age PDFs depend only on (marker, g) — memoize across testers.
     let mut cache: HashMap<(&str, i64), Option<Pdf>> = HashMap::new();
     let mut acc: Option<Pdf> = None;
@@ -624,7 +627,7 @@ fn propagate_str(
     max_age: f64,
 ) -> Vec<Option<Pdf>> {
     let n = children.len();
-    let default = MarkerModel { mu_per_gen: DEFAULT_STR_RATE, omega_pgm: None };
+    let default = MarkerModel { mu_per_gen: DEFAULT_STR_RATE, method: "DEFAULT".into(), omega_pgm: None };
     let mut cache: HashMap<(String, i64), Option<Pdf>> = HashMap::new();
     let mut memo: Vec<Option<Option<Pdf>>> = vec![None; n];
     for i in 0..n {
@@ -767,11 +770,18 @@ pub async fn str_tmrca_pdfs(pool: &PgPool, res: f64, max_age: f64) -> Result<Has
 /// Per-marker mutation models (rate + any custom multi-step ω) for age estimation.
 /// `omega_plus`/`omega_minus`/`multi_step_rate` build a marker-specific `P(g|m)`
 /// table when they depart from the global symmetric single-step-dominated model.
+///
+/// Only `is_active` rates are loaded. A marker may carry several rate rows (a
+/// published estimate alongside one derived from our own tree); exactly one is
+/// active, so promoting a derived rate is a data change, not a code change.
+/// Markers with no active rate are not absent from the model — callers fall back
+/// to [`DEFAULT_STR_RATE`], which is most of them.
 pub async fn load_marker_models(pool: &PgPool) -> Result<HashMap<String, MarkerModel>, DbError> {
     let rows: Vec<MarkerRateRow> = sqlx::query_as(
         "SELECT marker_name, mutation_rate::float8 AS mutation_rate, \
                 omega_plus::float8 AS omega_plus, omega_minus::float8 AS omega_minus, \
-                multi_step_rate::float8 AS multi_step_rate FROM genomics.str_mutation_rate",
+                multi_step_rate::float8 AS multi_step_rate, method \
+         FROM genomics.str_mutation_rate WHERE is_active",
     )
     .fetch_all(pool)
     .await?;
@@ -790,7 +800,7 @@ pub async fn load_marker_models(pool: &PgPool) -> Result<HashMap<String, MarkerM
                 }
                 None => None,
             };
-            (r.marker_name, MarkerModel { mu_per_gen: r.mutation_rate, omega_pgm })
+            (r.marker_name, MarkerModel { mu_per_gen: r.mutation_rate, method: r.method, omega_pgm })
         })
         .collect())
 }
@@ -802,6 +812,7 @@ struct MarkerRateRow {
     omega_plus: Option<f64>,
     omega_minus: Option<f64>,
     multi_step_rate: Option<f64>,
+    method: String,
 }
 
 #[derive(Debug, Default)]
@@ -878,16 +889,37 @@ pub async fn recompute_signatures(pool: &PgPool) -> Result<RecomputeStats, DbErr
     for (i, age) in ages.iter().enumerate() {
         let Some(age) = age else { continue };
         let (med, lo, hi) = age.ci95();
+        // Which rates this estimate rests on. The scored set is exactly the node's
+        // reconstructed motif (marker_count), so the split is taken over the same
+        // keys: a marker with no active rate row was scored at DEFAULT_STR_RATE.
+        // Recorded because most markers have no published rate — an estimate
+        // dominated by the default should say so rather than look measured.
+        let mut methods: BTreeSet<&str> = BTreeSet::new();
+        let measured = motif[i]
+            .keys()
+            .filter_map(|m| models.get(m))
+            .inspect(|m| {
+                methods.insert(m.method.as_str());
+            })
+            .count() as i32;
+        let rate_method = match methods.len() {
+            0 => None,
+            1 => methods.iter().next().map(|s| s.to_string()),
+            _ => Some("MIXED".to_string()),
+        };
         sqlx::query(
             "INSERT INTO tree.haplogroup_age_estimate \
                (haplogroup_id, method, estimate_ybp, ci_low_ybp, ci_high_ybp, \
-                sample_count, marker_count, generation_years, computed_at) \
-             VALUES ($1, 'STR_VARIANCE', $2, $3, $4, $5, $6, $7, now()) \
+                sample_count, marker_count, generation_years, computed_at, \
+                rate_method, measured_rate_markers, default_rate_markers) \
+             VALUES ($1, 'STR_VARIANCE', $2, $3, $4, $5, $6, $7, now(), $8, $9, $10) \
              ON CONFLICT (haplogroup_id, method) DO UPDATE SET \
                estimate_ybp = EXCLUDED.estimate_ybp, ci_low_ybp = EXCLUDED.ci_low_ybp, \
                ci_high_ybp = EXCLUDED.ci_high_ybp, sample_count = EXCLUDED.sample_count, \
                marker_count = EXCLUDED.marker_count, generation_years = EXCLUDED.generation_years, \
-               computed_at = now()",
+               computed_at = now(), rate_method = EXCLUDED.rate_method, \
+               measured_rate_markers = EXCLUDED.measured_rate_markers, \
+               default_rate_markers = EXCLUDED.default_rate_markers",
         )
         .bind(ids[i])
         .bind(med.round() as i32)
@@ -896,6 +928,9 @@ pub async fn recompute_signatures(pool: &PgPool) -> Result<RecomputeStats, DbErr
         .bind(testers[i].len() as i32)
         .bind(motif[i].len() as i32)
         .bind(GENERATION_YEARS)
+        .bind(rate_method)
+        .bind(measured)
+        .bind(motif[i].len() as i32 - measured)
         .execute(&mut *tx)
         .await?;
         stats.age_estimates += 1;
@@ -1024,19 +1059,155 @@ pub struct AgeEstimate {
     pub sample_count: Option<i32>,
     pub marker_count: Option<i32>,
     pub generation_years: Option<f64>,
+    /// Provenance of the mutation rates behind an `STR_VARIANCE` estimate:
+    /// `PUBLISHED`, `DERIVED`, or `MIXED`. None for other methods, and for an
+    /// estimate whose markers all fell back to [`DEFAULT_STR_RATE`].
+    pub rate_method: Option<String>,
+    pub measured_rate_markers: Option<i32>,
+    /// Markers scored at [`DEFAULT_STR_RATE`] for want of a rate row — a large
+    /// share means the estimate is weakly grounded in measured rates.
+    pub default_rate_markers: Option<i32>,
 }
 
 /// Contributing age estimates for a Y haplogroup (e.g. STR_VARIANCE).
 pub async fn branch_age_estimates(pool: &PgPool, haplogroup: &str) -> Result<Vec<AgeEstimate>, DbError> {
     let rows = sqlx::query_as::<_, AgeEstimate>(
         "SELECT e.method, e.estimate_ybp, e.ci_low_ybp, e.ci_high_ybp, e.sample_count, \
-                e.marker_count, e.generation_years::float8 AS generation_years \
+                e.marker_count, e.generation_years::float8 AS generation_years, \
+                e.rate_method, e.measured_rate_markers, e.default_rate_markers \
          FROM tree.haplogroup_age_estimate e \
          JOIN tree.haplogroup h ON h.id = e.haplogroup_id \
          WHERE h.name = $1 AND h.haplogroup_type::text = 'Y_DNA' AND h.valid_until IS NULL \
          ORDER BY e.method",
     )
     .bind(haplogroup)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}
+
+/// One marker's corpus-wide observed range, with whatever reference and rate
+/// information we hold for it (the `/str-markers` report).
+#[derive(Debug, sqlx::FromRow)]
+pub struct MarkerStat {
+    pub marker_name: String,
+    /// Palindromic/duplicated locus — reported as a copy vector and never scored
+    /// by the age model. True if observed as `multiCopy` or flagged in the registry.
+    pub multi_copy: bool,
+    pub observations: i64,
+    pub samples: i64,
+    // Simple markers: a repeat count. None for multi-copy markers.
+    pub min_value: Option<i32>,
+    pub modal_value: Option<i32>,
+    pub max_value: Option<i32>,
+    // Multi-copy markers: a rendered copy vector, e.g. "11-15". None for simple.
+    pub min_combination: Option<String>,
+    pub modal_combination: Option<String>,
+    pub max_combination: Option<String>,
+    pub distinct_values: i64,
+    /// Observations reporting a deleted locus (a `0` repeat count, or any `0`
+    /// copy) — excluded from min/modal/max.
+    pub null_alleles: i64,
+    /// Partial-repeat / footnoted values (`{type:complex}`), counted but unscored.
+    pub complex_count: i64,
+    pub motif: Option<String>,
+    pub period: Option<i16>,
+    pub coordinates: Option<Value>,
+    pub mutation_rate: Option<f64>,
+    pub rate_ci_low: Option<f64>,
+    pub rate_ci_high: Option<f64>,
+    pub rate_method: Option<String>,
+    pub rate_source: Option<String>,
+    /// How this marker enters the STR age model: `MEASURED_RATE` (an active rate
+    /// row), `DEFAULT_RATE` (falls back to [`DEFAULT_STR_RATE`]), or `EXCLUDED`
+    /// (multi-copy — never scored).
+    pub age_model_status: String,
+}
+
+/// Corpus-wide observed range per Y-STR marker: min, modal and max across every
+/// profile we hold, joined to the marker registry (motif/period) and the active
+/// mutation rate. Ordered by observation count, descending.
+///
+/// Both profile sources feed it — the federated mirror and the locally-imported
+/// vendor exports — the same union [`build_str_inputs`] uses, minus the tree join
+/// (this is a corpus summary, not a per-branch one).
+///
+/// A reported `0` is FTDNA's null-allele (deleted locus) convention rather than a
+/// zero-repeat count, so it is excluded from min/modal/max and counted in
+/// `null_alleles`; without that, DYS448 reads min 0 instead of 17. The same rule
+/// applies per copy of a multi-copy vector.
+pub async fn marker_stats(pool: &PgPool) -> Result<Vec<MarkerStat>, DbError> {
+    let rows = sqlx::query_as::<_, MarkerStat>(
+        "WITH obs AS ( \
+             SELECT p.sample_guid::text AS sid, e->>'marker' AS marker, e->'value' AS v \
+               FROM genomics.biosample_str_profile p, jsonb_array_elements(p.markers) e \
+             UNION ALL \
+             SELECT sp.did || '/' || sp.rkey, e->>'marker', e->'value' \
+               FROM fed.str_profile sp, jsonb_array_elements(sp.markers) e \
+         ), typed AS ( \
+             SELECT sid, marker, v->>'type' AS vtype, \
+                    CASE WHEN v->>'type' = 'simple' THEN (v->>'repeats')::int END AS repeats, \
+                    CASE WHEN v->>'type' = 'multiCopy' \
+                         THEN ARRAY(SELECT jsonb_array_elements_text(v->'copies')::int) END AS copies, \
+                    v->>'raw' AS raw \
+               FROM obs \
+         ), scored AS ( \
+             SELECT *, (repeats IS NOT NULL AND repeats = 0) \
+                    OR (copies IS NOT NULL AND 0 = ANY(copies)) AS is_null_allele \
+               FROM typed \
+         ), agg AS ( \
+             SELECT marker, \
+                    count(*) AS observations, \
+                    count(DISTINCT sid) AS samples, \
+                    COALESCE(bool_or(vtype = 'multiCopy'), false) AS observed_multi, \
+                    min(repeats) FILTER (WHERE NOT is_null_allele) AS min_value, \
+                    max(repeats) FILTER (WHERE NOT is_null_allele) AS max_value, \
+                    mode() WITHIN GROUP (ORDER BY repeats) \
+                        FILTER (WHERE NOT is_null_allele) AS modal_value, \
+                    (array_agg(array_to_string(copies, '-') ORDER BY copies) \
+                        FILTER (WHERE copies IS NOT NULL AND NOT is_null_allele))[1] AS min_copies, \
+                    (array_agg(array_to_string(copies, '-') ORDER BY copies DESC) \
+                        FILTER (WHERE copies IS NOT NULL AND NOT is_null_allele))[1] AS max_copies, \
+                    mode() WITHIN GROUP (ORDER BY copies) \
+                        FILTER (WHERE copies IS NOT NULL AND NOT is_null_allele) AS modal_copies, \
+                    count(DISTINCT COALESCE(repeats::text, array_to_string(copies, '-'), raw)) \
+                        AS distinct_values, \
+                    count(*) FILTER (WHERE is_null_allele) AS null_alleles, \
+                    count(*) FILTER (WHERE vtype = 'complex') AS complex_count \
+               FROM scored \
+              GROUP BY marker \
+         ) \
+         SELECT a.marker AS marker_name, \
+                (a.observed_multi OR COALESCE(m.multi_copy, false)) AS multi_copy, \
+                a.observations, a.samples, \
+                a.min_value, a.modal_value, a.max_value, \
+                a.min_copies AS min_combination, \
+                array_to_string(a.modal_copies, '-') AS modal_combination, \
+                a.max_copies AS max_combination, \
+                a.distinct_values, a.null_alleles, a.complex_count, \
+                m.motif, m.period, NULLIF(m.coordinates, '{}'::jsonb) AS coordinates, \
+                r.mutation_rate::float8 AS mutation_rate, \
+                r.mutation_rate_lower::float8 AS rate_ci_low, \
+                r.mutation_rate_upper::float8 AS rate_ci_high, \
+                r.method AS rate_method, r.source AS rate_source, \
+                CASE WHEN a.observed_multi OR COALESCE(m.multi_copy, false) THEN 'EXCLUDED' \
+                     WHEN r.id IS NOT NULL THEN 'MEASURED_RATE' \
+                     ELSE 'DEFAULT_RATE' END AS age_model_status \
+           FROM agg a \
+           LEFT JOIN LATERAL ( \
+               SELECT sm.* FROM genomics.str_marker sm \
+                WHERE sm.marker_name = a.marker OR a.marker = ANY(sm.aliases) \
+                ORDER BY (sm.marker_name <> a.marker) LIMIT 1 \
+           ) m ON true \
+           LEFT JOIN LATERAL ( \
+               SELECT mr.* FROM genomics.str_mutation_rate mr \
+                WHERE mr.is_active \
+                  AND (mr.marker_name = a.marker \
+                       OR mr.marker_name = ANY(COALESCE(m.aliases, '{}'))) \
+                ORDER BY (mr.marker_name <> a.marker) LIMIT 1 \
+           ) r ON true \
+          ORDER BY a.observations DESC, a.marker",
+    )
     .fetch_all(pool)
     .await?;
     Ok(rows)
@@ -1164,7 +1335,7 @@ mod tests {
     }
 
     fn model(mu: f64) -> MarkerModel {
-        MarkerModel { mu_per_gen: mu, omega_pgm: None }
+        MarkerModel { mu_per_gen: mu, method: "PUBLISHED".into(), omega_pgm: None }
     }
 
     #[test]
@@ -1266,7 +1437,7 @@ mod tests {
         let motifs = vec![flat(10), flat(11), flat(12)]; // root, mid, leaf
         let testers = vec![vec![], vec![], vec![flat(12)]]; // leaf tip on its motif (g=0)
         let models: HashMap<String, MarkerModel> = (1..=5)
-            .map(|i| (format!("DYS{i}"), MarkerModel { mu_per_gen: 0.01, omega_pgm: None }))
+            .map(|i| (format!("DYS{i}"), MarkerModel { mu_per_gen: 0.01, method: "PUBLISHED".into(), omega_pgm: None }))
             .collect();
         let ages = propagate_str(
             &children,

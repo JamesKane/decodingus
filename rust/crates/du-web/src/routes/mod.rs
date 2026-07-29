@@ -41,6 +41,7 @@ pub mod samples;
 pub mod sequencer;
 pub mod social;
 pub mod social_edge;
+pub mod str_markers;
 pub mod tree;
 pub mod variants;
 pub mod versioning;
@@ -65,6 +66,7 @@ pub fn app(state: AppState) -> Router {
         .merge(samples::router())
         .merge(maps::router())
         .merge(coverage::router())
+        .merge(str_markers::router())
         .merge(pages::router())
         .merge(auth_routes::router())
         .merge(curator::router())
