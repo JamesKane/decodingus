@@ -310,7 +310,11 @@ async fn variant_naming_authority_flow() {
 #[tokio::test]
 async fn deletes_split_covering_duplicate() {
     let Some(url) = database_url() else { return };
-    let pool = PgPool::connect(&url).await.expect("connect");
+    // Isolated + freshly migrated, like the two tests above. Connecting to the
+    // shared DATABASE_URL database directly assumes it is already migrated, which
+    // holds for a dev box but not for a CI Postgres service that starts empty.
+    let db = du_db::testing::ephemeral_db(&url).await.expect("ephemeral db");
+    let pool = db.pool().clone();
 
     let branch = mk_hg(&pool, "R-SPLITTEST").await;
 
@@ -360,10 +364,5 @@ async fn deletes_split_covering_duplicate() {
         "a really-named row is never an erroneous duplicate"
     );
 
-    // cleanup
-    for id in [same_site, on_branch] {
-        let _ = sqlx::query("DELETE FROM tree.haplogroup_variant WHERE variant_id = $1").bind(id).execute(&pool).await;
-        let _ = sqlx::query("DELETE FROM core.variant WHERE id = $1").bind(id).execute(&pool).await;
-    }
-    let _ = sqlx::query("DELETE FROM tree.haplogroup WHERE id = $1").bind(branch).execute(&pool).await;
+    // No cleanup: the ephemeral database drops itself.
 }

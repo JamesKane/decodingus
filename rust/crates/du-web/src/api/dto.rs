@@ -645,6 +645,13 @@ pub struct AgeEstimateDto {
     pub sample_count: Option<i32>,
     pub marker_count: Option<i32>,
     pub generation_years: Option<f64>,
+    /// Provenance of the mutation rates behind an STR_VARIANCE estimate:
+    /// PUBLISHED, DERIVED or MIXED (null for other methods).
+    pub rate_method: Option<String>,
+    pub measured_rate_markers: Option<i32>,
+    /// Markers scored at the default rate for want of a published one — a large
+    /// share means the estimate is only weakly grounded in measured rates.
+    pub default_rate_markers: Option<i32>,
 }
 
 impl From<du_db::ystr::AgeEstimate> for AgeEstimateDto {
@@ -657,6 +664,77 @@ impl From<du_db::ystr::AgeEstimate> for AgeEstimateDto {
             sample_count: e.sample_count,
             marker_count: e.marker_count,
             generation_years: e.generation_years,
+            rate_method: e.rate_method,
+            measured_rate_markers: e.measured_rate_markers,
+            default_rate_markers: e.default_rate_markers,
+        }
+    }
+}
+
+/// One Y-STR marker's corpus-wide observed range, with the reference and rate
+/// information we hold for it (the `/str-markers` report).
+#[derive(Serialize, ToSchema)]
+pub struct StrMarkerStatDto {
+    pub marker: String,
+    /// Palindromic/duplicated locus: reported as a copy vector, never age-scored.
+    pub multi_copy: bool,
+    pub observations: i64,
+    pub samples: i64,
+    /// Simple markers — repeat counts. Null for multi-copy markers.
+    pub min_value: Option<i32>,
+    pub modal_value: Option<i32>,
+    pub max_value: Option<i32>,
+    /// Multi-copy markers — rendered copy vectors, e.g. "11-15". Null for simple.
+    pub min_combination: Option<String>,
+    pub modal_combination: Option<String>,
+    pub max_combination: Option<String>,
+    pub distinct_values: i64,
+    /// Observations reporting a deleted locus (a `0` repeat count, or any `0`
+    /// copy). Excluded from min/modal/max.
+    pub null_alleles: i64,
+    /// Partial-repeat / footnoted values, preserved but unscored.
+    pub complex_count: i64,
+    /// Repeat unit, where known — we hold one for a minority of markers.
+    pub motif: Option<String>,
+    pub period: Option<i16>,
+    /// Per-build locus coordinates. Always null today: no source loaded yet.
+    #[schema(value_type = Object)]
+    pub coordinates: Option<serde_json::Value>,
+    pub mutation_rate: Option<f64>,
+    pub rate_ci_low: Option<f64>,
+    pub rate_ci_high: Option<f64>,
+    pub rate_method: Option<String>,
+    pub rate_source: Option<String>,
+    /// How this marker enters the STR age model: MEASURED_RATE, DEFAULT_RATE
+    /// (no rate row — falls back to the default), or EXCLUDED (multi-copy).
+    pub age_model_status: String,
+}
+
+impl From<du_db::ystr::MarkerStat> for StrMarkerStatDto {
+    fn from(m: du_db::ystr::MarkerStat) -> Self {
+        StrMarkerStatDto {
+            marker: m.marker_name,
+            multi_copy: m.multi_copy,
+            observations: m.observations,
+            samples: m.samples,
+            min_value: m.min_value,
+            modal_value: m.modal_value,
+            max_value: m.max_value,
+            min_combination: m.min_combination,
+            modal_combination: m.modal_combination,
+            max_combination: m.max_combination,
+            distinct_values: m.distinct_values,
+            null_alleles: m.null_alleles,
+            complex_count: m.complex_count,
+            motif: m.motif,
+            period: m.period,
+            coordinates: m.coordinates,
+            mutation_rate: m.mutation_rate,
+            rate_ci_low: m.rate_ci_low,
+            rate_ci_high: m.rate_ci_high,
+            rate_method: m.rate_method,
+            rate_source: m.rate_source,
+            age_model_status: m.age_model_status,
         }
     }
 }
