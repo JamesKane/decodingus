@@ -801,3 +801,4 @@ str.markers.none=Ningún marcador STR coincide.
 str.markers.legend.null=Un valor de 0 es un alelo nulo (un locus eliminado), no un recuento de cero repeticiones, por lo que se excluye del rango y se cuenta en Notas. Las repeticiones parciales (p. ej. 10,2) se conservan pero no se puntúan.
 str.markers.legend.default=Los marcadores sin tasa de mutación publicada se puntúan en el modelo de edad de rama con la tasa por defecto de
 str.markers.legend.motif=Los motivos y las longitudes de repetición solo se muestran cuando una fuente publicada los proporciona; la mayoría de los marcadores extendidos carecen de ellos.
+str.markers.refreshed=Cifras recalculadas por última vez el

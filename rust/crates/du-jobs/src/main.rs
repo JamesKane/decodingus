@@ -210,6 +210,13 @@ async fn main() -> anyhow::Result<()> {
                     auto_promoted = rep.auto_promoted, "discovery-consensus complete"
                 );
             }
+            // Recompute the corpus-wide Y-STR marker report (the /str-markers page).
+            // Aggregating every stored profile per request cost ~1.9s on 876 profiles
+            // and grew with the corpus, so it is precomputed here — see migration 0071.
+            "str-marker-stats" => {
+                let markers = du_db::ystr::refresh_marker_stats(&pool).await?;
+                tracing::info!(markers, "str-marker-stats complete");
+            }
             "coverage-norms" => {
                 let rep = du_db::coverage::recompute_norms(&pool).await?;
                 tracing::info!(test_types = rep.test_types, pruned = rep.pruned, "coverage-norms complete");
@@ -284,6 +291,12 @@ async fn main() -> anyhow::Result<()> {
                     anyhow::anyhow!("set FTDNA_STR_DIR + COHORT_MANIFEST")
                 })?;
                 ftdna_str::run(&pool, &cfg).await?;
+                // The import changes every marker's range, so refresh the report
+                // rather than leaving it stale until the next timer.
+                if cfg.apply {
+                    let markers = du_db::ystr::refresh_marker_stats(&pool).await?;
+                    tracing::info!(markers, "refreshed str-marker-stats after import");
+                }
             }
             // Backfill vendor kit identifiers (FTDNA/YSEQ/Dante/FGC/Nebula) from the
             // cohort manifest into core.biosample_identifier — the background dedup key
@@ -382,7 +395,7 @@ async fn main() -> anyhow::Result<()> {
                 ena::enrich_studies(&pool, &client).await?;
             }
             other => anyhow::bail!(
-                "unknown run-once job '{other}' (known: ybrowse, reconcile, variant-representatives, naming-status-normalize, variant-name-reconcile, normalize-placeholder-contig, mint-batch, yregions, branch-age, ftdna-str, sequencer-consensus, discovery-consensus, coverage-norms, ibd-discovery-recompute, exchange-expire, tree-samples-recompute, dedup-candidates, consolidate-donors, link-federated-subjects, import-kit-identifiers, mt-rcrs-lift, variant-coord-lift, crawl-project, publication-topic-prune, name-private-nodes, publication-update, publication-discovery, publication-pubmed-update, ena-study-enrichment)"
+                "unknown run-once job '{other}' (known: ybrowse, reconcile, variant-representatives, naming-status-normalize, variant-name-reconcile, normalize-placeholder-contig, mint-batch, yregions, branch-age, ftdna-str, str-marker-stats, sequencer-consensus, discovery-consensus, coverage-norms, ibd-discovery-recompute, exchange-expire, tree-samples-recompute, dedup-candidates, consolidate-donors, link-federated-subjects, import-kit-identifiers, mt-rcrs-lift, variant-coord-lift, crawl-project, publication-topic-prune, name-private-nodes, publication-update, publication-discovery, publication-pubmed-update, ena-study-enrichment)"
             ),
         }
         return Ok(());
