@@ -86,6 +86,8 @@ struct MarkersTemplate {
     sort: String,
     /// The rate used where a marker has none, shown in the legend.
     default_rate: String,
+    /// When the precomputed statistics were last refreshed; empty if never.
+    refreshed_at: String,
 }
 
 /// Integer with thousands separators (e.g. `12,345`).
@@ -197,6 +199,12 @@ async fn page(
     Query(query): Query<MarkerQuery>,
 ) -> Result<Response, AppError> {
     let all = du_db::ystr::marker_stats(&st.pool).await?;
+    // These figures are precomputed (du-jobs run-once str-marker-stats), so the
+    // page states its own age rather than implying it is live.
+    let refreshed_at = du_db::ystr::marker_stats_refreshed_at(&st.pool)
+        .await?
+        .map(|t| t.format("%Y-%m-%d %H:%M UTC").to_string())
+        .unwrap_or_default();
 
     // Totals describe the whole corpus, not the filtered view — they are the
     // reference-coverage headline (how much of what we observe we can explain).
@@ -241,6 +249,7 @@ async fn page(
         q,
         sort,
         default_rate: fmt_rate(Some(du_db::ystr::DEFAULT_STR_RATE)),
+        refreshed_at,
     }))
 }
 

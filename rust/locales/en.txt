@@ -807,3 +807,4 @@ str.markers.none=No STR markers match.
 str.markers.legend.null=A reported value of 0 is a null allele (a deleted locus), not a zero repeat count, so it is excluded from the range and counted under Notes. Partial repeats (e.g. 10.2) are preserved but not scored.
 str.markers.legend.default=Markers without a published mutation rate are scored in the branch-age model at the default rate of
 str.markers.legend.motif=Motifs and repeat lengths are shown only where a published source gives one; most extended markers have none.
+str.markers.refreshed=Figures last recomputed

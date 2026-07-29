@@ -119,7 +119,29 @@ async fn marker_stats_reports_range_motif_and_rate_basis() {
     )
     .await;
 
-    let stats = ystr::marker_stats(&pool).await.expect("marker_stats");
+    // Before any refresh the table is empty, so this exercises the live fallback.
+    let live = ystr::marker_stats(&pool).await.expect("marker_stats (live fallback)");
+
+    // …and after a refresh it is served from genomics.str_marker_stat. The report
+    // is precomputed for speed, so the two paths must agree exactly — a drift here
+    // would mean the page shows something the aggregation never produced.
+    let written = ystr::refresh_marker_stats(&pool).await.expect("refresh");
+    assert_eq!(written as usize, live.len(), "refresh writes one row per marker");
+    let stats = ystr::marker_stats(&pool).await.expect("marker_stats (precomputed)");
+    assert_eq!(stats.len(), live.len());
+    for (a, b) in stats.iter().zip(live.iter()) {
+        assert_eq!(a.marker_name, b.marker_name, "precomputed order matches live");
+        assert_eq!(
+            (a.min_value, a.modal_value, a.max_value, a.null_alleles, &a.age_model_status),
+            (b.min_value, b.modal_value, b.max_value, b.null_alleles, &b.age_model_status),
+            "precomputed row differs from the live aggregation for {}",
+            a.marker_name
+        );
+    }
+    assert!(
+        ystr::marker_stats_refreshed_at(&pool).await.expect("refreshed_at").is_some(),
+        "refresh stamps a timestamp for the report to display"
+    );
 
     // Simple marker: min/modal/max, and the motif + rate reached through the alias.
     let dys19 = find(&stats, "DYS19");

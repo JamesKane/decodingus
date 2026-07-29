@@ -801,3 +801,4 @@ str.markers.none=Aucun marqueur STR correspondant.
 str.markers.legend.null=Une valeur de 0 correspond à un allèle nul (locus supprimé), et non à un compte de zéro répétition ; elle est donc exclue de la plage et comptée dans les Notes. Les répétitions partielles (p. ex. 10,2) sont conservées mais non évaluées.
 str.markers.legend.default=Les marqueurs sans taux de mutation publié sont évalués dans le modèle d'âge de branche au taux par défaut de
 str.markers.legend.motif=Les motifs et longueurs de répétition ne sont affichés que lorsqu'une source publiée les fournit ; la plupart des marqueurs étendus n'en ont pas.
+str.markers.refreshed=Chiffres recalculés le
