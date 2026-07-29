@@ -1124,9 +1124,7 @@ pub struct MarkerStat {
     pub age_model_status: String,
 }
 
-/// Corpus-wide observed range per Y-STR marker: min, modal and max across every
-/// profile we hold, joined to the marker registry (motif/period) and the active
-/// mutation rate. Ordered by observation count, descending.
+/// The corpus-wide aggregation behind the marker report, computed from scratch.
 ///
 /// Both profile sources feed it — the federated mirror and the locally-imported
 /// vendor exports — the same union [`build_str_inputs`] uses, minus the tree join
@@ -1136,9 +1134,11 @@ pub struct MarkerStat {
 /// zero-repeat count, so it is excluded from min/modal/max and counted in
 /// `null_alleles`; without that, DYS448 reads min 0 instead of 17. The same rule
 /// applies per copy of a multi-copy vector.
-pub async fn marker_stats(pool: &PgPool) -> Result<Vec<MarkerStat>, DbError> {
-    let rows = sqlx::query_as::<_, MarkerStat>(
-        "WITH obs AS ( \
+///
+/// Expensive — ~1.9s over 876 profiles, growing linearly with the corpus, in the
+/// aggregates rather than the JSONB expansion (see migration 0071). Callers want
+/// [`marker_stats`], which reads the precomputed table; this runs on refresh.
+const MARKER_STATS_AGGREGATION: &str = "WITH obs AS ( \
              SELECT p.sample_guid::text AS sid, e->>'marker' AS marker, e->'value' AS v \
                FROM genomics.biosample_str_profile p, jsonb_array_elements(p.markers) e \
              UNION ALL \
@@ -1206,11 +1206,73 @@ pub async fn marker_stats(pool: &PgPool) -> Result<Vec<MarkerStat>, DbError> {
                        OR mr.marker_name = ANY(COALESCE(m.aliases, '{}'))) \
                 ORDER BY (mr.marker_name <> a.marker) LIMIT 1 \
            ) r ON true \
-          ORDER BY a.observations DESC, a.marker",
-    )
+          ORDER BY a.observations DESC, a.marker";
+
+/// Column list shared by the refresh insert and the read path, in table order.
+const MARKER_STAT_COLUMNS: &str = "marker_name, multi_copy, observations, samples, \
+     min_value, modal_value, max_value, min_combination, modal_combination, max_combination, \
+     distinct_values, null_alleles, complex_count, motif, period, coordinates, \
+     mutation_rate, rate_ci_low, rate_ci_high, rate_method, rate_source, age_model_status";
+
+/// Recompute `genomics.str_marker_stat` from every stored profile. Returns the
+/// number of marker rows written.
+///
+/// A full replace inside one transaction: the corpus summary has no incremental
+/// form (a single new profile can move a marker's min, max and mode at once), and
+/// readers either see the whole previous snapshot or the whole new one.
+pub async fn refresh_marker_stats(pool: &PgPool) -> Result<u64, DbError> {
+    let mut tx = pool.begin().await?;
+    sqlx::query("DELETE FROM genomics.str_marker_stat").execute(&mut *tx).await?;
+    let n = sqlx::query(&format!(
+        "INSERT INTO genomics.str_marker_stat ({MARKER_STAT_COLUMNS}) {MARKER_STATS_AGGREGATION}"
+    ))
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
+    tx.commit().await?;
+    Ok(n)
+}
+
+/// Corpus-wide observed range per Y-STR marker: min, modal and max across every
+/// profile we hold, with its motif and active mutation rate. Ordered by
+/// observation count, descending.
+///
+/// Reads the precomputed table ([`refresh_marker_stats`]). Falls back to computing
+/// live only while that table is empty — the window between deploying migration
+/// 0071 and the first `str-marker-stats` job run — so the report is never blank
+/// merely because the job has not run yet. That path is slow by design and says so
+/// in the log rather than failing quietly.
+pub async fn marker_stats(pool: &PgPool) -> Result<Vec<MarkerStat>, DbError> {
+    let rows = sqlx::query_as::<_, MarkerStat>(&format!(
+        "SELECT {MARKER_STAT_COLUMNS} FROM genomics.str_marker_stat \
+         ORDER BY observations DESC, marker_name"
+    ))
     .fetch_all(pool)
     .await?;
-    Ok(rows)
+    if !rows.is_empty() {
+        return Ok(rows);
+    }
+    // Empty could mean "never refreshed" or "no STR profiles at all"; the live
+    // query answers both correctly and costs nothing in the latter case.
+    let live = sqlx::query_as::<_, MarkerStat>(MARKER_STATS_AGGREGATION).fetch_all(pool).await?;
+    if !live.is_empty() {
+        tracing::warn!(
+            markers = live.len(),
+            "genomics.str_marker_stat is empty — computed the marker report live; \
+             run `du-jobs run-once str-marker-stats`"
+        );
+    }
+    Ok(live)
+}
+
+/// When the precomputed marker statistics were last refreshed (`None` before the
+/// first run), so the report can show its own freshness.
+pub async fn marker_stats_refreshed_at(
+    pool: &PgPool,
+) -> Result<Option<chrono::DateTime<chrono::Utc>>, DbError> {
+    Ok(sqlx::query_scalar("SELECT max(refreshed_at) FROM genomics.str_marker_stat")
+        .fetch_one(pool)
+        .await?)
 }
 
 /// A ranked STR→branch prediction.
