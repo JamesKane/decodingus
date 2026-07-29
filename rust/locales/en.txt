@@ -800,6 +800,7 @@ str.markers.multiCopy=multi-copy
 str.markers.multiCopy.help=Palindromic or duplicated locus, reported as a copy vector (e.g. 11-15) and not used for age estimation.
 str.markers.note.null=null
 str.markers.note.partial=partial
+str.markers.note.mixedShape=other shape
 str.markers.status.measured=Measured rate
 str.markers.status.default=Default rate
 str.markers.status.excluded=Not scored

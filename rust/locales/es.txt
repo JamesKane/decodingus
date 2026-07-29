@@ -794,6 +794,7 @@ str.markers.multiCopy=multicopia
 str.markers.multiCopy.help=Locus palindrómico o duplicado, notificado como vector de copias (p. ej. 11-15) y no utilizado para estimar la edad.
 str.markers.note.null=nulo
 str.markers.note.partial=parcial
+str.markers.note.mixedShape=otra forma
 str.markers.status.measured=Tasa medida
 str.markers.status.default=Tasa por defecto
 str.markers.status.excluded=No puntuado

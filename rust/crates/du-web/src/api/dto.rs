@@ -694,6 +694,10 @@ pub struct StrMarkerStatDto {
     pub null_alleles: i64,
     /// Partial-repeat / footnoted values, preserved but unscored.
     pub complex_count: i64,
+    /// Observations in this marker's minority value shape (a bare repeat count
+    /// where it is normally a copy vector, or vice versa). Excluded from the
+    /// reported range, which follows the majority shape.
+    pub mixed_shape_count: i64,
     /// Repeat unit, where known — we hold one for a minority of markers.
     pub motif: Option<String>,
     pub period: Option<i16>,
@@ -726,6 +730,7 @@ impl From<du_db::ystr::MarkerStat> for StrMarkerStatDto {
             distinct_values: m.distinct_values,
             null_alleles: m.null_alleles,
             complex_count: m.complex_count,
+            mixed_shape_count: m.mixed_shape_count,
             motif: m.motif,
             period: m.period,
             coordinates: m.coordinates,

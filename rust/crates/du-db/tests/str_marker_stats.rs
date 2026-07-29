@@ -184,6 +184,51 @@ async fn marker_stats_reports_range_motif_and_rate_basis() {
     assert_eq!(dys442.modal_value, None);
 }
 
+/// A marker the vendor reports inconsistently — DYS413 in the real corpus has 866
+/// copy-vector calls and one bare `23`. The range must come from the majority
+/// shape: preferring the scalar let a single observation replace the whole range,
+/// which showed min=modal=max=23 for a marker with 25 distinct values.
+#[tokio::test]
+async fn minority_value_shape_does_not_hijack_the_range() {
+    let Some(url) = database_url() else {
+        eprintln!("DATABASE_URL unset — skipping mixed-shape test");
+        return;
+    };
+    let db = du_db::testing::ephemeral_db(&url).await.expect("ephemeral db");
+    let pool = db.pool().clone();
+
+    // Copy-vector calls plus one stray single count, on both marker shapes so the
+    // mirror case (mostly-simple with a stray vector) is covered too. 23-23 is
+    // repeated so it is a genuine mode rather than an arbitrary tie-break.
+    for (n, dys413, dys390) in [
+        (1, multi("DYS413", &[23, 23]), simple("DYS390", 24)),
+        (2, multi("DYS413", &[23, 23]), simple("DYS390", 24)),
+        (3, multi("DYS413", &[21, 23]), simple("DYS390", 25)),
+        (4, multi("DYS413", &[23, 25]), simple("DYS390", 24)),
+        (5, simple("DYS413", 23), multi("DYS390", &[9, 9])),
+    ] {
+        seed_profile(&pool, &format!("MIXED-{n}"), serde_json::json!([dys413, dys390])).await;
+    }
+
+    let stats = ystr::marker_stats(&pool).await.expect("marker_stats");
+
+    // Majority multi-copy ⇒ the copy vectors win and the lone scalar is set aside.
+    let m = find(&stats, "DYS413");
+    assert_eq!(m.min_combination.as_deref(), Some("21-23"));
+    assert_eq!(m.modal_combination.as_deref(), Some("23-23"));
+    assert_eq!(m.max_combination.as_deref(), Some("23-25"));
+    assert_eq!(m.min_value, None, "the stray single count must not be shown as the range");
+    assert_eq!(m.max_value, None);
+    assert_eq!(m.mixed_shape_count, 1, "the odd observation is surfaced, not discarded");
+    assert_eq!(m.observations, 5, "it still counts as an observation");
+
+    // Mirror case: majority simple ⇒ scalars win over the stray vector.
+    let s = find(&stats, "DYS390");
+    assert_eq!((s.min_value, s.modal_value, s.max_value), (Some(24), Some(24), Some(25)));
+    assert_eq!(s.min_combination, None);
+    assert_eq!(s.mixed_shape_count, 1);
+}
+
 #[tokio::test]
 async fn load_marker_models_honors_the_active_rate() {
     let Some(url) = database_url() else {
