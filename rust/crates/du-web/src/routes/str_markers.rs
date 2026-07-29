@@ -219,17 +219,13 @@ async fn page(
     // SQL already returns observations-descending; re-sort only for other keys.
     let sort = query.sort.unwrap_or_default();
     match sort.as_str() {
-        "name" => rows.sort_by(|a, b| name_key(&a.marker_name).cmp(&name_key(&b.marker_name))),
+        "name" => rows.sort_by_key(|m| name_key(&m.marker_name)),
         // Motif-less markers last, so the sort surfaces what we can explain.
-        "motif" => rows.sort_by(|a, b| {
-            (a.motif.is_none(), a.period, name_key(&a.marker_name)).cmp(&(
-                b.motif.is_none(),
-                b.period,
-                name_key(&b.marker_name),
-            ))
-        }),
+        "motif" => {
+            rows.sort_by_key(|m| (m.motif.is_none(), m.period, name_key(&m.marker_name)))
+        }
         // Widest observed spread first — the most variable markers in the corpus.
-        "range" => rows.sort_by(|a, b| b.distinct_values.cmp(&a.distinct_values)),
+        "range" => rows.sort_by_key(|m| std::cmp::Reverse(m.distinct_values)),
         _ => {}
     }
 
