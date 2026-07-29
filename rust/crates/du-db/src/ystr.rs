@@ -1110,6 +1110,12 @@ pub struct MarkerStat {
     pub null_alleles: i64,
     /// Partial-repeat / footnoted values (`{type:complex}`), counted but unscored.
     pub complex_count: i64,
+    /// Observations reported in the *minority* shape for this marker — a single
+    /// repeat count where the marker is normally a copy vector, or vice versa.
+    /// DYS413 has 866 multi-copy calls and one bare `23`. The range is taken from
+    /// the majority shape, so these are excluded from it and surfaced here rather
+    /// than silently overriding it.
+    pub mixed_shape_count: i64,
     pub motif: Option<String>,
     pub period: Option<i16>,
     pub coordinates: Option<Value>,
@@ -1173,18 +1179,24 @@ const MARKER_STATS_AGGREGATION: &str = "WITH obs AS ( \
                     count(DISTINCT COALESCE(repeats::text, array_to_string(copies, '-'), raw)) \
                         AS distinct_values, \
                     count(*) FILTER (WHERE is_null_allele) AS null_alleles, \
-                    count(*) FILTER (WHERE vtype = 'complex') AS complex_count \
+                    count(*) FILTER (WHERE vtype = 'complex') AS complex_count, \
+                    count(*) FILTER (WHERE vtype = 'simple') AS simple_obs, \
+                    count(*) FILTER (WHERE vtype = 'multiCopy') AS multi_obs \
                FROM scored \
               GROUP BY marker \
          ) \
          SELECT a.marker AS marker_name, \
                 (a.observed_multi OR COALESCE(m.multi_copy, false)) AS multi_copy, \
                 a.observations, a.samples, \
-                a.min_value, a.modal_value, a.max_value, \
-                a.min_copies AS min_combination, \
-                array_to_string(a.modal_copies, '-') AS modal_combination, \
-                a.max_copies AS max_combination, \
+                CASE WHEN a.multi_obs <= a.simple_obs THEN a.min_value END AS min_value, \
+                CASE WHEN a.multi_obs <= a.simple_obs THEN a.modal_value END AS modal_value, \
+                CASE WHEN a.multi_obs <= a.simple_obs THEN a.max_value END AS max_value, \
+                CASE WHEN a.multi_obs > a.simple_obs THEN a.min_copies END AS min_combination, \
+                CASE WHEN a.multi_obs > a.simple_obs \
+                     THEN array_to_string(a.modal_copies, '-') END AS modal_combination, \
+                CASE WHEN a.multi_obs > a.simple_obs THEN a.max_copies END AS max_combination, \
                 a.distinct_values, a.null_alleles, a.complex_count, \
+                LEAST(a.simple_obs, a.multi_obs) AS mixed_shape_count, \
                 m.motif, m.period, NULLIF(m.coordinates, '{}'::jsonb) AS coordinates, \
                 r.mutation_rate::float8 AS mutation_rate, \
                 r.mutation_rate_lower::float8 AS rate_ci_low, \
@@ -1211,7 +1223,8 @@ const MARKER_STATS_AGGREGATION: &str = "WITH obs AS ( \
 /// Column list shared by the refresh insert and the read path, in table order.
 const MARKER_STAT_COLUMNS: &str = "marker_name, multi_copy, observations, samples, \
      min_value, modal_value, max_value, min_combination, modal_combination, max_combination, \
-     distinct_values, null_alleles, complex_count, motif, period, coordinates, \
+     distinct_values, null_alleles, complex_count, mixed_shape_count, \
+     motif, period, coordinates, \
      mutation_rate, rate_ci_low, rate_ci_high, rate_method, rate_source, age_model_status";
 
 /// Recompute `genomics.str_marker_stat` from every stored profile. Returns the

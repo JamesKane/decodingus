@@ -794,6 +794,7 @@ str.markers.multiCopy=multicopie
 str.markers.multiCopy.help=Locus palindromique ou dupliqué, rapporté sous forme de vecteur de copies (p. ex. 11-15) et non utilisé pour l'estimation de l'âge.
 str.markers.note.null=nul
 str.markers.note.partial=partiel
+str.markers.note.mixedShape=autre forme
 str.markers.status.measured=Taux mesuré
 str.markers.status.default=Taux par défaut
 str.markers.status.excluded=Non évalué

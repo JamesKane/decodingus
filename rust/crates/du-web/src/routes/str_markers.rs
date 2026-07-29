@@ -129,13 +129,17 @@ fn range_cell(value: Option<i32>, combination: &Option<String>) -> String {
 
 /// Null-allele and partial-repeat counts folded into one cell, so two columns
 /// that are empty for nearly every marker don't widen the table.
-fn notes(null_alleles: i64, complex: i64, t: &T) -> String {
+fn notes(null_alleles: i64, complex: i64, mixed_shape: i64, t: &T) -> String {
     let mut parts = Vec::new();
     if null_alleles > 0 {
         parts.push(format!("{null_alleles} {}", t.get("str.markers.note.null")));
     }
     if complex > 0 {
         parts.push(format!("{complex} {}", t.get("str.markers.note.partial")));
+    }
+    // Explains why `distinct` can exceed what the shown range accounts for.
+    if mixed_shape > 0 {
+        parts.push(format!("{mixed_shape} {}", t.get("str.markers.note.mixedShape")));
     }
     parts.join(" · ")
 }
@@ -168,7 +172,7 @@ fn to_row(m: du_db::ystr::MarkerStat, t: &T) -> MarkerRow {
         observations: fmt_count(m.observations),
         samples: fmt_count(m.samples),
         distinct_values: fmt_count(m.distinct_values),
-        notes: notes(m.null_alleles, m.complex_count, t),
+        notes: notes(m.null_alleles, m.complex_count, m.mixed_shape_count, t),
         rate: fmt_rate(m.mutation_rate),
         rate_ci: ci,
         rate_source: m.rate_source.unwrap_or_default(),
