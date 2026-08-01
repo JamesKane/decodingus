@@ -44,10 +44,13 @@ fn to_update(m: WorkMeta) -> OpenAlexUpdate {
     }
 }
 
-/// Refresh OpenAlex metadata for every publication with a DOI.
+/// Refresh OpenAlex metadata for every publication with a DOI, then for those with
+/// only an OpenAlex id (promoted discovery candidates need not have a DOI — the
+/// by-DOI pass can never reach them).
 pub async fn update_all(pool: &PgPool, client: &OpenAlexClient) -> anyhow::Result<()> {
     let dois = du_db::publication::dois(pool).await?;
-    let total = dois.len();
+    let by_id = du_db::publication::openalex_ids_without_doi(pool).await?;
+    let total = dois.len() + by_id.len();
     let (mut updated, mut missing, mut failed) = (0usize, 0usize, 0usize);
     for (id, doi) in dois {
         match client.work_by_doi(&doi).await {
@@ -58,6 +61,20 @@ pub async fn update_all(pool: &PgPool, client: &OpenAlexClient) -> anyhow::Resul
             Ok(None) => missing += 1,
             Err(e) => {
                 tracing::warn!(%doi, error = %e, "openalex fetch failed");
+                failed += 1;
+            }
+        }
+        tokio::time::sleep(REQUEST_GAP).await;
+    }
+    for (id, openalex_id) in by_id {
+        match client.work_by_id(&openalex_id).await {
+            Ok(Some(meta)) => {
+                du_db::publication::update_openalex(pool, id, &to_update(meta)).await?;
+                updated += 1;
+            }
+            Ok(None) => missing += 1,
+            Err(e) => {
+                tracing::warn!(%openalex_id, error = %e, "openalex fetch by id failed");
                 failed += 1;
             }
         }
@@ -127,12 +144,16 @@ async fn run_search(
         for c in &page.candidates {
             let inserted = du_db::publication::upsert_candidate(
                 pool,
-                &c.openalex_id,
-                c.doi.as_deref(),
-                c.title.as_deref(),
-                c.abstract_summary.as_deref(),
-                c.publication_date,
-                c.journal.as_deref(),
+                &du_db::publication::NewCandidate {
+                    openalex_id: &c.openalex_id,
+                    doi: c.doi.as_deref(),
+                    title: c.title.as_deref(),
+                    abstract_summary: c.abstract_summary.as_deref(),
+                    publication_date: c.publication_date,
+                    journal_name: c.journal.as_deref(),
+                    cited_by_count: c.cited_by_count,
+                    open_access_status: c.open_access_status.as_deref(),
+                },
             )
             .await?;
             seen += 1;

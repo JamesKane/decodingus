@@ -29,6 +29,19 @@ pub async fn dois(pool: &PgPool) -> Result<Vec<(PublicationId, String)>, DbError
     Ok(rows.into_iter().map(|(id, doi)| (PublicationId(id), doi)).collect())
 }
 
+/// Publications the by-DOI work-list can never reach: an OpenAlex id but no DOI.
+/// A discovery candidate is promoted on its OpenAlex id alone, so without this
+/// pass those rows keep NULL citations / open-access status forever.
+pub async fn openalex_ids_without_doi(pool: &PgPool) -> Result<Vec<(PublicationId, String)>, DbError> {
+    let rows: Vec<(i64, String)> = sqlx::query_as(
+        "SELECT id, open_alex_id FROM pubs.publication \
+         WHERE open_alex_id IS NOT NULL AND doi IS NULL ORDER BY id",
+    )
+    .fetch_all(pool)
+    .await?;
+    Ok(rows.into_iter().map(|(id, oa)| (PublicationId(id), oa)).collect())
+}
+
 /// Apply OpenAlex enrichment (only overwrites a column when the new value is set).
 pub async fn update_openalex(pool: &PgPool, id: PublicationId, u: &OpenAlexUpdate) -> Result<bool, DbError> {
     let affected = sqlx::query(
@@ -140,34 +153,44 @@ pub async fn enabled_search_configs(pool: &PgPool) -> Result<Vec<SearchConfig>, 
         .collect())
 }
 
+/// The metadata a discovery candidate is written with. `doi` is expected in bare
+/// form (`du_external::openalex::normalize_doi`) — the catalog stores DOIs bare.
+#[derive(Debug, Default, Clone)]
+pub struct NewCandidate<'a> {
+    pub openalex_id: &'a str,
+    pub doi: Option<&'a str>,
+    pub title: Option<&'a str>,
+    pub abstract_summary: Option<&'a str>,
+    pub publication_date: Option<NaiveDate>,
+    pub journal_name: Option<&'a str>,
+    pub cited_by_count: Option<i32>,
+    pub open_access_status: Option<&'a str>,
+}
+
 /// Upsert a discovery candidate by OpenAlex id (preserves curator status/review).
 /// Returns `true` when the row was newly inserted (vs an update of one already seen).
-#[allow(clippy::too_many_arguments)]
-pub async fn upsert_candidate(
-    pool: &PgPool,
-    openalex_id: &str,
-    doi: Option<&str>,
-    title: Option<&str>,
-    abstract_summary: Option<&str>,
-    publication_date: Option<NaiveDate>,
-    journal_name: Option<&str>,
-) -> Result<bool, DbError> {
+pub async fn upsert_candidate(pool: &PgPool, c: &NewCandidate<'_>) -> Result<bool, DbError> {
     // `xmax = 0` distinguishes a fresh INSERT from a DO UPDATE on conflict.
     let inserted: bool = sqlx::query_scalar(
         "INSERT INTO pubs.publication_candidate \
-           (openalex_id, doi, title, abstract, publication_date, journal_name, status) \
-         VALUES ($1, $2, $3, $4, $5, $6, 'pending') \
+           (openalex_id, doi, title, abstract, publication_date, journal_name, \
+            cited_by_count, open_access_status, status) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending') \
          ON CONFLICT (openalex_id) DO UPDATE SET doi = EXCLUDED.doi, title = EXCLUDED.title, \
            abstract = EXCLUDED.abstract, publication_date = EXCLUDED.publication_date, \
-           journal_name = EXCLUDED.journal_name \
+           journal_name = EXCLUDED.journal_name, \
+           cited_by_count = COALESCE(EXCLUDED.cited_by_count, pubs.publication_candidate.cited_by_count), \
+           open_access_status = COALESCE(EXCLUDED.open_access_status, pubs.publication_candidate.open_access_status) \
          RETURNING (xmax = 0)",
     )
-    .bind(openalex_id)
-    .bind(doi)
-    .bind(title)
-    .bind(abstract_summary)
-    .bind(publication_date)
-    .bind(journal_name)
+    .bind(c.openalex_id)
+    .bind(c.doi)
+    .bind(c.title)
+    .bind(c.abstract_summary)
+    .bind(c.publication_date)
+    .bind(c.journal_name)
+    .bind(c.cited_by_count)
+    .bind(c.open_access_status)
     .fetch_one(pool)
     .await?;
     Ok(inserted)
@@ -321,12 +344,15 @@ pub struct Candidate {
     pub publication_date: Option<NaiveDate>,
     pub journal_name: Option<String>,
     pub relevance_score: Option<f64>,
+    pub cited_by_count: Option<i32>,
+    pub open_access_status: Option<String>,
     pub status: String,
     pub created_at: DateTime<Utc>,
 }
 
 const CAND_COLS: &str = "id, openalex_id, doi, title, abstract AS abstract_text, publication_date, \
-    journal_name, relevance_score::float8 AS relevance_score, status, created_at";
+    journal_name, relevance_score::float8 AS relevance_score, cited_by_count, open_access_status, \
+    status, created_at";
 
 /// Paginated candidate queue, optionally filtered by status, newest first.
 pub async fn list_candidates(
@@ -385,6 +411,10 @@ pub async fn review_candidate(
 /// publication matching the candidate's OpenAlex id or DOI, else create one from
 /// the candidate's metadata; then mark the candidate `accepted`. Returns the
 /// publication id. Errors if the candidate has no title (publications require one).
+///
+/// Citation count and open-access status come across too, so the promoted paper
+/// carries its "Open access" badge immediately rather than from the next nightly
+/// enrichment run. On reuse they gap-fill an existing row without overwriting it.
 pub async fn promote_candidate(pool: &PgPool, id: i64, by: Uuid) -> Result<PublicationId, DbError> {
     let mut tx = pool.begin().await?;
     let c: Candidate = sqlx::query_as(&format!(
@@ -410,11 +440,28 @@ pub async fn promote_candidate(pool: &PgPool, id: i64, by: Uuid) -> Result<Publi
     .fetch_optional(&mut *tx)
     .await?;
     let pub_id: i64 = match existing {
-        Some(pid) => pid,
+        Some(pid) => {
+            // Gap-fill only: a publication the curators already own keeps its own
+            // values; this just supplies what the candidate knows and it doesn't.
+            sqlx::query(
+                "UPDATE pubs.publication SET \
+                   cited_by_count = COALESCE(cited_by_count, $2), \
+                   open_access_status = COALESCE(open_access_status, $3), \
+                   updated_at = now() \
+                 WHERE id = $1 AND (cited_by_count IS NULL OR open_access_status IS NULL)",
+            )
+            .bind(pid)
+            .bind(c.cited_by_count)
+            .bind(c.open_access_status.as_deref())
+            .execute(&mut *tx)
+            .await?;
+            pid
+        }
         None => {
             sqlx::query_scalar(
-                "INSERT INTO pubs.publication (open_alex_id, doi, title, journal, publication_date, abstract_summary) \
-                 VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
+                "INSERT INTO pubs.publication (open_alex_id, doi, title, journal, publication_date, \
+                   abstract_summary, cited_by_count, open_access_status) \
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id",
             )
             .bind(&c.openalex_id)
             .bind(c.doi.as_deref())
@@ -422,6 +469,8 @@ pub async fn promote_candidate(pool: &PgPool, id: i64, by: Uuid) -> Result<Publi
             .bind(c.journal_name.as_deref())
             .bind(c.publication_date)
             .bind(c.abstract_text.as_deref())
+            .bind(c.cited_by_count)
+            .bind(c.open_access_status.as_deref())
             .fetch_one(&mut *tx)
             .await?
         }
