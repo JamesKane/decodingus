@@ -13,6 +13,7 @@ use axum::response::Response;
 use axum::routing::get;
 use axum::{Form, Router};
 use du_domain::ids::PublicationId;
+use du_external::openalex::normalize_doi;
 use serde::Deserialize;
 
 pub fn router() -> Router<AppState> {
@@ -251,13 +252,9 @@ struct SubmitForm {
     recaptcha: Option<String>,
 }
 
-/// Strip common DOI prefixes so OpenAlex's `/works/doi:` lookup gets a bare DOI.
-fn normalize_doi(raw: &str) -> String {
-    let d = raw.trim();
-    let d = d.strip_prefix("https://doi.org/").or_else(|| d.strip_prefix("http://doi.org/")).unwrap_or(d);
-    let d = d.strip_prefix("doi:").unwrap_or(d);
-    d.trim().to_string()
-}
+// DOIs are normalized to bare form (shared with the discovery ingest) so the
+// OpenAlex `/works/doi:` lookup resolves and so `exists_by_doi` can match what
+// the catalog stores.
 
 async fn submit_form(locale: Locale, user: MaybeUser) -> Response {
     html(&SubmitTemplate {
@@ -321,12 +318,16 @@ async fn submit(
 
     du_db::publication::upsert_candidate(
         &st.pool,
-        openalex_id,
-        Some(&doi),
-        meta.title.as_deref(),
-        meta.abstract_summary.as_deref(),
-        meta.publication_date,
-        meta.journal.as_deref(),
+        &du_db::publication::NewCandidate {
+            openalex_id,
+            doi: Some(&doi),
+            title: meta.title.as_deref(),
+            abstract_summary: meta.abstract_summary.as_deref(),
+            publication_date: meta.publication_date,
+            journal_name: meta.journal.as_deref(),
+            cited_by_count: meta.cited_by_count,
+            open_access_status: meta.open_access_status.as_deref(),
+        },
     )
     .await?;
 

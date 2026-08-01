@@ -35,11 +35,25 @@ async fn candidate_review_and_promote() {
 
     // Discovery upserts two candidates.
     du_db::publication::upsert_candidate(
-        &pool, "TESTPC-W1", Some("10.1234/testpc.1"), Some("A Y-DNA study"),
-        Some("abstract one"), None, Some("J. Phylogenetics"),
+        &pool,
+        &du_db::publication::NewCandidate {
+            openalex_id: "TESTPC-W1",
+            doi: Some("10.1234/testpc.1"),
+            title: Some("A Y-DNA study"),
+            abstract_summary: Some("abstract one"),
+            journal_name: Some("J. Phylogenetics"),
+            cited_by_count: Some(12),
+            open_access_status: Some("gold"),
+            ..Default::default()
+        },
     ).await.expect("upsert 1");
     du_db::publication::upsert_candidate(
-        &pool, "TESTPC-W2", None, Some("An off-topic paper"), None, None, None,
+        &pool,
+        &du_db::publication::NewCandidate {
+            openalex_id: "TESTPC-W2",
+            title: Some("An off-topic paper"),
+            ..Default::default()
+        },
     ).await.expect("upsert 2");
 
     // Both are pending.
@@ -55,6 +69,10 @@ async fn candidate_review_and_promote() {
     let got = du_db::publication::get_by_id(&pool, pub_id).await.expect("get pub").expect("pub exists");
     assert_eq!(got.title, "A Y-DNA study");
     assert_eq!(got.doi.as_deref(), Some("10.1234/testpc.1"));
+    // Open-access status and citations come across with the promotion, so the
+    // reference list badges the paper immediately (not after the nightly job).
+    assert_eq!(got.open_access_status.as_deref(), Some("gold"));
+    assert_eq!(got.cited_by_count, Some(12));
     let c1_after = du_db::publication::get_candidate(&pool, c1.id).await.unwrap().unwrap();
     assert_eq!(c1_after.status, "accepted");
 
@@ -91,8 +109,10 @@ async fn bulk_system_reject_only_touches_pending() {
 
     // Three pending candidates + one already accepted.
     for oa in ["TESTPC-R1", "TESTPC-R2", "TESTPC-R3", "TESTPC-R4"] {
-        du_db::publication::upsert_candidate(&pool, oa, None, Some("t"), None, None, None)
-            .await.expect("upsert");
+        du_db::publication::upsert_candidate(
+            &pool,
+            &du_db::publication::NewCandidate { openalex_id: oa, title: Some("t"), ..Default::default() },
+        ).await.expect("upsert");
     }
     let r4 = du_db::publication::list_candidates(&pool, None, 1, 100)
         .await.unwrap().items.into_iter().find(|c| c.openalex_id == "TESTPC-R4").unwrap();
