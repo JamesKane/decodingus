@@ -26,6 +26,7 @@ pub mod curator_inbox;
 pub mod curator_regions;
 pub mod curator_variants;
 pub mod dedup;
+pub mod download;
 pub mod maps;
 pub mod naming;
 pub mod denovo_conflicts;
@@ -68,6 +69,7 @@ pub fn app(state: AppState) -> Router {
         .merge(coverage::router())
         .merge(str_markers::router())
         .merge(pages::router())
+        .merge(download::router())
         .merge(auth_routes::router())
         .merge(curator::router())
         .merge(curator_inbox::router())

@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}{{ t.get("dl.title") }} — {{ t.get("app.name") }}{% endblock %}
+{% block content %}
+<div class="col-lg-10 mx-auto">
+  <h1 class="h3 mb-2">{{ t.get("dl.title") }}</h1>
+  <p class="text-muted">{{ t.get("dl.intro") }}</p>
+
+  {# Version line. Absent when GitHub couldn't be reached — the cards then carry
+     the releases-listing fallback instead of direct installer links. #}
+  {% if let Some(v) = d.version %}
+  <p class="small mb-4">
+    <a href="{{ d.release_url }}" target="_blank" rel="noopener"><strong>{{ v }}</strong></a>
+    {% if let Some(p) = d.published %}<span class="text-muted"> · {{ p }}</span>{% endif %}
+    {% if d.prerelease %}<span class="badge text-bg-warning ms-2">{{ t.get("dl.prerelease") }}</span>{% endif %}
+  </p>
+  {% else %}
+  <div class="alert alert-warning py-2 px-3 small">
+    {{ t.get("dl.unavailable") }}
+    <a href="{{ d.releases_url }}" target="_blank" rel="noopener">{{ t.get("dl.all_releases") }}</a>
+  </div>
+  {% endif %}
+
+  <div class="row g-4">
+    {% for p in d.platforms %}
+    <div class="col-md-4">
+      <div class="card h-100 shadow-sm{% if p.detected %} border-primary{% endif %}">
+        <div class="card-body d-flex flex-column">
+          <div class="d-flex align-items-center gap-2 mb-2">
+            <span class="fs-3 text-primary"><i class="bi {{ p.icon }}"></i></span>
+            <h2 class="h6 fw-bold mb-0">{{ p.label }}</h2>
+            {% if p.detected %}<span class="badge text-bg-primary ms-auto">{{ t.get("dl.your_system") }}</span>{% endif %}
+          </div>
+          <p class="small text-muted">{{ p.note }}</p>
+
+          {% for f in p.files %}
+            {% if loop.first %}
+            {# Direct asset link. `download` so the browser saves rather than
+               navigates, `nofollow` so crawlers don't pull ~100 MB installers. #}
+            <a class="btn btn-primary w-100 mb-2" href="{{ f.url }}" rel="nofollow noopener" download
+               hx-boost="false">
+              <i class="bi bi-download me-2"></i>{{ t.get("dl.get") }} <span class="text-nowrap">({{ f.kind }})</span>
+            </a>
+            <div class="small text-muted mb-2 text-break">{{ f.name }} · {{ f.size }}</div>
+            {% else %}
+              {% if loop.index == 2 %}<div class="small text-muted mt-auto mb-1">{{ t.get("dl.other_builds") }}</div>{% endif %}
+              <div class="small text-break">
+                <a href="{{ f.url }}" rel="nofollow noopener" download hx-boost="false">{{ f.arch }} · {{ f.kind }}</a>
+                <span class="text-muted"> · {{ f.size }}</span>
+              </div>
+            {% endif %}
+          {% else %}
+            <a class="btn btn-outline-secondary w-100 mt-auto" href="{{ d.releases_url }}"
+               target="_blank" rel="noopener" hx-boost="false">{{ t.get("dl.all_releases") }}</a>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <section class="mt-4 small">
+    {% if let Some(sums) = d.checksums_url %}
+    <p class="mb-1">{{ t.get("dl.verify") }}
+      <a href="{{ sums }}" rel="nofollow noopener" hx-boost="false">SHA256SUMS</a>.</p>
+    {% endif %}
+    <p class="mb-1">{{ t.get("dl.permalink") }}
+      {% for p in d.platforms %}<code>/download/{{ p.slug }}</code>{% if !loop.last %} · {% endif %}{% endfor %}</p>
+    <p class="text-muted mb-0">{{ t.get("dl.source") }}
+      <a href="{{ d.releases_url }}" target="_blank" rel="noopener">{{ t.get("dl.all_releases") }}</a>.</p>
+  </section>
+</div>
+{% endblock %}

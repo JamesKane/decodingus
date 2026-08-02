@@ -817,3 +817,23 @@ str.markers.legend.null=Une valeur de 0 correspond à un allèle nul (locus supp
 str.markers.legend.default=Les marqueurs sans taux de mutation publié sont évalués dans le modèle d'âge de branche au taux par défaut de
 str.markers.legend.motif=Les motifs et longueurs de répétition ne sont affichés que lorsqu'une source publiée les fournit ; la plupart des marqueurs étendus n'en ont pas.
 str.markers.refreshed=Chiffres recalculés le
+
+# Navigator download page (/download)
+nav.download=Obtenir le Navigator
+dl.title=Télécharger le Navigator
+dl.intro=Le Decoding-Us Navigator est l'application de périphérie qui analyse vos fichiers BAM/CRAM sur votre propre machine — les données brutes ne quittent jamais votre ordinateur. Choisissez votre plateforme ci-dessous ; les liens pointent toujours vers la version actuelle.
+dl.platform.windows=Windows
+dl.platform.macos=macOS
+dl.platform.linux=Linux
+dl.note.windows=Windows 10 ou ultérieur, 64 bits. Programme d'installation (.exe).
+dl.note.macos=macOS 12 ou ultérieur. Image disque universelle — Apple Silicon et Intel.
+dl.note.linux=L'AppImage fonctionne sur la plupart des distributions ; .deb pour Debian/Ubuntu.
+dl.get=Télécharger
+dl.other_builds=Autres versions :
+dl.your_system=Votre système
+dl.prerelease=Alpha
+dl.verify=Vérifiez votre téléchargement avec
+dl.permalink=Liens permanents par plateforme :
+dl.source=Toutes les versions, y compris les anciennes et les notes de version :
+dl.all_releases=toutes les versions sur GitHub
+dl.unavailable=La liste des versions n'a pas pu être consultée, les liens directs sont donc indisponibles. Vous pouvez toujours télécharger toutes les versions depuis GitHub :
