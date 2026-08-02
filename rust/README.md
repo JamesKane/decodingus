@@ -133,7 +133,7 @@ signed-cookie sessions for dev. `Curator` RBAC guard. The curator dashboard
 | Variants | `/curator/variants` | CRUD; alias/coordinate JSONB editing |
 | Genome regions | `/curator/regions` | CRUD (coordinates/properties JSONB) |
 | Curation proposals | `/curator/proposals` | review/promote Navigator-submitted branch proposals → catalog |
-| Publication candidates | `/curator/publications` | review OpenAlex discoveries → promote to references |
+| Publication candidates | `/curator/publications` | review OpenAlex discoveries → promote to references; status/search/sort filters, retract an accept back to rejected |
 | Change-sets | `/curator/change-sets` | tree-versioning lifecycle + diff + per-change review/apply |
 | Merge review | `/curator/reviews` | resolve SNP-graft flags / merge ambiguities via the `wip_*` staging tables (accept-anchor / reparent / merge / defer) |
 | Variant naming | `/curator/naming` | the **DU naming authority**: queue + mint `DUxxxxx` + lifecycle |
