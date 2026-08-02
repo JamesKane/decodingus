@@ -77,9 +77,13 @@ pub struct SuggestionReport {
     pub suggestions_written: u64,
 }
 
-/// A ranked suggestion for a sample (the reader's row).
+/// A ranked suggestion for a sample (the reader's row). `target_sample_guid` is the reader's
+/// **own** sample the candidate was matched against — the caller already owns it, so returning
+/// it reveals nothing new, and the Edge needs it as the `claimed_sample` of an
+/// [`messages::attest`] report (which [`record_attestation`] gates on ownership).
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct SuggestionView {
+    pub target_sample_guid: Uuid,
     pub suggested_sample_guid: Uuid,
     pub suggestion_type: String,
     pub score: Option<f64>,
@@ -89,7 +93,7 @@ pub struct SuggestionView {
 /// Serve a sample's ranked active candidates (used by the eventual consent-gated API).
 pub async fn suggestions_for(pool: &PgPool, sample_guid: Uuid, limit: i64) -> Result<Vec<SuggestionView>, DbError> {
     Ok(sqlx::query_as(
-        "SELECT suggested_sample_guid, suggestion_type, score, metadata \
+        "SELECT target_sample_guid, suggested_sample_guid, suggestion_type, score, metadata \
          FROM ibd.match_suggestion \
          WHERE target_sample_guid = $1 AND status = 'ACTIVE' \
          ORDER BY score DESC NULLS LAST LIMIT $2",
@@ -133,7 +137,7 @@ pub mod messages {
 /// a counterpart DID (identity reveal stays Edge-to-Edge over D1 consent).
 pub async fn suggestions_for_did(pool: &PgPool, did: &str, limit: i64) -> Result<Vec<SuggestionView>, DbError> {
     Ok(sqlx::query_as(
-        "SELECT ms.suggested_sample_guid, ms.suggestion_type, ms.score, ms.metadata \
+        "SELECT ms.target_sample_guid, ms.suggested_sample_guid, ms.suggestion_type, ms.score, ms.metadata \
          FROM ibd.match_suggestion ms \
          JOIN core.biosample b ON b.sample_guid = ms.target_sample_guid \
          WHERE b.atproto->>'repo_did' = $1 AND ms.status = 'ACTIVE' \

@@ -198,6 +198,9 @@ async fn suggestions_scoped_by_owner_did() {
     let mine = ibd::suggestions_for_did(&pool, "did:ex:owner", 50).await.unwrap();
     assert_eq!(mine.len(), 1);
     assert_eq!(mine[0].suggested_sample_guid, suggested);
+    // The row also names the caller's OWN sample — the Edge attests with it as `claimed_sample`,
+    // and it is the only way a self-publishing client learns its server-side sample guid.
+    assert_eq!(mine[0].target_sample_guid, target);
     assert!(ibd::suggestions_for_did(&pool, "did:ex:counterpart", 50).await.unwrap().is_empty());
 
     // Introduce authorization: true only for the owner's genuine candidate.

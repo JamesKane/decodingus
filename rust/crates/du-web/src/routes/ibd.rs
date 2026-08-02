@@ -45,6 +45,9 @@ async fn suggestions(State(st): State<AppState>, Query(q): Query<SuggestionsQuer
         .await?
         .into_iter()
         .map(|s| json!({
+            // The caller's own sample the candidate was ranked against — it already owns this,
+            // and the Edge needs it to attest a completed comparison (`/ibd/attest`).
+            "target_sample_guid": s.target_sample_guid,
             "suggested_sample_guid": s.suggested_sample_guid,
             "suggestion_type": s.suggestion_type,
             "score": s.score,
