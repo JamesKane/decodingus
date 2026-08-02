@@ -809,3 +809,23 @@ str.markers.legend.null=A reported value of 0 is a null allele (a deleted locus)
 str.markers.legend.default=Markers without a published mutation rate are scored in the branch-age model at the default rate of
 str.markers.legend.motif=Motifs and repeat lengths are shown only where a published source gives one; most extended markers have none.
 str.markers.refreshed=Figures last recomputed
+
+# Navigator download page (/download)
+nav.download=Get the Navigator
+dl.title=Download the Navigator
+dl.intro=The Decoding-Us Navigator is the edge application that analyzes your BAM/CRAM files on your own machine — raw data never leaves your computer. Pick your platform below; the links always resolve to the current release.
+dl.platform.windows=Windows
+dl.platform.macos=macOS
+dl.platform.linux=Linux
+dl.note.windows=Windows 10 or later, 64-bit. Installer (.exe).
+dl.note.macos=macOS 12 or later. Universal disk image — Apple Silicon and Intel.
+dl.note.linux=AppImage runs on most distributions; .deb for Debian/Ubuntu.
+dl.get=Download
+dl.other_builds=Other builds:
+dl.your_system=Your system
+dl.prerelease=Alpha
+dl.verify=Verify your download against
+dl.permalink=Permanent per-platform links:
+dl.source=Every build, including older versions and release notes:
+dl.all_releases=all releases on GitHub
+dl.unavailable=The release list couldn't be reached just now, so the direct links are unavailable. You can still download every build from GitHub:

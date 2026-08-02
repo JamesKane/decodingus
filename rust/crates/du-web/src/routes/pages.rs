@@ -66,7 +66,7 @@ fn base_url() -> String {
 /// The public, indexable pages (curator/auth surfaces are intentionally omitted).
 const PUBLIC_PATHS: &[&str] =
     &["/", "/ytree", "/mtree", "/variants", "/references", "/coverage-benchmarks", "/about", "/contact",
-      "/reputation", "/terms", "/privacy", "/cookies", "/faq"];
+      "/download", "/reputation", "/terms", "/privacy", "/cookies", "/faq"];
 
 /// Max sample URLs in one sitemap file. The spec ceiling is 50,000; if the public
 /// catalog ever exceeds this we log and this becomes a sitemap-index split.

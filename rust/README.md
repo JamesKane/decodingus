@@ -109,6 +109,7 @@ Postgres schemas: `core`, `tree`, `genomics`, `pubs`, `ident`, `fed`, `ibd`,
 | References + per-publication biosamples; suggest-a-paper | `/references` (+ report), `/references/submit` (public DOI → candidate queue) |
 | Biosample map (PostGIS → Leaflet GeoJSON) | `/biosamples/map` `/biosamples/geo-data` |
 | Coverage benchmarks + per-lab drill-down | `/coverage-benchmarks` `/coverage/labs` |
+| Navigator downloads — installers resolved from GitHub Releases | `/download` (per-platform builds, cached 30 min); `/download/{windows,macos,linux}` permanent redirects to the current installer |
 | Profile (view + display-name update); contact (reCAPTCHA) | `/profile` `/contact` |
 | sitemap / robots / health; cookie-consent banner | `/sitemap.xml` `/robots.txt` `/health` `/cookie-consent` |
 | Public JSON API + OpenAPI 3 / Swagger UI | `/api`, `/api/v1/*` (see below) |
