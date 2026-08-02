@@ -177,6 +177,13 @@ async fn reports_ancestry(State(st): State<AppState>) -> Result<Json<Vec<Ancestr
     Ok(Json(rows.into_iter().map(AncestryShareDto::from).collect()))
 }
 
+#[utoipa::path(get, path = "/api/v1/reports/str-markers", tag = "reports",
+    responses((status = 200, description = "Corpus-wide observed range per Y-STR marker (min/modal/max), with motif and mutation rate where known", body = [StrMarkerStatDto])))]
+async fn reports_str_markers(State(st): State<AppState>) -> Result<Json<Vec<StrMarkerStatDto>>, AppError> {
+    let rows = du_db::ystr::marker_stats(&st.pool).await?;
+    Ok(Json(rows.into_iter().map(StrMarkerStatDto::from).collect()))
+}
+
 #[utoipa::path(get, path = "/api/v1/reports/haplogroups", tag = "reports",
     responses((status = 200, description = "Y/MT haplogroup distribution across mirrored biosamples", body = [HaplogroupCountDto])))]
 async fn reports_haplogroups(State(st): State<AppState>) -> Result<Json<Vec<HaplogroupCountDto>>, AppError> {
@@ -514,7 +521,7 @@ fn csv_field(s: &str) -> String {
         y_tree, mt_tree, y_tree_full, mt_tree_full, y_tree_version, mt_tree_version, y_node_samples, mt_node_samples, coverage_benchmarks, sequencer_lab, sequencer_lab_instruments, discovery_proposals, discovery_proposal, test_types, test_type_by_code, references_details, biosample_report, sample_report, biosample_studies,
         list_variants, get_variant, variants_by_haplogroup, export_metadata, export_variants,
         export_variants_gff, list_region_builds, regions_by_build,
-        reports_coverage, reports_ancestry, reports_haplogroups,
+        reports_coverage, reports_ancestry, reports_haplogroups, reports_str_markers,
         haplogroup_str_signature, haplogroup_age, str_predict,
     ),
     components(schemas(
@@ -524,6 +531,7 @@ fn csv_field(s: &str) -> String {
         GenomeRegionDto, StudyDto, ExportMetadataDto, Page<VariantDto>, Page<PublicationDto>, Page<BiosampleDto>,
         FedCoverageByBuildDto, AncestryShareDto, HaplogroupCountDto, StrSignatureMarkerDto,
         StrPredictRequest, StrPredictionDto, StrPredictResponseDto, AgeEstimateDto,
+        StrMarkerStatDto,
     )),
     tags(
         (name = "tree", description = "Y/MT haplogroup trees"),
@@ -559,6 +567,7 @@ pub fn router() -> Router<AppState> {
         .route("/api/v1/reports/coverage", get(reports_coverage))
         .route("/api/v1/reports/ancestry", get(reports_ancestry))
         .route("/api/v1/reports/haplogroups", get(reports_haplogroups))
+        .route("/api/v1/reports/str-markers", get(reports_str_markers))
         .route("/api/v1/references/details", get(references_details))
         .route("/api/v1/references/details/:publication_id/biosamples", get(biosample_report))
         .route("/api/v1/samples/:slug", get(sample_report))

@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}{{ t.get("str.markers.title") }} — {{ t.get("app.name") }}{% endblock %}
+{% block content %}
+<h1 class="h3 mb-2">{{ t.get("str.markers.title") }}</h1>
+<p class="text-muted small mb-2">{{ t.get("str.markers.intro") }}</p>
+
+<p class="small mb-3">
+  <span class="me-3">{{ t.get("str.markers.total.markers") }}: <strong>{{ totals.markers }}</strong></span>
+  <span class="me-3">{{ t.get("str.markers.total.observations") }}: <strong>{{ totals.observations }}</strong></span>
+  <span class="me-3">{{ t.get("str.markers.total.withMotif") }}: <strong>{{ totals.with_motif }}</strong></span>
+  <span>{{ t.get("str.markers.total.withRate") }}: <strong>{{ totals.with_rate }}</strong></span>
+</p>
+
+<form method="get" action="/str-markers" class="row g-2 align-items-end mb-3">
+  <div class="col-auto">
+    <label class="form-label small mb-1" for="f-q">{{ t.get("str.markers.filter.marker") }}</label>
+    <input id="f-q" name="q" value="{{ q }}" class="form-control form-control-sm" placeholder="DYS3">
+  </div>
+  <div class="col-auto">
+    <label class="form-label small mb-1" for="f-sort">{{ t.get("str.markers.filter.sort") }}</label>
+    <select id="f-sort" name="sort" class="form-select form-select-sm" data-autosubmit>
+      <option value=""{% if sort == "" %} selected{% endif %}>{{ t.get("str.markers.sort.observations") }}</option>
+      <option value="name"{% if sort == "name" %} selected{% endif %}>{{ t.get("str.markers.sort.name") }}</option>
+      <option value="motif"{% if sort == "motif" %} selected{% endif %}>{{ t.get("str.markers.sort.motif") }}</option>
+      <option value="range"{% if sort == "range" %} selected{% endif %}>{{ t.get("str.markers.sort.range") }}</option>
+    </select>
+  </div>
+  <div class="col-auto">
+    <button type="submit" class="btn btn-sm btn-outline-secondary">{{ t.get("str.markers.filter.apply") }}</button>
+  </div>
+</form>
+
+<div class="table-responsive">
+  <table class="table table-sm table-striped align-middle">
+    <thead>
+      <tr class="text-center">
+        <th rowspan="2" class="align-middle text-start">{{ t.get("str.markers.col.marker") }}</th>
+        <th colspan="2">{{ t.get("str.markers.col.repeat") }}</th>
+        <th colspan="3">{{ t.get("str.markers.col.observedRange") }}</th>
+        <th colspan="4">{{ t.get("str.markers.col.observations") }}</th>
+        <th colspan="2">{{ t.get("str.markers.col.mutationRate") }}</th>
+        <th rowspan="2" class="align-middle">{{ t.get("str.markers.col.ageModel") }}</th>
+      </tr>
+      <tr class="text-center small text-muted">
+        <th>{{ t.get("str.markers.col.motif") }}</th><th>{{ t.get("str.markers.col.period") }}</th>
+        <th class="text-end">{{ t.get("str.markers.col.min") }}</th>
+        <th class="text-end">{{ t.get("str.markers.col.modal") }}</th>
+        <th class="text-end">{{ t.get("str.markers.col.max") }}</th>
+        <th class="text-end">{{ t.get("str.markers.col.total") }}</th>
+        <th class="text-end">{{ t.get("str.markers.col.samples") }}</th>
+        <th class="text-end">{{ t.get("str.markers.col.distinct") }}</th>
+        <th class="text-start">{{ t.get("str.markers.col.notes") }}</th>
+        <th class="text-end">{{ t.get("str.markers.col.rate") }}</th>
+        <th class="text-end">{{ t.get("str.markers.col.ci") }}</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td>
+          <code>{{ r.marker }}</code>
+          {% if r.multi_copy %}<span class="badge text-bg-light border ms-1" title="{{ t.get("str.markers.multiCopy.help") }}">{{ t.get("str.markers.multiCopy") }}</span>{% endif %}
+        </td>
+        <td class="text-center"><code>{{ r.motif }}</code></td>
+        <td class="text-center text-muted">{{ r.period }}</td>
+        <td class="text-end">{{ r.min }}</td>
+        <td class="text-end"><strong>{{ r.modal }}</strong></td>
+        <td class="text-end">{{ r.max }}</td>
+        <td class="text-end">{{ r.observations }}</td>
+        <td class="text-end text-muted">{{ r.samples }}</td>
+        <td class="text-end text-muted">{{ r.distinct_values }}</td>
+        <td class="small text-muted">{{ r.notes }}</td>
+        <td class="text-end">{{ r.rate }}</td>
+        <td class="text-end text-muted small" title="{{ r.rate_source }}">{{ r.rate_ci }}</td>
+        <td class="text-center"><span class="badge {{ r.age_status.css }}">{{ r.age_status.label }}</span></td>
+      </tr>
+      {% else %}
+      <tr><td colspan="13" class="detail-empty">{{ t.get("str.markers.none") }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<p class="text-muted small mt-3 mb-0">{{ t.get("str.markers.legend.null") }}</p>
+<p class="text-muted small mb-0">{{ t.get("str.markers.legend.default") }} <code>{{ default_rate }}</code>.</p>
+<p class="text-muted small">{{ t.get("str.markers.legend.motif") }}</p>
+{% if refreshed_at != "" %}<p class="text-muted small">{{ t.get("str.markers.refreshed") }} {{ refreshed_at }}.</p>{% endif %}
+{% endblock %}

@@ -23,7 +23,9 @@ pub struct WorkMeta {
     pub abstract_summary: Option<String>,
 }
 
-/// A discovered candidate publication (from a search).
+/// A discovered candidate publication (from a search). Carries the same
+/// open-access / citation metadata as [`WorkMeta`] so a promoted candidate is a
+/// fully-formed publication without waiting for the nightly by-DOI enrichment.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Candidate {
     pub openalex_id: String,
@@ -32,6 +34,8 @@ pub struct Candidate {
     pub abstract_summary: Option<String>,
     pub publication_date: Option<NaiveDate>,
     pub journal: Option<String>,
+    pub cited_by_count: Option<i32>,
+    pub open_access_status: Option<String>,
 }
 
 // ── wire types ────────────────────────────────────────────────────────────────
@@ -102,6 +106,21 @@ fn short_id(url: &str) -> &str {
     url.rsplit('/').next().unwrap_or(url)
 }
 
+/// Reduce a DOI to bare form (`10.1234/x`), stripping the `doi.org` resolver
+/// prefix OpenAlex wraps around it and the `doi:` scheme people paste. Bare form
+/// is what the catalog stores: the reference list builds its link as
+/// `https://doi.org/{doi}`, and duplicate detection compares DOIs literally.
+pub fn normalize_doi(raw: &str) -> String {
+    let d = raw.trim();
+    let lower = d.to_ascii_lowercase();
+    for prefix in ["https://doi.org/", "http://doi.org/", "https://dx.doi.org/", "http://dx.doi.org/", "doi:"] {
+        if lower.starts_with(prefix) {
+            return d[prefix.len()..].trim().to_string();
+        }
+    }
+    d.to_string()
+}
+
 fn parse_date(s: &Option<String>) -> Option<NaiveDate> {
     s.as_deref().and_then(|d| NaiveDate::parse_from_str(d, "%Y-%m-%d").ok())
 }
@@ -138,11 +157,13 @@ impl Work {
         let openalex_id = self.id.clone()?;
         Some(Candidate {
             openalex_id,
-            doi: self.doi.clone(),
+            doi: self.doi.as_deref().map(normalize_doi).filter(|d| !d.is_empty()),
             title: self.title.clone(),
             abstract_summary: self.abstract_inverted_index.as_ref().and_then(reconstruct_abstract),
             publication_date: parse_date(&self.publication_date),
             journal: self.primary_location.and_then(|l| l.source).and_then(|s| s.display_name),
+            cited_by_count: self.cited_by_count.map(|c| c as i32),
+            open_access_status: self.open_access.and_then(|o| o.oa_status),
         })
     }
 }
@@ -161,6 +182,25 @@ impl OpenAlexClient {
     /// Fetch enrichment metadata for a DOI. Returns None on 404.
     pub async fn work_by_doi(&self, doi: &str) -> Result<Option<WorkMeta>, ExternalError> {
         let url = format!("{}/works/doi:{}", self.base, doi.trim());
+        let mut req = self.http.get(url);
+        if let Some(m) = &self.mailto {
+            req = req.query(&[("mailto", m.as_str())]);
+        }
+        let resp = req.send().await?;
+        if resp.status() == reqwest::StatusCode::NOT_FOUND {
+            return Ok(None);
+        }
+        let work: Work = resp.error_for_status()?.json().await?;
+        Ok(Some(work.into_meta()))
+    }
+
+    /// Fetch enrichment metadata by OpenAlex work id (bare `W…` or the full
+    /// `https://openalex.org/W…` URL). The by-id counterpart of
+    /// [`work_by_doi`](Self::work_by_doi), for catalog rows that have an OpenAlex
+    /// id but no DOI — a promoted discovery candidate need not have one, and the
+    /// by-DOI job can never reach those. Returns None on 404.
+    pub async fn work_by_id(&self, openalex_id: &str) -> Result<Option<WorkMeta>, ExternalError> {
+        let url = format!("{}/works/{}", self.base, short_id(openalex_id.trim()));
         let mut req = self.http.get(url);
         if let Some(m) = &self.mailto {
             req = req.query(&[("mailto", m.as_str())]);
@@ -296,5 +336,33 @@ mod tests {
         assert_eq!(cands.len(), 1);
         assert_eq!(cands[0].openalex_id, "https://openalex.org/W1");
         assert_eq!(cands[0].title.as_deref(), Some("A"));
+        // The resolver prefix is stripped at ingest — the catalog stores bare DOIs.
+        assert_eq!(cands[0].doi.as_deref(), Some("10.1/a"));
+    }
+
+    /// The search payload carries open-access + citation metadata; a candidate must
+    /// keep it, or a promoted paper shows no OA badge until the nightly job re-fetches.
+    #[test]
+    fn candidate_keeps_open_access_and_citations() {
+        let json = r#"{
+            "id": "https://openalex.org/W9",
+            "doi": "https://doi.org/10.1/b",
+            "title": "B",
+            "cited_by_count": 7,
+            "open_access": { "oa_status": "gold" }
+        }"#;
+        let c = serde_json::from_str::<Work>(json).unwrap().into_candidate().unwrap();
+        assert_eq!(c.cited_by_count, Some(7));
+        assert_eq!(c.open_access_status.as_deref(), Some("gold"));
+    }
+
+    #[test]
+    fn normalize_doi_strips_resolver_prefixes() {
+        assert_eq!(normalize_doi("https://doi.org/10.1002/advs.76320"), "10.1002/advs.76320");
+        assert_eq!(normalize_doi("http://dx.doi.org/10.1/x"), "10.1/x");
+        assert_eq!(normalize_doi("DOI:10.1/x"), "10.1/x");
+        assert_eq!(normalize_doi("  10.1/x  "), "10.1/x");
+        // A DOI is not a URL — anything else is left alone.
+        assert_eq!(normalize_doi("https://example.org/paper"), "https://example.org/paper");
     }
 }

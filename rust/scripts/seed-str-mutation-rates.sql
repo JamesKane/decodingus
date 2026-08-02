@@ -165,7 +165,9 @@ VALUES
   ('DYS726', 0.0003711496, 0.0002828180, 0.0004870696, ARRAY['Willems2016-1kG'], 'Willems et al. 2016 (1000G MUTEA); motif AAGG, n=668'),
   ('Y-GATA-A10', 0.0035312625, 0.0030108908, 0.0041415699, ARRAY['Willems2016-1kG'], 'Willems et al. 2016 (1000G MUTEA); motif AGAT, n=847'),
   ('YGATAH4', 0.0025500000, 0.0017471797, 0.0033455338, ARRAY['YHRD'], 'YHRD combined (39 mutations / 15316 meioses)')
-ON CONFLICT (marker_name) DO UPDATE SET
+-- Keyed on (marker_name, method) since mig 0070 — these are all PUBLISHED rates and
+-- must not disturb any DERIVED row estimated from our own tree.
+ON CONFLICT (marker_name, method) DO UPDATE SET
   mutation_rate       = EXCLUDED.mutation_rate,
   mutation_rate_lower = EXCLUDED.mutation_rate_lower,
   mutation_rate_upper = EXCLUDED.mutation_rate_upper,
