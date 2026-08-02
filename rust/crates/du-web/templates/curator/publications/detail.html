@@ -41,7 +41,11 @@
               hx-target="#candidate-detail" hx-swap="innerHTML">{{ t.get("pc.defer") }}</button>
     </div>
     {% else %}
-    <p class="detail-empty small mb-2">{{ t.get("pc.accepted_note") }}</p>
+    <p class="detail-empty small mb-2">{{ t.get("pc.accepted_note") }}
+      {% if let Some(p) = c.promoted %}
+      <a href="{{ p.url }}" target="_blank" rel="noopener">#{{ p.id }}</a>
+      {% endif %}
+    </p>
     <form hx-post="/curator/publications/{{ c.id }}/projects"
           hx-target="#candidate-detail" hx-swap="innerHTML" class="mt-2">
       <label class="form-label small mb-1">{{ t.get("pc.projects.label") }}</label>
@@ -51,6 +55,28 @@
         <button class="btn btn-outline-primary" type="submit">{{ t.get("pc.projects.attach") }}</button>
       </div>
       <div class="form-text small">{{ t.get("pc.projects.help") }}</div>
+    </form>
+
+    {# Undo an accept. The promoted paper only goes with it when the curator ticks
+       the box, and never when samples/studies already reference it. #}
+    <hr class="my-3">
+    <form hx-post="/curator/publications/{{ c.id }}/review"
+          hx-target="#candidate-detail" hx-swap="innerHTML"
+          hx-confirm="{{ t.get("pc.retract.confirm") }}">
+      <input type="hidden" name="action" value="retract">
+      {% if let Some(p) = c.promoted %}
+        {% if p.attached > 0 %}
+        <div class="form-text small mb-1">{{ t.get("pc.retract.attached") }} ({{ p.attached }})</div>
+        {% else %}
+        <div class="form-check form-switch small mb-1">
+          <input class="form-check-input" type="checkbox" role="switch"
+                 name="delete_publication" value="1" id="pc-del-{{ c.id }}">
+          <label class="form-check-label" for="pc-del-{{ c.id }}">{{ t.get("pc.retract.delete_pub") }}</label>
+        </div>
+        {% endif %}
+      {% endif %}
+      <button class="btn btn-sm btn-outline-danger" type="submit">{{ t.get("pc.retract") }}</button>
+      <div class="form-text small">{{ t.get("pc.retract.help") }}</div>
     </form>
     {% endif %}
   </div>

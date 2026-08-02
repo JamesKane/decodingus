@@ -354,27 +354,86 @@ const CAND_COLS: &str = "id, openalex_id, doi, title, abstract AS abstract_text,
     journal_name, relevance_score::float8 AS relevance_score, cited_by_count, open_access_status, \
     status, created_at";
 
-/// Paginated candidate queue, optionally filtered by status, newest first.
+/// Queue ordering. The default is discovery order (newest first); the others let
+/// a curator reach a paper without paging through the whole backlog.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum CandidateSort {
+    /// Discovery time, newest first.
+    #[default]
+    Newest,
+    /// Discovery time, oldest first (work the backlog from the bottom).
+    Oldest,
+    /// Publication date, newest first (undated last).
+    Published,
+    /// Title, A→Z.
+    Title,
+}
+
+impl CandidateSort {
+    /// Parse a UI/query-string value; anything unrecognised falls back to the default.
+    pub fn parse(s: &str) -> Self {
+        match s {
+            "oldest" => Self::Oldest,
+            "published" => Self::Published,
+            "title" => Self::Title,
+            _ => Self::Newest,
+        }
+    }
+
+    fn order_by(self) -> &'static str {
+        match self {
+            Self::Newest => "created_at DESC, id DESC",
+            Self::Oldest => "created_at ASC, id ASC",
+            Self::Published => "publication_date DESC NULLS LAST, id DESC",
+            Self::Title => "title ASC NULLS LAST, id DESC",
+        }
+    }
+}
+
+/// What narrows the candidate review queue.
+#[derive(Debug, Default, Clone)]
+pub struct CandidateFilter<'a> {
+    /// `pending`/`accepted`/`rejected`/`deferred`; `None` (or empty) = every status.
+    pub status: Option<&'a str>,
+    /// Case-insensitive substring over title, journal, DOI and OpenAlex id.
+    pub q: Option<&'a str>,
+    pub sort: CandidateSort,
+}
+
+/// Neutralise LIKE metacharacters so a curator's `%` searches for a literal `%`.
+fn like_escape(s: &str) -> String {
+    s.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")
+}
+
+/// Paginated candidate queue.
 pub async fn list_candidates(
     pool: &PgPool,
-    status: Option<&str>,
+    f: &CandidateFilter<'_>,
     page: i64,
     page_size: i64,
 ) -> Result<Page<Candidate>, DbError> {
     let offset = Page::<()>::offset(page, page_size);
     let limit = page_size.clamp(1, 200);
-    let status = status.filter(|s| !s.is_empty());
-    let where_sql = "WHERE ($1::text IS NULL OR status = $1)";
+    let status = f.status.filter(|s| !s.is_empty());
+    let q = f.q.map(str::trim).filter(|s| !s.is_empty()).map(like_escape);
+    let where_sql = "WHERE ($1::text IS NULL OR status = $1) \
+         AND ($2::text IS NULL OR title ILIKE '%' || $2 || '%' \
+              OR journal_name ILIKE '%' || $2 || '%' \
+              OR doi ILIKE '%' || $2 || '%' \
+              OR openalex_id ILIKE '%' || $2 || '%')";
     let total: i64 =
         sqlx::query_scalar(&format!("SELECT count(*) FROM pubs.publication_candidate {where_sql}"))
             .bind(status)
+            .bind(q.as_deref())
             .fetch_one(pool)
             .await?;
     let items: Vec<Candidate> = sqlx::query_as(&format!(
         "SELECT {CAND_COLS} FROM pubs.publication_candidate {where_sql} \
-         ORDER BY created_at DESC, id DESC LIMIT $2 OFFSET $3"
+         ORDER BY {} LIMIT $3 OFFSET $4",
+        f.sort.order_by()
     ))
     .bind(status)
+    .bind(q.as_deref())
     .bind(limit)
     .bind(offset)
     .fetch_all(pool)
@@ -483,6 +542,84 @@ pub async fn promote_candidate(pool: &PgPool, id: i64, by: Uuid) -> Result<Publi
         .await?;
     tx.commit().await?;
     Ok(PublicationId(pub_id))
+}
+
+/// Samples + studies linked to a publication — what a retraction must not orphan.
+const ATTACH_COUNT_SQL: &str =
+    "SELECT (SELECT count(*) FROM pubs.publication_biosample WHERE publication_id = $1) \
+          + (SELECT count(*) FROM pubs.publication_study WHERE publication_id = $1)";
+
+/// How many samples/studies hang off a publication (0 = nothing references it).
+pub async fn attachment_count(pool: &PgPool, id: PublicationId) -> Result<i64, DbError> {
+    Ok(sqlx::query_scalar(ATTACH_COUNT_SQL).bind(id.0).fetch_one(pool).await?)
+}
+
+/// Outcome of walking an accepted candidate back to `rejected`.
+#[derive(Debug, Clone, Default)]
+pub struct Retraction {
+    /// The paper the accept had promoted to, if it still resolves.
+    pub publication_id: Option<PublicationId>,
+    /// The paper was removed from the catalog as part of the retraction.
+    pub publication_deleted: bool,
+    /// Samples/studies hanging off that paper. Non-zero means deletion was
+    /// refused: real curated data references it, so only the candidate flips.
+    pub attached: i64,
+}
+
+/// **Retract** an accepted candidate: flip it back to `rejected`, and optionally
+/// remove the publication the accept promoted it to.
+///
+/// The promotion may have *reused* a paper the curators already owned rather than
+/// creating one, and samples or studies may have been attached since — so the
+/// delete is opt-in (`delete_publication`) and is refused outright once anything
+/// links to the paper. The candidate always ends up `rejected`; the returned
+/// [`Retraction`] says what happened to the paper.
+pub async fn retract_candidate(
+    pool: &PgPool,
+    id: i64,
+    by: Uuid,
+    delete_publication: bool,
+) -> Result<Retraction, DbError> {
+    let mut tx = pool.begin().await?;
+    let c: Candidate = sqlx::query_as(&format!(
+        "SELECT {CAND_COLS} FROM pubs.publication_candidate WHERE id = $1 FOR UPDATE"
+    ))
+    .bind(id)
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or_else(|| DbError::Conflict(format!("candidate {id} not found")))?;
+
+    // Same match promote_candidate used to find/create the paper.
+    let pub_id: Option<i64> = sqlx::query_scalar(
+        "SELECT id FROM pubs.publication WHERE open_alex_id = $1 OR ($2::text IS NOT NULL AND doi = $2) \
+         LIMIT 1 FOR UPDATE",
+    )
+    .bind(&c.openalex_id)
+    .bind(c.doi.as_deref())
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    let mut out = Retraction { publication_id: pub_id.map(PublicationId), ..Default::default() };
+    if let Some(pid) = pub_id {
+        out.attached =
+            sqlx::query_scalar(ATTACH_COUNT_SQL).bind(pid).fetch_one(&mut *tx).await?;
+        if delete_publication && out.attached == 0 {
+            sqlx::query("DELETE FROM pubs.publication WHERE id = $1")
+                .bind(pid)
+                .execute(&mut *tx)
+                .await?;
+            out.publication_deleted = true;
+            out.publication_id = None;
+        }
+    }
+
+    sqlx::query("UPDATE pubs.publication_candidate SET status = 'rejected', reviewed_by = $2 WHERE id = $1")
+        .bind(id)
+        .bind(by)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    Ok(out)
 }
 
 #[derive(sqlx::FromRow)]

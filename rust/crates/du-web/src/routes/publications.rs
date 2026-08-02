@@ -1,8 +1,10 @@
 //! Curator **publication-candidate review** UI. The publication-discovery job
 //! (OpenAlex) writes candidates into `pubs.publication_candidate`; curators
-//! triage them here. Two-panel HTMX screen mirroring the proposals UI: a status-
-//! filtered queue (left) and a review panel (right) with Accept (promote to a
-//! real `pubs.publication`) / Reject / Defer.
+//! triage them here. Two-panel HTMX screen mirroring the proposals UI: a
+//! filtered queue (left — status, free-text search and sort, so a curator reaches
+//! a paper without paging through the backlog) and a review panel (right) with
+//! Accept (promote to a real `pubs.publication`) / Reject / Defer, plus Retract
+//! to walk an accept back to rejected.
 
 use crate::auth::{Curator, NavUser};
 use crate::error::AppError;
@@ -116,6 +118,8 @@ struct Row {
 
 struct ListView {
     status: String,
+    q: String,
+    sort: String,
     rows: Vec<Row>,
     page: i64,
     total: i64,
@@ -125,6 +129,10 @@ struct ListView {
 #[derive(Deserialize)]
 struct ListQuery {
     status: Option<String>,
+    /// Free-text over title / journal / DOI / OpenAlex id.
+    q: Option<String>,
+    /// `newest` (default) | `oldest` | `published` | `title`.
+    sort: Option<String>,
     page: Option<i64>,
 }
 
@@ -143,14 +151,23 @@ fn to_row(c: du_db::publication::Candidate) -> Row {
     }
 }
 
-async fn load_list(st: &AppState, q: &ListQuery) -> Result<ListView, AppError> {
+async fn load_list(st: &AppState, query: &ListQuery) -> Result<ListView, AppError> {
     // Default the queue to the pending items (the actionable ones).
-    let status = q.status.clone().unwrap_or_else(|| "pending".into());
-    let filter = if status.is_empty() { None } else { Some(status.as_str()) };
-    let result = du_db::publication::list_candidates(&st.pool, filter, q.page.unwrap_or(1), 20).await?;
+    let status = query.status.clone().unwrap_or_else(|| "pending".into());
+    let q = query.q.clone().unwrap_or_default();
+    let sort = query.sort.clone().unwrap_or_else(|| "newest".into());
+    let filter = du_db::publication::CandidateFilter {
+        status: if status.is_empty() { None } else { Some(status.as_str()) },
+        q: Some(q.as_str()),
+        sort: du_db::publication::CandidateSort::parse(&sort),
+    };
+    let result =
+        du_db::publication::list_candidates(&st.pool, &filter, query.page.unwrap_or(1), 20).await?;
     let (page, total, total_pages) = (result.page, result.total, result.total_pages());
     Ok(ListView {
         status,
+        q,
+        sort,
         rows: result.items.into_iter().map(to_row).collect(),
         page,
         total,
@@ -200,6 +217,15 @@ async fn list(
 
 // ── detail / review panel ───────────────────────────────────────────────────
 
+/// The catalog paper an accepted candidate was promoted to.
+struct PromotedView {
+    id: i64,
+    /// Reference-list search that lands on the paper.
+    url: String,
+    /// Samples/studies attached — non-zero blocks removing the paper on retract.
+    attached: i64,
+}
+
 struct DetailView {
     id: i64,
     title: String,
@@ -213,6 +239,8 @@ struct DetailView {
     abstract_text: Option<String>,
     /// Not yet accepted → the action buttons are live.
     can_act: bool,
+    /// Accepted → the promoted paper, for the retract/attach forms.
+    promoted: Option<PromotedView>,
     notice: Option<String>,
 }
 
@@ -229,6 +257,22 @@ async fn build_detail(st: &AppState, id: i64, notice: Option<String>) -> Result<
         .ok_or_else(|| AppError::NotFound(format!("candidate {id}")))?;
     let doi = c.doi.filter(|d| !d.trim().is_empty());
     let doi_url = doi.as_ref().map(|d| format!("https://doi.org/{d}"));
+    let accepted = c.status == "accepted";
+    // Only accepted candidates have a promoted paper to retract or attach to.
+    let mut promoted = None;
+    if accepted {
+        if let Some(pid) = du_db::publication::publication_for_candidate(&st.pool, id).await? {
+            let query = doi.clone().unwrap_or_else(|| c.title.clone().unwrap_or_default());
+            promoted = Some(PromotedView {
+                id: pid.0,
+                url: format!(
+                    "/references?query={}",
+                    percent_encoding::utf8_percent_encode(&query, percent_encoding::NON_ALPHANUMERIC)
+                ),
+                attached: du_db::publication::attachment_count(&st.pool, pid).await?,
+            });
+        }
+    }
     Ok(DetailView {
         id: c.id,
         title: c.title.unwrap_or_else(|| "(untitled)".into()),
@@ -240,7 +284,8 @@ async fn build_detail(st: &AppState, id: i64, notice: Option<String>) -> Result<
         relevance: c.relevance_score.map(|r| format!("{r:.2}")).unwrap_or_else(|| "—".into()),
         status: c.status.clone(),
         abstract_text: c.abstract_text.filter(|a| !a.trim().is_empty()),
-        can_act: c.status != "accepted",
+        can_act: !accepted,
+        promoted,
         notice,
     })
 }
@@ -266,8 +311,12 @@ async fn panel(
 
 #[derive(Deserialize)]
 struct ReviewForm {
-    /// accept | reject | defer
+    /// accept | reject | retract | defer
     action: String,
+    /// `retract` only: also delete the paper the accept promoted to. Checkbox —
+    /// present (`on`) when ticked, absent otherwise.
+    #[serde(default)]
+    delete_publication: Option<String>,
 }
 
 async fn review(
@@ -283,6 +332,24 @@ async fn review(
             Err(du_db::DbError::Conflict(msg)) => msg,
             Err(e) => return Err(e.into()),
         },
+        // Undo an accept: back to rejected, optionally taking the promoted paper
+        // with it (refused when samples/studies already reference it).
+        "retract" => {
+            let r = du_db::publication::retract_candidate(
+                &st.pool,
+                id,
+                s.user_id,
+                f.delete_publication.is_some(),
+            )
+            .await?;
+            let mut msg = locale.t.get("pc.notice.retracted").to_string();
+            if r.publication_deleted {
+                msg = format!("{msg} {}", locale.t.get("pc.notice.pub_deleted"));
+            } else if f.delete_publication.is_some() && r.attached > 0 {
+                msg = format!("{msg} {} ({})", locale.t.get("pc.notice.pub_kept"), r.attached);
+            }
+            msg
+        }
         "reject" => {
             du_db::publication::review_candidate(&st.pool, id, "rejected", s.user_id).await?;
             locale.t.get("pc.notice.rejected").to_string()
@@ -293,4 +360,81 @@ async fn review(
         }
     };
     changed_response(&st, locale.t, id, Some(notice)).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::i18n::Lang;
+    use askama::Template;
+
+    fn t() -> T {
+        T::new(Lang::En)
+    }
+
+    fn detail(status: &str, promoted: Option<PromotedView>) -> DetailView {
+        DetailView {
+            id: 7,
+            title: "A paper".into(),
+            journal: "J. Phylogenetics".into(),
+            date: "2026-01-01".into(),
+            doi: None,
+            doi_url: None,
+            openalex_id: "W1".into(),
+            relevance: "—".into(),
+            status: status.into(),
+            abstract_text: None,
+            can_act: status != "accepted",
+            promoted,
+            notice: None,
+        }
+    }
+
+    #[test]
+    fn filters_round_trip_into_the_form() {
+        let list = ListView {
+            status: "rejected".into(),
+            q: "ancient dna".into(),
+            sort: "published".into(),
+            rows: vec![],
+            page: 1,
+            total: 0,
+            total_pages: 0,
+        };
+        let html = PageTemplate { t: t(), next: "/".into(), user: None, list }.render().unwrap();
+        assert!(html.contains("value=\"ancient dna\""), "search box keeps the query");
+        assert!(html.contains("<option value=\"rejected\" selected>"), "status stays selected");
+        assert!(html.contains("<option value=\"published\" selected>"), "sort stays selected");
+        // Every control submits the whole filter box, so they compose.
+        assert_eq!(html.matches("hx-include=\"#pc-filters\"").count(), 4, "3 inputs + the table");
+    }
+
+    #[test]
+    fn accepted_candidate_can_be_moved_back_to_rejected() {
+        let promoted = PromotedView { id: 42, url: "/references?query=x".into(), attached: 0 };
+        let html = DetailTemplate { t: t(), c: detail("accepted", Some(promoted)) }.render().unwrap();
+        assert!(html.contains("value=\"retract\""), "retract action is offered");
+        assert!(html.contains("name=\"delete_publication\""), "with the opt-in paper removal");
+        assert!(html.contains("#42"), "links the promoted paper");
+        // The accept/reject/defer trio belongs to the pre-decision state only.
+        assert!(!html.contains(r#"{"action":"accept"}"#), "no re-accept button");
+    }
+
+    #[test]
+    fn attached_paper_hides_the_delete_option() {
+        let promoted = PromotedView { id: 42, url: "/references?query=x".into(), attached: 3 };
+        let html = DetailTemplate { t: t(), c: detail("accepted", Some(promoted)) }.render().unwrap();
+        assert!(html.contains("value=\"retract\""), "still retractable");
+        assert!(!html.contains("name=\"delete_publication\""), "but the paper can't be removed");
+        assert!(html.contains(t().get("pc.retract.attached")), "and says why");
+    }
+
+    #[test]
+    fn pending_candidate_keeps_the_review_trio() {
+        let html = DetailTemplate { t: t(), c: detail("pending", None) }.render().unwrap();
+        assert!(html.contains(r#"{"action":"accept"}"#));
+        assert!(html.contains(r#"{"action":"reject"}"#));
+        assert!(html.contains(r#"{"action":"defer"}"#));
+        assert!(!html.contains("value=\"retract\""), "nothing to retract yet");
+    }
 }
