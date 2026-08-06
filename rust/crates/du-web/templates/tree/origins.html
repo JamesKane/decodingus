@@ -115,14 +115,7 @@
         <rect x="{{ b.x }}" y="{{ b.y }}" width="{{ b.w }}" height="{{ b.h }}"
               fill="url(#undated)" rx="2"></rect>
         {% endif %}
-        {# Stacked composition. Segments are separated by surface, not by a stroke. #}
-        {% for s in b.segments %}
-        <rect x="{{ s.x }}" y="{{ b.y }}" width="{{ s.w }}" height="{{ b.h }}"
-              class="origins-seg s{{ s.slot }}" rx="2">
-          <title>{% if let Some(lbl) = s.label %}{{ lbl }}{% else if s.unknown %}{{ t.get("tree.origins.unknown") }}{% else %}{{ t.get("tree.origins.other") }}{% endif %} · {{ s.count }}</title>
-        </rect>
-        {% endfor %}
-        <title>{{ b.name }} — {{ b.with_origin }} {{ t.get("tree.origins.with") }}, {{ b.without_origin }} {{ t.get("tree.origins.without") }}{% if b.has_more %} · {{ t.get("tree.origins.more") }}{% endif %}</title>
+        <title>{{ b.name }} — {{ b.snp_total }} {{ t.get("tree.origins.snps") }} · {{ b.with_origin }} {{ t.get("tree.origins.with") }}, {{ b.without_origin }} {{ t.get("tree.origins.without") }}{% if b.has_more %} · {{ t.get("tree.origins.more") }}{% endif %}</title>
       </a>
       {# Direct label: the relief the light-mode contrast warning obliges. Text wears text tokens,
          never the series colour. #}
@@ -131,6 +124,14 @@
       {% endif %}
       {# Branches were folded into this band. Marked so "simple" is never confused with
          "not shown" — click through to draw them. #}
+      {# The branch's equivalent SNPs — the mutations are unordered, so the list IS the block. #}
+      {% for sn in b.snps %}
+      <text x="{{ sn.x }}" y="{{ sn.y }}" font-size="9" class="origins-snp">{{ sn.name }}</text>
+      {% endfor %}
+      {% if b.snp_total > b.snps.len() %}
+      <text x="{{ b.x }}" y="{{ b.y }}" dx="4" dy="{{ b.h }}" font-size="9" class="origins-snp-more"
+            >+{{ b.snp_total - b.snps.len() }}</text>
+      {% endif %}
       {% if b.has_more %}
       <text x="{{ b.x }}" y="{{ b.y }}" dx="{{ b.w }}" dy="{{ b.h }}" text-anchor="end"
             font-size="9" class="origins-more">+</text>

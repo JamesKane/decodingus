@@ -644,6 +644,10 @@ async fn origins(
     // attributed to the nearest drawn branch instead of being lost. That is what makes the depth
     // bound a *legibility* bound rather than a data one: the composition is identical at every
     // depth, only the visible branching changes.
+    // The blocks' contents: each branch's phylogenetically equivalent SNPs, in one query rather
+    // than one per branch.
+    let node_ids: Vec<i64> = window.iter().map(|n| n.id).collect();
+    let mut snps_of = du_db::haplogroup::variant_names_for(&st.pool, &node_ids).await?;
     let nodes: Vec<origins_layout::Node> = window
         .iter()
         .map(|n| origins_layout::Node {
@@ -653,6 +657,7 @@ async fn origins(
             formed_ybp: n.formed_ybp,
             tmrca_ybp: n.tmrca_ybp,
             hidden: n.depth > depth || is_private_node(&n.name) || is_uuid_label(&n.name),
+            snps: snps_of.remove(&n.id).unwrap_or_default(),
         })
         .collect();
 

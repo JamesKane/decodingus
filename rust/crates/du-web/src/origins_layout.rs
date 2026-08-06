@@ -3,9 +3,15 @@
 //!
 //! The shape is ytree.net's / the Big Tree's: depth runs **down** the page, each branch is a band
 //! spanning the horizontal extent of its descendants, and children sit flush beneath their parent
-//! so *containment* carries descent and no connector is drawn. What differs is the fill — instead
-//! of the branch's SNPs, a band is a **stacked composition of where its men's ancestors came
-//! from**.
+//! so *containment* carries descent and no connector is drawn. A block shows **its equivalent
+//! SNPs**, exactly as the Big Tree does: the mutations on that branch are unordered, so the list
+//! *is* the block.
+//!
+//! **Origin is carried by the men, not by the branches.** An early cut tinted each block by the
+//! composition of its descendants' origins; it is gone. A branch has no locality of its own — only
+//! the men standing on it do — and tinting a whole clade by the modal origin of its subtree
+//! asserted something the data does not support. The colour now lives exactly where the claim
+//! does: on each man's box, keyed to his own most distant known ancestor.
 //!
 //! **Time is absolute, not cumulative.** A band's top and bottom are dates on one linear axis, so
 //! its height *is* its duration; nothing accumulates and nothing drifts.
@@ -51,17 +57,29 @@ const MIN_TIP_W: f64 = 26.0;
 const TIP_GAP: f64 = 10.0;
 const GUTTER_W: f64 = 54.0;
 const MARGIN: f64 = 8.0;
-/// Gap between stacked segments, per the mark spec — segments are separated by surface, not by a
-/// stroke.
-const SEG_GAP: f64 = 2.0;
+/// One line of SNP text inside a block.
+const SNP_LINE_H: f64 = 11.0;
+/// Column width for the SNP list. Names run `A9185` to `14405732-C-T`; this holds the common ones
+/// and lets the fitter ellipsize the rest.
+const SNP_COL_W: f64 = 72.0;
+/// Padding inside a block before its SNP list starts.
+const SNP_PAD: f64 = 4.0;
+/// Baseline of the branch-name line inside a block, matching the template's `dy`. The SNP list
+/// starts a full line below it — anchoring it to `SNP_PAD` instead put the first SNP 4px from the
+/// name's baseline, so every block opened with its name and first SNP overprinted.
+const NAME_BASELINE: f64 = 11.0;
 
 /// Categorical slots available before folding into "Other". The palette is fixed-order and never
 /// cycled; a ninth locality is not given a generated hue.
 pub const MAX_SERIES: usize = 8;
 
-/// One locality's share of a band. `slot` indexes the fixed categorical palette (1..=[`MAX_SERIES`]);
-/// `0` is the reserved neutral used for both "Other" and "no locality recorded", which are
-/// absences rather than identities and must not wear a categorical hue.
+/// One locality's share of a clade. `slot` indexes the fixed categorical palette
+/// (1..=[`MAX_SERIES`]); `0` is the reserved neutral used for both "Other" and "no locality
+/// recorded", which are absences rather than identities and must not wear a categorical hue.
+///
+/// This is a tally, not a drawn mark: blocks are no longer tinted by composition, so a segment
+/// carries no geometry. It feeds the legend and the table, which are what explain the men's
+/// colours.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Segment {
     pub label: Option<String>,
@@ -71,8 +89,6 @@ pub struct Segment {
     /// `false` with no label = "Other" (localities past the palette). They share a colour but not
     /// a meaning, so the legend and tooltips must not call both the same thing.
     pub unknown: bool,
-    pub x: f64,
-    pub w: f64,
 }
 
 /// One laid-out branch.
@@ -92,7 +108,13 @@ pub struct Band {
     pub with_origin: usize,
     /// Placed samples at or below it that do not — always drawn, never omitted.
     pub without_origin: usize,
-    pub segments: Vec<Segment>,
+    /// The branch's SNP names, placed inside the block. Flowed into columns, and cut to what the
+    /// block's height and width can hold — the height means elapsed time, so it is not stretched
+    /// to fit a long list.
+    pub snps: Vec<SnpCell>,
+    /// Total equivalent SNPs on the branch, and how many the block had room for. When they differ
+    /// the block says so rather than quietly showing a subset.
+    pub snp_total: usize,
     /// True when the band is too short to letter — the view puts its label in the tooltip only.
     pub cramped: bool,
     /// `name` fitted to the band's width. The full name is always in the band's `<title>`.
@@ -101,6 +123,14 @@ pub struct Band {
     /// this band's composition; their sub-branching is not drawn. The view marks these so a
     /// reader can tell "this branch is simple" from "you are not being shown its shape".
     pub has_more: bool,
+}
+
+/// One SNP name placed inside a block.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SnpCell {
+    pub name: String,
+    pub x: f64,
+    pub y: f64,
 }
 
 /// One man, as a leaf below the branch he is placed on.
@@ -166,6 +196,9 @@ pub struct Node {
     /// A de-novo auto-named node, which must not surface publicly. It stays in the input so the
     /// ancestor walk is unbroken, and its men are attributed to the nearest named ancestor.
     pub hidden: bool,
+    /// The branch's phylogenetically equivalent SNPs. Order is not information — they cannot be
+    /// separated — so they are listed alphabetically for a stable render.
+    pub snps: Vec<String>,
 }
 
 /// Attribute every origin to the nearest **visible** branch at or above where its sample is
@@ -378,20 +411,18 @@ fn segments_for(
             label: Some(l.clone()),
             count: n,
             unknown: false,
-            x: 0.0,
-            w: 0.0,
         })
         .collect();
     let with_origin: usize = segs.iter().map(|s| s.count).sum::<usize>() + other;
     if other > 0 {
-        segs.push(Segment { label: None, count: other, slot: 0, unknown: false, x: 0.0, w: 0.0 });
+        segs.push(Segment { label: None, count: other, slot: 0, unknown: false });
     }
     // "No locality recorded" is DRAWN, always last, so absence sits at the same end of every bar
     // and bands can be compared by eye. Leaving it as bare background — which is what happened
     // until a real clade was rendered — made the chart disagree with its own legend, and made a
     // branch whose men are unrecorded look like a branch with fewer men.
     if unknown > 0 {
-        segs.push(Segment { label: None, count: unknown, slot: 0, unknown: true, x: 0.0, w: 0.0 });
+        segs.push(Segment { label: None, count: unknown, slot: 0, unknown: true });
     }
     (segs, with_origin, unknown)
 }
@@ -469,22 +500,13 @@ pub fn layout(all_nodes: &[Node], all_origins: &[SampleOrigin], level: Level, pl
             // reads as unmeasured rather than brief.
             _ => (fallback_top[i], UNDATED_H),
         };
-        let (mut segs, with_origin, without_origin) =
+        let (_, with_origin, without_origin) =
             segments_for(comp.get(&n.id).unwrap_or(&HashMap::new()), &slots);
 
-        // Widths proportional to the composition, with a surface gap between segments.
-        let inner = extent[i];
-        let total = with_origin + without_origin;
-        if total > 0 {
-            let gaps = SEG_GAP * segs.len().saturating_sub(1) as f64;
-            let usable = (inner - gaps).max(0.0);
-            let mut x = left[i];
-            for s in &mut segs {
-                s.w = usable * (s.count as f64 / total as f64);
-                s.x = x;
-                x += s.w + SEG_GAP;
-            }
-        }
+        // The block's SNPs, flowed into as many columns as its width allows and as many rows as
+        // its height allows. Height is elapsed time, so the block is never stretched to fit the
+        // list; what does not fit is reported instead (`snp_total`).
+        let snps = flow_snps(&n.snps, left[i], y, extent[i], h);
         bands.push(Band {
             id: n.id,
             label: fit(&n.name, extent[i], 10.0),
@@ -498,7 +520,8 @@ pub fn layout(all_nodes: &[Node], all_origins: &[SampleOrigin], level: Level, pl
             tmrca_ybp: n.tmrca_ybp,
             with_origin,
             without_origin,
-            segments: segs,
+            snps,
+            snp_total: n.snps.len(),
             cramped: h < 14.0,
             has_more: has_more.contains(&n.id),
         });
@@ -570,6 +593,43 @@ pub fn layout(all_nodes: &[Node], all_origins: &[SampleOrigin], level: Level, pl
         pruned,
         tips_suppressed,
     }
+}
+
+/// Place a block's equivalent SNPs inside it, filling columns top-to-bottom then left-to-right.
+///
+/// The list is cut to what the block can hold rather than the block being grown to hold the list:
+/// a block's height is elapsed time and must stay on the shared axis. The caller reports the total
+/// so a truncated list is never mistaken for a complete one.
+fn flow_snps(names: &[String], x: f64, y: f64, w: f64, h: f64) -> Vec<SnpCell> {
+    // The first line is the branch name; SNPs start a full line below its baseline.
+    let top = y + NAME_BASELINE + SNP_LINE_H;
+    let mut rows = (((y + h - SNP_PAD) - top) / SNP_LINE_H).floor().max(0.0) as usize;
+    let inner = w - 2.0 * SNP_PAD;
+    if rows == 0 || inner <= 0.0 {
+        return Vec::new();
+    }
+    let cols_avail = (inner / SNP_COL_W).floor().max(1.0) as usize;
+    // Give the "+N did not fit" marker its own line rather than letting it overprint the last
+    // SNP — the marker is the thing that keeps a cut list from reading as a complete one.
+    if names.len() > rows * cols_avail && rows > 1 {
+        rows -= 1;
+    }
+    // At least one column whenever the block has any width at all. A leaf block is exactly
+    // `LEAF_W` wide, which is narrower than the preferred column, so a plain floor gave it zero
+    // columns and dropped its SNPs entirely — the common case, not an edge case. The column then
+    // takes the width actually available and `fit` ellipsizes into it.
+    let cols = cols_avail;
+    let col_w = inner / cols as f64;
+    names
+        .iter()
+        .take(rows * cols)
+        .enumerate()
+        .map(|(k, name)| SnpCell {
+            name: fit(name, col_w, 9.0),
+            x: x + SNP_PAD + (k / rows) as f64 * col_w,
+            y: top + (k % rows) as f64 * SNP_LINE_H,
+        })
+        .collect()
 }
 
 /// Approximate width of one character of the SVG label font, as a fraction of its size. The
@@ -658,7 +718,15 @@ mod tests {
     use uuid::Uuid;
 
     fn node(id: i64, name: &str, parent: Option<i64>, formed: Option<i32>, tmrca: Option<i32>) -> Node {
-        Node { id, name: name.into(), parent_id: parent, formed_ybp: formed, tmrca_ybp: tmrca, hidden: false }
+        Node {
+            id,
+            name: name.into(),
+            parent_id: parent,
+            formed_ybp: formed,
+            tmrca_ybp: tmrca,
+            hidden: false,
+            snps: Vec::new(),
+        }
     }
 
     fn hidden(id: i64, name: &str, parent: Option<i64>, formed: Option<i32>, tmrca: Option<i32>) -> Node {
@@ -717,20 +785,16 @@ mod tests {
         let laid = layout(&tree(), &origins, Level::Admin, 2);
         let root = laid.bands.iter().find(|b| b.id == 1).unwrap();
         assert_eq!(root.with_origin, 1);
-        assert_eq!(root.without_origin, 1, "counted");
+        assert_eq!(root.without_origin, 1, "counted, not dropped");
 
-        // And DRAWN — left as bare background it made the chart disagree with its own legend, and
-        // a branch of unrecorded men looked like a branch with fewer men.
-        let absent = root.segments.iter().find(|s| s.unknown).expect("an unknown segment exists");
+        // And named in the legend, which is where the men's colours are explained. An absence is
+        // its own entry — a branch of unrecorded men must not read as a branch with fewer men.
+        let absent = laid.legend.iter().find(|e| e.unknown).expect("an unknown legend entry");
         assert_eq!(absent.count, 1);
         assert_eq!(absent.slot, 0, "an absence never wears a categorical hue");
-        assert!(absent.w > 0.0, "it occupies real width");
-        // Absence sits last in every bar, so bands can be compared by eye.
-        assert!(root.segments.last().unwrap().unknown);
-        // Segments now account for the whole band.
-        let covered: f64 = root.segments.iter().map(|s| s.w).sum::<f64>()
-            + SEG_GAP * (root.segments.len() - 1) as f64;
-        assert!((covered - root.w).abs() < 0.01, "the bar is fully accounted for");
+        assert!(laid.legend.last().unwrap().unknown, "absence sorts last");
+        // The man himself is drawn in the neutral slot.
+        assert!(laid.tips.iter().any(|t| t.slot == 0));
     }
 
     /// Slot 0 carries two different things. They share a colour but not a meaning, and the legend
@@ -864,9 +928,11 @@ mod tests {
         assert!(a.x + a.w <= bb.x + 0.01, "siblings are disjoint");
     }
 
-    /// Segment widths are proportional and stay inside the band, gaps included.
+    /// A branch has no locality of its own — only the men standing on it do. Blocks were once
+    /// tinted by the modal origin of their subtree, which asserted something the data does not
+    /// support; the colour now lives only on the men.
     #[test]
-    fn segments_are_proportional_and_stay_within_the_band() {
+    fn blocks_are_never_coloured_by_origin_only_the_men_are() {
         let origins = vec![
             origin(2, "Cork, Co. Cork, Ireland"),
             origin(2, "Cork, Co. Cork, Ireland"),
@@ -874,13 +940,64 @@ mod tests {
             bare(3),
         ];
         let laid = layout(&tree(), &origins, Level::Admin, 4);
-        let root = laid.bands.iter().find(|b| b.id == 1).unwrap();
-        let cork = root.segments.iter().find(|s| s.label.as_deref() == Some("Co. Cork")).unwrap();
-        let kerry = root.segments.iter().find(|s| s.label.as_deref() == Some("Co. Kerry")).unwrap();
-        assert!((cork.w / kerry.w - 2.0).abs() < 0.01, "2 Cork to 1 Kerry");
-        for s in &root.segments {
-            assert!(s.x >= root.x - 0.01 && s.x + s.w <= root.x + root.w + 0.01);
+        // Every man carries a slot; Cork and Kerry are different colours, the unrecorded man is 0.
+        let slots: Vec<usize> = laid.tips.iter().map(|t| t.slot).collect();
+        assert_eq!(slots.len(), 4);
+        assert!(slots.contains(&0), "the unrecorded man wears the neutral");
+        assert!(slots.iter().filter(|&&s| s == 1).count() == 2, "both Cork men share a slot");
+        // And the legend still explains those colours, with the counts.
+        let cork = laid.legend.iter().find(|e| e.label.as_deref() == Some("Co. Cork")).unwrap();
+        assert_eq!(cork.count, 2);
+        assert_eq!(laid.legend.iter().find(|e| e.label.as_deref() == Some("Co. Kerry")).unwrap().count, 1);
+    }
+
+    /// A block shows its equivalent SNPs — the mutations are unordered, so the list IS the block.
+    /// It is cut to what the block holds rather than the block being grown, because the height is
+    /// elapsed time and has to stay on the shared axis.
+    #[test]
+    fn a_block_lists_its_equivalent_snps_and_reports_what_did_not_fit() {
+        let mut nodes = tree();
+        nodes[1].snps = (0..80).map(|i| format!("FGC{i:05}")).collect();
+        nodes[2].snps = vec!["A9185".into(), "BY23498".into()];
+        let laid = layout(&nodes, &[origin(2, "Ireland"), origin(3, "Ireland")], Level::Country, 2);
+
+        let short = laid.bands.iter().find(|b| b.id == 3).unwrap();
+        assert_eq!(short.snp_total, 2);
+        assert_eq!(short.snps.len(), 2, "a short list fits whole");
+        assert!(short.snps.iter().any(|c| c.name == "A9185"));
+
+        let long = laid.bands.iter().find(|b| b.id == 2).unwrap();
+        assert_eq!(long.snp_total, 80);
+        assert!(long.snps.len() < 80, "80 SNPs cannot fit a 555-year block");
+        assert!(!long.snps.is_empty());
+        // Every placed name stays inside its block.
+        for c in &long.snps {
+            assert!(c.x >= long.x - 0.01 && c.x <= long.x + long.w + 0.01);
+            assert!(c.y >= long.y - 0.01 && c.y <= long.y + long.h + 0.01);
         }
+        // Columns fill top-to-bottom, then left-to-right.
+        if long.snps.len() > 1 {
+            assert!(long.snps[1].y > long.snps[0].y || long.snps[1].x > long.snps[0].x);
+        }
+        // The list clears the branch-name line. Anchored to the padding instead, every block
+        // opened with its name and its first SNP overprinted.
+        assert!(long.snps[0].y >= long.y + NAME_BASELINE + SNP_LINE_H - 0.01);
+        // And the "+N" marker has a line of its own at the foot of the block.
+        assert!(long.snps.iter().all(|c| c.y <= long.y + long.h - SNP_LINE_H));
+    }
+
+    /// A leaf block is exactly `LEAF_W` wide — narrower than one preferred column. Flooring the
+    /// column count gave it zero columns and silently dropped its SNPs, which is the common case
+    /// rather than an edge one.
+    #[test]
+    fn a_leaf_width_block_still_gets_one_column() {
+        let mut nodes = tree();
+        nodes[1].snps = vec!["A9185".into(), "BY23498".into(), "FT225347".into()];
+        let laid = layout(&nodes, &[origin(2, "Ireland")], Level::Country, 1);
+        let leaf = laid.bands.iter().find(|b| b.id == 2).unwrap();
+        assert_eq!(leaf.w, LEAF_W, "the narrowest a block gets");
+        assert!(!leaf.snps.is_empty(), "its SNPs are drawn, not dropped");
+        assert!(leaf.snps.iter().all(|c| c.x >= leaf.x && c.x <= leaf.x + leaf.w));
     }
 
     /// The reader is told what the chart could not account for.
@@ -989,19 +1106,18 @@ mod tests {
 
         let root_of = |l: &Laid| l.bands.iter().find(|b| b.id == 1).unwrap().clone();
         assert_eq!(root_of(&full).with_origin, root_of(&folded).with_origin, "3 men either way");
-        let seg = |l: &Laid, id: i64, name: &str| {
-            l.bands
-                .iter()
-                .find(|b| b.id == id)
-                .unwrap()
-                .segments
-                .iter()
-                .find(|s| s.label.as_deref() == Some(name))
-                .map(|s| s.count)
+        // The legend is the root's composition, so it is the thing folding must not change.
+        let count = |l: &Laid, name: &str| {
+            l.legend.iter().find(|e| e.label.as_deref() == Some(name)).map(|e| e.count)
         };
-        assert_eq!(seg(&full, 1, "Co. Cork"), Some(2));
-        assert_eq!(seg(&folded, 1, "Co. Cork"), Some(2), "unchanged by folding");
-        assert_eq!(seg(&folded, 1, "Co. Kerry"), Some(1));
+        assert_eq!(count(&full, "Co. Cork"), Some(2));
+        assert_eq!(count(&folded, "Co. Cork"), Some(2), "unchanged by folding");
+        assert_eq!(count(&folded, "Co. Kerry"), Some(1));
+        // Every man is still accounted for, wherever his branch got folded to. Folding puts all
+        // three onto one leaf block, where they no longer each fit a legible box — so they move
+        // from `tips` to `tips_suppressed` rather than disappearing.
+        assert_eq!(full.tips.len() + full.tips_suppressed, 3);
+        assert_eq!(folded.tips.len() + folded.tips_suppressed, 3);
         // R-Deep is gone from the drawing, and its men are now R-Mid's.
         assert!(folded.bands.iter().all(|b| b.id != 3));
         assert_eq!(folded.bands.iter().find(|b| b.id == 2).unwrap().with_origin, 3);

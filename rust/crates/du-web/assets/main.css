@@ -257,3 +257,7 @@ code { color: #495057; background-color: #f8f9fa; }
 .origins-swatch.s7 { background: var(--o-7); }
 .origins-swatch.s8 { background: var(--o-8); }
 .origins-more { fill: var(--bs-secondary-color, #6c757d); font-weight: 700; }
+/* Block contents: the branch's equivalent SNPs. Recessive against the block, and never coloured
+   by anything — a mutation has no locality. */
+.origins-snp { fill: var(--bs-body-color, #212529); opacity: .75; font-family: var(--bs-font-monospace, monospace); }
+.origins-snp-more { fill: var(--bs-secondary-color, #6c757d); font-style: italic; }

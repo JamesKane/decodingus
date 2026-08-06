@@ -134,6 +134,7 @@ tree.origins.unresolved=sin origen publicado
 tree.origins.pruned=ramas ocultas (sin origen publicado debajo)
 tree.origins.tipshidden=hombres mostrados solo en la composición (demasiado estrecho para etiquetar)
 tree.origins.more=tiene más ramas debajo — pulse para abrir
+tree.origins.snps=SNP equivalentes
 tree.origins.with=con origen
 tree.origins.without=sin origen
 tree.origins.unknown=Sin localidad registrada
