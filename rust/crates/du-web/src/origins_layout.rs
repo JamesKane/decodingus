@@ -87,12 +87,16 @@ pub struct Band {
     pub segments: Vec<Segment>,
     /// True when the band is too short to letter — the view puts its label in the tooltip only.
     pub cramped: bool,
+    /// `name` fitted to the band's width. The full name is always in the band's `<title>`.
+    pub label: String,
 }
 
 /// One man, as a leaf below the branch he is placed on.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Tip {
+    /// Fitted to the box. The unabbreviated form is [`Self::full`], shown on hover.
     pub label: String,
+    pub full: String,
     pub slot: usize,
     pub x: f64,
     pub y: f64,
@@ -424,6 +428,7 @@ pub fn layout(all_nodes: &[Node], all_origins: &[SampleOrigin], level: Level, pl
         }
         bands.push(Band {
             id: n.id,
+            label: fit(&n.name, extent[i], 10.0),
             name: n.name.clone(),
             x: left[i],
             y,
@@ -470,7 +475,8 @@ pub fn layout(all_nodes: &[Node], all_origins: &[SampleOrigin], level: Level, pl
             };
             tips.push(Tip {
                 slot: locality.and_then(|l| slots.get(l).copied()).unwrap_or(0),
-                label,
+                full: label.clone(),
+                label: fit(&label, w, 9.0),
                 x: bx + k as f64 * (w + H_GAP),
                 y: tip_y,
                 w,
@@ -494,6 +500,30 @@ pub fn layout(all_nodes: &[Node], all_origins: &[SampleOrigin], level: Level, pl
         unresolved: placed_total.saturating_sub(resolved),
         pruned,
     }
+}
+
+/// Approximate width of one character of the SVG label font, as a fraction of its size. The
+/// canvas has no text metrics, so labels are fitted arithmetically; erring narrow would clip text
+/// that fits, erring wide lets it spill.
+const CHAR_W_RATIO: f64 = 0.55;
+
+/// Truncate a label to what actually fits in `width` at `font_px`, with an ellipsis.
+///
+/// Necessary because the boxes are sized by the phylogeny, not by the text: a tip is at most
+/// [`LEAF_W`] wide and holds ~13 characters, while `Sullivan · Co. Limerick` is 23. Left
+/// unfitted, labels ran straight through their neighbours and the tip row became unreadable —
+/// visible immediately on a real clade, invisible to a layout test that only checks rectangles.
+fn fit(label: &str, width: f64, font_px: f64) -> String {
+    let per_char = font_px * CHAR_W_RATIO;
+    let budget = ((width - 4.0) / per_char).floor().max(0.0) as usize;
+    let chars: Vec<char> = label.chars().collect();
+    if chars.len() <= budget {
+        return label.to_string();
+    }
+    if budget <= 1 {
+        return String::new();
+    }
+    chars[..budget - 1].iter().collect::<String>().trim_end().to_string() + "…"
 }
 
 /// Children before parents, iteratively — the tree is user-shaped and may be deep enough to blow
@@ -779,6 +809,26 @@ mod tests {
         let laid = layout(&tree(), &origins, Level::Admin, 2);
         assert!(laid.legend.iter().any(|e| e.label.as_deref() == Some("Co. Cork")));
         assert!(laid.legend.iter().any(|e| e.label.is_none() && e.slot == 0));
+    }
+
+    /// Boxes are sized by the phylogeny, not by the text, so labels must be cut to fit. Seen on a
+    /// real clade: `Grant · United States` ran straight through its neighbours and the tip row
+    /// was unreadable — which the rectangle-only layout assertions could never have caught.
+    #[test]
+    fn labels_are_fitted_to_their_boxes() {
+        assert_eq!(fit("Kane", 74.0, 9.0), "Kane", "what fits is left alone");
+        let cut = fit("Sullivan · Co. Limerick", 74.0, 9.0);
+        assert!(cut.ends_with('…') && cut.chars().count() < 23);
+        assert!(fit("anything", 4.0, 9.0).is_empty(), "no room at all yields no text");
+
+        let laid = layout(&tree(), &[origin(2, "Kenmare, Co. Kerry, Ireland")], Level::Admin, 1);
+        let tip = laid.tips.first().expect("one man");
+        assert_eq!(tip.full, "Kane · Co. Kerry", "the full label survives for the tooltip");
+        assert!(tip.label.chars().count() <= tip.full.chars().count());
+        // Every band's drawn label fits the band it sits in.
+        for b in &laid.bands {
+            assert!((b.label.chars().count() as f64) * 10.0 * CHAR_W_RATIO <= b.w, "{}", b.name);
+        }
     }
 
     #[test]

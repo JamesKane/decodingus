@@ -111,7 +111,7 @@
       {# Direct label: the relief the light-mode contrast warning obliges. Text wears text tokens,
          never the series colour. #}
       {% if !b.cramped %}
-      <text x="{{ b.x }}" y="{{ b.y }}" dx="4" dy="11" font-size="10" class="origins-band-label">{{ b.name }}</text>
+      <text x="{{ b.x }}" y="{{ b.y }}" dx="4" dy="11" font-size="10" class="origins-band-label">{{ b.label }}</text>
       {% endif %}
     </g>
     {% endfor %}
@@ -120,7 +120,7 @@
     {% for tp in l.tips %}
     <g class="origins-tip">
       <rect x="{{ tp.x }}" y="{{ tp.y }}" width="{{ tp.w }}" height="{{ tp.h }}"
-            class="origins-seg s{{ tp.slot }}" rx="2"></rect>
+            class="origins-seg s{{ tp.slot }}" rx="2"><title>{{ tp.full }}</title></rect>
       <text x="{{ tp.x }}" y="{{ tp.y }}" dx="3" dy="11" font-size="9" class="origins-tip-label">{{ tp.label }}</text>
     </g>
     {% endfor %}
