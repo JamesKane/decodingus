@@ -98,13 +98,17 @@
       </pattern>
     </defs>
 
-    {# Time ruler: calendar years, one linear scale for the whole canvas. #}
+    {# Mutation ruler, walked down the deepest lineage. Mutations accrue at a roughly steady rate
+       — measured on this tree, branch length tracks SNP count at r=0.975, ~69 years each — so the
+       axis reads as elapsed time without depending on a per-branch age estimate. #}
     {% for tk in l.ticks %}
     <g class="origins-tick">
       <line x1="0" y1="{{ tk.y }}" x2="{{ l.width }}" y2="{{ tk.y }}"></line>
-      <text x="2" y="{{ tk.y }}" dy="-2" font-size="9">{{ tk.label }}</text>
+      <text x="2" y="{{ tk.y }}" dy="-2" font-size="9">{{ tk.snps }}</text>
     </g>
     {% endfor %}
+    <text x="2" y="{{ l.height }}" dy="-2" font-size="9" class="origins-tick-unit"
+      >{{ t.get("tree.origins.axis") }}</text>
 
     {% for b in l.bands %}
     <g class="origins-band{% if !b.dated %} is-undated{% endif %}">
@@ -128,10 +132,6 @@
       {% for sn in b.snps %}
       <text x="{{ sn.x }}" y="{{ sn.y }}" font-size="9" class="origins-snp">{{ sn.name }}</text>
       {% endfor %}
-      {% if b.snp_total > b.snps.len() %}
-      <text x="{{ b.x }}" y="{{ b.y }}" dx="4" dy="{{ b.h }}" font-size="9" class="origins-snp-more"
-            >+{{ b.snp_total - b.snps.len() }}</text>
-      {% endif %}
       {% if b.has_more %}
       <text x="{{ b.x }}" y="{{ b.y }}" dx="{{ b.w }}" dy="{{ b.h }}" text-anchor="end"
             font-size="9" class="origins-more">+</text>

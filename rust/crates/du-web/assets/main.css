@@ -261,3 +261,4 @@ code { color: #495057; background-color: #f8f9fa; }
    by anything — a mutation has no locality. */
 .origins-snp { fill: var(--bs-body-color, #212529); opacity: .75; font-family: var(--bs-font-monospace, monospace); }
 .origins-snp-more { fill: var(--bs-secondary-color, #6c757d); font-style: italic; }
+.origins-tick-unit { fill: var(--bs-secondary-color, #6c757d); font-style: italic; }

@@ -13,22 +13,20 @@
 //! asserted something the data does not support. The colour now lives exactly where the claim
 //! does: on each man's box, keyed to his own most distant known ancestor.
 //!
-//! **Time is absolute, not cumulative.** A band's top and bottom are dates on one linear axis, so
-//! its height *is* its duration; nothing accumulates and nothing drifts.
+//! **A block's height is its SNP count, and nothing is elided.** Every equivalent SNP gets a line,
+//! so the box's height *is* how long that branch ran unbroken, and vertical position is cumulative:
+//! how far down a block sits is the mutations accrued along the path to it.
 //!
-//! A branch spans **its parent's TMRCA → its own TMRCA**: from the split that brought it into
-//! existence as a separate line, to the point it began diversifying itself. That specific pairing
-//! is deliberate. The obvious choice — a node's own `formed_ybp` → its own `tmrca_ybp` — draws
-//! children *above* their parents on real data: `formed_ybp` and the parent's `tmrca_ybp` are
-//! independent point estimates under no monotonicity constraint, and on the live Y tree they are
-//! equal on only 898 of 10,252 edges while **4,243 (41%) have the child forming earlier than its
-//! parent's split**. Parent-TMRCA → own-TMRCA has zero inversions across the same 10,252 edges, so
-//! containment is guaranteed by construction rather than by hope. `formed_ybp` is still reported,
-//! on the band itself, where a reader can see the estimate without the geometry depending on it.
+//! This is not a stylistic choice — sizing blocks by the age model was tried and does not survive
+//! contact with the data. `formed_ybp == tmrca_ybp` on **41% of terminal branches and 26.5% of
+//! internal ones**, collapsing those branches to a point; on R-DF85 at depth 4 that left **30 of
+//! 75 blocks unable to show a single one of their SNPs**, `R-BY18328` getting 3px of span for 9
+//! mutations. SNP count never degenerates. And it is still a time axis: measured on this tree,
+//! branch length tracks SNP count at **r = 0.975, about 69 years per mutation**.
 //!
-//! Undated nodes (16% of sample-bearing nodes) are **not** silently normalized: they hang from
-//! their parent at a minimum height and are hatched, so an unmeasured branch never reads as a
-//! short one.
+//! Ages are not discarded — they gate the view to the genealogical era and label each block — they
+//! just do not drive geometry, because a per-branch estimate is exactly the thing that is missing
+//! or degenerate when a block most needs a height.
 //!
 //! Pure: no DB, no `Ui`, no template. Every function here is testable without a canvas.
 
@@ -39,15 +37,8 @@ use std::collections::HashMap;
 /// Canvas geometry at scale 1.
 const LEAF_W: f64 = 74.0;
 const H_GAP: f64 = 4.0;
-/// Pixels per year of elapsed time. The genealogical era is ~1,500 years, so this puts a full
-/// gated subtree in roughly 900px.
-const PX_PER_YEAR: f64 = 0.6;
-/// A band never collapses below this, however brief the branch — a 20-year branch must still be
-/// clickable and still show its composition.
-const MIN_BAND_H: f64 = 18.0;
-/// Height given to a band with no age at all. Deliberately equal to the minimum so it cannot be
-/// mistaken for a *measured* short branch; the hatch is what distinguishes it.
-const UNDATED_H: f64 = MIN_BAND_H;
+/// Ruler graduation interval, in mutations.
+const TICK_SNPS: usize = 5;
 /// Sample tips hang in a band below the youngest branch.
 const TIP_H: f64 = 16.0;
 /// Narrowest a man's box may be and still carry a readable label. Below it the box is dropped and
@@ -59,15 +50,10 @@ const GUTTER_W: f64 = 54.0;
 const MARGIN: f64 = 8.0;
 /// One line of SNP text inside a block.
 const SNP_LINE_H: f64 = 11.0;
-/// Column width for the SNP list. Names run `A9185` to `14405732-C-T`; this holds the common ones
-/// and lets the fitter ellipsize the rest.
-const SNP_COL_W: f64 = 72.0;
 /// Padding inside a block before its SNP list starts.
 const SNP_PAD: f64 = 4.0;
-/// Baseline of the branch-name line inside a block, matching the template's `dy`. The SNP list
-/// starts a full line below it — anchoring it to `SNP_PAD` instead put the first SNP 4px from the
-/// name's baseline, so every block opened with its name and first SNP overprinted.
-const NAME_BASELINE: f64 = 11.0;
+/// The branch-name line at the top of every block.
+const NAME_LINE_H: f64 = 12.0;
 
 /// Categorical slots available before folding into "Other". The palette is fixed-order and never
 /// cycled; a ninth locality is not given a generated hue.
@@ -146,13 +132,11 @@ pub struct Tip {
     pub h: f64,
 }
 
-/// A ruler graduation on the absolute time axis.
+/// A ruler graduation: mutations accumulated along the lineage to this point.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Tick {
     pub y: f64,
-    pub ybp: i32,
-    /// Calendar-era label (`"1500 CE"`), because the genealogical era reads in calendar years.
-    pub label: String,
+    pub snps: usize,
 }
 
 /// A legend row. Present whenever the chart carries two or more series — identity is never
@@ -467,46 +451,25 @@ pub fn layout(all_nodes: &[Node], all_origins: &[SampleOrigin], level: Level, pl
         extent[i] = extent[i].max(kids + gaps);
     }
 
-    // The time axis. The root's formation is the top of the canvas; the present is the bottom, so
-    // tips land on "now" and every band sits at its true date.
-    let top_ybp = root.formed_ybp.or(root.tmrca_ybp).unwrap_or(0);
-    let y_of = |ybp: i32| MARGIN + (top_ybp - ybp).max(0) as f64 * PX_PER_YEAR;
-    // A branch begins at its parent's TMRCA — the split that created it. See the module header for
-    // why this is not the node's own `formed_ybp`.
-    let tmrca_of: HashMap<i64, i32> = nodes.iter().filter_map(|n| Some((n.id, n.tmrca_ybp?))).collect();
-    let split_of: HashMap<i64, i32> = nodes
-        .iter()
-        .filter_map(|n| Some((n.id, *tmrca_of.get(&n.parent_id?)?)))
-        .collect();
-
-    // Pass 2 (pre-order): x from the parent's band, y from the node's own dates.
+    // Pass 2 (pre-order): x from the parent's band, y stacked directly beneath it.
     let mut bands = Vec::with_capacity(nodes.len());
     let mut tips = Vec::new();
     let mut left = vec![0.0f64; nodes.len()];
-    let mut fallback_top = vec![0.0f64; nodes.len()];
+    let mut top = vec![0.0f64; nodes.len()];
     left[root_i] = GUTTER_W;
-    fallback_top[root_i] = MARGIN;
+    top[root_i] = MARGIN;
     let mut stack = vec![root_i];
     let mut deepest = 0.0f64;
     while let Some(i) = stack.pop() {
         let n = &nodes[i];
-        // Top: the parent's TMRCA for a child, the node's own formation for the root. Bottom: this
-        // node's TMRCA. The pairing is monotone, so `h` can never come out negative.
-        let top_ybp_of = split_of.get(&n.id).copied().or(n.formed_ybp);
+        let (y, h) = (top[i], block_height(n.snps.len()));
         let dated = n.tmrca_ybp.is_some();
-        let (y, h) = match (top_ybp_of, n.tmrca_ybp) {
-            (Some(from), Some(to)) => (y_of(from), (y_of(to) - y_of(from)).max(MIN_BAND_H)),
-            // Undated: hang from wherever the parent ended, at the minimum height. Hatched, so it
-            // reads as unmeasured rather than brief.
-            _ => (fallback_top[i], UNDATED_H),
-        };
         let (_, with_origin, without_origin) =
             segments_for(comp.get(&n.id).unwrap_or(&HashMap::new()), &slots);
 
-        // The block's SNPs, flowed into as many columns as its width allows and as many rows as
-        // its height allows. Height is elapsed time, so the block is never stretched to fit the
-        // list; what does not fit is reported instead (`snp_total`).
-        let snps = flow_snps(&n.snps, left[i], y, extent[i], h);
+        // One SNP per line, nothing elided — the block is sized to its list, so the list always
+        // fits and `snp_total` can never exceed what is drawn.
+        let snps = flow_snps(&n.snps, left[i], y, extent[i]);
         bands.push(Band {
             id: n.id,
             label: fit(&n.name, extent[i], 10.0),
@@ -530,7 +493,9 @@ pub fn layout(all_nodes: &[Node], all_origins: &[SampleOrigin], level: Level, pl
         let mut cx = left[i];
         for &c in &children[i] {
             left[c] = cx;
-            fallback_top[c] = y + h;
+            // Children sit flush beneath their parent: containment carries descent, and vertical
+            // position is cumulative mutations along the lineage.
+            top[c] = y + h;
             cx += extent[c] + H_GAP;
             stack.push(c);
         }
@@ -577,7 +542,7 @@ pub fn layout(all_nodes: &[Node], all_origins: &[SampleOrigin], level: Level, pl
         }
     }
 
-    let ticks = ruler(top_ybp, deepest, &y_of);
+    let ticks = ruler(nodes, &bands);
     let legend = legend_for(&root_comp, &slots);
     let width = GUTTER_W + extent[root_i] + MARGIN * 2.0;
     let height = tip_y + TIP_H + MARGIN;
@@ -595,39 +560,32 @@ pub fn layout(all_nodes: &[Node], all_origins: &[SampleOrigin], level: Level, pl
     }
 }
 
-/// Place a block's equivalent SNPs inside it, filling columns top-to-bottom then left-to-right.
+/// Height a block needs: its name line plus one line per equivalent SNP.
 ///
-/// The list is cut to what the block can hold rather than the block being grown to hold the list:
-/// a block's height is elapsed time and must stay on the shared axis. The caller reports the total
-/// so a truncated list is never mistaken for a complete one.
-fn flow_snps(names: &[String], x: f64, y: f64, w: f64, h: f64) -> Vec<SnpCell> {
-    // The first line is the branch name; SNPs start a full line below its baseline.
-    let top = y + NAME_BASELINE + SNP_LINE_H;
-    let mut rows = (((y + h - SNP_PAD) - top) / SNP_LINE_H).floor().max(0.0) as usize;
-    let inner = w - 2.0 * SNP_PAD;
-    if rows == 0 || inner <= 0.0 {
-        return Vec::new();
-    }
-    let cols_avail = (inner / SNP_COL_W).floor().max(1.0) as usize;
-    // Give the "+N did not fit" marker its own line rather than letting it overprint the last
-    // SNP — the marker is the thing that keeps a cut list from reading as a complete one.
-    if names.len() > rows * cols_avail && rows > 1 {
-        rows -= 1;
-    }
-    // At least one column whenever the block has any width at all. A leaf block is exactly
-    // `LEAF_W` wide, which is narrower than the preferred column, so a plain floor gave it zero
-    // columns and dropped its SNPs entirely — the common case, not an edge case. The column then
-    // takes the width actually available and `fit` ellipsizes into it.
-    let cols = cols_avail;
-    let col_w = inner / cols as f64;
+/// **The block is sized to its SNPs, not to a clock.** An earlier cut sized it by elapsed years
+/// (parent TMRCA → own TMRCA) and that fails on real data: `formed_ybp == tmrca_ybp` on **41% of
+/// terminal branches and 26.5% of internal ones**, collapsing the branch to a point. On R-DF85 at
+/// depth 4 that left **30 of 75 blocks unable to show a single one of their SNPs** — `R-BY18328`
+/// got 3px of span for 9 mutations. SNP count never degenerates, and because mutations accrue at a
+/// roughly steady rate it still reads as elapsed time: measured on this very tree, branch length
+/// correlates with SNP count at **r = 0.975**, about **69 years per SNP**.
+pub fn block_height(snps: usize) -> f64 {
+    2.0 * SNP_PAD + NAME_LINE_H + snps as f64 * SNP_LINE_H
+}
+
+/// Place a block's equivalent SNPs: one per line, in order, nothing elided.
+///
+/// Truncating would shorten the box, and a shortened box misreports how long the branch ran
+/// unbroken — the same reason the block is sized to the list rather than the list cut to the box.
+fn flow_snps(names: &[String], x: f64, y: f64, w: f64) -> Vec<SnpCell> {
+    let top = y + SNP_PAD + NAME_LINE_H;
     names
         .iter()
-        .take(rows * cols)
         .enumerate()
         .map(|(k, name)| SnpCell {
-            name: fit(name, col_w, 9.0),
-            x: x + SNP_PAD + (k / rows) as f64 * col_w,
-            y: top + (k % rows) as f64 * SNP_LINE_H,
+            name: fit(name, w - 2.0 * SNP_PAD, 9.0),
+            x: x + SNP_PAD,
+            y: top + (k as f64 + 0.8) * SNP_LINE_H,
         })
         .collect()
 }
@@ -669,36 +627,55 @@ fn post_order(children: &[Vec<usize>], root: usize) -> Vec<usize> {
     out
 }
 
-/// Graduations at a round interval chosen so the axis carries roughly 6–10 of them.
-fn ruler(top_ybp: i32, bottom_px: f64, y_of: &dyn Fn(i32) -> f64) -> Vec<Tick> {
-    if top_ybp <= 0 {
-        return Vec::new();
-    }
-    let step = [50, 100, 200, 250, 500, 1000, 2000, 5000]
-        .into_iter()
-        .find(|s| top_ybp / s <= 10)
-        .unwrap_or(10_000);
-    let mut ticks = Vec::new();
-    let mut ybp = (top_ybp / step) * step;
-    while ybp >= 0 {
-        let y = y_of(ybp);
-        if y <= bottom_px + 1.0 {
-            ticks.push(Tick { y, ybp, label: era_label(ybp) });
+/// Graduations down the **deepest lineage** — the one that accrued the most mutations, and so the
+/// one that reaches furthest down the canvas.
+///
+/// Ticks are computed by walking that lineage rather than spaced evenly, because evenly spaced
+/// would be wrong: each block spends one line on its name, so a fixed pixels-per-SNP scale drifts
+/// by a line per generation. Placing each graduation inside the block that contains it keeps the
+/// axis honest — the ticks come out nearly regular, and where they do not, the irregularity is
+/// real.
+fn ruler(nodes: &[Node], bands: &[Band]) -> Vec<Tick> {
+    let index: HashMap<i64, usize> = nodes.iter().enumerate().map(|(i, n)| (n.id, i)).collect();
+    let band_of: HashMap<i64, &Band> = bands.iter().map(|b| (b.id, b)).collect();
+
+    // Cumulative mutations to the bottom of each block, so "deepest" means most mutations rather
+    // than most generations — one long branch outranks several short ones.
+    let mut cum = vec![0usize; nodes.len()];
+    let mut best = (0usize, 0usize);
+    for (i, n) in nodes.iter().enumerate() {
+        let above = n.parent_id.and_then(|p| index.get(&p)).map(|&p| cum[p]).unwrap_or(0);
+        cum[i] = above + n.snps.len();
+        if cum[i] > best.0 {
+            best = (cum[i], i);
         }
-        ybp -= step;
+    }
+    // Walk back up from the deepest block, then read the chain root-first.
+    let mut chain = Vec::new();
+    let mut at = Some(best.1);
+    while let Some(i) = at {
+        chain.push(i);
+        at = nodes[i].parent_id.and_then(|p| index.get(&p)).copied();
+    }
+    chain.reverse();
+
+    let mut ticks = Vec::new();
+    let mut seen = 0usize;
+    for i in chain {
+        let n = &nodes[i];
+        let Some(b) = band_of.get(&n.id) else { continue };
+        let body_top = b.y + SNP_PAD + NAME_LINE_H;
+        let mut k = (seen / TICK_SNPS + 1) * TICK_SNPS;
+        while k <= seen + n.snps.len() {
+            ticks.push(Tick {
+                y: body_top + (k - seen) as f64 * SNP_LINE_H,
+                snps: k,
+            });
+            k += TICK_SNPS;
+        }
+        seen += n.snps.len();
     }
     ticks
-}
-
-/// `ybp` → a calendar-era label. The genealogical era is read in calendar years, not in years
-/// before present, and 1950 is the radiocarbon reference the rest of the tree uses.
-fn era_label(ybp: i32) -> String {
-    let year = 1950 - ybp;
-    if year > 0 {
-        format!("{year} CE")
-    } else {
-        format!("{} BCE", 1 - year)
-    }
 }
 
 fn legend_for(root_comp: &HashMap<Option<String>, usize>, slots: &HashMap<String, usize>) -> Vec<LegendEntry> {
@@ -847,17 +824,42 @@ mod tests {
 
     /// Height is duration on one absolute axis: a branch that ran twice as long is twice as tall,
     /// wherever it sits in the tree.
+    /// A block's height IS its SNP count — one line per equivalent mutation, nothing elided — and
+    /// vertical position is cumulative, so how far down a block sits is the mutations accrued
+    /// along the path to it.
     #[test]
-    fn band_height_is_elapsed_time_on_an_absolute_axis() {
-        let laid = layout(&tree(), &[origin(2, "Ireland"), origin(3, "Scotland")], Level::Country, 2);
+    fn block_height_is_its_snp_count_and_position_is_cumulative() {
+        let mut nodes = tree();
+        nodes[0].snps = (0..3).map(|i| format!("S{i}")).collect();
+        nodes[1].snps = (0..9).map(|i| format!("A{i}")).collect();
+        nodes[2].snps = (0..2).map(|i| format!("B{i}")).collect();
+        let laid = layout(&nodes, &[origin(2, "Ireland"), origin(3, "Scotland")], Level::Country, 2);
         let b = |id: i64| laid.bands.iter().find(|b| b.id == id).unwrap().clone();
-        // Both children begin at the parent's split (1355) and run to their own TMRCA.
-        assert!((b(2).h - 555.0 * PX_PER_YEAR).abs() < 0.01, "1355→800");
-        assert!((b(3).h - 755.0 * PX_PER_YEAR).abs() < 0.01, "1355→600");
-        // Siblings share that split, so their tops align exactly.
+
+        assert_eq!(b(2).h, block_height(9));
+        assert_eq!(b(3).h, block_height(2));
+        assert!(b(2).h > b(3).h, "nine mutations is a longer branch than two");
+        // Siblings share their parent's bottom, so they start level.
         assert!((b(2).y - b(3).y).abs() < 0.01);
-        // And each child starts where the parent's diversification did.
+        // And each child hangs flush beneath the parent — containment, no connector.
         assert!((b(2).y - (b(1).y + b(1).h)).abs() < 0.01);
+    }
+
+    /// The bug that prompted the change. `formed_ybp == tmrca_ybp` on 41% of terminal branches, so
+    /// an age-sized block collapsed to nothing while still carrying a full SNP list — 30 of 75
+    /// blocks on R-DF85 could not show a single mutation. Height must not depend on that estimate.
+    #[test]
+    fn a_branch_whose_age_estimate_collapsed_still_shows_every_snp() {
+        // R-BY18328's real numbers: formed == tmrca, and its parent is 3 years older.
+        let nodes = vec![
+            node(1, "R-FT191128", None, Some(906), Some(906)),
+            Node { snps: (0..9).map(|i| format!("BY{i}")).collect(), ..node(2, "R-BY18328", Some(1), Some(903), Some(903)) },
+        ];
+        let laid = layout(&nodes, &[origin(2, "Ireland")], Level::Country, 1);
+        let b = laid.bands.iter().find(|b| b.id == 2).unwrap();
+        assert_eq!(b.snps.len(), 9, "all nine drawn");
+        assert_eq!(b.snp_total, 9);
+        assert_eq!(b.h, block_height(9));
     }
 
     /// The bug that rendering the real tree exposed. `formed_ybp` and the parent's `tmrca_ybp` are
@@ -903,16 +905,18 @@ mod tests {
         }
     }
 
-    /// An unmeasured branch must not read as a short one.
+    /// A branch with no age estimate is still a branch with mutations. Geometry no longer depends
+    /// on the age at all, so it draws at full height like any other; `dated` survives only to
+    /// label it.
     #[test]
-    fn an_undated_branch_is_hatched_at_the_minimum_height() {
+    fn an_undated_branch_still_gets_its_full_height() {
         let mut nodes = tree();
-        nodes.push(node(4, "R-C", Some(2), None, None));
+        nodes.push(Node { snps: (0..16).map(|i| format!("BY{i}")).collect(), ..node(4, "R-C", Some(2), None, None) });
         let laid = layout(&nodes, &[origin(4, "Ireland")], Level::Country, 1);
         let c = laid.bands.iter().find(|b| b.id == 4).unwrap();
-        assert!(!c.dated);
-        assert_eq!(c.h, UNDATED_H);
-        // It hangs off its parent rather than floating at the top of the canvas.
+        assert!(!c.dated, "still flagged as unmeasured");
+        assert_eq!(c.h, block_height(16));
+        assert_eq!(c.snps.len(), 16, "16 SNPs in an 18px sliver was the bug");
         let parent = laid.bands.iter().find(|b| b.id == 2).unwrap();
         assert!((c.y - (parent.y + parent.h)).abs() < 0.01);
     }
@@ -968,29 +972,23 @@ mod tests {
 
         let long = laid.bands.iter().find(|b| b.id == 2).unwrap();
         assert_eq!(long.snp_total, 80);
-        assert!(long.snps.len() < 80, "80 SNPs cannot fit a 555-year block");
-        assert!(!long.snps.is_empty());
+        assert_eq!(long.snps.len(), 80, "nothing is elided — the block grows to its list");
         // Every placed name stays inside its block.
         for c in &long.snps {
             assert!(c.x >= long.x - 0.01 && c.x <= long.x + long.w + 0.01);
             assert!(c.y >= long.y - 0.01 && c.y <= long.y + long.h + 0.01);
         }
-        // Columns fill top-to-bottom, then left-to-right.
-        if long.snps.len() > 1 {
-            assert!(long.snps[1].y > long.snps[0].y || long.snps[1].x > long.snps[0].x);
-        }
+        // One per line, in order, and every one inside its block.
+        assert!(long.snps.windows(2).all(|w| w[1].y > w[0].y));
+        assert!(long.snps.iter().all(|c| c.y > long.y && c.y <= long.y + long.h));
         // The list clears the branch-name line. Anchored to the padding instead, every block
         // opened with its name and its first SNP overprinted.
-        assert!(long.snps[0].y >= long.y + NAME_BASELINE + SNP_LINE_H - 0.01);
-        // And the "+N" marker has a line of its own at the foot of the block.
-        assert!(long.snps.iter().all(|c| c.y <= long.y + long.h - SNP_LINE_H));
+        assert!(long.snps[0].y >= long.y + SNP_PAD + NAME_LINE_H);
     }
 
-    /// A leaf block is exactly `LEAF_W` wide — narrower than one preferred column. Flooring the
-    /// column count gave it zero columns and silently dropped its SNPs, which is the common case
-    /// rather than an edge one.
+    /// A leaf block is exactly `LEAF_W` wide, so its SNP names must be fitted to that, not dropped.
     #[test]
-    fn a_leaf_width_block_still_gets_one_column() {
+    fn a_leaf_width_block_still_shows_its_snps() {
         let mut nodes = tree();
         nodes[1].snps = vec!["A9185".into(), "BY23498".into(), "FT225347".into()];
         let laid = layout(&nodes, &[origin(2, "Ireland")], Level::Country, 1);
@@ -1007,14 +1005,23 @@ mod tests {
         assert_eq!(laid.unresolved, 16, "17 placed, 1 with a published origin");
     }
 
+    /// The ruler counts mutations down the deepest lineage. It is walked rather than spaced
+    /// evenly, because each block spends a line on its name and a fixed scale would drift.
     #[test]
-    fn the_ruler_reads_in_calendar_years() {
-        let laid = layout(&tree(), &[], Level::Country, 0);
+    fn the_ruler_counts_mutations_down_the_deepest_lineage() {
+        let mut nodes = tree();
+        nodes[0].snps = (0..4).map(|i| format!("S{i}")).collect();
+        nodes[1].snps = (0..12).map(|i| format!("A{i}")).collect();
+        nodes[2].snps = (0..2).map(|i| format!("B{i}")).collect();
+        let laid = layout(&nodes, &[origin(2, "Ireland"), origin(3, "Ireland")], Level::Country, 2);
+
         assert!(!laid.ticks.is_empty());
         assert!(laid.ticks.windows(2).all(|w| w[0].y < w[1].y), "monotone down the page");
-        assert_eq!(era_label(1600), "350 CE");
-        assert_eq!(era_label(0), "1950 CE");
-        assert_eq!(era_label(2000), "51 BCE");
+        assert!(laid.ticks.windows(2).all(|w| w[1].snps > w[0].snps));
+        // Graduations land on multiples of the interval, and stop at the deepest lineage's total
+        // (4 + 12 = 16, not 4 + 2).
+        assert!(laid.ticks.iter().all(|t| t.snps % TICK_SNPS == 0));
+        assert_eq!(laid.ticks.last().unwrap().snps, 15);
     }
 
     /// A legend is always available for two or more series — identity is never colour alone.

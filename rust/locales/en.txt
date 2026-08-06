@@ -183,6 +183,7 @@ tree.origins.pruned=branches hidden (no published origin below them)
 tree.origins.tipshidden=men shown in the composition only (too narrow to label)
 tree.origins.more=has further branches below — click to open
 tree.origins.snps=equivalent SNPs
+tree.origins.axis=SNPs
 tree.origins.with=with an origin
 tree.origins.without=without one
 tree.origins.unknown=No locality recorded

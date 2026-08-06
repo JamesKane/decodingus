@@ -113,25 +113,42 @@ library, matching `tree_layout.rs`.
 
 - **Geometry**: depth → y; each node a rect spanning its subtree's horizontal extent; children flush
   against the parent's underside, so containment carries descent and no connector is drawn.
-- **Height = elapsed years**: a branch spans **its parent's TMRCA → its own TMRCA**, on one absolute
-  calendar axis. This is the deliberate divergence from Navigator's SNP-count height, and the reason
-  to build the view here: the AppView has ages (`tmrca_ybp` on 10,257 of 11,422 Y nodes) and the
-  framing is temporal. Nodes with no age draw at a minimum height, hatched, and are excluded from
-  the ruler — visible, not silently normal.
+- **A block shows its equivalent SNPs, and its height is their count** — one line each, nothing
+  elided, exactly as the Big Tree draws it. The mutations on a branch are unordered, so the list
+  *is* the block. Vertical position is therefore cumulative: how far down a block sits is the
+  mutations accrued along the path to it, and the left gutter rules that off in SNPs.
 
-  **Do not use a node's own `formed_ybp` for the top of its band.** It is the obvious choice and it
-  is wrong: `formed_ybp` and the parent's `tmrca_ybp` are independent point estimates under no
-  monotonicity constraint, and on the live tree they agree on only **898 of 10,252 edges** while
-  **4,243 (41%) have the child forming earlier than its parent's split**. Driving geometry from it
-  draws children on top of their parents — caught by rendering the real tree, where `R-A13318`
-  (formed 1622) landed at exactly its parent `R-S764`'s y. Parent-TMRCA → own-TMRCA has **zero**
-  inversions over the same edges, so containment holds by construction.
-- **Fill = stacked locality composition** of the placed samples at or below the block, at the
-  selected level (Country / Admin1 / Place), with **"no locality recorded" always its own visible
-  slice**. A view of who published is not a view of where a branch is from, and the difference must
-  be on screen.
-- **Tips**: one leaf box per placed sample carrying an origin — `Kane · Co. Clare`, coloured to
-  match. Never the kit id.
+  **Do not size blocks by the age model.** Both obvious forms were tried against real data and both
+  fail:
+
+  1. *A node's own `formed_ybp` → its own `tmrca_ybp`.* These are independent point estimates under
+     no monotonicity constraint; they agree with the parent's TMRCA on only **898 of 10,252 edges**,
+     and **4,243 (41%)** have the child forming *earlier* than its parent's split — so children
+     draw on top of their parents. `R-A13318` (formed 1622) landed at exactly its parent
+     `R-S764`'s y.
+  2. *Parent TMRCA → own TMRCA.* Monotone, so containment holds — but degenerate:
+     `formed_ybp == tmrca_ybp` on **41% of terminal branches and 26.5% of internal ones**, collapsing
+     the branch to a point. On R-DF85 at depth 4 that left **30 of 75 blocks unable to show a single
+     one of their SNPs** — `R-BY18328` got 3px of span for 9 mutations, `R-BY170664` 16 SNPs in an
+     18px sliver.
+
+  SNP count never degenerates, and it is still a time axis: measured on this tree, branch length
+  tracks SNP count at **r = 0.975, ≈69 years per mutation**. Ages keep their two real jobs — gating
+  the view to the genealogical era, and labelling each block — they simply do not drive geometry,
+  because a per-branch estimate is precisely what is missing or degenerate when a block most needs
+  a height.
+
+- **Colour belongs to the men, not the branches.** An early cut tinted each block by the composition
+  of its descendants' origins. That asserts something the data does not support: a branch has no
+  locality, only the men standing on it do, and a modal-origin tint reads as a claim about the whole
+  lineage. Colour lives on each man's box, keyed to his own MDKA; the legend and table carry the
+  composition that explains those colours.
+- **Tips**: one leaf box per placed sample carrying an origin — `Kane · Co. Clare`, coloured by his
+  own locality. Never the kit id. A man too narrow to label is counted rather than drawn as an
+  unreadable sliver, and the count is stated.
+- **"No locality recorded" is a visible category**, in the legend and the table, never bare
+  background. A view of who published is not a view of where a branch is from, and the difference
+  must be on screen.
 - **Colours**: categorical, colourblind-safe, legible in both themes; assigned by frequency rank
   *within the rendered subtree* (deterministic, tie-broken on name), top N distinct + a neutral
   "other".
