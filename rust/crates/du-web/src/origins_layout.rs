@@ -41,10 +41,11 @@ const H_GAP: f64 = 4.0;
 const TICK_SNPS: usize = 5;
 /// Sample tips hang in a band below the youngest branch.
 const TIP_H: f64 = 16.0;
-/// Narrowest a man's box may be and still carry a readable label. Below it the box is dropped and
-/// the man counted instead — a row of 8px slivers hides the composition bar rather than adding to
-/// it.
+/// Narrowest a man's box may be and still carry a readable label. Men wrap into further rows
+/// rather than being packed below it.
 const MIN_TIP_W: f64 = 26.0;
+/// Vertical gap between wrapped rows of men.
+const TIP_ROW_GAP: f64 = 2.0;
 const TIP_GAP: f64 = 10.0;
 const GUTTER_W: f64 = 54.0;
 const MARGIN: f64 = 8.0;
@@ -86,20 +87,17 @@ pub struct Band {
     pub y: f64,
     pub w: f64,
     pub h: f64,
-    /// False when the branch has no age estimate — rendered hatched, excluded from the ruler.
-    pub dated: bool,
     pub formed_ybp: Option<i32>,
     pub tmrca_ybp: Option<i32>,
     /// Placed samples at or below this branch that carry a published origin.
     pub with_origin: usize,
     /// Placed samples at or below it that do not — always drawn, never omitted.
     pub without_origin: usize,
-    /// The branch's SNP names, placed inside the block. Flowed into columns, and cut to what the
-    /// block's height and width can hold — the height means elapsed time, so it is not stretched
-    /// to fit a long list.
+    /// The branch's SNP names, one per line inside the block. The block is sized to this list, so
+    /// it always holds all of them.
     pub snps: Vec<SnpCell>,
-    /// Total equivalent SNPs on the branch, and how many the block had room for. When they differ
-    /// the block says so rather than quietly showing a subset.
+    /// Total equivalent SNPs on the branch — equal to `snps.len()`, kept because the tooltip
+    /// states the count.
     pub snp_total: usize,
     /// True when the band is too short to letter — the view puts its label in the tooltip only.
     pub cramped: bool,
@@ -160,12 +158,6 @@ pub struct Laid {
     pub legend: Vec<LegendEntry>,
     /// Samples under the root with no published origin — the honest denominator.
     pub unresolved: usize,
-    /// Branches dropped because no origin sits beneath them. Reported, never silent: a pruned
-    /// chart that looked complete would misrepresent how much of the clade this is.
-    pub pruned: usize,
-    /// Men whose per-man box was too narrow to letter. They remain in their band's composition;
-    /// only the box is gone.
-    pub tips_suppressed: usize,
 }
 
 /// The minimum a node needs from the tree window. Mirrors `du_db::haplogroup::WindowNode` so this
@@ -185,26 +177,28 @@ pub struct Node {
     pub snps: Vec<String>,
 }
 
-/// Attribute every origin to the nearest **visible** branch at or above where its sample is
-/// placed, and drop the branches that carry no origin at all.
+/// Drop the branches that are not drawn — de-novo auto-named nodes and anything past the display
+/// depth — and attribute their men to the nearest branch that *is*.
 ///
-/// Both halves fix silent losses found by rendering the real tree:
+/// **Every branch inside the window is kept, origins or not.** An earlier cut also dropped
+/// branches with no published origin beneath them; that was how the 11,220px canvas got tamed
+/// before the depth bound existed, and it is now both redundant and wrong. Origins are an overlay
+/// on the tree, not a filter of it: a branch with no locality data is still part of the clade's
+/// shape, and hiding it misrepresents the phylogeny to make a sparse overlay look dense.
 ///
-/// - A sample placed on a hidden (de-novo) node, or below the drawn window, used to contribute to
-///   **nothing** — its ancestors never saw it, so every band above it understated its own
-///   composition. Climbing to the nearest visible ancestor is what the tree's own private-node
-///   collapse does for sample tips, applied to composition.
-/// - An origins view is about origins: a branch with none beneath it costs a full column of width
-///   and says nothing. On a real clade that was 175 bands and a 7,944px canvas for 10 origins.
-///   Pruning is reported, never silent.
-///
-/// Retained nodes, origins re-pointed at visible branches, how many branches were pruned, and
-/// which retained branches have folded descendants.
+/// The remap is what keeps folding honest. A sample on a hidden node, or below the window, used to
+/// contribute to **nothing** — its ancestors never saw it, so every block above it understated
+/// itself. Climbing to the nearest visible ancestor is what the public tree already does for
+/// sample tips, applied to composition.
 pub struct Pruned {
     pub nodes: Vec<Node>,
     pub origins: Vec<SampleOrigin>,
-    pub pruned: usize,
+    /// Branches that have folded descendants — drawn with a drill-in affordance.
     pub has_more: std::collections::HashSet<i64>,
+    /// Men whose own branch is drawn. A man attributed upward from a folded branch still counts
+    /// in his ancestors' composition, but he is not given a box under a branch that is not his:
+    /// the fold marker is the affordance, and drilling in draws him where he belongs.
+    pub placed_here: std::collections::HashSet<uuid::Uuid>,
 }
 
 pub fn prune_to_origins(nodes: &[Node], origins: &[SampleOrigin]) -> Pruned {
@@ -213,8 +207,8 @@ pub fn prune_to_origins(nodes: &[Node], origins: &[SampleOrigin]) -> Pruned {
         return Pruned {
             nodes: Vec::new(),
             origins: Vec::new(),
-            pruned: 0,
             has_more: std::collections::HashSet::new(),
+            placed_here: std::collections::HashSet::new(),
         };
     };
 
@@ -236,8 +230,14 @@ pub fn prune_to_origins(nodes: &[Node], origins: &[SampleOrigin]) -> Pruned {
         }
         root.id
     };
+    let mut placed_here = std::collections::HashSet::new();
     let moved: Vec<SampleOrigin> = origins
         .iter()
+        .inspect(|o| {
+            if by_id.get(&o.haplogroup_id).is_some_and(|n| !n.hidden) {
+                placed_here.insert(o.sample_guid);
+            }
+        })
         .map(|o| SampleOrigin {
             haplogroup_id: match by_id.contains_key(&o.haplogroup_id) {
                 true => visible_ancestor(o.haplogroup_id),
@@ -248,28 +248,13 @@ pub fn prune_to_origins(nodes: &[Node], origins: &[SampleOrigin]) -> Pruned {
         })
         .collect();
 
-    // Keep a branch when an origin sits at or below it.
-    let mut keep: std::collections::HashSet<i64> = std::collections::HashSet::new();
-    keep.insert(root.id);
-    for o in &moved {
-        let mut at = Some(o.haplogroup_id);
-        let mut guard = 0;
-        while let Some(id) = at {
-            if guard > nodes.len() {
-                break;
-            }
-            keep.insert(id);
-            at = by_id.get(&id).and_then(|n| n.parent_id);
-            guard += 1;
-        }
-    }
-    // Re-parent onto the nearest retained ancestor. Dropping a hidden or origin-less branch must
-    // not orphan the branches beneath it — the chain has to stay walkable or the roll-up and the
-    // layout both lose everything below the gap.
-    let retained_id = |id: i64| -> bool { !by_id[&id].hidden && keep.contains(&id) };
+    // Re-parent onto the nearest retained ancestor. Dropping a folded branch must not orphan the
+    // branches beneath it — the chain has to stay walkable or the roll-up and the layout both lose
+    // everything below the gap.
+    let retained_id = |id: i64| -> bool { !by_id[&id].hidden };
     let retained: Vec<Node> = nodes
         .iter()
-        .filter(|n| !n.hidden && keep.contains(&n.id))
+        .filter(|n| !n.hidden)
         .map(|n| {
             let mut p = n.parent_id;
             let mut guard = 0;
@@ -287,11 +272,7 @@ pub fn prune_to_origins(nodes: &[Node], origins: &[SampleOrigin]) -> Pruned {
             Node { parent_id: p, ..n.clone() }
         })
         .collect();
-    let pruned = nodes.iter().filter(|n| !n.hidden).count() - retained.len();
-
     // Which retained branches have folded descendants — every retained ancestor of a hidden node.
-    // Only *hidden* (depth-folded) nodes count: a branch pruned for carrying no origin adds
-    // nothing a reader could drill into.
     let retained_ids: std::collections::HashSet<i64> = retained.iter().map(|n| n.id).collect();
     let mut has_more = std::collections::HashSet::new();
     for n in nodes.iter().filter(|n| n.hidden) {
@@ -309,7 +290,7 @@ pub fn prune_to_origins(nodes: &[Node], origins: &[SampleOrigin]) -> Pruned {
             guard += 1;
         }
     }
-    Pruned { nodes: retained, origins: moved, pruned, has_more }
+    Pruned { nodes: retained, origins: moved, has_more, placed_here }
 }
 
 /// Roll each sample's locality up to its branch **and every ancestor of that branch**, so a band's
@@ -417,7 +398,7 @@ pub fn layout(all_nodes: &[Node], all_origins: &[SampleOrigin], level: Level, pl
     // Attribute origins to visible branches and drop the branches with none beneath them, before
     // anything is measured — see `prune_to_origins`.
     let p = prune_to_origins(all_nodes, all_origins);
-    let (pruned, has_more) = (p.pruned, p.has_more);
+    let (has_more, placed_here) = (p.has_more, p.placed_here);
     let (nodes, origins) = (&p.nodes[..], &p.origins[..]);
     let Some(root) = nodes.iter().find(|n| n.parent_id.is_none()) else {
         return Laid::default();
@@ -463,7 +444,6 @@ pub fn layout(all_nodes: &[Node], all_origins: &[SampleOrigin], level: Level, pl
     while let Some(i) = stack.pop() {
         let n = &nodes[i];
         let (y, h) = (top[i], block_height(n.snps.len()));
-        let dated = n.tmrca_ybp.is_some();
         let (_, with_origin, without_origin) =
             segments_for(comp.get(&n.id).unwrap_or(&HashMap::new()), &slots);
 
@@ -478,7 +458,6 @@ pub fn layout(all_nodes: &[Node], all_origins: &[SampleOrigin], level: Level, pl
             y,
             w: extent[i],
             h,
-            dated,
             formed_ybp: n.formed_ybp,
             tmrca_ybp: n.tmrca_ybp,
             with_origin,
@@ -503,25 +482,26 @@ pub fn layout(all_nodes: &[Node], all_origins: &[SampleOrigin], level: Level, pl
 
     // Tips: one per sample with a published origin, under the branch it sits on.
     let tip_y = deepest + TIP_GAP;
+    // Only men whose own branch is drawn get a box. One boundary block on R-DF85 had absorbed 179
+    // men from everything folded beneath it and stacked them 90 rows deep — a tip row taller than
+    // the tree it hangs from, under a branch that is not theirs.
     let mut per_node: HashMap<i64, Vec<&SampleOrigin>> = HashMap::new();
-    for o in origins {
+    for o in origins.iter().filter(|o| placed_here.contains(&o.sample_guid)) {
         per_node.entry(o.haplogroup_id).or_default().push(o);
     }
     let band_x: HashMap<i64, (f64, f64)> = bands.iter().map(|b| (b.id, (b.x, b.w))).collect();
-    let mut tips_suppressed = 0usize;
+    let mut tip_rows_max = 1usize;
     for (node_id, mut list) in per_node {
         let Some(&(bx, bw)) = band_x.get(&node_id) else { continue };
         list.sort_by(|a, b| a.sample_guid.cmp(&b.sample_guid));
-        let n = list.len() as f64;
-        let w = (bw - H_GAP * (n - 1.0).max(0.0)) / n;
-        // Below this a tip is a coloured sliver with no legible label — noise that hides the
-        // composition bar above it. Those men are still counted in the band; only the per-man box
-        // is dropped, and the count is reported.
-        if w < MIN_TIP_W {
-            tips_suppressed += list.len();
-            continue;
-        }
-        let w = w.min(LEAF_W);
+        // Men wrap into rows beneath their branch rather than being squeezed into one. Columns are
+        // sized for a *readable* box first and only narrowed when the men need more room than the
+        // branch has: packing to the minimum width instead left every label truncated to a few
+        // characters even where the branch was wide enough for the whole name.
+        let roomy = (((bw + H_GAP) / (LEAF_W + H_GAP)).floor() as usize).max(1);
+        let cols = roomy.min(list.len()).max(1);
+        let w = ((bw - H_GAP * (cols - 1) as f64) / cols as f64).min(LEAF_W).max(MIN_TIP_W);
+        tip_rows_max = tip_rows_max.max(list.len().div_ceil(cols));
         for (k, o) in list.iter().enumerate() {
             let locality = o.place.label_at(level);
             let label = match (&o.surname, locality) {
@@ -534,8 +514,8 @@ pub fn layout(all_nodes: &[Node], all_origins: &[SampleOrigin], level: Level, pl
                 slot: locality.and_then(|l| slots.get(l).copied()).unwrap_or(0),
                 full: label.clone(),
                 label: fit(&label, w, 9.0),
-                x: bx + k as f64 * (w + H_GAP),
-                y: tip_y,
+                x: bx + (k % cols) as f64 * (w + H_GAP),
+                y: tip_y + (k / cols) as f64 * (TIP_H + TIP_ROW_GAP),
                 w,
                 h: TIP_H,
             });
@@ -545,7 +525,7 @@ pub fn layout(all_nodes: &[Node], all_origins: &[SampleOrigin], level: Level, pl
     let ticks = ruler(nodes, &bands);
     let legend = legend_for(&root_comp, &slots);
     let width = GUTTER_W + extent[root_i] + MARGIN * 2.0;
-    let height = tip_y + TIP_H + MARGIN;
+    let height = tip_y + tip_rows_max as f64 * (TIP_H + TIP_ROW_GAP) + MARGIN;
     let resolved: usize = root_comp.values().sum();
     Laid {
         width,
@@ -555,8 +535,6 @@ pub fn layout(all_nodes: &[Node], all_origins: &[SampleOrigin], level: Level, pl
         ticks,
         legend,
         unresolved: placed_total.saturating_sub(resolved),
-        pruned,
-        tips_suppressed,
     }
 }
 
@@ -906,15 +884,14 @@ mod tests {
     }
 
     /// A branch with no age estimate is still a branch with mutations. Geometry no longer depends
-    /// on the age at all, so it draws at full height like any other; `dated` survives only to
-    /// label it.
+    /// on the age at all, so it draws like any other — and the cross-hatch that used to mark it is
+    /// gone with the height model that made the distinction matter.
     #[test]
     fn an_undated_branch_still_gets_its_full_height() {
         let mut nodes = tree();
         nodes.push(Node { snps: (0..16).map(|i| format!("BY{i}")).collect(), ..node(4, "R-C", Some(2), None, None) });
         let laid = layout(&nodes, &[origin(4, "Ireland")], Level::Country, 1);
         let c = laid.bands.iter().find(|b| b.id == 4).unwrap();
-        assert!(!c.dated, "still flagged as unmeasured");
         assert_eq!(c.h, block_height(16));
         assert_eq!(c.snps.len(), 16, "16 SNPs in an 18px sliver was the bug");
         let parent = laid.bands.iter().find(|b| b.id == 2).unwrap();
@@ -1058,20 +1035,21 @@ mod tests {
         assert_eq!(layout(&[], &[], Level::Country, 0), Laid::default());
     }
 
-    /// Found by rendering the real tree: a clade drew 175 bands across 7,944px to show 10
-    /// origins. A branch with none beneath it is all width and no information.
+    /// Origins are an overlay on the tree, not a filter of it. A branch with no locality data
+    /// beneath it is still part of the clade's shape; dropping it would misrepresent the phylogeny
+    /// to make a sparse overlay look dense. (An earlier cut did prune them — that was how the
+    /// 11,220px canvas got tamed before the depth bound existed, and the depth bound does it now.)
     #[test]
-    fn branches_with_no_origin_beneath_them_are_pruned_and_counted() {
+    fn branches_with_no_origin_beneath_them_are_still_drawn() {
         let mut nodes = tree();
         for id in 10..20 {
             nodes.push(node(id, &format!("R-Empty{id}"), Some(3), Some(600), Some(400)));
         }
         let laid = layout(&nodes, &[origin(2, "Ireland")], Level::Country, 1);
-        // Root + the one branch carrying the origin. R-B and its ten empty children are gone.
-        assert_eq!(laid.bands.len(), 2);
-        assert!(laid.bands.iter().all(|b| b.id == 1 || b.id == 2));
-        assert_eq!(laid.pruned, 11, "reported, never silent");
-        assert!(laid.width < 200.0, "canvas follows the data, not the tree");
+        assert_eq!(laid.bands.len(), 13, "every branch in the window is drawn");
+        assert!(laid.bands.iter().any(|b| b.id == 15), "including the origin-less ones");
+        // The one man still colours only his own tip.
+        assert_eq!(laid.tips.len(), 1);
     }
 
     /// Also found by rendering: a sample on a de-novo node contributed to *nothing*, so every
@@ -1120,11 +1098,13 @@ mod tests {
         assert_eq!(count(&full, "Co. Cork"), Some(2));
         assert_eq!(count(&folded, "Co. Cork"), Some(2), "unchanged by folding");
         assert_eq!(count(&folded, "Co. Kerry"), Some(1));
-        // Every man is still accounted for, wherever his branch got folded to. Folding puts all
-        // three onto one leaf block, where they no longer each fit a legible box — so they move
-        // from `tips` to `tips_suppressed` rather than disappearing.
-        assert_eq!(full.tips.len() + full.tips_suppressed, 3);
-        assert_eq!(folded.tips.len() + folded.tips_suppressed, 3);
+        // Composition is what folding must preserve. Boxes are not: a man whose own branch was
+        // folded away is counted in his ancestor's tally but not given a box under a branch that
+        // is not his — the fold marker is the affordance, and drilling in draws him where he
+        // belongs. Undrawn, one boundary block absorbed 179 men and stacked them 90 rows deep.
+        assert_eq!(full.tips.len(), 3, "all three branches drawn, all three men drawn");
+        assert_eq!(folded.tips.len(), 1, "only the man on the surviving branch");
+        assert_eq!(root_of(&folded).with_origin, 3, "but all three still counted");
         // R-Deep is gone from the drawing, and its men are now R-Mid's.
         assert!(folded.bands.iter().all(|b| b.id != 3));
         assert_eq!(folded.bands.iter().find(|b| b.id == 2).unwrap().with_origin, 3);
@@ -1133,20 +1113,20 @@ mod tests {
         assert!(!full.bands.iter().find(|b| b.id == 2).unwrap().has_more);
     }
 
-    /// A row of 8px slivers hides the composition bar instead of adding to it. The men stay
-    /// counted; only the per-man box goes, and the count is reported.
+    /// Men wrap into rows beneath their branch rather than being squeezed into one. Forcing a
+    /// single row made each a sliver narrower than its own label, so 219 of 278 on R-DF85 had to
+    /// be dropped — and with the block tint gone they were then shown nowhere at all.
     #[test]
-    fn tips_too_narrow_to_label_are_dropped_and_counted() {
+    fn crowded_men_wrap_into_rows_rather_than_being_dropped() {
         let crowd: Vec<SampleOrigin> = (0..40).map(|_| origin(2, "Cork, Co. Cork, Ireland")).collect();
         let laid = layout(&tree(), &crowd, Level::Admin, 40);
-        assert!(laid.tips.is_empty(), "40 men cannot each hold a legible box");
-        assert_eq!(laid.tips_suppressed, 40, "reported, never silent");
-        // They are still fully present in the composition.
-        assert_eq!(laid.bands.iter().find(|b| b.id == 2).unwrap().with_origin, 40);
-        // Every tip that IS drawn is wide enough to letter.
-        let few = layout(&tree(), &[origin(2, "Cork, Co. Cork, Ireland")], Level::Admin, 1);
-        assert!(few.tips.iter().all(|t| t.w >= MIN_TIP_W));
-        assert_eq!(few.tips_suppressed, 0);
+        assert_eq!(laid.tips.len(), 40, "every man gets a box");
+        assert!(laid.tips.iter().all(|t| t.w >= MIN_TIP_W), "and every box can hold a label");
+        // They stack: more than one row, and rows are a tip-height apart.
+        let rows: std::collections::BTreeSet<i64> = laid.tips.iter().map(|t| t.y as i64).collect();
+        assert!(rows.len() > 1, "40 men do not fit one row under a leaf block");
+        // The canvas grew to hold them — nothing is drawn outside it.
+        assert!(laid.tips.iter().all(|t| t.y + t.h <= laid.height + 0.01));
     }
 
     /// A sample placed deeper than the walk still has to land somewhere, or the chart quietly

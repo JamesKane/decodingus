@@ -230,10 +230,6 @@ code { color: #495057; background-color: #f8f9fa; }
 .origins-seg.s7 { fill: var(--o-7); }
 .origins-seg.s8 { fill: var(--o-8); }
 
-/* An unmeasured branch is hatched, so it can never read as a measured short one. */
-.origins-undated-bg   { fill: transparent; }
-.origins-undated-line { stroke: var(--bs-secondary-color, #6c757d); stroke-width: 1.5; opacity: .5; }
-
 /* Recessive ruler. */
 .origins-tick line { stroke: var(--bs-border-color, #dee2e6); stroke-width: 1; }
 .origins-tick text { fill: var(--bs-secondary-color, #6c757d); }

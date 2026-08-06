@@ -65,12 +65,6 @@
   {% if l.unresolved > 0 %}
   · <span class="text-warning-emphasis">{{ l.unresolved }} {{ t.get("tree.origins.unresolved") }}</span>
   {% endif %}
-  {% if l.pruned > 0 %}
-  · {{ l.pruned }} {{ t.get("tree.origins.pruned") }}
-  {% endif %}
-  {% if l.tips_suppressed > 0 %}
-  · {{ l.tips_suppressed }} {{ t.get("tree.origins.tipshidden") }}
-  {% endif %}
 </p>
 
 {% if l.legend.len() >= 2 %}
@@ -90,14 +84,6 @@
   <svg class="origins-icicle" width="{{ l.width }}" height="{{ l.height }}"
        viewBox="0 0 {{ l.width }} {{ l.height }}" xmlns="http://www.w3.org/2000/svg"
        role="img" aria-label="{{ t.get("tree.origins.title") }} {{ name }}">
-    <defs>
-      {# An unmeasured branch is hatched so it can never read as a measured short one. #}
-      <pattern id="undated" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
-        <rect width="6" height="6" class="origins-undated-bg"></rect>
-        <line x1="0" y1="0" x2="0" y2="6" class="origins-undated-line"></line>
-      </pattern>
-    </defs>
-
     {# Mutation ruler, walked down the deepest lineage. Mutations accrue at a roughly steady rate
        — measured on this tree, branch length tracks SNP count at r=0.975, ~69 years each — so the
        axis reads as elapsed time without depending on a per-branch age estimate. #}
@@ -111,14 +97,10 @@
       >{{ t.get("tree.origins.axis") }}</text>
 
     {% for b in l.bands %}
-    <g class="origins-band{% if !b.dated %} is-undated{% endif %}">
+    <g class="origins-band">
       <a href="{{ base_path }}/node/{{ b.name }}/origins?level={{ level }}" rel="nofollow">
         <rect x="{{ b.x }}" y="{{ b.y }}" width="{{ b.w }}" height="{{ b.h }}"
               class="origins-band-bg" rx="2"></rect>
-        {% if !b.dated %}
-        <rect x="{{ b.x }}" y="{{ b.y }}" width="{{ b.w }}" height="{{ b.h }}"
-              fill="url(#undated)" rx="2"></rect>
-        {% endif %}
         <title>{{ b.name }} — {{ b.snp_total }} {{ t.get("tree.origins.snps") }} · {{ b.with_origin }} {{ t.get("tree.origins.with") }}, {{ b.without_origin }} {{ t.get("tree.origins.without") }}{% if b.has_more %} · {{ t.get("tree.origins.more") }}{% endif %}</title>
       </a>
       {# Direct label: the relief the light-mode contrast warning obliges. Text wears text tokens,

@@ -155,11 +155,15 @@ library, matching `tree_layout.rs`.
 - **Era gate**: serves nodes with `tmrca_ybp <= 1500` (adjustable within bounds). Above the cutoff it
   renders the breadcrumb, one line of explanation, and links down to eligible children rather than
   drawing a block that means nothing.
-- **Pruned to the branches that carry an origin**, with the count reported. A branch with no
-  published origin beneath it is a column of width and no information: on `R-S764` the unpruned
-  draw was 175 bands across a 7,944px canvas to show 10 origins; pruned it is 37 bands in 768px.
-  The drawn depth therefore follows the data rather than a fixed window — which also means no
-  sample is lost for sitting below a cut-off.
+- **Every branch in the window is drawn, origins or not.** Origins are an overlay on the tree, not
+  a filter of it: a branch with no locality data is still part of the clade's shape, and hiding it
+  would misrepresent the phylogeny to make a sparse overlay look dense. Legibility is bounded by
+  the depth selector instead (default 4 levels), which folds rather than drops — folded branches
+  are marked, and their men still count in their nearest drawn ancestor.
+- **A man gets a box only where his own branch is drawn.** Attributed upward from a folded branch
+  he still counts in the composition, but is not given a box under a branch that is not his; on
+  R-DF85 one boundary block had otherwise absorbed 179 men and stacked them 90 rows deep. Drilling
+  in draws him where he belongs.
 - **De-novo nodes stay hidden but their men still count.** A sample placed on an auto-named node is
   attributed to the nearest named ancestor, as the public tree already does for sample tips.
   Dropping it instead made every band above it understate its own composition.
