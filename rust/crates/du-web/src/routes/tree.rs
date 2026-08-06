@@ -14,7 +14,9 @@ use crate::htmx::{HxHeaders, HxRequest};
 use crate::i18n::{Locale, T};
 use crate::render::html;
 use crate::state::AppState;
+use crate::origins_layout;
 use crate::tree_layout::{self, InNode, Laid, Orientation, SampleTip};
+use du_db::place;
 use crate::auth::Curator;
 use axum::extract::{Path, Query, State};
 use axum::http::header::{HeaderMap, HeaderValue, COOKIE, SET_COOKIE};
@@ -51,6 +53,9 @@ pub fn router() -> Router<AppState> {
         .route("/mtree/node/:name/geo", get(mt_clade_geo))
         .route("/ytree/node/:name/geo-data", get(y_clade_geo_data))
         .route("/mtree/node/:name/geo-data", get(mt_clade_geo_data))
+        // Genealogical-era ancestral-origin icicle (proposals/ancestral-origin-icicle.md).
+        .route("/ytree/node/:name/origins", get(y_origins))
+        .route("/mtree/node/:name/origins", get(mt_origins))
         // Curator triage for sample leaves whose published call didn't resolve to a node.
         .route("/manage/tree-sample/unplaced", get(unplaced))
         .route("/manage/tree-sample/place", post(place))
@@ -516,6 +521,168 @@ async fn clade_geo_data(
         })
         .collect();
     Ok(Json(json!({ "type": "FeatureCollection", "features": features })))
+}
+
+/// Ancestral origins are only meaningful in the genealogical era: past this, a band aggregates to
+/// a continent and says nothing about where a *line* went. Nodes older than this render as a
+/// signpost down to their eligible children rather than as a chart.
+const ORIGINS_MAX_YBP: i32 = 1500;
+/// Safety bound on the subtree walk — not a display choice. The drawn depth is decided by
+/// `origins_layout::prune_to_origins`, which keeps only the branches carrying an origin.
+const ORIGINS_DEPTH: i32 = 40;
+
+#[derive(Deserialize)]
+struct OriginsQuery {
+    /// `country` (default) · `admin` · `place`.
+    level: Option<String>,
+}
+
+fn origins_level(s: Option<&str>) -> place::Level {
+    match s.map(str::trim).unwrap_or("") {
+        "admin" | "region" => place::Level::Admin,
+        "place" | "locality" => place::Level::Locality,
+        _ => place::Level::Country,
+    }
+}
+
+async fn y_origins(
+    st: State<AppState>,
+    locale: Locale,
+    user: crate::auth::MaybeUser,
+    name: Path<String>,
+    q: Query<OriginsQuery>,
+) -> Result<Response, AppError> {
+    origins(st, locale, user, name, q, DnaType::YDna).await
+}
+
+async fn mt_origins(
+    st: State<AppState>,
+    locale: Locale,
+    user: crate::auth::MaybeUser,
+    name: Path<String>,
+    q: Query<OriginsQuery>,
+) -> Result<Response, AppError> {
+    origins(st, locale, user, name, q, DnaType::MtDna).await
+}
+
+/// The ancestral-origin icicle for one clade: the same top-down, containment-carries-descent shape
+/// as the Big Tree, with each branch filled by where its men's most distant known ancestors came
+/// from. See `proposals/ancestral-origin-icicle.md`.
+async fn origins(
+    State(st): State<AppState>,
+    locale: Locale,
+    user: crate::auth::MaybeUser,
+    Path(name): Path<String>,
+    Query(q): Query<OriginsQuery>,
+    dna_type: DnaType,
+) -> Result<Response, AppError> {
+    let base_path = base_path_for(dna_type);
+    let node = du_db::haplogroup::get_by_name(&st.pool, &name, dna_type)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("no haplogroup {name}")))?;
+    let level = origins_level(q.level.as_deref());
+    let crumbs = build_crumbs(&st.pool, dna_type, base_path, &name).await?;
+
+    // The era gate. A clade older than the ceiling gets its eligible children rather than a chart
+    // whose every band would read "Europe" — the reader is sent down, not turned away.
+    let too_old = node.tmrca_ybp.is_none_or(|t| t > ORIGINS_MAX_YBP);
+    if too_old {
+        let window = du_db::haplogroup::subtree_window(&st.pool, dna_type, &name, ORIGINS_DEPTH).await?;
+        let eligible: Vec<Crumb> = window
+            .iter()
+            .filter(|n| n.id != node.id.0 && n.tmrca_ybp.is_some_and(|t| t <= ORIGINS_MAX_YBP))
+            .filter(|n| !is_private_node(&n.name))
+            .map(|n| Crumb {
+                href: format!("{base_path}/node/{}/origins", encode(&n.name)),
+                name: n.name.clone(),
+            })
+            .collect();
+        let page = OriginsPageTemplate {
+            t: locale.t,
+            next: locale.next,
+            user: user.nav(),
+            base_path,
+            name,
+            level: level_code(level),
+            tmrca_ybp: node.tmrca_ybp,
+            max_ybp: ORIGINS_MAX_YBP,
+            crumbs,
+            laid: None,
+            eligible,
+            placed: 0,
+        };
+        return Ok(html(&page));
+    }
+
+    // The whole subtree, not a display window: `origins_layout` prunes to the branches that
+    // actually carry an origin, so the drawn depth follows the data instead of a fixed number —
+    // and no sample is lost for sitting below an arbitrary cut-off.
+    let window = du_db::haplogroup::subtree_window(&st.pool, dna_type, &name, ORIGINS_DEPTH).await?;
+    // De-novo auto-named nodes must not surface publicly here any more than on the tree itself.
+    // They stay in the input marked `hidden`, so the ancestor walk is unbroken and their men are
+    // attributed to the nearest named branch rather than dropped.
+    let nodes: Vec<origins_layout::Node> = window
+        .iter()
+        .map(|n| origins_layout::Node {
+            id: n.id,
+            name: n.name.clone(),
+            parent_id: n.parent_id,
+            formed_ybp: n.formed_ybp,
+            tmrca_ybp: n.tmrca_ybp,
+            hidden: is_private_node(&n.name) || is_uuid_label(&n.name),
+        })
+        .collect();
+
+    let published = du_db::origins::origins_under(&st.pool, dna_type, &name).await?;
+    let placed = du_db::origins::placed_under(&st.pool, &name, dna_type).await?;
+    let laid = origins_layout::layout(&nodes, &published, level, placed.max(0) as usize);
+
+    Ok(html(&OriginsPageTemplate {
+        t: locale.t,
+        next: locale.next,
+        user: user.nav(),
+        base_path,
+        name,
+        level: level_code(level),
+        tmrca_ybp: node.tmrca_ybp,
+        max_ybp: ORIGINS_MAX_YBP,
+        crumbs,
+        laid: Some(laid),
+        eligible: Vec::new(),
+        placed: placed.max(0),
+    }))
+}
+
+fn level_code(l: place::Level) -> &'static str {
+    match l {
+        place::Level::Country => "country",
+        place::Level::Admin => "admin",
+        place::Level::Locality => "place",
+    }
+}
+
+fn encode(s: &str) -> String {
+    utf8_percent_encode(s, NON_ALPHANUMERIC).to_string()
+}
+
+#[derive(askama::Template)]
+#[template(path = "tree/origins.html")]
+struct OriginsPageTemplate {
+    t: T,
+    next: String,
+    user: Option<crate::auth::NavUser>,
+    base_path: &'static str,
+    name: String,
+    level: &'static str,
+    tmrca_ybp: Option<i32>,
+    max_ybp: i32,
+    crumbs: Vec<Crumb>,
+    /// `None` when the clade is older than the era gate — the template shows `eligible` instead.
+    laid: Option<origins_layout::Laid>,
+    /// Descendant clades that *are* inside the era, offered when this one is not.
+    eligible: Vec<Crumb>,
+    /// Placed samples under the clade — the denominator the composition is reported against.
+    placed: i64,
 }
 
 /// The "Geography & Time" panel fragment: a Leaflet map target (client fetches the

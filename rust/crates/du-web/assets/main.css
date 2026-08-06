@@ -173,3 +173,86 @@ code { color: #495057; background-color: #f8f9fa; }
      slice of viewport — give it more room and let the page scroll carry the rest. */
   .tree-scroll-container { max-height: 88vh; }
 }
+
+/* ── Ancestral-origin icicle (proposals/ancestral-origin-icicle.md §5) ───────── */
+/* Colour roles live here so light/dark swap in one place and the SVG is written
+   against slots rather than raw hex. The palette is the validated 8-slot
+   categorical set — fixed order, never cycled. Slot 0 is the reserved neutral
+   carrying both "Other" and "no locality recorded": an absence is not an
+   identity, so it must not wear a categorical hue.
+
+   Validated with the data-viz palette checker in both modes. Light mode raises a
+   contrast warning on three slots (aqua/yellow/magenta below 3:1 on a light
+   surface), which obliges relief — hence the always-on band labels and the
+   table view in origins.html. */
+.origins-icicle {
+  --surface-1: #ffffff;
+  --o-0: #adb5bd;                 /* reserved neutral: Other / no locality */
+  --o-1: #2a78d6; --o-2: #eb6834; --o-3: #1baf7a; --o-4: #eda100;
+  --o-5: #e87ba4; --o-6: #008300; --o-7: #4a3aa7; --o-8: #e34948;
+  display: block;
+  background: var(--surface-1);
+}
+@media (prefers-color-scheme: dark) {
+  .origins-icicle {
+    --surface-1: #1a1a19;
+    --o-0: #6c757d;
+    --o-1: #3987e5; --o-2: #d95926; --o-3: #199e70; --o-4: #c98500;
+    --o-5: #d55181; --o-6: #008300; --o-7: #9085e9; --o-8: #e66767;
+  }
+}
+[data-bs-theme="dark"] .origins-icicle {
+  --surface-1: #1a1a19;
+  --o-0: #6c757d;
+  --o-1: #3987e5; --o-2: #d95926; --o-3: #199e70; --o-4: #c98500;
+  --o-5: #d55181; --o-6: #008300; --o-7: #9085e9; --o-8: #e66767;
+}
+
+.origins-scroll { overflow-x: auto; max-height: 80vh; }
+
+/* The band behind the composition — visible where a branch has no men at all. */
+.origins-band-bg { fill: var(--bs-tertiary-bg, #f8f9fa); stroke: var(--bs-border-color, #dee2e6); stroke-width: 1; }
+.origins-band a { cursor: pointer; }
+.origins-band:hover .origins-band-bg { stroke: var(--bs-primary, #0d6efd); stroke-width: 1.5; }
+/* Text wears text tokens, never the series colour. */
+.origins-band-label { fill: var(--bs-body-color, #212529); font-weight: 600; paint-order: stroke; stroke: var(--surface-1); stroke-width: 2.5px; }
+.origins-tip-label  { fill: var(--bs-secondary-color, #6c757d); paint-order: stroke; stroke: var(--surface-1); stroke-width: 2.5px; }
+
+/* Stacked segments are separated by surface, not by a stroke (mark spec). */
+.origins-seg { stroke: none; }
+.origins-seg.s0 { fill: var(--o-0); }
+.origins-seg.s1 { fill: var(--o-1); }
+.origins-seg.s2 { fill: var(--o-2); }
+.origins-seg.s3 { fill: var(--o-3); }
+.origins-seg.s4 { fill: var(--o-4); }
+.origins-seg.s5 { fill: var(--o-5); }
+.origins-seg.s6 { fill: var(--o-6); }
+.origins-seg.s7 { fill: var(--o-7); }
+.origins-seg.s8 { fill: var(--o-8); }
+
+/* An unmeasured branch is hatched, so it can never read as a measured short one. */
+.origins-undated-bg   { fill: transparent; }
+.origins-undated-line { stroke: var(--bs-secondary-color, #6c757d); stroke-width: 1.5; opacity: .5; }
+
+/* Recessive ruler. */
+.origins-tick line { stroke: var(--bs-border-color, #dee2e6); stroke-width: 1; }
+.origins-tick text { fill: var(--bs-secondary-color, #6c757d); }
+
+.origins-legend { display: flex; flex-wrap: wrap; gap: .25rem .9rem; }
+.origins-legend-item { display: inline-flex; align-items: center; gap: .3rem; }
+.origins-swatch {
+  display: inline-block; width: .8rem; height: .8rem;
+  border-radius: 2px; border: 1px solid rgba(0,0,0,.15);
+  --o-0: #adb5bd;
+  --o-1: #2a78d6; --o-2: #eb6834; --o-3: #1baf7a; --o-4: #eda100;
+  --o-5: #e87ba4; --o-6: #008300; --o-7: #4a3aa7; --o-8: #e34948;
+}
+.origins-swatch.s0 { background: var(--o-0); }
+.origins-swatch.s1 { background: var(--o-1); }
+.origins-swatch.s2 { background: var(--o-2); }
+.origins-swatch.s3 { background: var(--o-3); }
+.origins-swatch.s4 { background: var(--o-4); }
+.origins-swatch.s5 { background: var(--o-5); }
+.origins-swatch.s6 { background: var(--o-6); }
+.origins-swatch.s7 { background: var(--o-7); }
+.origins-swatch.s8 { background: var(--o-8); }

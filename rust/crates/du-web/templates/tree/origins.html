@@ -1,0 +1,176 @@
+{% extends "base.html" %}
+{% block title %}{{ t.get("tree.origins.title") }} · {{ name }} — {{ t.get("app.name") }}{% endblock %}
+{# Full viewport width — the icicle wants all the horizontal room it can get. #}
+{% block main_container %}container-fluid{% endblock %}
+{% block content %}
+{#
+  The ancestral-origin icicle (proposals/ancestral-origin-icicle.md §5). Time runs DOWN the page
+  on one absolute axis: a band's top is its branch's formation, its bottom is its TMRCA, so the
+  band's height IS its duration and two branches at the same date draw level wherever they sit in
+  the tree. Children are flush beneath their parent, so containment carries descent.
+
+  Colour: the validated 8-slot categorical palette, fixed order, never cycled — a ninth locality
+  folds into the reserved neutral rather than getting an invented hue. Slot 0 is that neutral and
+  also carries "no locality recorded", because an absence is not an identity.
+#}
+<div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+  <h1 class="h3 mb-0 me-auto">{{ t.get("tree.origins.title") }} · {{ name }}</h1>
+
+  {# Level selector. Switching level changes WHICH entities exist, so re-ranking colours here is
+     not a repaint of survivors. #}
+  <div class="btn-group btn-group-sm" role="group" aria-label="{{ t.get("tree.origins.level") }}">
+    <a class="btn btn-outline-secondary{% if level == "country" %} active{% endif %}"
+       href="{{ base_path }}/node/{{ name }}/origins?level=country">{{ t.get("tree.origins.level.country") }}</a>
+    <a class="btn btn-outline-secondary{% if level == "admin" %} active{% endif %}"
+       href="{{ base_path }}/node/{{ name }}/origins?level=admin">{{ t.get("tree.origins.level.admin") }}</a>
+    <a class="btn btn-outline-secondary{% if level == "place" %} active{% endif %}"
+       href="{{ base_path }}/node/{{ name }}/origins?level=place">{{ t.get("tree.origins.level.place") }}</a>
+  </div>
+
+  <a class="btn btn-sm btn-outline-secondary" href="{{ base_path }}?root={{ name }}">{{ t.get("tree.origins.back") }}</a>
+</div>
+
+<nav aria-label="breadcrumb" class="mb-2">
+  <ol class="breadcrumb mb-0">
+    {% for c in crumbs %}
+    {% if c.href.is_empty() %}
+    <li class="breadcrumb-item active" aria-current="page">{{ c.name }}</li>
+    {% else %}
+    <li class="breadcrumb-item"><a href="{{ c.href }}" rel="nofollow">{{ c.name }}</a></li>
+    {% endif %}
+    {% endfor %}
+  </ol>
+</nav>
+
+{% if let Some(l) = laid %}
+
+{# What the chart could not account for, stated before the chart rather than after it. #}
+<p class="small text-muted mb-2">
+  {{ t.get("tree.origins.tmrca") }}
+  {% if let Some(ty) = tmrca_ybp %}<strong>{{ ty }}</strong> {{ t.get("tree.geo.axis") }}{% endif %}
+  · <strong>{{ placed }}</strong> {{ t.get("tree.origins.placed") }}
+  {% if l.unresolved > 0 %}
+  · <span class="text-warning-emphasis">{{ l.unresolved }} {{ t.get("tree.origins.unresolved") }}</span>
+  {% endif %}
+  {% if l.pruned > 0 %}
+  · {{ l.pruned }} {{ t.get("tree.origins.pruned") }}
+  {% endif %}
+</p>
+
+{% if l.legend.len() >= 2 %}
+{# A legend is always present for two or more series — identity is never colour alone. #}
+<div class="origins-legend small mb-2">
+  {% for e in l.legend %}
+  <span class="origins-legend-item">
+    <span class="origins-swatch s{{ e.slot }}"></span>
+    {% if let Some(lbl) = e.label %}{{ lbl }}{% else %}{{ t.get("tree.origins.unknown") }}{% endif %}
+    <span class="text-muted">{{ e.count }}</span>
+  </span>
+  {% endfor %}
+</div>
+{% endif %}
+
+<div class="origins-scroll">
+  <svg class="origins-icicle" width="{{ l.width }}" height="{{ l.height }}"
+       viewBox="0 0 {{ l.width }} {{ l.height }}" xmlns="http://www.w3.org/2000/svg"
+       role="img" aria-label="{{ t.get("tree.origins.title") }} {{ name }}">
+    <defs>
+      {# An unmeasured branch is hatched so it can never read as a measured short one. #}
+      <pattern id="undated" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+        <rect width="6" height="6" class="origins-undated-bg"></rect>
+        <line x1="0" y1="0" x2="0" y2="6" class="origins-undated-line"></line>
+      </pattern>
+    </defs>
+
+    {# Time ruler: calendar years, one linear scale for the whole canvas. #}
+    {% for tk in l.ticks %}
+    <g class="origins-tick">
+      <line x1="0" y1="{{ tk.y }}" x2="{{ l.width }}" y2="{{ tk.y }}"></line>
+      <text x="2" y="{{ tk.y }}" dy="-2" font-size="9">{{ tk.label }}</text>
+    </g>
+    {% endfor %}
+
+    {% for b in l.bands %}
+    <g class="origins-band{% if !b.dated %} is-undated{% endif %}">
+      <a href="{{ base_path }}/node/{{ b.name }}/origins?level={{ level }}" rel="nofollow">
+        <rect x="{{ b.x }}" y="{{ b.y }}" width="{{ b.w }}" height="{{ b.h }}"
+              class="origins-band-bg" rx="2"></rect>
+        {% if !b.dated %}
+        <rect x="{{ b.x }}" y="{{ b.y }}" width="{{ b.w }}" height="{{ b.h }}"
+              fill="url(#undated)" rx="2"></rect>
+        {% endif %}
+        {# Stacked composition. Segments are separated by surface, not by a stroke. #}
+        {% for s in b.segments %}
+        <rect x="{{ s.x }}" y="{{ b.y }}" width="{{ s.w }}" height="{{ b.h }}"
+              class="origins-seg s{{ s.slot }}" rx="2">
+          <title>{% if let Some(lbl) = s.label %}{{ lbl }}{% else %}{{ t.get("tree.origins.other") }}{% endif %} · {{ s.count }}</title>
+        </rect>
+        {% endfor %}
+        <title>{{ b.name }} — {{ b.with_origin }} {{ t.get("tree.origins.with") }}, {{ b.without_origin }} {{ t.get("tree.origins.without") }}</title>
+      </a>
+      {# Direct label: the relief the light-mode contrast warning obliges. Text wears text tokens,
+         never the series colour. #}
+      {% if !b.cramped %}
+      <text x="{{ b.x }}" y="{{ b.y }}" dx="4" dy="11" font-size="10" class="origins-band-label">{{ b.name }}</text>
+      {% endif %}
+    </g>
+    {% endfor %}
+
+    {# The men, as leaves on the present-day line. #}
+    {% for tp in l.tips %}
+    <g class="origins-tip">
+      <rect x="{{ tp.x }}" y="{{ tp.y }}" width="{{ tp.w }}" height="{{ tp.h }}"
+            class="origins-seg s{{ tp.slot }}" rx="2"></rect>
+      <text x="{{ tp.x }}" y="{{ tp.y }}" dx="3" dy="11" font-size="9" class="origins-tip-label">{{ tp.label }}</text>
+    </g>
+    {% endfor %}
+  </svg>
+</div>
+
+{# The table view — the accessibility fallback, and the relief for the light-mode contrast
+   warning. Everything the chart encodes in colour is readable here as text. #}
+<details class="mt-3">
+  <summary class="small text-muted">{{ t.get("tree.origins.table") }}</summary>
+  <div class="table-responsive mt-2">
+    <table class="table table-sm table-striped small">
+      <thead>
+        <tr>
+          <th scope="col">{{ t.get("tree.origins.col.locality") }}</th>
+          <th scope="col" class="text-end">{{ t.get("tree.origins.col.count") }}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for e in l.legend %}
+        <tr>
+          <td>{% if let Some(lbl) = e.label %}{{ lbl }}{% else %}{{ t.get("tree.origins.unknown") }}{% endif %}</td>
+          <td class="text-end">{{ e.count }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</details>
+
+{% else %}
+
+{# Older than the era gate: a signpost down, not a refusal. #}
+<div class="alert alert-secondary">
+  <p class="mb-2">
+    {{ t.get("tree.origins.tooold") }}
+    {% if let Some(ty) = tmrca_ybp %}(<strong>{{ ty }}</strong>{% else %}({{ t.get("tree.geo.noage") }}{% endif %}
+    {{ t.get("tree.geo.axis") }}; {{ t.get("tree.origins.ceiling") }} <strong>{{ max_ybp }}</strong>)
+  </p>
+  {% if eligible.is_empty() %}
+  <p class="mb-0 small text-muted">{{ t.get("tree.origins.nonebelow") }}</p>
+  {% else %}
+  <p class="mb-1 small">{{ t.get("tree.origins.trybelow") }}</p>
+  <div class="d-flex flex-wrap gap-1">
+    {% for c in eligible %}
+    <a class="btn btn-sm btn-outline-secondary" href="{{ c.href }}" rel="nofollow">{{ c.name }}</a>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
+
+{% endif %}
+{% endblock %}

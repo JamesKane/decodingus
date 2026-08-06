@@ -17,6 +17,7 @@ mod htmx;
 mod i18n;
 mod render;
 mod oauth;
+mod origins_layout;
 mod routes;
 mod security;
 mod sig;
