@@ -44,6 +44,10 @@ const MIN_BAND_H: f64 = 18.0;
 const UNDATED_H: f64 = MIN_BAND_H;
 /// Sample tips hang in a band below the youngest branch.
 const TIP_H: f64 = 16.0;
+/// Narrowest a man's box may be and still carry a readable label. Below it the box is dropped and
+/// the man counted instead — a row of 8px slivers hides the composition bar rather than adding to
+/// it.
+const MIN_TIP_W: f64 = 26.0;
 const TIP_GAP: f64 = 10.0;
 const GUTTER_W: f64 = 54.0;
 const MARGIN: f64 = 8.0;
@@ -63,6 +67,10 @@ pub struct Segment {
     pub label: Option<String>,
     pub count: usize,
     pub slot: usize,
+    /// Distinguishes the two things slot 0 carries: `true` = "no locality recorded" (an absence),
+    /// `false` with no label = "Other" (localities past the palette). They share a colour but not
+    /// a meaning, so the legend and tooltips must not call both the same thing.
+    pub unknown: bool,
     pub x: f64,
     pub w: f64,
 }
@@ -89,6 +97,10 @@ pub struct Band {
     pub cramped: bool,
     /// `name` fitted to the band's width. The full name is always in the band's `<title>`.
     pub label: String,
+    /// Branches below this one were folded into it by the depth bound. Their men are counted in
+    /// this band's composition; their sub-branching is not drawn. The view marks these so a
+    /// reader can tell "this branch is simple" from "you are not being shown its shape".
+    pub has_more: bool,
 }
 
 /// One man, as a leaf below the branch he is placed on.
@@ -120,6 +132,8 @@ pub struct LegendEntry {
     pub label: Option<String>,
     pub slot: usize,
     pub count: usize,
+    /// See [`Segment::unknown`].
+    pub unknown: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -135,6 +149,9 @@ pub struct Laid {
     /// Branches dropped because no origin sits beneath them. Reported, never silent: a pruned
     /// chart that looked complete would misrepresent how much of the clade this is.
     pub pruned: usize,
+    /// Men whose per-man box was too narrow to letter. They remain in their band's composition;
+    /// only the box is gone.
+    pub tips_suppressed: usize,
 }
 
 /// The minimum a node needs from the tree window. Mirrors `du_db::haplogroup::WindowNode` so this
@@ -164,12 +181,24 @@ pub struct Node {
 ///   and says nothing. On a real clade that was 175 bands and a 7,944px canvas for 10 origins.
 ///   Pruning is reported, never silent.
 ///
-/// Returns the retained nodes (root always kept), the origins re-pointed at visible branches, and
-/// how many branches were pruned.
-pub fn prune_to_origins(nodes: &[Node], origins: &[SampleOrigin]) -> (Vec<Node>, Vec<SampleOrigin>, usize) {
+/// Retained nodes, origins re-pointed at visible branches, how many branches were pruned, and
+/// which retained branches have folded descendants.
+pub struct Pruned {
+    pub nodes: Vec<Node>,
+    pub origins: Vec<SampleOrigin>,
+    pub pruned: usize,
+    pub has_more: std::collections::HashSet<i64>,
+}
+
+pub fn prune_to_origins(nodes: &[Node], origins: &[SampleOrigin]) -> Pruned {
     let by_id: HashMap<i64, &Node> = nodes.iter().map(|n| (n.id, n)).collect();
     let Some(root) = nodes.iter().find(|n| n.parent_id.is_none()) else {
-        return (Vec::new(), Vec::new(), 0);
+        return Pruned {
+            nodes: Vec::new(),
+            origins: Vec::new(),
+            pruned: 0,
+            has_more: std::collections::HashSet::new(),
+        };
     };
 
     // Climb to the nearest visible ancestor. The root is the floor: it is always drawn, so no
@@ -242,7 +271,28 @@ pub fn prune_to_origins(nodes: &[Node], origins: &[SampleOrigin]) -> (Vec<Node>,
         })
         .collect();
     let pruned = nodes.iter().filter(|n| !n.hidden).count() - retained.len();
-    (retained, moved, pruned)
+
+    // Which retained branches have folded descendants — every retained ancestor of a hidden node.
+    // Only *hidden* (depth-folded) nodes count: a branch pruned for carrying no origin adds
+    // nothing a reader could drill into.
+    let retained_ids: std::collections::HashSet<i64> = retained.iter().map(|n| n.id).collect();
+    let mut has_more = std::collections::HashSet::new();
+    for n in nodes.iter().filter(|n| n.hidden) {
+        let mut at = n.parent_id;
+        let mut guard = 0;
+        while let Some(id) = at {
+            if guard > nodes.len() {
+                break;
+            }
+            if retained_ids.contains(&id) {
+                has_more.insert(id);
+                break;
+            }
+            at = by_id.get(&id).and_then(|p| p.parent_id);
+            guard += 1;
+        }
+    }
+    Pruned { nodes: retained, origins: moved, pruned, has_more }
 }
 
 /// Roll each sample's locality up to its branch **and every ancestor of that branch**, so a band's
@@ -327,13 +377,21 @@ fn segments_for(
             slot: slots[l],
             label: Some(l.clone()),
             count: n,
+            unknown: false,
             x: 0.0,
             w: 0.0,
         })
         .collect();
     let with_origin: usize = segs.iter().map(|s| s.count).sum::<usize>() + other;
     if other > 0 {
-        segs.push(Segment { label: None, count: other, slot: 0, x: 0.0, w: 0.0 });
+        segs.push(Segment { label: None, count: other, slot: 0, unknown: false, x: 0.0, w: 0.0 });
+    }
+    // "No locality recorded" is DRAWN, always last, so absence sits at the same end of every bar
+    // and bands can be compared by eye. Leaving it as bare background — which is what happened
+    // until a real clade was rendered — made the chart disagree with its own legend, and made a
+    // branch whose men are unrecorded look like a branch with fewer men.
+    if unknown > 0 {
+        segs.push(Segment { label: None, count: unknown, slot: 0, unknown: true, x: 0.0, w: 0.0 });
     }
     (segs, with_origin, unknown)
 }
@@ -343,8 +401,9 @@ fn segments_for(
 pub fn layout(all_nodes: &[Node], all_origins: &[SampleOrigin], level: Level, placed_total: usize) -> Laid {
     // Attribute origins to visible branches and drop the branches with none beneath them, before
     // anything is measured — see `prune_to_origins`.
-    let (nodes, origins, pruned) = prune_to_origins(all_nodes, all_origins);
-    let (nodes, origins) = (&nodes[..], &origins[..]);
+    let p = prune_to_origins(all_nodes, all_origins);
+    let (pruned, has_more) = (p.pruned, p.has_more);
+    let (nodes, origins) = (&p.nodes[..], &p.origins[..]);
     let Some(root) = nodes.iter().find(|n| n.parent_id.is_none()) else {
         return Laid::default();
     };
@@ -441,6 +500,7 @@ pub fn layout(all_nodes: &[Node], all_origins: &[SampleOrigin], level: Level, pl
             without_origin,
             segments: segs,
             cramped: h < 14.0,
+            has_more: has_more.contains(&n.id),
         });
         deepest = deepest.max(y + h);
 
@@ -460,11 +520,20 @@ pub fn layout(all_nodes: &[Node], all_origins: &[SampleOrigin], level: Level, pl
         per_node.entry(o.haplogroup_id).or_default().push(o);
     }
     let band_x: HashMap<i64, (f64, f64)> = bands.iter().map(|b| (b.id, (b.x, b.w))).collect();
+    let mut tips_suppressed = 0usize;
     for (node_id, mut list) in per_node {
         let Some(&(bx, bw)) = band_x.get(&node_id) else { continue };
         list.sort_by(|a, b| a.sample_guid.cmp(&b.sample_guid));
         let n = list.len() as f64;
-        let w = ((bw - H_GAP * (n - 1.0).max(0.0)) / n).min(LEAF_W).max(8.0);
+        let w = (bw - H_GAP * (n - 1.0).max(0.0)) / n;
+        // Below this a tip is a coloured sliver with no legible label — noise that hides the
+        // composition bar above it. Those men are still counted in the band; only the per-man box
+        // is dropped, and the count is reported.
+        if w < MIN_TIP_W {
+            tips_suppressed += list.len();
+            continue;
+        }
+        let w = w.min(LEAF_W);
         for (k, o) in list.iter().enumerate() {
             let locality = o.place.label_at(level);
             let label = match (&o.surname, locality) {
@@ -499,6 +568,7 @@ pub fn layout(all_nodes: &[Node], all_origins: &[SampleOrigin], level: Level, pl
         legend,
         unresolved: placed_total.saturating_sub(resolved),
         pruned,
+        tips_suppressed,
     }
 }
 
@@ -572,15 +642,13 @@ fn era_label(ybp: i32) -> String {
 }
 
 fn legend_for(root_comp: &HashMap<Option<String>, usize>, slots: &HashMap<String, usize>) -> Vec<LegendEntry> {
-    let (segs, _, unknown) = segments_for(root_comp, slots);
-    let mut out: Vec<LegendEntry> = segs
+    // The legend is exactly the root band's segments — including the drawn "Other" and
+    // "no locality recorded" bars, which is what keeps chart and legend from disagreeing.
+    segments_for(root_comp, slots)
+        .0
         .into_iter()
-        .map(|s| LegendEntry { label: s.label, slot: s.slot, count: s.count })
-        .collect();
-    if unknown > 0 {
-        out.push(LegendEntry { label: None, slot: 0, count: unknown });
-    }
-    out
+        .map(|s| LegendEntry { label: s.label, slot: s.slot, count: s.count, unknown: s.unknown })
+        .collect()
 }
 
 #[cfg(test)]
@@ -649,7 +717,37 @@ mod tests {
         let laid = layout(&tree(), &origins, Level::Admin, 2);
         let root = laid.bands.iter().find(|b| b.id == 1).unwrap();
         assert_eq!(root.with_origin, 1);
-        assert_eq!(root.without_origin, 1, "drawn, never omitted");
+        assert_eq!(root.without_origin, 1, "counted");
+
+        // And DRAWN — left as bare background it made the chart disagree with its own legend, and
+        // a branch of unrecorded men looked like a branch with fewer men.
+        let absent = root.segments.iter().find(|s| s.unknown).expect("an unknown segment exists");
+        assert_eq!(absent.count, 1);
+        assert_eq!(absent.slot, 0, "an absence never wears a categorical hue");
+        assert!(absent.w > 0.0, "it occupies real width");
+        // Absence sits last in every bar, so bands can be compared by eye.
+        assert!(root.segments.last().unwrap().unknown);
+        // Segments now account for the whole band.
+        let covered: f64 = root.segments.iter().map(|s| s.w).sum::<f64>()
+            + SEG_GAP * (root.segments.len() - 1) as f64;
+        assert!((covered - root.w).abs() < 0.01, "the bar is fully accounted for");
+    }
+
+    /// Slot 0 carries two different things. They share a colour but not a meaning, and the legend
+    /// must not call both "no locality recorded".
+    #[test]
+    fn other_and_no_locality_are_distinguishable() {
+        let mut comp: HashMap<Option<String>, usize> =
+            (0..10).map(|i| (Some(format!("Place {i:02}")), 10 - i)).collect();
+        comp.insert(None, 4);
+        let slots = assign_slots(&comp);
+        let (segs, _, _) = segments_for(&comp, &slots);
+
+        let other = segs.iter().find(|s| s.slot == 0 && !s.unknown).expect("Other");
+        let absent = segs.iter().find(|s| s.unknown).expect("no locality recorded");
+        assert_eq!(absent.count, 4);
+        assert!(other.count > 0 && other.label.is_none());
+        assert!(segs.last().unwrap().unknown, "absence is always last");
     }
 
     /// Colour follows the entity. Ranking is done once over the root and held, so drilling into a
@@ -865,6 +963,67 @@ mod tests {
         assert_eq!(named.with_origin, 1, "its man is counted here, not lost");
         let root = laid.bands.iter().find(|b| b.id == 1).unwrap();
         assert_eq!(root.with_origin, 1, "and still rolls up to the root");
+    }
+
+    /// The depth bound is a LEGIBILITY bound, not a data one. Folding a branch must move its men
+    /// into the nearest drawn ancestor, so the composition a reader sees is identical at every
+    /// depth — only the visible branching changes. R-DF85 drew 266 bands across 11,220px unbounded.
+    #[test]
+    fn folding_by_depth_preserves_composition_exactly() {
+        let deep = vec![
+            node(1, "R-Root", None, Some(1600), Some(1400)),
+            node(2, "R-Mid", Some(1), Some(1400), Some(1100)),
+            node(3, "R-Deep", Some(2), Some(1100), Some(800)),
+        ];
+        let origins = vec![
+            origin(2, "Cork, Co. Cork, Ireland"),
+            origin(3, "Kenmare, Co. Kerry, Ireland"),
+            origin(3, "Bandon, Co. Cork, Ireland"),
+        ];
+        let full = layout(&deep, &origins, Level::Admin, 3);
+
+        // Fold everything below R-Mid, exactly as the route does past the display depth.
+        let mut folded_nodes = deep.clone();
+        folded_nodes[2].hidden = true;
+        let folded = layout(&folded_nodes, &origins, Level::Admin, 3);
+
+        let root_of = |l: &Laid| l.bands.iter().find(|b| b.id == 1).unwrap().clone();
+        assert_eq!(root_of(&full).with_origin, root_of(&folded).with_origin, "3 men either way");
+        let seg = |l: &Laid, id: i64, name: &str| {
+            l.bands
+                .iter()
+                .find(|b| b.id == id)
+                .unwrap()
+                .segments
+                .iter()
+                .find(|s| s.label.as_deref() == Some(name))
+                .map(|s| s.count)
+        };
+        assert_eq!(seg(&full, 1, "Co. Cork"), Some(2));
+        assert_eq!(seg(&folded, 1, "Co. Cork"), Some(2), "unchanged by folding");
+        assert_eq!(seg(&folded, 1, "Co. Kerry"), Some(1));
+        // R-Deep is gone from the drawing, and its men are now R-Mid's.
+        assert!(folded.bands.iter().all(|b| b.id != 3));
+        assert_eq!(folded.bands.iter().find(|b| b.id == 2).unwrap().with_origin, 3);
+        // And the fold is advertised, so "simple" is never confused with "not shown".
+        assert!(folded.bands.iter().find(|b| b.id == 2).unwrap().has_more);
+        assert!(!full.bands.iter().find(|b| b.id == 2).unwrap().has_more);
+    }
+
+    /// A row of 8px slivers hides the composition bar instead of adding to it. The men stay
+    /// counted; only the per-man box goes, and the count is reported.
+    #[test]
+    fn tips_too_narrow_to_label_are_dropped_and_counted() {
+        let crowd: Vec<SampleOrigin> = (0..40).map(|_| origin(2, "Cork, Co. Cork, Ireland")).collect();
+        let laid = layout(&tree(), &crowd, Level::Admin, 40);
+        assert!(laid.tips.is_empty(), "40 men cannot each hold a legible box");
+        assert_eq!(laid.tips_suppressed, 40, "reported, never silent");
+        // They are still fully present in the composition.
+        assert_eq!(laid.bands.iter().find(|b| b.id == 2).unwrap().with_origin, 40);
+        // Every tip that IS drawn is wide enough to letter.
+        let few = layout(&tree(), &[origin(2, "Cork, Co. Cork, Ireland")], Level::Admin, 1);
+        assert!(few.tips.iter().all(|t| t.w >= MIN_TIP_W));
+        assert_eq!(few.tips_suppressed, 0);
     }
 
     /// A sample placed deeper than the walk still has to land somewhere, or the chart quietly

@@ -256,3 +256,4 @@ code { color: #495057; background-color: #f8f9fa; }
 .origins-swatch.s6 { background: var(--o-6); }
 .origins-swatch.s7 { background: var(--o-7); }
 .origins-swatch.s8 { background: var(--o-8); }
+.origins-more { fill: var(--bs-secondary-color, #6c757d); font-weight: 700; }

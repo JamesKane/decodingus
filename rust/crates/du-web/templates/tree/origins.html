@@ -20,11 +20,24 @@
      not a repaint of survivors. #}
   <div class="btn-group btn-group-sm" role="group" aria-label="{{ t.get("tree.origins.level") }}">
     <a class="btn btn-outline-secondary{% if level == "country" %} active{% endif %}"
-       href="{{ base_path }}/node/{{ name }}/origins?level=country">{{ t.get("tree.origins.level.country") }}</a>
+       href="{{ base_path }}/node/{{ name }}/origins?level=country&amp;depth={{ depth }}">{{ t.get("tree.origins.level.country") }}</a>
     <a class="btn btn-outline-secondary{% if level == "admin" %} active{% endif %}"
-       href="{{ base_path }}/node/{{ name }}/origins?level=admin">{{ t.get("tree.origins.level.admin") }}</a>
+       href="{{ base_path }}/node/{{ name }}/origins?level=admin&amp;depth={{ depth }}">{{ t.get("tree.origins.level.admin") }}</a>
     <a class="btn btn-outline-secondary{% if level == "place" %} active{% endif %}"
-       href="{{ base_path }}/node/{{ name }}/origins?level=place">{{ t.get("tree.origins.level.place") }}</a>
+       href="{{ base_path }}/node/{{ name }}/origins?level=place&amp;depth={{ depth }}">{{ t.get("tree.origins.level.place") }}</a>
+  </div>
+
+  {# Branching levels drawn. A legibility control only — the composition of every band is the
+     same at every depth, because folded branches are counted into their nearest drawn ancestor. #}
+  <div class="d-flex align-items-center gap-1">
+    <label for="origins-depth" class="form-label small text-muted mb-0">{{ t.get("tree.depth") }}</label>
+    <select id="origins-depth" class="form-select form-select-sm" style="width:auto"
+            aria-label="{{ t.get("tree.depth") }}"
+            onchange="location.search='?level={{ level }}&depth='+this.value">
+      {% for opt in depth_options %}
+      <option value="{{ opt.0 }}"{% if opt.1 %} selected{% endif %}>{{ opt.0 }}</option>
+      {% endfor %}
+    </select>
   </div>
 
   <a class="btn btn-sm btn-outline-secondary" href="{{ base_path }}?root={{ name }}">{{ t.get("tree.origins.back") }}</a>
@@ -55,6 +68,9 @@
   {% if l.pruned > 0 %}
   · {{ l.pruned }} {{ t.get("tree.origins.pruned") }}
   {% endif %}
+  {% if l.tips_suppressed > 0 %}
+  · {{ l.tips_suppressed }} {{ t.get("tree.origins.tipshidden") }}
+  {% endif %}
 </p>
 
 {% if l.legend.len() >= 2 %}
@@ -63,7 +79,7 @@
   {% for e in l.legend %}
   <span class="origins-legend-item">
     <span class="origins-swatch s{{ e.slot }}"></span>
-    {% if let Some(lbl) = e.label %}{{ lbl }}{% else %}{{ t.get("tree.origins.unknown") }}{% endif %}
+    {% if let Some(lbl) = e.label %}{{ lbl }}{% else if e.unknown %}{{ t.get("tree.origins.unknown") }}{% else %}{{ t.get("tree.origins.other") }}{% endif %}
     <span class="text-muted">{{ e.count }}</span>
   </span>
   {% endfor %}
@@ -103,15 +119,21 @@
         {% for s in b.segments %}
         <rect x="{{ s.x }}" y="{{ b.y }}" width="{{ s.w }}" height="{{ b.h }}"
               class="origins-seg s{{ s.slot }}" rx="2">
-          <title>{% if let Some(lbl) = s.label %}{{ lbl }}{% else %}{{ t.get("tree.origins.other") }}{% endif %} · {{ s.count }}</title>
+          <title>{% if let Some(lbl) = s.label %}{{ lbl }}{% else if s.unknown %}{{ t.get("tree.origins.unknown") }}{% else %}{{ t.get("tree.origins.other") }}{% endif %} · {{ s.count }}</title>
         </rect>
         {% endfor %}
-        <title>{{ b.name }} — {{ b.with_origin }} {{ t.get("tree.origins.with") }}, {{ b.without_origin }} {{ t.get("tree.origins.without") }}</title>
+        <title>{{ b.name }} — {{ b.with_origin }} {{ t.get("tree.origins.with") }}, {{ b.without_origin }} {{ t.get("tree.origins.without") }}{% if b.has_more %} · {{ t.get("tree.origins.more") }}{% endif %}</title>
       </a>
       {# Direct label: the relief the light-mode contrast warning obliges. Text wears text tokens,
          never the series colour. #}
       {% if !b.cramped %}
       <text x="{{ b.x }}" y="{{ b.y }}" dx="4" dy="11" font-size="10" class="origins-band-label">{{ b.label }}</text>
+      {% endif %}
+      {# Branches were folded into this band. Marked so "simple" is never confused with
+         "not shown" — click through to draw them. #}
+      {% if b.has_more %}
+      <text x="{{ b.x }}" y="{{ b.y }}" dx="{{ b.w }}" dy="{{ b.h }}" text-anchor="end"
+            font-size="9" class="origins-more">+</text>
       {% endif %}
     </g>
     {% endfor %}
@@ -142,7 +164,7 @@
       <tbody>
         {% for e in l.legend %}
         <tr>
-          <td>{% if let Some(lbl) = e.label %}{{ lbl }}{% else %}{{ t.get("tree.origins.unknown") }}{% endif %}</td>
+          <td>{% if let Some(lbl) = e.label %}{{ lbl }}{% else if e.unknown %}{{ t.get("tree.origins.unknown") }}{% else %}{{ t.get("tree.origins.other") }}{% endif %}</td>
           <td class="text-end">{{ e.count }}</td>
         </tr>
         {% endfor %}

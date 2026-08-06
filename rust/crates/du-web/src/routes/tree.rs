@@ -527,14 +527,24 @@ async fn clade_geo_data(
 /// a continent and says nothing about where a *line* went. Nodes older than this render as a
 /// signpost down to their eligible children rather than as a chart.
 const ORIGINS_MAX_YBP: i32 = 1500;
-/// Safety bound on the subtree walk — not a display choice. The drawn depth is decided by
-/// `origins_layout::prune_to_origins`, which keeps only the branches carrying an origin.
-const ORIGINS_DEPTH: i32 = 40;
+/// Safety bound on the subtree *walk* — not a display choice. Composition rolls up from every
+/// branch inside it, however deep.
+const ORIGINS_WALK: i32 = 40;
+/// Levels of branching actually drawn. This is a legibility bound, not a data one: R-DF85 has 266
+/// branches over 12 levels and drew an 11,220px canvas — six screens of horizontal scrolling —
+/// because canvas width is driven by the number of leaf branches. Folding below this depth keeps
+/// every man in his ancestor's composition while collapsing the shape to one screen.
+const ORIGINS_DEPTH_DEFAULT: i32 = 4;
+const ORIGINS_DEPTH_MIN: i32 = 1;
+const ORIGINS_DEPTH_MAX: i32 = 8;
+const ORIGINS_DEPTH_OPTIONS: [i32; 6] = [2, 3, 4, 5, 6, 8];
 
 #[derive(Deserialize)]
 struct OriginsQuery {
     /// `country` (default) · `admin` · `place`.
     level: Option<String>,
+    /// Branching levels drawn; clamped to [`ORIGINS_DEPTH_MIN`]..=[`ORIGINS_DEPTH_MAX`].
+    depth: Option<i32>,
 }
 
 fn origins_level(s: Option<&str>) -> place::Level {
@@ -581,13 +591,17 @@ async fn origins(
         .await?
         .ok_or_else(|| AppError::NotFound(format!("no haplogroup {name}")))?;
     let level = origins_level(q.level.as_deref());
+    let depth = q
+        .depth
+        .unwrap_or(ORIGINS_DEPTH_DEFAULT)
+        .clamp(ORIGINS_DEPTH_MIN, ORIGINS_DEPTH_MAX);
     let crumbs = build_crumbs(&st.pool, dna_type, base_path, &name).await?;
 
     // The era gate. A clade older than the ceiling gets its eligible children rather than a chart
     // whose every band would read "Europe" — the reader is sent down, not turned away.
     let too_old = node.tmrca_ybp.is_none_or(|t| t > ORIGINS_MAX_YBP);
     if too_old {
-        let window = du_db::haplogroup::subtree_window(&st.pool, dna_type, &name, ORIGINS_DEPTH).await?;
+        let window = du_db::haplogroup::subtree_window(&st.pool, dna_type, &name, ORIGINS_WALK).await?;
         let eligible: Vec<Crumb> = window
             .iter()
             .filter(|n| n.id != node.id.0 && n.tmrca_ybp.is_some_and(|t| t <= ORIGINS_MAX_YBP))
@@ -604,6 +618,8 @@ async fn origins(
             base_path,
             name,
             level: level_code(level),
+            depth,
+            depth_options: ORIGINS_DEPTH_OPTIONS.iter().map(|&d| (d, d == depth)).collect(),
             tmrca_ybp: node.tmrca_ybp,
             max_ybp: ORIGINS_MAX_YBP,
             crumbs,
@@ -617,10 +633,17 @@ async fn origins(
     // The whole subtree, not a display window: `origins_layout` prunes to the branches that
     // actually carry an origin, so the drawn depth follows the data instead of a fixed number —
     // and no sample is lost for sitting below an arbitrary cut-off.
-    let window = du_db::haplogroup::subtree_window(&st.pool, dna_type, &name, ORIGINS_DEPTH).await?;
-    // De-novo auto-named nodes must not surface publicly here any more than on the tree itself.
-    // They stay in the input marked `hidden`, so the ancestor walk is unbroken and their men are
-    // attributed to the nearest named branch rather than dropped.
+    let window = du_db::haplogroup::subtree_window(&st.pool, dna_type, &name, ORIGINS_WALK).await?;
+    // Two reasons a branch is marked `hidden`, both meaning "not drawn, but still walked":
+    //
+    //   * de-novo auto-named nodes, which must not surface publicly here any more than on the
+    //     tree itself;
+    //   * anything past the display depth.
+    //
+    // Either way it stays in the input, so the ancestor walk is unbroken and its men are
+    // attributed to the nearest drawn branch instead of being lost. That is what makes the depth
+    // bound a *legibility* bound rather than a data one: the composition is identical at every
+    // depth, only the visible branching changes.
     let nodes: Vec<origins_layout::Node> = window
         .iter()
         .map(|n| origins_layout::Node {
@@ -629,7 +652,7 @@ async fn origins(
             parent_id: n.parent_id,
             formed_ybp: n.formed_ybp,
             tmrca_ybp: n.tmrca_ybp,
-            hidden: is_private_node(&n.name) || is_uuid_label(&n.name),
+            hidden: n.depth > depth || is_private_node(&n.name) || is_uuid_label(&n.name),
         })
         .collect();
 
@@ -644,6 +667,8 @@ async fn origins(
         base_path,
         name,
         level: level_code(level),
+        depth,
+        depth_options: ORIGINS_DEPTH_OPTIONS.iter().map(|&d| (d, d == depth)).collect(),
         tmrca_ybp: node.tmrca_ybp,
         max_ybp: ORIGINS_MAX_YBP,
         crumbs,
@@ -674,6 +699,10 @@ struct OriginsPageTemplate {
     base_path: &'static str,
     name: String,
     level: &'static str,
+    /// Branching levels drawn — a legibility bound; composition is unaffected by it.
+    depth: i32,
+    /// (depth value, is-current) for the selector.
+    depth_options: Vec<(i32, bool)>,
     tmrca_ybp: Option<i32>,
     max_ybp: i32,
     crumbs: Vec<Crumb>,
