@@ -8,6 +8,7 @@ nav.references=Referencias
 nav.map=Mapa
 nav.coverage=Cobertura
 nav.strMarkers=Marcadores Y-STR
+nav.origins=Orígenes ancestrales
 nav.curator=Curador
 nav.tools=Herramientas
 nav.profile=Perfil
@@ -123,6 +124,7 @@ tree.geo.loading=Cargando mapa…
 
 # Ancestral-origin icicle (proposals/ancestral-origin-icicle.md)
 tree.origins.title=Orígenes ancestrales
+tree.origins.open=Orígenes ancestrales
 tree.origins.level=Nivel de detalle
 tree.origins.level.country=País
 tree.origins.level.admin=Condado / Estado
@@ -144,6 +146,8 @@ tree.origins.col.count=Muestras
 tree.origins.tooold=Los orígenes ancestrales solo tienen sentido en la era genealógica. Este clado es más antiguo, así que cada una de sus ramas se agregaría a un continente entero.
 tree.origins.ceiling=límite
 tree.origins.trybelow=Pruebe una de estas ramas más recientes:
+tree.origins.showing=mostrando
+tree.origins.of=de
 tree.origins.nonebelow=Todavía no hay ninguna rama lo bastante reciente bajo este clado.
 tree.geo.tmrca=TMRCA
 tree.geo.formed=Formado

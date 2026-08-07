@@ -8,6 +8,7 @@ nav.references=References
 nav.map=Map
 nav.coverage=Coverage
 nav.strMarkers=Y-STR Markers
+nav.origins=Ancestral origins
 nav.curator=Curator
 nav.tools=Tools
 nav.profile=Profile
@@ -171,6 +172,7 @@ tree.geo.loading=Loading map…
 
 # Ancestral-origin icicle (proposals/ancestral-origin-icicle.md)
 tree.origins.title=Ancestral origins
+tree.origins.open=Ancestral origins
 tree.origins.level=Detail level
 tree.origins.level.country=Country
 tree.origins.level.admin=County / State
@@ -192,6 +194,8 @@ tree.origins.col.count=Samples
 tree.origins.tooold=Ancestral origins are only meaningful in the genealogical era. This clade is older than that, so its branches would each aggregate to a whole continent.
 tree.origins.ceiling=cutoff
 tree.origins.trybelow=Try one of these younger branches below it:
+tree.origins.showing=showing
+tree.origins.of=of
 tree.origins.nonebelow=No branch below this clade is young enough yet.
 tree.geo.tmrca=TMRCA
 tree.geo.formed=Formed

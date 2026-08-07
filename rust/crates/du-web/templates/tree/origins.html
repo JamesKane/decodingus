@@ -168,10 +168,18 @@
   {% if eligible.is_empty() %}
   <p class="mb-0 small text-muted">{{ t.get("tree.origins.nonebelow") }}</p>
   {% else %}
-  <p class="mb-1 small">{{ t.get("tree.origins.trybelow") }}</p>
-  <div class="d-flex flex-wrap gap-1">
+  <p class="mb-2 small">
+    {{ t.get("tree.origins.trybelow") }}
+    {% if eligible_total > eligible.len() %}
+    <span class="text-muted">({{ t.get("tree.origins.showing") }} {{ eligible.len() }} {{ t.get("tree.origins.of") }} {{ eligible_total }})</span>
+    {% endif %}
+  </p>
+  <div class="d-flex flex-wrap gap-2">
     {% for c in eligible %}
-    <a class="btn btn-sm btn-outline-secondary" href="{{ c.href }}" rel="nofollow">{{ c.name }}</a>
+    <a class="btn btn-sm btn-outline-secondary text-start" href="{{ c.href }}" rel="nofollow">
+      <span class="fw-semibold">{{ c.name }}</span>
+      <span class="text-muted small ms-1">{{ c.samples }} · {{ c.tmrca_ybp }} {{ t.get("tree.geo.axis") }}</span>
+    </a>
     {% endfor %}
   </div>
   {% endif %}

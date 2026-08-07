@@ -54,6 +54,11 @@ pub fn router() -> Router<AppState> {
         .route("/ytree/node/:name/geo-data", get(y_clade_geo_data))
         .route("/mtree/node/:name/geo-data", get(mt_clade_geo_data))
         // Genealogical-era ancestral-origin icicle (proposals/ancestral-origin-icicle.md).
+        // The lineage-level route is the nav entry point: it opens on the tree root, which is
+        // always older than the era gate, so it renders the signpost — the clades young enough to
+        // have origins, ranked by how many men they hold.
+        .route("/ytree/origins", get(y_origins_index))
+        .route("/mtree/origins", get(mt_origins_index))
         .route("/ytree/node/:name/origins", get(y_origins))
         .route("/mtree/node/:name/origins", get(mt_origins))
         // Curator triage for sample leaves whose published call didn't resolve to a node.
@@ -160,6 +165,8 @@ struct SnpSidebar {
     name: String,
     /// URL of this node's sample-map panel fragment (lazy-loaded on click).
     geo_href: String,
+    /// URL of this node's ancestral-origins icicle (a full page, not a panel).
+    origins_href: String,
     provenance: Option<Provenance>,
     /// The consolidated age block: the branch TMRCA/formed on a time axis (with any
     /// ancient-DNA anchors). Replaces the old textual formed/TMRCA provenance rows.
@@ -459,10 +466,16 @@ async fn snp_sidebar(
         base_path_for(dna_type),
         utf8_percent_encode(&name, NON_ALPHANUMERIC)
     );
+    let origins_href = format!(
+        "{}/node/{}/origins",
+        base_path_for(dna_type),
+        utf8_percent_encode(&name, NON_ALPHANUMERIC)
+    );
     Ok(html(&SnpSidebar {
         t: locale.t,
         name,
         geo_href,
+        origins_href,
         provenance,
         age,
         variants,
@@ -538,6 +551,17 @@ const ORIGINS_DEPTH_DEFAULT: i32 = 4;
 const ORIGINS_DEPTH_MIN: i32 = 1;
 const ORIGINS_DEPTH_MAX: i32 = 8;
 const ORIGINS_DEPTH_OPTIONS: [i32; 6] = [2, 3, 4, 5, 6, 8];
+/// Clades offered on the signpost when the requested one is older than the era gate. Under the Y
+/// root thousands qualify; these are the largest, and the total is shown beside them.
+const ORIGINS_SIGNPOST_CAP: usize = 60;
+
+/// A clade young enough to have ancestral origins, offered as a way in.
+struct EligibleClade {
+    name: String,
+    href: String,
+    samples: i64,
+    tmrca_ybp: i32,
+}
 
 #[derive(Deserialize)]
 struct OriginsQuery {
@@ -553,6 +577,27 @@ fn origins_level(s: Option<&str>) -> place::Level {
         "place" | "locality" => place::Level::Locality,
         _ => place::Level::Country,
     }
+}
+
+/// Lineage-level entry: the origins view rooted at the tree's default root.
+async fn y_origins_index(
+    st: State<AppState>,
+    locale: Locale,
+    user: crate::auth::MaybeUser,
+    q: Query<OriginsQuery>,
+) -> Result<Response, AppError> {
+    let root = default_root_name(&st.pool, DnaType::YDna, "Y").await?;
+    origins(st, locale, user, Path(root), q, DnaType::YDna).await
+}
+
+async fn mt_origins_index(
+    st: State<AppState>,
+    locale: Locale,
+    user: crate::auth::MaybeUser,
+    q: Query<OriginsQuery>,
+) -> Result<Response, AppError> {
+    let root = default_root_name(&st.pool, DnaType::MtDna, "L").await?;
+    origins(st, locale, user, Path(root), q, DnaType::MtDna).await
 }
 
 async fn y_origins(
@@ -602,13 +647,27 @@ async fn origins(
     let too_old = node.tmrca_ybp.is_none_or(|t| t > ORIGINS_MAX_YBP);
     if too_old {
         let window = du_db::haplogroup::subtree_window(&st.pool, dna_type, &name, ORIGINS_WALK).await?;
-        let eligible: Vec<Crumb> = window
+        // Rank the eligible clades by how many men they hold, so the entry point opens on the
+        // branches worth looking at rather than the alphabetically-first ones. Under the Y root
+        // there are thousands; the cap is stated rather than silently applied.
+        let counts = du_db::tree_sample::cumulative_counts(&st.pool, dna_type).await?;
+        let mut ranked: Vec<(String, i64, i32)> = window
             .iter()
             .filter(|n| n.id != node.id.0 && n.tmrca_ybp.is_some_and(|t| t <= ORIGINS_MAX_YBP))
-            .filter(|n| !is_private_node(&n.name))
-            .map(|n| Crumb {
-                href: format!("{base_path}/node/{}/origins", encode(&n.name)),
-                name: n.name.clone(),
+            .filter(|n| !is_private_node(&n.name) && !is_uuid_label(&n.name))
+            .map(|n| (n.name.clone(), counts.get(&n.id).copied().unwrap_or(0), n.tmrca_ybp.unwrap_or(0)))
+            .filter(|(_, samples, _)| *samples > 0)
+            .collect();
+        ranked.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+        let eligible_total = ranked.len();
+        ranked.truncate(ORIGINS_SIGNPOST_CAP);
+        let eligible: Vec<EligibleClade> = ranked
+            .into_iter()
+            .map(|(name, samples, tmrca_ybp)| EligibleClade {
+                href: format!("{base_path}/node/{}/origins", encode(&name)),
+                name,
+                samples,
+                tmrca_ybp,
             })
             .collect();
         let page = OriginsPageTemplate {
@@ -625,6 +684,7 @@ async fn origins(
             crumbs,
             laid: None,
             eligible,
+            eligible_total,
             placed: 0,
         };
         return Ok(html(&page));
@@ -679,6 +739,7 @@ async fn origins(
         crumbs,
         laid: Some(laid),
         eligible: Vec::new(),
+        eligible_total: 0,
         placed: placed.max(0),
     }))
 }
@@ -713,8 +774,11 @@ struct OriginsPageTemplate {
     crumbs: Vec<Crumb>,
     /// `None` when the clade is older than the era gate — the template shows `eligible` instead.
     laid: Option<origins_layout::Laid>,
-    /// Descendant clades that *are* inside the era, offered when this one is not.
-    eligible: Vec<Crumb>,
+    /// Descendant clades that *are* inside the era, offered when this one is not — ranked by how
+    /// many men they hold, capped at [`ORIGINS_SIGNPOST_CAP`].
+    eligible: Vec<EligibleClade>,
+    /// How many were eligible before the cap, so the truncation is never silent.
+    eligible_total: usize,
     /// Placed samples under the clade — the denominator the composition is reported against.
     placed: i64,
 }
