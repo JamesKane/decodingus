@@ -34,27 +34,36 @@ use du_db::origins::SampleOrigin;
 use du_db::place::Level;
 use std::collections::HashMap;
 
-/// Canvas geometry at scale 1.
-const LEAF_W: f64 = 74.0;
+// Type sizes. These were 9-10px and unreadable at normal viewing distance; everything below is
+// sized off them so the geometry follows the type rather than the other way round.
+/// Branch name at the top of a block.
+pub(crate) const NAME_FONT: f64 = 12.0;
+/// SNP names inside a block, and a man's label.
+pub(crate) const SNP_FONT: f64 = 11.0;
+pub(crate) const TIP_FONT: f64 = 11.0;
+
+/// Canvas geometry at scale 1. Wide enough for a 12-character SNP name at [`SNP_FONT`]
+/// (`14405732-C-T`) plus padding — the narrowest a block can be and still letter its contents.
+const LEAF_W: f64 = 90.0;
 const H_GAP: f64 = 4.0;
 /// Ruler graduation interval, in mutations.
 const TICK_SNPS: usize = 5;
 /// Sample tips hang in a band below the youngest branch.
-const TIP_H: f64 = 16.0;
+const TIP_H: f64 = 19.0;
 /// Narrowest a man's box may be and still carry a readable label. Men wrap into further rows
 /// rather than being packed below it.
-const MIN_TIP_W: f64 = 26.0;
+const MIN_TIP_W: f64 = 30.0;
 /// Vertical gap between wrapped rows of men.
 const TIP_ROW_GAP: f64 = 2.0;
 const TIP_GAP: f64 = 10.0;
 const GUTTER_W: f64 = 54.0;
 const MARGIN: f64 = 8.0;
 /// One line of SNP text inside a block.
-const SNP_LINE_H: f64 = 11.0;
+const SNP_LINE_H: f64 = 14.0;
 /// Padding inside a block before its SNP list starts.
 const SNP_PAD: f64 = 4.0;
 /// The branch-name line at the top of every block.
-const NAME_LINE_H: f64 = 12.0;
+const NAME_LINE_H: f64 = 16.0;
 
 /// Categorical slots available before folding into "Other". The palette is fixed-order and never
 /// cycled; a ninth locality is not given a generated hue.
@@ -452,7 +461,7 @@ pub fn layout(all_nodes: &[Node], all_origins: &[SampleOrigin], level: Level, pl
         let snps = flow_snps(&n.snps, left[i], y, extent[i]);
         bands.push(Band {
             id: n.id,
-            label: fit(&n.name, extent[i], 10.0),
+            label: fit(&n.name, extent[i], NAME_FONT),
             name: n.name.clone(),
             x: left[i],
             y,
@@ -464,7 +473,7 @@ pub fn layout(all_nodes: &[Node], all_origins: &[SampleOrigin], level: Level, pl
             without_origin,
             snps,
             snp_total: n.snps.len(),
-            cramped: h < 14.0,
+            cramped: h < NAME_LINE_H,
             has_more: has_more.contains(&n.id),
         });
         deepest = deepest.max(y + h);
@@ -513,7 +522,7 @@ pub fn layout(all_nodes: &[Node], all_origins: &[SampleOrigin], level: Level, pl
             tips.push(Tip {
                 slot: locality.and_then(|l| slots.get(l).copied()).unwrap_or(0),
                 full: label.clone(),
-                label: fit(&label, w, 9.0),
+                label: fit(&label, w, TIP_FONT),
                 x: bx + (k % cols) as f64 * (w + H_GAP),
                 y: tip_y + (k / cols) as f64 * (TIP_H + TIP_ROW_GAP),
                 w,
@@ -561,7 +570,7 @@ fn flow_snps(names: &[String], x: f64, y: f64, w: f64) -> Vec<SnpCell> {
         .iter()
         .enumerate()
         .map(|(k, name)| SnpCell {
-            name: fit(name, w - 2.0 * SNP_PAD, 9.0),
+            name: fit(name, w - 2.0 * SNP_PAD, SNP_FONT),
             x: x + SNP_PAD,
             y: top + (k as f64 + 0.8) * SNP_LINE_H,
         })
@@ -1015,10 +1024,10 @@ mod tests {
     /// was unreadable — which the rectangle-only layout assertions could never have caught.
     #[test]
     fn labels_are_fitted_to_their_boxes() {
-        assert_eq!(fit("Kane", 74.0, 9.0), "Kane", "what fits is left alone");
-        let cut = fit("Sullivan · Co. Limerick", 74.0, 9.0);
+        assert_eq!(fit("Kane", LEAF_W, SNP_FONT), "Kane", "what fits is left alone");
+        let cut = fit("Sullivan · Co. Limerick", LEAF_W, SNP_FONT);
         assert!(cut.ends_with('…') && cut.chars().count() < 23);
-        assert!(fit("anything", 4.0, 9.0).is_empty(), "no room at all yields no text");
+        assert!(fit("anything", 4.0, SNP_FONT).is_empty(), "no room at all yields no text");
 
         let laid = layout(&tree(), &[origin(2, "Kenmare, Co. Kerry, Ireland")], Level::Admin, 1);
         let tip = laid.tips.first().expect("one man");
@@ -1026,7 +1035,7 @@ mod tests {
         assert!(tip.label.chars().count() <= tip.full.chars().count());
         // Every band's drawn label fits the band it sits in.
         for b in &laid.bands {
-            assert!((b.label.chars().count() as f64) * 10.0 * CHAR_W_RATIO <= b.w, "{}", b.name);
+            assert!((b.label.chars().count() as f64) * NAME_FONT * CHAR_W_RATIO <= b.w, "{}", b.name);
         }
     }
 

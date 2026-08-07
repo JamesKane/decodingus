@@ -175,34 +175,26 @@ code { color: #495057; background-color: #f8f9fa; }
 }
 
 /* ── Ancestral-origin icicle (proposals/ancestral-origin-icicle.md §5) ───────── */
-/* Colour roles live here so light/dark swap in one place and the SVG is written
-   against slots rather than raw hex. The palette is the validated 8-slot
-   categorical set — fixed order, never cycled. Slot 0 is the reserved neutral
-   carrying both "Other" and "no locality recorded": an absence is not an
-   identity, so it must not wear a categorical hue.
+/* Colour roles live here so the chart is written against roles rather than raw hex.
+   The palette is the validated 8-slot categorical set — fixed order, never cycled.
+   Slot 0 is the reserved neutral carrying both "Other" and "no locality recorded":
+   an absence is not an identity, so it must not wear a categorical hue.
 
-   Validated with the data-viz palette checker in both modes. Light mode raises a
-   contrast warning on three slots (aqua/yellow/magenta below 3:1 on a light
-   surface), which obliges relief — hence the always-on band labels and the
-   table view in origins.html. */
+   THEME FOLLOWS THE PAGE, NOT THE OS. An earlier cut keyed the dark values off
+   `prefers-color-scheme`, but the site itself is light-only — so on a dark-mode
+   desktop the SVG surface went dark while the Bootstrap-derived block fills stayed
+   light, and every block label became dark text with a dark halo on a light block.
+   The dark values now hang off `[data-bs-theme="dark"]` alone, which is what the
+   app would set if it ever gains a dark theme. */
 .origins-icicle {
-  --surface-1: #ffffff;
+  --surface-1: var(--bs-body-bg, #ffffff);
   --o-0: #adb5bd;                 /* reserved neutral: Other / no locality */
   --o-1: #2a78d6; --o-2: #eb6834; --o-3: #1baf7a; --o-4: #eda100;
   --o-5: #e87ba4; --o-6: #008300; --o-7: #4a3aa7; --o-8: #e34948;
   display: block;
   background: var(--surface-1);
 }
-@media (prefers-color-scheme: dark) {
-  .origins-icicle {
-    --surface-1: #1a1a19;
-    --o-0: #6c757d;
-    --o-1: #3987e5; --o-2: #d95926; --o-3: #199e70; --o-4: #c98500;
-    --o-5: #d55181; --o-6: #008300; --o-7: #9085e9; --o-8: #e66767;
-  }
-}
 [data-bs-theme="dark"] .origins-icicle {
-  --surface-1: #1a1a19;
   --o-0: #6c757d;
   --o-1: #3987e5; --o-2: #d95926; --o-3: #199e70; --o-4: #c98500;
   --o-5: #d55181; --o-6: #008300; --o-7: #9085e9; --o-8: #e66767;
@@ -215,8 +207,8 @@ code { color: #495057; background-color: #f8f9fa; }
 .origins-band a { cursor: pointer; }
 .origins-band:hover .origins-band-bg { stroke: var(--bs-primary, #0d6efd); stroke-width: 1.5; }
 /* Text wears text tokens, never the series colour. */
-.origins-band-label { fill: var(--bs-body-color, #212529); font-weight: 600; paint-order: stroke; stroke: var(--surface-1); stroke-width: 2.5px; }
-.origins-tip-label  { fill: var(--bs-secondary-color, #6c757d); paint-order: stroke; stroke: var(--surface-1); stroke-width: 2.5px; }
+.origins-band-label { fill: var(--bs-body-color, #212529); font-weight: 600; paint-order: stroke; stroke: var(--bs-tertiary-bg, #f8f9fa); stroke-width: 3px; }
+.origins-tip-label  { fill: var(--bs-body-color, #212529); paint-order: stroke; stroke: var(--surface-1); stroke-width: 3px; }
 
 /* Stacked segments are separated by surface, not by a stroke (mark spec). */
 .origins-seg { stroke: none; }
@@ -255,6 +247,6 @@ code { color: #495057; background-color: #f8f9fa; }
 .origins-more { fill: var(--bs-secondary-color, #6c757d); font-weight: 700; }
 /* Block contents: the branch's equivalent SNPs. Recessive against the block, and never coloured
    by anything — a mutation has no locality. */
-.origins-snp { fill: var(--bs-body-color, #212529); opacity: .75; font-family: var(--bs-font-monospace, monospace); }
+.origins-snp { fill: var(--bs-body-color, #212529); opacity: .8; font-family: var(--bs-font-monospace, monospace); }
 .origins-snp-more { fill: var(--bs-secondary-color, #6c757d); font-style: italic; }
 .origins-tick-unit { fill: var(--bs-secondary-color, #6c757d); font-style: italic; }
