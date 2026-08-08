@@ -13,7 +13,10 @@
 //! from the persisted `time_us` cursor and reconnects with capped backoff; every
 //! upsert is idempotent + ordered, so replay overlap on reconnect is harmless.
 
-use du_db::fed::{self, analytics, core, coverage, device_key, instrument_observation, private_variant, str_profile};
+use du_db::fed::{
+    self, analytics, ancestral_origin, core, coverage, device_key, instrument_observation, private_variant,
+    str_profile,
+};
 use du_db::PgPool;
 use futures_util::{SinkExt, StreamExt};
 use serde::Deserialize;
@@ -192,6 +195,16 @@ async fn handle(pool: &PgPool, ev: &Event) -> anyhow::Result<()> {
             instrument_observation::upsert(pool, &build_instrument_observation(c, record)).await?
         }
         fed::NS_PRIVATE_VARIANT => private_variant::upsert(pool, &build_private_variant(c, record)).await?,
+        fed::NS_ANCESTRAL_ORIGIN => {
+            // `None` means the record failed a privacy gate (see `build_ancestral_origin`). It is
+            // dropped, not stored-and-hidden: a row that exists is a row a future read path can
+            // leak. Logged at debug so a misbehaving client is diagnosable without the rejected
+            // content itself reaching the log.
+            match build_ancestral_origin(c, record) {
+                Some(o) => ancestral_origin::upsert(pool, &o).await?,
+                None => tracing::debug!(did = %ev.did, "ancestralOrigin rejected by a privacy gate"),
+            }
+        }
         fed::NS_DEVICE_KEY => {
             // A device key with no public key is unusable — skip it rather than store a null.
             if let Some(public_key) = str_at(record, "publicKey") {
@@ -481,6 +494,106 @@ fn build_private_variant(c: fed::Common, record: &Value) -> private_variant::Pri
         variants: record.get("variants").cloned().unwrap_or_else(|| json!([])),
         common: c,
     }
+}
+
+/// The latest ancestor birth year that may carry place-level detail. A person born in 1900 is 126
+/// today; this is the check that makes "an MDKA is not living-donor PII" verifiable rather than
+/// asserted. The floor rejects corrupt years rather than trusting them.
+const ANCESTOR_BIRTH_YEAR_MAX: i32 = 1900;
+const ANCESTOR_BIRTH_YEAR_MIN: i32 = 1000;
+
+/// Name particles that legitimately precede a surname. Without these, `is_surname_only` would
+/// reject `van der Berg` and `de la Cruz` — real surnames — while accepting nothing extra:
+/// `Thomas Michael Kane` still fails, because `Thomas` and `Michael` are not particles.
+const NAME_PARTICLES: &[&str] = &[
+    "van", "von", "der", "den", "de", "del", "della", "di", "da", "dos", "du", "la", "le", "les",
+    "mac", "mc", "st", "st.", "saint", "ter", "ten", "af", "av", "al", "bin", "ibn", "ap", "ó",
+    "ni", "nic", "mag", "fitz",
+];
+
+/// Gate 1: the record may carry a **surname**, never a given name. A client that puts
+/// `"Thomas Michael Kane"` in a field labelled `surname` is leaking one, whether by bug or by
+/// design, so the AppView checks rather than trusting the label.
+///
+/// The rule is "one name token, optionally preceded by particles" — which accepts the surnames
+/// that genuinely contain spaces and rejects a forename sequence.
+fn is_surname_only(s: &str) -> bool {
+    let tokens: Vec<&str> = s.split_whitespace().collect();
+    if tokens.is_empty() || tokens.len() > 4 {
+        return false;
+    }
+    tokens[..tokens.len() - 1]
+        .iter()
+        .all(|t| NAME_PARTICLES.contains(&t.to_lowercase().as_str()))
+}
+
+/// Gate 4: coarsen to ~1 km before storage. Applied here and not only at publish, because the
+/// publisher cannot be trusted to have done it — and a county-scale view cannot use finer detail
+/// anyway, while a rooftop coordinate plus a surname narrows to one family.
+fn coarsen(v: f64) -> f64 {
+    (v * 100.0).round() / 100.0
+}
+
+/// Build a mirrored ancestral origin, or `None` to **reject** the record.
+///
+/// Rejection is deliberate and total: an unpublishable record is not stored and later hidden,
+/// because a row that exists is a row some future read path can leak. See
+/// `proposals/ancestral-origin-icicle.md` §2.
+fn build_ancestral_origin(c: fed::Common, record: &Value) -> Option<ancestral_origin::AncestralOrigin> {
+    let biosample_ref = str_at(record, "biosampleRef");
+    let ids = external_ids(record);
+    // No join key at all — this can never resolve to a sample, so storing it is liability with
+    // no benefit.
+    if biosample_ref.is_none() && ids.is_empty() {
+        return None;
+    }
+
+    // Gate 1 — surname only.
+    let surname = str_at(record, "surname").map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+    if let Some(s) = &surname {
+        if !is_surname_only(s) {
+            return None;
+        }
+    }
+
+    // Gate 2 — the date ceiling. A year outside the plausible range is corrupt, not merely old.
+    let birth_year = i32_at(record, "birthYear");
+    if let Some(y) = birth_year {
+        if !(ANCESTOR_BIRTH_YEAR_MIN..=ANCESTOR_BIRTH_YEAR_MAX).contains(&y) {
+            return None;
+        }
+    }
+
+    // Gate 3 — the precision ladder. Without a birth year there is nothing establishing that this
+    // ancestor is long dead, so only the country may be kept: place text and coordinate are
+    // dropped rather than the record.
+    let dated = birth_year.is_some();
+    let origin_place = dated.then(|| str_at(record, "originPlace")).flatten();
+    // Gate 4 — coarsen whatever coordinate survives.
+    let (lat, lon) = match dated {
+        true => (
+            f64_at(record, "lat").map(coarsen),
+            f64_at(record, "lon").map(coarsen),
+        ),
+        false => (None, None),
+    };
+
+    Some(ancestral_origin::AncestralOrigin {
+        biosample_ref,
+        external_ids: json!(ids
+            .iter()
+            .map(|(ns, v)| json!({ "namespace": ns, "value": v }))
+            .collect::<Vec<_>>()),
+        lineage: str_at(record, "lineage"),
+        surname,
+        origin_place,
+        origin_country: str_at(record, "originCountry"),
+        birth_year,
+        death_year: i32_at(record, "deathYear"),
+        lat,
+        lon,
+        common: c,
+    })
 }
 
 fn build_reconciliation(c: fed::Common, record: &Value) -> analytics::Reconciliation {
@@ -773,6 +886,104 @@ mod tests {
         assert_eq!(p.dna_type.as_deref(), Some("Y_DNA"));
         assert_eq!(p.terminal_haplogroup.as_deref(), Some("R-M269"));
         assert_eq!(p.variants.as_array().map(|a| a.len()), Some(2));
+    }
+
+    fn origin(extra: Value) -> Value {
+        let mut base = json!({
+            "externalIds": [{ "namespace": "ftdna", "value": "b5163" }],
+            "lineage": "Y_DNA",
+            "surname": "Kane",
+            "originPlace": "Creegh South, Co. Clare, Ireland",
+            "originCountry": "Ireland",
+            "birthYear": 1830,
+            "deathYear": 1908,
+            "lat": 52.7534567,
+            "lon": -9.4312345
+        });
+        let (Value::Object(b), Value::Object(e)) = (&mut base, extra) else { unreachable!() };
+        for (k, v) in e {
+            if v.is_null() {
+                b.remove(&k);
+            } else {
+                b.insert(k, v);
+            }
+        }
+        base
+    }
+
+    #[test]
+    fn ancestral_origin_extracts_and_normalizes_identifiers() {
+        let o = build_ancestral_origin(mk_common(), &origin(json!({}))).expect("accepted");
+        assert_eq!(o.surname.as_deref(), Some("Kane"));
+        assert_eq!(o.origin_country.as_deref(), Some("Ireland"));
+        assert_eq!(o.birth_year, Some(1830));
+        assert_eq!(o.death_year, Some(1908));
+        // Identifiers are upper/trimmed for the `core.biosample_identifier` join.
+        assert_eq!(
+            o.external_ids,
+            json!([{ "namespace": "FTDNA", "value": "B5163" }])
+        );
+    }
+
+    /// Gate 4 — a rooftop coordinate plus a surname narrows to one family, and a county-scale
+    /// view cannot use the precision anyway. Coarsening at ingest, not only at publish, is what
+    /// makes it hold for a client that skipped it.
+    #[test]
+    fn ancestral_origin_coarsens_coordinates_to_about_a_kilometre() {
+        let o = build_ancestral_origin(mk_common(), &origin(json!({}))).expect("accepted");
+        assert_eq!(o.lat, Some(52.75));
+        assert_eq!(o.lon, Some(-9.43));
+    }
+
+    /// Gate 1 — the field is labelled `surname`, so the AppView checks that it is one. Surnames
+    /// that genuinely contain spaces must survive; a forename sequence must not.
+    #[test]
+    fn ancestral_origin_rejects_a_given_name_in_the_surname_field() {
+        for leaked in ["Thomas Michael Kane", "Thomas Kane", "John Q Public"] {
+            assert!(
+                build_ancestral_origin(mk_common(), &origin(json!({ "surname": leaked }))).is_none(),
+                "{leaked} must be rejected"
+            );
+        }
+        for real in ["Kane", "O'Brien", "van der Berg", "de la Cruz", "Mac Donald", "Ó Súilleabháin"] {
+            assert!(
+                build_ancestral_origin(mk_common(), &origin(json!({ "surname": real }))).is_some(),
+                "{real} must be accepted"
+            );
+        }
+    }
+
+    /// Gate 2 — the check that makes "not living-donor PII" verifiable rather than asserted.
+    #[test]
+    fn ancestral_origin_rejects_an_ancestor_born_after_the_ceiling() {
+        assert!(build_ancestral_origin(mk_common(), &origin(json!({ "birthYear": 1975 }))).is_none());
+        assert!(build_ancestral_origin(mk_common(), &origin(json!({ "birthYear": 1901 }))).is_none());
+        assert!(build_ancestral_origin(mk_common(), &origin(json!({ "birthYear": 1900 }))).is_some());
+        // Corrupt years are rejected, not treated as very old.
+        assert!(build_ancestral_origin(mk_common(), &origin(json!({ "birthYear": 0 }))).is_none());
+    }
+
+    /// Gate 3 — with no birth year nothing establishes that this ancestor is long dead, so the
+    /// country survives and the precise place does not. The record is kept; the detail is not.
+    #[test]
+    fn ancestral_origin_without_a_birth_year_keeps_country_only() {
+        let o = build_ancestral_origin(mk_common(), &origin(json!({ "birthYear": null })))
+            .expect("kept, not rejected");
+        assert_eq!(o.origin_country.as_deref(), Some("Ireland"), "country survives");
+        assert_eq!(o.origin_place, None, "place text dropped");
+        assert_eq!(o.lat, None, "coordinate dropped");
+        assert_eq!(o.lon, None);
+    }
+
+    /// A record with no way to reach a sample is pure liability: it can never be rendered, and it
+    /// can still be read.
+    #[test]
+    fn ancestral_origin_rejects_a_record_with_no_join_key() {
+        let orphan = origin(json!({ "externalIds": [], "biosampleRef": null }));
+        assert!(build_ancestral_origin(mk_common(), &orphan).is_none());
+        // Either key alone is enough.
+        let by_uri = origin(json!({ "externalIds": [], "biosampleRef": "at://x/bs/1" }));
+        assert!(build_ancestral_origin(mk_common(), &by_uri).is_some());
     }
 
     #[test]

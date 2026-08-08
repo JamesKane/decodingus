@@ -18,6 +18,7 @@ use chrono::{DateTime, Utc};
 use sqlx::PgPool;
 
 pub mod analytics;
+pub mod ancestral_origin;
 pub mod core;
 pub mod coverage;
 pub mod device_key;
@@ -45,6 +46,7 @@ pub const NS_INSTRUMENT_OBSERVATION: &str = "com.decodingus.atmosphere.instrumen
 pub const NS_PRIVATE_VARIANT: &str = "com.decodingus.atmosphere.privateVariant";
 pub const NS_DEVICE_KEY: &str = "com.decodingus.atmosphere.deviceKey";
 pub const NS_FEED_POST: &str = "com.decodingus.atmosphere.feed.post";
+pub const NS_ANCESTRAL_ORIGIN: &str = "com.decodingus.atmosphere.ancestralOrigin";
 
 /// Every collection mirrored for reporting (the consumer's `wantedCollections`).
 pub const INGEST_COLLECTIONS: &[&str] = &[
@@ -61,6 +63,7 @@ pub const INGEST_COLLECTIONS: &[&str] = &[
     NS_PRIVATE_VARIANT,
     NS_DEVICE_KEY,
     NS_FEED_POST,
+    NS_ANCESTRAL_ORIGIN,
 ];
 
 /// The `fed.*` reporting table backing a collection, or `None` if unsupported.
@@ -79,6 +82,7 @@ fn table_for(collection: &str) -> Option<&'static str> {
         NS_PRIVATE_VARIANT => "fed.private_variant",
         NS_DEVICE_KEY => "fed.device_key",
         NS_FEED_POST => "fed.feed_post",
+        NS_ANCESTRAL_ORIGIN => "fed.ancestral_origin",
         _ => return None,
     })
 }

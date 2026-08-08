@@ -1209,3 +1209,34 @@ pub async fn pathway(pool: &PgPool, called_name: &str, dna_type: DnaType) -> Res
         .collect();
     Ok(Pathway { dna_type, called_name: called_name.to_string(), resolved_name: Some(resolved), steps })
 }
+
+/// Defining-SNP names for a set of nodes, in one query — the block contents for the origins
+/// icicle, which draws a whole subtree at once and must not issue a query per branch.
+///
+/// Unnamed variants (`canonical_name IS NULL` — folded legacy homoplasy/duplicate rows) are
+/// excluded, matching [`merge_candidates`]: they name nothing a reader could look up.
+/// Names come back sorted so a block's contents are stable between requests.
+pub async fn variant_names_for(
+    pool: &PgPool,
+    ids: &[i64],
+) -> Result<std::collections::HashMap<i64, Vec<String>>, DbError> {
+    use std::collections::HashMap;
+    if ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let rows: Vec<(i64, String)> = sqlx::query_as(
+        "SELECT hv.haplogroup_id, v.canonical_name FROM tree.haplogroup_variant hv \
+         JOIN core.variant v ON v.id = hv.variant_id \
+         WHERE hv.valid_until IS NULL AND hv.haplogroup_id = ANY($1) \
+           AND v.canonical_name IS NOT NULL \
+         ORDER BY hv.haplogroup_id, v.canonical_name",
+    )
+    .bind(ids)
+    .fetch_all(pool)
+    .await?;
+    let mut out: HashMap<i64, Vec<String>> = HashMap::new();
+    for (id, name) in rows {
+        out.entry(id).or_default().push(name);
+    }
+    Ok(out)
+}

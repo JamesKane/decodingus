@@ -142,6 +142,12 @@
       <span id="cladeGeoSpin" class="htmx-indicator spinner-border spinner-border-sm ms-1"></span>
     </button>
     <div id="cladeGeo" class="mt-2"></div>
+
+    {# The genealogical-era origins icicle for this clade. A full page rather than a panel: it is
+       a whole view, not a sidebar widget. #}
+    <a class="btn btn-sm btn-outline-primary w-100 mt-2" href="{{ origins_href }}" hx-boost="false">
+      <i class="bi bi-signpost-split me-1"></i>{{ t.get("tree.origins.open") }}
+    </a>
   </div>
   {% endif %}
 </div>

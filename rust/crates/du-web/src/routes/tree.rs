@@ -14,7 +14,9 @@ use crate::htmx::{HxHeaders, HxRequest};
 use crate::i18n::{Locale, T};
 use crate::render::html;
 use crate::state::AppState;
+use crate::origins_layout;
 use crate::tree_layout::{self, InNode, Laid, Orientation, SampleTip};
+use du_db::place;
 use crate::auth::Curator;
 use axum::extract::{Path, Query, State};
 use axum::http::header::{HeaderMap, HeaderValue, COOKIE, SET_COOKIE};
@@ -51,6 +53,14 @@ pub fn router() -> Router<AppState> {
         .route("/mtree/node/:name/geo", get(mt_clade_geo))
         .route("/ytree/node/:name/geo-data", get(y_clade_geo_data))
         .route("/mtree/node/:name/geo-data", get(mt_clade_geo_data))
+        // Genealogical-era ancestral-origin icicle (proposals/ancestral-origin-icicle.md).
+        // The lineage-level route is the nav entry point: it opens on the tree root, which is
+        // always older than the era gate, so it renders the signpost — the clades young enough to
+        // have origins, ranked by how many men they hold.
+        .route("/ytree/origins", get(y_origins_index))
+        .route("/mtree/origins", get(mt_origins_index))
+        .route("/ytree/node/:name/origins", get(y_origins))
+        .route("/mtree/node/:name/origins", get(mt_origins))
         // Curator triage for sample leaves whose published call didn't resolve to a node.
         .route("/manage/tree-sample/unplaced", get(unplaced))
         .route("/manage/tree-sample/place", post(place))
@@ -155,6 +165,8 @@ struct SnpSidebar {
     name: String,
     /// URL of this node's sample-map panel fragment (lazy-loaded on click).
     geo_href: String,
+    /// URL of this node's ancestral-origins icicle (a full page, not a panel).
+    origins_href: String,
     provenance: Option<Provenance>,
     /// The consolidated age block: the branch TMRCA/formed on a time axis (with any
     /// ancient-DNA anchors). Replaces the old textual formed/TMRCA provenance rows.
@@ -454,10 +466,16 @@ async fn snp_sidebar(
         base_path_for(dna_type),
         utf8_percent_encode(&name, NON_ALPHANUMERIC)
     );
+    let origins_href = format!(
+        "{}/node/{}/origins",
+        base_path_for(dna_type),
+        utf8_percent_encode(&name, NON_ALPHANUMERIC)
+    );
     Ok(html(&SnpSidebar {
         t: locale.t,
         name,
         geo_href,
+        origins_href,
         provenance,
         age,
         variants,
@@ -516,6 +534,253 @@ async fn clade_geo_data(
         })
         .collect();
     Ok(Json(json!({ "type": "FeatureCollection", "features": features })))
+}
+
+/// Ancestral origins are only meaningful in the genealogical era: past this, a band aggregates to
+/// a continent and says nothing about where a *line* went. Nodes older than this render as a
+/// signpost down to their eligible children rather than as a chart.
+const ORIGINS_MAX_YBP: i32 = 1500;
+/// Safety bound on the subtree *walk* — not a display choice. Composition rolls up from every
+/// branch inside it, however deep.
+const ORIGINS_WALK: i32 = 40;
+/// Levels of branching actually drawn. This is a legibility bound, not a data one: R-DF85 has 266
+/// branches over 12 levels and drew an 11,220px canvas — six screens of horizontal scrolling —
+/// because canvas width is driven by the number of leaf branches. Folding below this depth keeps
+/// every man in his ancestor's composition while collapsing the shape to one screen.
+const ORIGINS_DEPTH_DEFAULT: i32 = 4;
+const ORIGINS_DEPTH_MIN: i32 = 1;
+const ORIGINS_DEPTH_MAX: i32 = 8;
+const ORIGINS_DEPTH_OPTIONS: [i32; 6] = [2, 3, 4, 5, 6, 8];
+/// Clades offered on the signpost when the requested one is older than the era gate. Under the Y
+/// root thousands qualify; these are the largest, and the total is shown beside them.
+const ORIGINS_SIGNPOST_CAP: usize = 60;
+
+/// A clade young enough to have ancestral origins, offered as a way in.
+struct EligibleClade {
+    name: String,
+    href: String,
+    samples: i64,
+    tmrca_ybp: i32,
+}
+
+#[derive(Deserialize)]
+struct OriginsQuery {
+    /// `country` (default) · `admin` · `place`.
+    level: Option<String>,
+    /// Branching levels drawn; clamped to [`ORIGINS_DEPTH_MIN`]..=[`ORIGINS_DEPTH_MAX`].
+    depth: Option<i32>,
+}
+
+fn origins_level(s: Option<&str>) -> place::Level {
+    match s.map(str::trim).unwrap_or("") {
+        "admin" | "region" => place::Level::Admin,
+        "place" | "locality" => place::Level::Locality,
+        _ => place::Level::Country,
+    }
+}
+
+/// Lineage-level entry: the origins view rooted at the tree's default root.
+async fn y_origins_index(
+    st: State<AppState>,
+    locale: Locale,
+    user: crate::auth::MaybeUser,
+    q: Query<OriginsQuery>,
+) -> Result<Response, AppError> {
+    let root = default_root_name(&st.pool, DnaType::YDna, "Y").await?;
+    origins(st, locale, user, Path(root), q, DnaType::YDna).await
+}
+
+async fn mt_origins_index(
+    st: State<AppState>,
+    locale: Locale,
+    user: crate::auth::MaybeUser,
+    q: Query<OriginsQuery>,
+) -> Result<Response, AppError> {
+    let root = default_root_name(&st.pool, DnaType::MtDna, "L").await?;
+    origins(st, locale, user, Path(root), q, DnaType::MtDna).await
+}
+
+async fn y_origins(
+    st: State<AppState>,
+    locale: Locale,
+    user: crate::auth::MaybeUser,
+    name: Path<String>,
+    q: Query<OriginsQuery>,
+) -> Result<Response, AppError> {
+    origins(st, locale, user, name, q, DnaType::YDna).await
+}
+
+async fn mt_origins(
+    st: State<AppState>,
+    locale: Locale,
+    user: crate::auth::MaybeUser,
+    name: Path<String>,
+    q: Query<OriginsQuery>,
+) -> Result<Response, AppError> {
+    origins(st, locale, user, name, q, DnaType::MtDna).await
+}
+
+/// The ancestral-origin icicle for one clade: the same top-down, containment-carries-descent shape
+/// as the Big Tree, with each branch filled by where its men's most distant known ancestors came
+/// from. See `proposals/ancestral-origin-icicle.md`.
+async fn origins(
+    State(st): State<AppState>,
+    locale: Locale,
+    user: crate::auth::MaybeUser,
+    Path(name): Path<String>,
+    Query(q): Query<OriginsQuery>,
+    dna_type: DnaType,
+) -> Result<Response, AppError> {
+    let base_path = base_path_for(dna_type);
+    let node = du_db::haplogroup::get_by_name(&st.pool, &name, dna_type)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("no haplogroup {name}")))?;
+    let level = origins_level(q.level.as_deref());
+    let depth = q
+        .depth
+        .unwrap_or(ORIGINS_DEPTH_DEFAULT)
+        .clamp(ORIGINS_DEPTH_MIN, ORIGINS_DEPTH_MAX);
+    let crumbs = build_crumbs(&st.pool, dna_type, base_path, &name).await?;
+
+    // The era gate. A clade older than the ceiling gets its eligible children rather than a chart
+    // whose every band would read "Europe" — the reader is sent down, not turned away.
+    let too_old = node.tmrca_ybp.is_none_or(|t| t > ORIGINS_MAX_YBP);
+    if too_old {
+        let window = du_db::haplogroup::subtree_window(&st.pool, dna_type, &name, ORIGINS_WALK).await?;
+        // Rank the eligible clades by how many men they hold, so the entry point opens on the
+        // branches worth looking at rather than the alphabetically-first ones. Under the Y root
+        // there are thousands; the cap is stated rather than silently applied.
+        let counts = du_db::tree_sample::cumulative_counts(&st.pool, dna_type).await?;
+        let mut ranked: Vec<(String, i64, i32)> = window
+            .iter()
+            .filter(|n| n.id != node.id.0 && n.tmrca_ybp.is_some_and(|t| t <= ORIGINS_MAX_YBP))
+            .filter(|n| !is_private_node(&n.name) && !is_uuid_label(&n.name))
+            .map(|n| (n.name.clone(), counts.get(&n.id).copied().unwrap_or(0), n.tmrca_ybp.unwrap_or(0)))
+            .filter(|(_, samples, _)| *samples > 0)
+            .collect();
+        ranked.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+        let eligible_total = ranked.len();
+        ranked.truncate(ORIGINS_SIGNPOST_CAP);
+        let eligible: Vec<EligibleClade> = ranked
+            .into_iter()
+            .map(|(name, samples, tmrca_ybp)| EligibleClade {
+                href: format!("{base_path}/node/{}/origins", encode(&name)),
+                name,
+                samples,
+                tmrca_ybp,
+            })
+            .collect();
+        let page = OriginsPageTemplate {
+            t: locale.t,
+            next: locale.next,
+            user: user.nav(),
+            base_path,
+            name,
+            level: level_code(level),
+            depth,
+            depth_options: ORIGINS_DEPTH_OPTIONS.iter().map(|&d| (d, d == depth)).collect(),
+            tmrca_ybp: node.tmrca_ybp,
+            max_ybp: ORIGINS_MAX_YBP,
+            crumbs,
+            laid: None,
+            eligible,
+            eligible_total,
+            placed: 0,
+        };
+        return Ok(html(&page));
+    }
+
+    // The whole subtree, not a display window: `origins_layout` prunes to the branches that
+    // actually carry an origin, so the drawn depth follows the data instead of a fixed number —
+    // and no sample is lost for sitting below an arbitrary cut-off.
+    let window = du_db::haplogroup::subtree_window(&st.pool, dna_type, &name, ORIGINS_WALK).await?;
+    // Two reasons a branch is marked `hidden`, both meaning "not drawn, but still walked":
+    //
+    //   * de-novo auto-named nodes, which must not surface publicly here any more than on the
+    //     tree itself;
+    //   * anything past the display depth.
+    //
+    // Either way it stays in the input, so the ancestor walk is unbroken and its men are
+    // attributed to the nearest drawn branch instead of being lost. That is what makes the depth
+    // bound a *legibility* bound rather than a data one: the composition is identical at every
+    // depth, only the visible branching changes.
+    // The blocks' contents: each branch's phylogenetically equivalent SNPs, in one query rather
+    // than one per branch.
+    let node_ids: Vec<i64> = window.iter().map(|n| n.id).collect();
+    let mut snps_of = du_db::haplogroup::variant_names_for(&st.pool, &node_ids).await?;
+    let nodes: Vec<origins_layout::Node> = window
+        .iter()
+        .map(|n| origins_layout::Node {
+            id: n.id,
+            name: n.name.clone(),
+            parent_id: n.parent_id,
+            formed_ybp: n.formed_ybp,
+            tmrca_ybp: n.tmrca_ybp,
+            hidden: n.depth > depth || is_private_node(&n.name) || is_uuid_label(&n.name),
+            snps: snps_of.remove(&n.id).unwrap_or_default(),
+        })
+        .collect();
+
+    let published = du_db::origins::origins_under(&st.pool, dna_type, &name).await?;
+    let placed = du_db::origins::placed_under(&st.pool, &name, dna_type).await?;
+    let laid = origins_layout::layout(&nodes, &published, level, placed.max(0) as usize);
+
+    Ok(html(&OriginsPageTemplate {
+        t: locale.t,
+        next: locale.next,
+        user: user.nav(),
+        base_path,
+        name,
+        level: level_code(level),
+        depth,
+        depth_options: ORIGINS_DEPTH_OPTIONS.iter().map(|&d| (d, d == depth)).collect(),
+        tmrca_ybp: node.tmrca_ybp,
+        max_ybp: ORIGINS_MAX_YBP,
+        crumbs,
+        laid: Some(laid),
+        eligible: Vec::new(),
+        eligible_total: 0,
+        placed: placed.max(0),
+    }))
+}
+
+fn level_code(l: place::Level) -> &'static str {
+    match l {
+        place::Level::Country => "country",
+        place::Level::Admin => "admin",
+        place::Level::Locality => "place",
+    }
+}
+
+fn encode(s: &str) -> String {
+    utf8_percent_encode(s, NON_ALPHANUMERIC).to_string()
+}
+
+#[derive(askama::Template)]
+#[template(path = "tree/origins.html")]
+struct OriginsPageTemplate {
+    t: T,
+    next: String,
+    user: Option<crate::auth::NavUser>,
+    base_path: &'static str,
+    name: String,
+    level: &'static str,
+    /// Branching levels drawn — a legibility bound; composition is unaffected by it.
+    depth: i32,
+    /// (depth value, is-current) for the selector.
+    depth_options: Vec<(i32, bool)>,
+    tmrca_ybp: Option<i32>,
+    max_ybp: i32,
+    crumbs: Vec<Crumb>,
+    /// `None` when the clade is older than the era gate — the template shows `eligible` instead.
+    laid: Option<origins_layout::Laid>,
+    /// Descendant clades that *are* inside the era, offered when this one is not — ranked by how
+    /// many men they hold, capped at [`ORIGINS_SIGNPOST_CAP`].
+    eligible: Vec<EligibleClade>,
+    /// How many were eligible before the cap, so the truncation is never silent.
+    eligible_total: usize,
+    /// Placed samples under the clade — the denominator the composition is reported against.
+    placed: i64,
 }
 
 /// The "Geography & Time" panel fragment: a Leaflet map target (client fetches the
