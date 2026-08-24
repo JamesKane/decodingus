@@ -945,3 +945,162 @@ async fn the_shadow_spot_check_holds_a_unit_back_for_a_second_opinion() {
         .await
         .unwrap());
 }
+
+// ── the public + standing read paths ──────────────────────────────────────────
+
+#[tokio::test]
+async fn the_public_result_page_shows_the_evidence_behind_a_digest() {
+    let Some(url) = database_url() else {
+        return;
+    };
+    let db = du_db::testing::ephemeral_db(&url)
+        .await
+        .expect("ephemeral db");
+    let pool = db.pool().clone();
+
+    let unit_id = grid::upsert_work_unit(&pool, &unit("SAMEA0000200", "CRAM"))
+        .await
+        .unwrap();
+
+    // Before a quorum: the unit is known but has no answer yet. "Working on it" and "never heard
+    // of it" must be distinguishable, so this is a row and not a 404.
+    let pending = grid::work_unit_public(&pool, "SAMEA0000200")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(pending.state, "AVAILABLE");
+    assert!(pending.canonical_digest.is_none());
+    assert_eq!(pending.replicas_agreed, 0);
+    assert!(grid::work_unit_public(&pool, "SAMEA_NOPE")
+        .await
+        .unwrap()
+        .is_none());
+
+    let a = submit_as(&pool, DID_A, unit_id, "R-A", "chm13v2.0").await;
+    let b = submit_as(&pool, DID_B, unit_id, "R-A", "chm13v2.0").await;
+    let canonical = json!({"calls": {"sex": "XY", "y_terminal": "R-A"}});
+    grid::canonicalize(&pool, unit_id, &canonical, &[a, b], &[])
+        .await
+        .unwrap();
+
+    let done = grid::work_unit_public(&pool, "SAMEA0000200")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(done.state, "CANONICAL");
+    assert_eq!(done.canonical_digest.unwrap()["calls"]["y_terminal"], "R-A");
+    assert_eq!(
+        done.replicas_agreed, 2,
+        "the replica count is the reason to believe the digest; publishing one without the other \
+         would be publishing a claim with its evidence removed"
+    );
+}
+
+#[tokio::test]
+async fn a_contributor_sees_its_own_leases_history_and_rank() {
+    let Some(url) = database_url() else {
+        return;
+    };
+    let db = du_db::testing::ephemeral_db(&url)
+        .await
+        .expect("ephemeral db");
+    let pool = db.pool().clone();
+
+    let u1 = grid::upsert_work_unit(&pool, &unit("SAMEA0000210", "CRAM"))
+        .await
+        .unwrap();
+    let u2 = grid::upsert_work_unit(&pool, &unit("SAMEA0000211", "CRAM"))
+        .await
+        .unwrap();
+
+    // A finishes one unit and is credited; B is credited twice, so B outranks A.
+    let a = submit_as(&pool, DID_A, u1, "R-A", "chm13v2.0").await;
+    grid::canonicalize(&pool, u1, &json!({}), &[a], &[])
+        .await
+        .unwrap();
+    grid::award_credit(&pool, DID_A, u1, a, 3 * COBBLESTONE, "CANONICAL_FIRST")
+        .await
+        .unwrap();
+    let b = submit_as(&pool, DID_B, u2, "R-A", "chm13v2.0").await;
+    grid::canonicalize(&pool, u2, &json!({}), &[b], &[])
+        .await
+        .unwrap();
+    grid::award_credit(&pool, DID_B, u2, b, 9 * COBBLESTONE, "CANONICAL_FIRST")
+        .await
+        .unwrap();
+
+    // C holds a live lease on a third unit and has been credited nothing.
+    let u3 = grid::upsert_work_unit(&pool, &unit("SAMEA0000212", "FASTQ"))
+        .await
+        .unwrap();
+    grid::claim(&pool, DID_C, None, &kinds(&["FASTQ"]), 1, 3600)
+        .await
+        .unwrap();
+
+    let a_standing = grid::standing(&pool, DID_A).await.unwrap();
+    assert_eq!(a_standing["agreed"], 1);
+    assert_eq!(a_standing["divergent"], 0);
+    assert_eq!(
+        a_standing["cobblestones"], 3.0,
+        "rendered from the ledger's thousandths"
+    );
+    assert_eq!(
+        a_standing["rank"], 2,
+        "B has more cobblestones, so A is second"
+    );
+    assert_eq!(
+        a_standing["leases"].as_array().unwrap().len(),
+        0,
+        "A holds nothing now"
+    );
+
+    let c_standing = grid::standing(&pool, DID_C).await.unwrap();
+    assert_eq!(c_standing["cobblestones"], 0.0);
+    assert!(
+        c_standing["rank"].is_null(),
+        "a contributor with no credit has no row on the board, so it has no rank — reporting the \
+         position it would hold reads as \"you are last\" to someone who has not finished their \
+         first unit yet"
+    );
+    let leases = c_standing["leases"].as_array().unwrap();
+    assert_eq!(leases.len(), 1, "the live lease is visible to its holder");
+    assert_eq!(leases[0]["work_unit_id"], u3);
+    assert_eq!(leases[0]["data_kind"], "FASTQ");
+}
+
+#[tokio::test]
+async fn stats_counts_units_leases_and_contributors() {
+    let Some(url) = database_url() else {
+        return;
+    };
+    let db = du_db::testing::ephemeral_db(&url)
+        .await
+        .expect("ephemeral db");
+    let pool = db.pool().clone();
+
+    let u1 = grid::upsert_work_unit(&pool, &unit("SAMEA0000220", "CRAM"))
+        .await
+        .unwrap();
+    grid::upsert_work_unit(&pool, &unit("SAMEA0000221", "CRAM"))
+        .await
+        .unwrap();
+    let a = submit_as(&pool, DID_A, u1, "R-A", "chm13v2.0").await;
+    let b = submit_as(&pool, DID_B, u1, "R-A", "chm13v2.0").await;
+    grid::canonicalize(&pool, u1, &json!({}), &[a, b], &[])
+        .await
+        .unwrap();
+    grid::award_credit(&pool, DID_A, u1, a, 4 * COBBLESTONE, "CANONICAL_FIRST")
+        .await
+        .unwrap();
+    grid::claim(&pool, DID_C, None, &kinds(&["CRAM"]), 1, 3600)
+        .await
+        .unwrap();
+
+    let s = grid::stats(&pool).await.unwrap();
+    assert_eq!(s["units_total"], 2);
+    assert_eq!(s["units_canonical"], 1);
+    assert_eq!(s["units_contested"], 0);
+    assert_eq!(s["leases_active"], 1, "only C still holds one");
+    assert_eq!(s["contributors"], 2, "distinct submitters");
+    assert_eq!(s["cobblestones_awarded"], 4.0);
+}

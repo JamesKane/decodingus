@@ -684,6 +684,121 @@ pub async fn register_node(
     Ok(id.0)
 }
 
+/// The registry id of a node, if it has registered. `claim` records it on the lease so the fleet
+/// view can attribute work to a machine; a node that never registered still gets to work, it is
+/// simply anonymous in that view.
+pub async fn node_id_for_did(pool: &PgPool, did: &str) -> Result<Option<i64>, DbError> {
+    let row: Option<(i64,)> = sqlx::query_as("SELECT id FROM fed.pds_node WHERE did = $1")
+        .bind(did)
+        .fetch_optional(pool)
+        .await?;
+    Ok(row.map(|r| r.0))
+}
+
+/// A work unit as the public `/grid/work/{accession}` endpoint shows it.
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+pub struct PublicWorkUnit {
+    pub sample_accession: String,
+    pub study_accession: Option<String>,
+    pub data_kind: String,
+    pub state: String,
+    pub canonical_digest: Option<Value>,
+    pub canonical_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// How many independent contributors agreed. The number is the reason to believe the digest,
+    /// so publishing the result without it would be publishing a claim with its evidence removed.
+    pub replicas_agreed: i64,
+}
+
+/// One unit by ENA accession, for the public result page.
+pub async fn work_unit_public(
+    pool: &PgPool,
+    sample_accession: &str,
+) -> Result<Option<PublicWorkUnit>, DbError> {
+    let row = sqlx::query_as::<_, PublicWorkUnit>(
+        "SELECT w.sample_accession, w.study_accession, w.data_kind, w.state, \
+                w.canonical_digest, w.canonical_at, \
+                (SELECT count(*) FROM grid.submission s \
+                  WHERE s.work_unit_id = w.id AND s.status = 'AGREED') AS replicas_agreed \
+           FROM grid.work_unit w WHERE w.sample_accession = $1",
+    )
+    .bind(sample_accession)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row)
+}
+
+/// Grid throughput, for the public stats endpoint.
+///
+/// One round trip rather than five: these are counts over small indexed sets, and a stats endpoint
+/// that costs five queries is one that gets called on every page load and then blamed for load.
+pub async fn stats(pool: &PgPool) -> Result<Value, DbError> {
+    let row: (i64, i64, i64, i64, i64, i64) = sqlx::query_as(
+        "SELECT (SELECT count(*) FROM grid.work_unit), \
+                (SELECT count(*) FROM grid.work_unit WHERE state = 'CANONICAL'), \
+                (SELECT count(*) FROM grid.work_unit WHERE state = 'CONTESTED'), \
+                (SELECT count(*) FROM grid.lease WHERE released_at IS NULL AND expires_at > now()), \
+                (SELECT count(DISTINCT did) FROM grid.submission), \
+                (SELECT COALESCE(SUM(cobblestones_milli), 0)::bigint FROM grid.credit)",
+    )
+    .fetch_one(pool)
+    .await?;
+    Ok(serde_json::json!({
+        "units_total": row.0,
+        "units_canonical": row.1,
+        "units_contested": row.2,
+        "leases_active": row.3,
+        "contributors": row.4,
+        "cobblestones_awarded": row.5 as f64 / COBBLESTONE as f64,
+    }))
+}
+
+/// What one contributor's own grid participation looks like: the leases it holds right now, its
+/// agreed/divergent history, its credit, and where it sits on the board.
+///
+/// Authenticated rather than public, because it is the caller's own work — the leaderboard shows
+/// totals, and this shows the rows behind one contributor's total.
+pub async fn standing(pool: &PgPool, did: &str) -> Result<Value, DbError> {
+    let held = sqlx::query_as::<_, ClaimedUnit>(
+        "SELECT l.id AS lease_id, l.work_unit_id, w.sample_accession, w.study_accession, \
+                w.data_kind, w.manifest, w.est_bases, w.total_bytes, l.expires_at \
+           FROM grid.lease l JOIN grid.work_unit w ON w.id = l.work_unit_id \
+          WHERE l.did = $1 AND l.released_at IS NULL AND l.expires_at > now() \
+          ORDER BY l.expires_at",
+    )
+    .bind(did)
+    .fetch_all(pool)
+    .await?;
+
+    let h = grid_history(pool, did).await?;
+    let (milli, units, rank): (i64, i64, i64) = sqlx::query_as(
+        "SELECT COALESCE(SUM(c.cobblestones_milli), 0)::bigint, \
+                COUNT(c.id)::bigint, \
+                COALESCE(( SELECT count(*) + 1 FROM ( \
+                     SELECT did, SUM(cobblestones_milli) AS t FROM grid.credit GROUP BY did \
+                   ) b WHERE b.t > COALESCE((SELECT SUM(cobblestones_milli) FROM grid.credit WHERE did = $1), 0) \
+                ), 1)::bigint \
+           FROM grid.credit c WHERE c.did = $1",
+    )
+    .bind(did)
+    .fetch_one(pool)
+    .await?;
+
+    // A contributor with no credit has no row on the leaderboard, so it has no rank either.
+    // Reporting the position it *would* hold reads as "you are last" to someone who has simply not
+    // finished their first unit yet — a discouraging answer to a question they did not ask. `null`
+    // says "unranked", which is what is true.
+    let rank = (units > 0).then_some(rank);
+
+    Ok(serde_json::json!({
+        "leases": held,
+        "agreed": h.agreed,
+        "divergent": h.divergent,
+        "cobblestones": milli as f64 / COBBLESTONE as f64,
+        "units_credited": units,
+        "rank": rank,
+    }))
+}
+
 /// The user account a contributing DID resolves to, if any. Sybil resistance leans on this: an
 /// untrusted submission cannot canonicalise alone, so a lone account-less attacker cannot inject
 /// a canonical result.

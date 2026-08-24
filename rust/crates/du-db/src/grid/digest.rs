@@ -101,6 +101,28 @@ pub fn comparable(a_build: &str, a_stack: &str, b_build: &str, b_stack: &str) ->
         && stack_major(a_stack) == stack_major(b_stack)
 }
 
+/// The SHA-256 of a digest's canonical bytes, base64 (standard alphabet).
+///
+/// "Canonical" is `serde_json` with **sorted keys and no whitespace**, which is simply what
+/// `serde_json::to_vec` produces: this workspace does not enable the `preserve_order` feature, so
+/// `serde_json::Map` is a `BTreeMap` and serialization is key-sorted and deterministic. Navigator
+/// uses the same crate under the same default, so both sides hash identical bytes without either
+/// having to implement a canonicalization scheme.
+///
+/// **This is the one remaining byte-level contract between the repos**, and it is deliberately the
+/// smallest one available: no field order to agree on, no float formatting rules, no separator
+/// choices. The test below pins it. If `preserve_order` is ever switched on anywhere, that test
+/// fails here rather than as unexplained 400s against desktop clients.
+///
+/// The submit handler recomputes this from the digest it received and rejects a mismatch, so a node
+/// cannot sign the hash of one result and send another.
+pub fn canonical_sha256_b64(digest: &Value) -> String {
+    use base64::Engine as _;
+    use sha2::{Digest as _, Sha256};
+    let bytes = serde_json::to_vec(digest).unwrap_or_default();
+    base64::engine::general_purpose::STANDARD.encode(Sha256::digest(bytes))
+}
+
 /// Whether two digests **agree**, per §5.2.
 pub fn agree(a: &Value, b: &Value) -> bool {
     Comparable::from_digest(a) == Comparable::from_digest(b)
@@ -178,6 +200,20 @@ mod tests {
         assert!(
             agree(&junk, &json!(null)),
             "two empties are consistent, and equally uninformative"
+        );
+    }
+
+    /// The cross-repo byte contract: key order in the source JSON must not change the hash, or a
+    /// node and the AppView would disagree about what was signed.
+    #[test]
+    fn the_canonical_hash_ignores_key_order() {
+        let a = json!({"calls": {"sex": "XY", "y_terminal": "R-A"}, "unit": "SAMEA1"});
+        let b = json!({"unit": "SAMEA1", "calls": {"y_terminal": "R-A", "sex": "XY"}});
+        assert_eq!(canonical_sha256_b64(&a), canonical_sha256_b64(&b));
+        assert_ne!(
+            canonical_sha256_b64(&a),
+            canonical_sha256_b64(&json!({"calls": {"sex": "XX"}, "unit": "SAMEA1"})),
+            "a different result must hash differently, or the check is worthless"
         );
     }
 

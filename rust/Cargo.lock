@@ -1390,11 +1390,13 @@ dependencies = [
 name = "du-db"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "chrono",
  "du-bio",
  "du-domain",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "sqlx",
  "thiserror 2.0.18",
  "tokio",
