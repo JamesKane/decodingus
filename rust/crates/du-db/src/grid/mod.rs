@@ -16,6 +16,8 @@
 //! **Canonical signed messages** ([`messages`]) are a cross-repo contract: the Navigator edge
 //! signs byte-identical strings. Keep them stable.
 
+pub mod digest;
+
 use crate::DbError;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -474,6 +476,179 @@ pub async fn curation_candidates(
     .fetch_all(pool)
     .await?;
     Ok(rows)
+}
+
+/// One submission awaiting validation, with everything the agreement test needs.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct PendingSubmission {
+    pub id: i64,
+    pub did: String,
+    pub digest: Value,
+    pub stack_version: String,
+    pub reference_build: String,
+    pub submitted_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// A unit with unvalidated submissions.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct PendingUnit {
+    pub id: i64,
+    pub sample_accession: String,
+    pub required_replicas: i16,
+    pub est_bases: Option<i64>,
+    pub data_kind: String,
+}
+
+/// A contributor's grid history, which is what trust tiering is derived from (§6.1).
+///
+/// Deliberately *not* the social reputation score: grid trust must be earned by grid work, or a
+/// well-regarded community member could canonicalize bad results on reputation alone.
+#[derive(Debug, Clone, Copy, sqlx::FromRow)]
+pub struct GridHistory {
+    pub agreed: i64,
+    pub divergent: i64,
+}
+
+/// Units carrying at least one `PENDING` submission, oldest first.
+pub async fn units_awaiting_validation(
+    pool: &PgPool,
+    limit: i64,
+) -> Result<Vec<PendingUnit>, DbError> {
+    let rows = sqlx::query_as::<_, PendingUnit>(
+        "SELECT w.id, w.sample_accession, w.required_replicas, w.est_bases, w.data_kind \
+           FROM grid.work_unit w \
+          WHERE w.state IN ('AVAILABLE', 'CONTESTED') \
+            AND EXISTS (SELECT 1 FROM grid.submission s \
+                         WHERE s.work_unit_id = w.id AND s.status = 'PENDING') \
+          ORDER BY w.id \
+          LIMIT $1",
+    )
+    .bind(limit)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}
+
+/// Every submission on a unit that has not been ruled divergent, oldest first.
+///
+/// `AGREED` rows are included as well as `PENDING` ones: a unit re-opened by a shadow check is
+/// judged over its whole history, not just the newest arrival.
+pub async fn submissions_for_validation(
+    pool: &PgPool,
+    work_unit_id: i64,
+) -> Result<Vec<PendingSubmission>, DbError> {
+    let rows = sqlx::query_as::<_, PendingSubmission>(
+        "SELECT id, did, digest, stack_version, reference_build, submitted_at \
+           FROM grid.submission \
+          WHERE work_unit_id = $1 AND status <> 'DIVERGENT' \
+          ORDER BY submitted_at, id",
+    )
+    .bind(work_unit_id)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}
+
+/// A contributor's agreed and divergent counts.
+pub async fn grid_history(pool: &PgPool, did: &str) -> Result<GridHistory, DbError> {
+    let row: GridHistory = sqlx::query_as(
+        "SELECT COUNT(*) FILTER (WHERE status = 'AGREED')    AS agreed, \
+                COUNT(*) FILTER (WHERE status = 'DIVERGENT') AS divergent \
+           FROM grid.submission WHERE did = $1",
+    )
+    .bind(did)
+    .fetch_one(pool)
+    .await?;
+    Ok(row)
+}
+
+/// Promote a unit to `CANONICAL`: store the agreed digest, mark the winning submissions `AGREED`
+/// and the rest `DIVERGENT`, all in one transaction.
+///
+/// A partial application here would be the worst possible state — a canonical unit whose
+/// submissions still read `PENDING` would be re-judged on the next pass and could be credited
+/// twice, which the `grid.credit` unique index would then silently swallow. So it is all or none.
+pub async fn canonicalize(
+    pool: &PgPool,
+    work_unit_id: i64,
+    canonical: &Value,
+    agreed_ids: &[i64],
+    divergent_ids: &[i64],
+) -> Result<(), DbError> {
+    let mut tx = pool.begin().await?;
+    sqlx::query(
+        "UPDATE grid.work_unit \
+            SET state = 'CANONICAL', canonical_digest = $2, canonical_at = now(), updated_at = now() \
+          WHERE id = $1",
+    )
+    .bind(work_unit_id)
+    .bind(canonical)
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query(
+        "UPDATE grid.submission SET status = 'AGREED', validated_at = now() WHERE id = ANY($1)",
+    )
+    .bind(agreed_ids)
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query(
+        "UPDATE grid.submission SET status = 'DIVERGENT', validated_at = now() WHERE id = ANY($1)",
+    )
+    .bind(divergent_ids)
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+/// Mark a unit contested and raise the bar: the submissions on it disagree and none of them has
+/// earned the right to be believed, so the unit needs another independent result.
+///
+/// Nothing is marked `DIVERGENT` here. With two conflicting clusters and no quorum there is no
+/// evidence about *which* is wrong, and penalising a contributor on a coin-flip would punish
+/// honest work. The next replica breaks the tie, and that pass assigns blame.
+pub async fn contest(pool: &PgPool, work_unit_id: i64, note: &str) -> Result<(), DbError> {
+    sqlx::query(
+        "UPDATE grid.work_unit \
+            SET state = 'CONTESTED', required_replicas = required_replicas + 1, \
+                note = $2, updated_at = now() \
+          WHERE id = $1",
+    )
+    .bind(work_unit_id)
+    .bind(note)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// With probability `rate`, ask for one more independent result without contesting anything —
+/// the shadow spot-check. Returns whether the shadow was requested.
+///
+/// Used when a trusted node's lone submission would otherwise canonicalize, so that trust is
+/// re-earned rather than assumed indefinitely. The unit simply stays claimable with a higher
+/// replica bar: the shadow then arrives through the ordinary claim path and the next validation
+/// pass either confirms or contests it. No `SHADOW` state, no schema column, no second code path.
+///
+/// **The draw happens in the database, deliberately.** §6.2 requires spot-checks to be
+/// AppView-chosen rather than self-selected, so the rule must be one a contributor cannot compute
+/// in advance — which rules out anything derived from the unit id or the digest. Doing it in SQL
+/// also avoids pulling a random-number crate into the workspace for a single coin flip.
+pub async fn maybe_request_shadow(
+    pool: &PgPool,
+    work_unit_id: i64,
+    rate: f64,
+) -> Result<bool, DbError> {
+    let r = sqlx::query(
+        "UPDATE grid.work_unit \
+            SET required_replicas = GREATEST(required_replicas, 2), \
+                note = 'shadow spot-check', updated_at = now() \
+          WHERE id = $1 AND state = 'AVAILABLE' AND random() < $2",
+    )
+    .bind(work_unit_id)
+    .bind(rate)
+    .execute(pool)
+    .await?;
+    Ok(r.rows_affected() > 0)
 }
 
 /// Register (or refresh) a contributing node in the shared fleet registry.

@@ -735,3 +735,213 @@ async fn only_new_skips_samples_that_already_have_a_unit() {
     );
     assert_eq!(reps, 5, "nor reset a replica count validation raised");
 }
+
+// ── validation ────────────────────────────────────────────────────────────────
+
+/// Claim, then submit `y` as the Y call. Returns the submission id.
+async fn submit_as(pool: &sqlx::PgPool, did: &str, unit_id: i64, y: &str, build: &str) -> i64 {
+    let claimed = grid::claim(pool, did, None, &kinds(&["CRAM"]), 1, 3600)
+        .await
+        .unwrap();
+    let lease = claimed.first().map(|c| c.lease_id);
+    grid::submit(
+        pool,
+        did,
+        unit_id,
+        lease,
+        &json!({"calls": {"sex": "XY", "y_terminal": y, "coverage_mean": 30.0}}),
+        "sig",
+        "1.7.0",
+        build,
+        None,
+        &json!([]),
+    )
+    .await
+    .unwrap()
+}
+
+#[tokio::test]
+async fn canonicalizing_marks_the_winners_agreed_and_the_rest_divergent() {
+    let Some(url) = database_url() else {
+        return;
+    };
+    let db = du_db::testing::ephemeral_db(&url)
+        .await
+        .expect("ephemeral db");
+    let pool = db.pool().clone();
+
+    let unit_id = grid::upsert_work_unit(&pool, &unit("SAMEA0000100", "CRAM"))
+        .await
+        .unwrap();
+    // Three replicas so all three contributors can hold a slot at once.
+    sqlx::query("UPDATE grid.work_unit SET required_replicas = 3 WHERE id = $1")
+        .bind(unit_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let a = submit_as(&pool, DID_A, unit_id, "R-A", "chm13v2.0").await;
+    let b = submit_as(&pool, DID_B, unit_id, "R-A", "chm13v2.0").await;
+    let c = submit_as(&pool, DID_C, unit_id, "R-WRONG", "chm13v2.0").await;
+
+    let pending = grid::units_awaiting_validation(&pool, 10).await.unwrap();
+    assert_eq!(pending.len(), 1, "the unit is waiting on validation");
+    assert_eq!(
+        grid::submissions_for_validation(&pool, unit_id)
+            .await
+            .unwrap()
+            .len(),
+        3
+    );
+
+    let canonical = json!({"calls": {"sex": "XY", "y_terminal": "R-A", "coverage_mean": 30.0}});
+    grid::canonicalize(&pool, unit_id, &canonical, &[a, b], &[c])
+        .await
+        .unwrap();
+
+    let statuses: Vec<(i64, String)> = sqlx::query_as(
+        "SELECT id, status FROM grid.submission WHERE work_unit_id = $1 ORDER BY id",
+    )
+    .bind(unit_id)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        statuses,
+        vec![
+            (a, "AGREED".into()),
+            (b, "AGREED".into()),
+            (c, "DIVERGENT".into())
+        ]
+    );
+
+    let (state, digest): (String, serde_json::Value) =
+        sqlx::query_as("SELECT state, canonical_digest FROM grid.work_unit WHERE id = $1")
+            .bind(unit_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(state, "CANONICAL");
+    assert_eq!(digest["calls"]["y_terminal"], "R-A");
+
+    // A canonical unit is off the work list, and no longer awaiting validation.
+    assert!(
+        grid::claim(&pool, "did:plc:zzzz", None, &kinds(&["CRAM"]), 1, 3600)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert!(grid::units_awaiting_validation(&pool, 10)
+        .await
+        .unwrap()
+        .is_empty());
+
+    // And the history that trust tiering reads reflects it.
+    assert_eq!(grid::grid_history(&pool, DID_A).await.unwrap().agreed, 1);
+    assert_eq!(grid::grid_history(&pool, DID_C).await.unwrap().divergent, 1);
+}
+
+/// A contested unit must go back on the work list — otherwise a disagreement deadlocks the unit
+/// forever, since the tie-breaker can never be claimed.
+#[tokio::test]
+async fn contesting_raises_the_bar_and_reopens_the_unit_for_a_tie_breaker() {
+    let Some(url) = database_url() else {
+        return;
+    };
+    let db = du_db::testing::ephemeral_db(&url)
+        .await
+        .expect("ephemeral db");
+    let pool = db.pool().clone();
+
+    let unit_id = grid::upsert_work_unit(&pool, &unit("SAMEA0000110", "CRAM"))
+        .await
+        .unwrap();
+    submit_as(&pool, DID_A, unit_id, "R-A", "chm13v2.0").await;
+    submit_as(&pool, DID_B, unit_id, "R-B", "chm13v2.0").await;
+
+    grid::contest(&pool, unit_id, "submissions disagree")
+        .await
+        .unwrap();
+
+    let (state, reps): (String, i16) =
+        sqlx::query_as("SELECT state, required_replicas FROM grid.work_unit WHERE id = $1")
+            .bind(unit_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(state, "CONTESTED");
+    assert_eq!(reps, 3, "the bar rises by one");
+
+    // Two submissions exist and the bar is now three, so a third contributor can claim.
+    let c = grid::claim(&pool, DID_C, None, &kinds(&["CRAM"]), 1, 3600)
+        .await
+        .unwrap();
+    assert_eq!(c.len(), 1, "a contested unit is claimable again");
+
+    // Nobody was blamed: with two conflicting answers there is no evidence about which is wrong.
+    let divergent: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM grid.submission WHERE status = 'DIVERGENT'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(divergent, 0, "a coin-flip penalty would punish honest work");
+}
+
+#[tokio::test]
+async fn the_shadow_spot_check_holds_a_unit_back_for_a_second_opinion() {
+    let Some(url) = database_url() else {
+        return;
+    };
+    let db = du_db::testing::ephemeral_db(&url)
+        .await
+        .expect("ephemeral db");
+    let pool = db.pool().clone();
+
+    let unit_id = grid::upsert_work_unit(&pool, &unit("SAMEA0000120", "CRAM"))
+        .await
+        .unwrap();
+    sqlx::query("UPDATE grid.work_unit SET required_replicas = 1 WHERE id = $1")
+        .bind(unit_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    assert!(
+        !grid::maybe_request_shadow(&pool, unit_id, 0.0)
+            .await
+            .unwrap(),
+        "rate 0 never fires"
+    );
+    assert!(
+        grid::maybe_request_shadow(&pool, unit_id, 1.0)
+            .await
+            .unwrap(),
+        "rate 1 always fires"
+    );
+
+    let (reps, note): (i16, Option<String>) =
+        sqlx::query_as("SELECT required_replicas, note FROM grid.work_unit WHERE id = $1")
+            .bind(unit_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(reps, 2, "one lone result is no longer enough for this unit");
+    assert_eq!(note.as_deref(), Some("shadow spot-check"));
+
+    // The shadow arrives through the ordinary claim path — no special state, no second code path.
+    assert_eq!(
+        grid::claim(&pool, DID_A, None, &kinds(&["CRAM"]), 1, 3600)
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+
+    // A canonical unit is never held for a shadow: the check is for a result about to be trusted.
+    grid::canonicalize(&pool, unit_id, &json!({}), &[], &[])
+        .await
+        .unwrap();
+    assert!(!grid::maybe_request_shadow(&pool, unit_id, 1.0)
+        .await
+        .unwrap());
+}

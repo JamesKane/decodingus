@@ -10,6 +10,7 @@ mod coord_lift;
 mod crawl_project;
 mod ena;
 mod grid_curate;
+mod grid_validate;
 mod faidx;
 mod ftdna_str;
 mod gzio;
@@ -382,6 +383,18 @@ async fn main() -> anyhow::Result<()> {
             "grid-curate" => {
                 let only_new = argv.next().as_deref() != Some("all");
                 grid_curate::curate(&pool, only_new).await?;
+            }
+            // Close lapsed leases. NOT what returns a unit to the claimable pool — `claim`
+            // already ignores any lease past its bound, so the catalogue keeps flowing even while
+            // this is down. What it does is record the EXPIRED outcome that trust tiering needs,
+            // and let a node that overran take a fresh lease. Design §12.5.
+            "grid-reap" => {
+                grid_validate::reap(&pool).await?;
+            }
+            // Adaptive replication: cluster the submitted digests, canonicalize a unit when one
+            // cluster satisfies both the replica bar and the trust policy, and pay whoever agreed.
+            "grid-validate" => {
+                grid_validate::validate(&pool, grid_validate::SPOT_CHECK_RATE).await?;
             }
             // External enrichment (formerly scheduled; now nightly run-once). OpenAlex
             // by-DOI refresh, date-sorted discovery, and PubMed by-PMID gap-fill.
