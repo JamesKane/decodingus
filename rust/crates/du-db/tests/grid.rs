@@ -355,3 +355,323 @@ async fn concurrent_claims_take_disjoint_units() {
         total.len()
     );
 }
+
+// ── curation ──────────────────────────────────────────────────────────────────
+//
+// These seed through the real ingest path (`biosample::upsert_by_accession` +
+// `sequence::ingest_libraries`) rather than hand-written INSERTs, on purpose: the curation query
+// reads `http_locations->0->>'file_url'` and `checksums->0->>'checksum'`, which are JSONB shapes
+// that only `ingest_libraries` defines. A test that wrote its own rows could agree with the query
+// while both disagreed with what the crawl actually stores.
+
+use du_db::sequence::{NewSeqFile, NewSeqLibrary};
+
+fn seq_file(
+    name: &str,
+    fmt: &str,
+    url: &str,
+    idx: Option<&str>,
+    md5: &str,
+    bytes: i64,
+) -> NewSeqFile {
+    NewSeqFile {
+        file_name: name.into(),
+        file_format: Some(fmt.into()),
+        file_size_bytes: Some(bytes),
+        file_url: url.into(),
+        file_index_url: idx.map(Into::into),
+        md5: Some(md5.into()),
+        aligner: None,
+        target_reference: None,
+    }
+}
+
+fn seq_lib(
+    run: &str,
+    reads: Option<i64>,
+    read_length: Option<i32>,
+    files: Vec<NewSeqFile>,
+) -> NewSeqLibrary {
+    NewSeqLibrary {
+        instrument: Some("Illumina NovaSeq 6000".into()),
+        reads,
+        read_length,
+        paired_end: Some(true),
+        run_date: None,
+        external_run_ref: run.into(),
+        files,
+    }
+}
+
+/// Seed one crawled ENA sample and return nothing — the accession is the handle.
+async fn seed_sample(pool: &sqlx::PgPool, accession: &str, libs: Vec<NewSeqLibrary>) {
+    let (guid, _) = du_db::biosample::upsert_by_accession(pool, accession, "EXTERNAL", None)
+        .await
+        .expect("upsert biosample");
+    du_db::sequence::ingest_libraries(pool, guid, &libs)
+        .await
+        .expect("ingest");
+}
+
+#[tokio::test]
+async fn curation_projects_crawled_samples_into_work_units() {
+    let Some(url) = database_url() else {
+        return;
+    };
+    let db = du_db::testing::ephemeral_db(&url)
+        .await
+        .expect("ephemeral db");
+    let pool = db.pool().clone();
+
+    seed_sample(
+        &pool,
+        "SAMEA2000001",
+        vec![seq_lib(
+            "ERR2000001",
+            Some(400_000_000),
+            Some(150),
+            vec![seq_file(
+                "s1.cram",
+                "CRAM",
+                "ftp.sra.ebi.ac.uk/vol1/run/ERR200/s1.cram",
+                Some("ftp.sra.ebi.ac.uk/vol1/run/ERR200/s1.cram.crai"),
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                12_000_000_000,
+            )],
+        )],
+    )
+    .await;
+    seed_sample(
+        &pool,
+        "SAMEA2000002",
+        vec![seq_lib(
+            "ERR2000002",
+            Some(300_000_000),
+            None, // ENA's crawl leaves read_length unset — so est_bases cannot be computed
+            vec![
+                seq_file(
+                    "r_1.fastq.gz",
+                    "FASTQ",
+                    "ftp/r_1.fastq.gz",
+                    None,
+                    "b".repeat(32).as_str(),
+                    9_000_000_000,
+                ),
+                seq_file(
+                    "r_2.fastq.gz",
+                    "FASTQ",
+                    "ftp/r_2.fastq.gz",
+                    None,
+                    "c".repeat(32).as_str(),
+                    9_100_000_000,
+                ),
+            ],
+        )],
+    )
+    .await;
+
+    let got = du_db::grid::curation_candidates(&pool, true, 100)
+        .await
+        .unwrap();
+    assert_eq!(got.len(), 2, "both crawled samples are candidates");
+
+    let cram = got
+        .iter()
+        .find(|c| c.sample_accession == "SAMEA2000001")
+        .unwrap();
+    assert_eq!(
+        cram.data_kind, "CRAM",
+        "a sample with an aligned file is a passthrough unit"
+    );
+    assert_eq!(cram.manifest.as_array().unwrap().len(), 1);
+    assert_eq!(cram.manifest[0]["format"], "CRAM");
+    assert_eq!(
+        cram.manifest[0]["run_accession"], "ERR2000001",
+        "the run accession survives the crawl's atproto slot"
+    );
+    assert_eq!(
+        cram.manifest[0]["url"],
+        "ftp.sra.ebi.ac.uk/vol1/run/ERR200/s1.cram"
+    );
+    assert_eq!(
+        cram.manifest[0]["index_url"],
+        "ftp.sra.ebi.ac.uk/vol1/run/ERR200/s1.cram.crai"
+    );
+    assert_eq!(cram.manifest[0]["md5"], "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+    assert_eq!(cram.total_bytes, Some(12_000_000_000));
+    assert_eq!(
+        cram.est_bases,
+        Some(400_000_000 * 150),
+        "reads × read_length when both are known"
+    );
+
+    let fq = got
+        .iter()
+        .find(|c| c.sample_accession == "SAMEA2000002")
+        .unwrap();
+    assert_eq!(fq.data_kind, "FASTQ", "no aligned file ⇒ the node realigns");
+    assert_eq!(
+        fq.manifest.as_array().unwrap().len(),
+        2,
+        "both mates are in the manifest"
+    );
+    assert!(
+        fq.manifest[0].get("index_url").is_none(),
+        "jsonb_strip_nulls drops the absent sidecar"
+    );
+    assert_eq!(fq.total_bytes, Some(18_100_000_000));
+    assert_eq!(
+        fq.est_bases, None,
+        "read_length is unset by the crawl, so est_bases is NULL rather than invented — the \
+         per-Gbp credit term has nothing to weigh this unit by"
+    );
+}
+
+/// A sample carrying both an aligned file and its FASTQ is one *passthrough* unit, and its
+/// manifest must not also list reads the node will never open.
+#[tokio::test]
+async fn the_manifest_is_filtered_to_the_chosen_data_kind() {
+    let Some(url) = database_url() else {
+        return;
+    };
+    let db = du_db::testing::ephemeral_db(&url)
+        .await
+        .expect("ephemeral db");
+    let pool = db.pool().clone();
+
+    seed_sample(
+        &pool,
+        "SAMEA2000010",
+        vec![
+            seq_lib(
+                "ERR2000010",
+                Some(1),
+                Some(1),
+                vec![seq_file(
+                    "a.cram",
+                    "CRAM",
+                    "ftp/a.cram",
+                    None,
+                    &"a".repeat(32),
+                    100,
+                )],
+            ),
+            seq_lib(
+                "ERR2000011",
+                Some(1),
+                Some(1),
+                vec![seq_file(
+                    "a_1.fastq.gz",
+                    "FASTQ",
+                    "ftp/a_1.fastq.gz",
+                    None,
+                    &"b".repeat(32),
+                    200,
+                )],
+            ),
+        ],
+    )
+    .await;
+
+    let got = du_db::grid::curation_candidates(&pool, true, 100)
+        .await
+        .unwrap();
+    assert_eq!(got.len(), 1);
+    assert_eq!(got[0].data_kind, "CRAM");
+    let formats: Vec<&str> = got[0]
+        .manifest
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|f| f["format"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        formats,
+        vec!["CRAM"],
+        "the FASTQ is excluded, not merely deprioritised"
+    );
+    assert_eq!(
+        got[0].total_bytes,
+        Some(100),
+        "and it is not counted in the download budget either"
+    );
+}
+
+#[tokio::test]
+async fn only_new_skips_samples_that_already_have_a_unit() {
+    let Some(url) = database_url() else {
+        return;
+    };
+    let db = du_db::testing::ephemeral_db(&url)
+        .await
+        .expect("ephemeral db");
+    let pool = db.pool().clone();
+
+    seed_sample(
+        &pool,
+        "SAMEA2000020",
+        vec![seq_lib(
+            "ERR2000020",
+            Some(1),
+            Some(1),
+            vec![seq_file(
+                "a.cram",
+                "CRAM",
+                "ftp/a.cram",
+                None,
+                &"a".repeat(32),
+                100,
+            )],
+        )],
+    )
+    .await;
+
+    let first = du_db::grid::curation_candidates(&pool, true, 100)
+        .await
+        .unwrap();
+    assert_eq!(first.len(), 1);
+    let unit = NewWorkUnit {
+        sample_accession: first[0].sample_accession.clone(),
+        study_accession: first[0].study_accession.clone(),
+        data_kind: first[0].data_kind.clone(),
+        manifest: first[0].manifest.clone(),
+        est_bases: first[0].est_bases,
+        total_bytes: first[0].total_bytes,
+    };
+    let unit_id = grid::upsert_work_unit(&pool, &unit).await.unwrap();
+
+    // Incremental: nothing new to publish.
+    assert!(du_db::grid::curation_candidates(&pool, true, 100)
+        .await
+        .unwrap()
+        .is_empty());
+    // Full re-projection still offers it, which is how a manifest gets refreshed after a re-crawl.
+    assert_eq!(
+        du_db::grid::curation_candidates(&pool, false, 100)
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+
+    // A refresh must not disturb the lifecycle. Canonicalise the unit, re-upsert, and check.
+    sqlx::query(
+        "UPDATE grid.work_unit SET state = 'CANONICAL', required_replicas = 5 WHERE id = $1",
+    )
+    .bind(unit_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    grid::upsert_work_unit(&pool, &unit).await.unwrap();
+    let (state, reps): (String, i16) =
+        sqlx::query_as("SELECT state, required_replicas FROM grid.work_unit WHERE id = $1")
+            .bind(unit_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        state, "CANONICAL",
+        "curation describes the input; it must not un-canonicalise a unit"
+    );
+    assert_eq!(reps, 5, "nor reset a replica count validation raised");
+}

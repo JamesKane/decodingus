@@ -374,6 +374,93 @@ pub async fn leaderboard(
     Ok(rows)
 }
 
+/// A sample the crawl has already resolved, shaped as a work unit.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct CurationCandidate {
+    pub sample_accession: String,
+    pub study_accession: Option<String>,
+    pub data_kind: String,
+    pub manifest: Value,
+    pub est_bases: Option<i64>,
+    pub total_bytes: Option<i64>,
+}
+
+/// Samples that could become work units, projected out of what `crawl_project` already stored.
+///
+/// The Grid does **not** talk to ENA to build its catalogue. `EnaClient::run_files` and
+/// `du_jobs::crawl_project` already resolve every run of a study, group the runs by sample, and
+/// materialise the files into `genomics.sequence_file` with their URLs, md5s and sizes. Curation is
+/// therefore a projection of tables we already have, not a second ENA integration — which also
+/// keeps the fleet off the ENA portal (design §6.2, fair use).
+///
+/// **`data_kind` is decided per sample, and the manifest is filtered to match it.** A sample with
+/// any CRAM/BAM is a passthrough unit and its manifest carries only the aligned files; otherwise it
+/// is a FASTQ unit carrying only reads. `crawl_project::build_libraries` already prefers aligned
+/// over FASTQ per sample, so in practice the two agree — but deciding it here as well means the
+/// manifest can never carry a file the data kind says the node will not use.
+///
+/// With `only_new`, samples that already have a work unit are skipped. That is the nightly path.
+/// Passing `false` re-projects everything, which refreshes manifests after a re-crawl.
+///
+/// **`est_bases` is usually `NULL` today, and that is a real gap.** It is `reads × read_length`,
+/// but the crawl sets `read_length` to `None` — ENA's `filereport` exposes `base_count`, and
+/// `RUN_FIELDS` does not request it. Until that is fixed the per-Gbp term of the credit formula
+/// (§6.3) has nothing to weigh a FASTQ unit by. A fabricated estimate would be worse than a null in
+/// a ledger, so this returns the null and the job reports how many it saw.
+pub async fn curation_candidates(
+    pool: &PgPool,
+    only_new: bool,
+    limit: i64,
+) -> Result<Vec<CurationCandidate>, DbError> {
+    let rows = sqlx::query_as::<_, CurationCandidate>(
+        "WITH sample AS ( \
+             SELECT b.sample_guid, b.accession, \
+                    CASE WHEN bool_or(sf.file_format IN ('CRAM', 'BAM')) THEN 'CRAM' ELSE 'FASTQ' END AS data_kind \
+               FROM core.biosample b \
+               JOIN genomics.sequence_library sl ON sl.sample_guid = b.sample_guid \
+               JOIN genomics.sequence_file sf ON sf.library_id = sl.id \
+              WHERE b.deleted = false \
+                AND b.accession IS NOT NULL \
+                AND sl.atproto->>'source' = 'ENA' \
+                AND sf.file_format IN ('CRAM', 'BAM', 'FASTQ') \
+                AND sf.http_locations->0->>'file_url' IS NOT NULL \
+              GROUP BY b.sample_guid, b.accession \
+         ) \
+         SELECT s.accession AS sample_accession, \
+                ( SELECT gs.accession FROM pubs.publication_biosample pb \
+                    JOIN pubs.publication_study ps ON ps.publication_id = pb.publication_id \
+                    JOIN pubs.genomic_study gs ON gs.id = ps.study_id \
+                   WHERE pb.sample_guid = s.sample_guid \
+                   ORDER BY gs.accession LIMIT 1 ) AS study_accession, \
+                s.data_kind, \
+                jsonb_agg(jsonb_strip_nulls(jsonb_build_object( \
+                    'run_accession', sl.atproto->>'run_accession', \
+                    'url',           sf.http_locations->0->>'file_url', \
+                    'index_url',     sf.http_locations->0->>'file_index_url', \
+                    'md5',           sf.checksums->0->>'checksum', \
+                    'bytes',         sf.file_size_bytes, \
+                    'format',        sf.file_format \
+                )) ORDER BY sl.id, sf.id) AS manifest, \
+                ( SELECT SUM(l2.reads::bigint * l2.read_length::bigint) \
+                    FROM genomics.sequence_library l2 WHERE l2.sample_guid = s.sample_guid ) AS est_bases, \
+                SUM(sf.file_size_bytes)::bigint AS total_bytes \
+           FROM sample s \
+           JOIN genomics.sequence_library sl ON sl.sample_guid = s.sample_guid \
+           JOIN genomics.sequence_file sf ON sf.library_id = sl.id \
+          WHERE ( (s.data_kind = 'CRAM'  AND sf.file_format IN ('CRAM', 'BAM')) \
+               OR (s.data_kind = 'FASTQ' AND sf.file_format = 'FASTQ') ) \
+            AND ( NOT $1 OR NOT EXISTS (SELECT 1 FROM grid.work_unit w WHERE w.sample_accession = s.accession) ) \
+          GROUP BY s.sample_guid, s.accession, s.data_kind \
+          ORDER BY s.accession \
+          LIMIT $2",
+    )
+    .bind(only_new)
+    .bind(limit)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}
+
 /// Register (or refresh) a contributing node in the shared fleet registry.
 ///
 /// Reuses `fed.pds_node` rather than adding a `grid.node`: the columns the Grid needs — DID,

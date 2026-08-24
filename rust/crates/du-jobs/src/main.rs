@@ -9,6 +9,7 @@
 mod coord_lift;
 mod crawl_project;
 mod ena;
+mod grid_curate;
 mod faidx;
 mod ftdna_str;
 mod gzio;
@@ -371,6 +372,16 @@ async fn main() -> anyhow::Result<()> {
                     Some(acc) => crawl_project::crawl_one_accession(&pool, &ena, &acc).await?,
                     None => crawl_project::crawl_pending(&pool, &ena).await?,
                 }
+            }
+            // Grid curation: project the samples `crawl-project` already resolved into the
+            // claimable work list (`grid.work_unit`). Makes no network calls — the file URLs,
+            // md5s and sizes are already in `genomics.sequence_file`, and curating centrally is
+            // what keeps a volunteer fleet off the ENA portal. `all` re-projects every eligible
+            // sample to refresh manifests after a re-crawl; the bare form is incremental and is
+            // what the timer runs.
+            "grid-curate" => {
+                let only_new = argv.next().as_deref() != Some("all");
+                grid_curate::curate(&pool, only_new).await?;
             }
             // External enrichment (formerly scheduled; now nightly run-once). OpenAlex
             // by-DOI refresh, date-sorted discovery, and PubMed by-PMID gap-fill.
