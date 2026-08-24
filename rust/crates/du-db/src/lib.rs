@@ -24,6 +24,7 @@ pub mod exchange;
 pub mod fed;
 pub mod fed_subject;
 pub mod genome_region;
+pub mod grid;
 pub mod haplogroup;
 pub mod ibd;
 pub mod identifier;
