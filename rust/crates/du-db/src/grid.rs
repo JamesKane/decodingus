@@ -242,11 +242,26 @@ pub async fn release(
     Ok(r.rows_affected() > 0)
 }
 
-/// Reclaim every lease whose bound has passed. Run by the `grid-reap` job.
+/// Close every lease whose bound has passed. Run by the `grid-reap` job.
 ///
-/// Reclamation is what makes a lease *honest*: a node that crashes, is closed, or simply loses
-/// interest costs the catalogue one lease duration and nothing more. Returns how many were
-/// reclaimed.
+/// **This is not what frees the replica slot** — [`claim`] already ignores any lease past
+/// `expires_at`, so a unit held by a node that crashed becomes claimable by *another* contributor
+/// the moment the lease lapses, with no job run in between. That is what makes a lease honest: a
+/// vanished node costs the catalogue one lease duration and nothing more, even if the reaper is
+/// down.
+///
+/// What the reaper actually does is the other two things, both of which need a row write:
+///
+/// 1. **Records the outcome** (`EXPIRED`), so a node's history distinguishes "timed out" from
+///    "gave it back" — which trust tiering (§6.1) needs and a derived query cannot recover.
+/// 2. **Lets the *same* node claim the unit again.** The self-replication guard in [`claim`] keys
+///    on `released_at IS NULL` with no expiry test, deliberately: relaxing it would let a node
+///    re-claim a unit it already holds a row for, and the partial unique index would then make
+///    `ON CONFLICT DO NOTHING` swallow the insert and hand back an empty result with no
+///    explanation. So a node that overran its lease waits for the reaper before it can retry —
+///    which is the honest ordering, since its first attempt is genuinely over.
+///
+/// Returns how many leases were closed.
 pub async fn reap_expired(pool: &PgPool) -> Result<u64, DbError> {
     let r = sqlx::query(
         "UPDATE grid.lease SET released_at = now(), outcome = 'EXPIRED' \
@@ -441,7 +456,7 @@ pub async fn curation_candidates(
                     'bytes',         sf.file_size_bytes, \
                     'format',        sf.file_format \
                 )) ORDER BY sl.id, sf.id) AS manifest, \
-                ( SELECT SUM(l2.reads::bigint * l2.read_length::bigint) \
+                ( SELECT SUM(l2.reads::bigint * l2.read_length::bigint)::bigint \
                     FROM genomics.sequence_library l2 WHERE l2.sample_guid = s.sample_guid ) AS est_bases, \
                 SUM(sf.file_size_bytes)::bigint AS total_bytes \
            FROM sample s \

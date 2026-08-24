@@ -118,7 +118,7 @@ async fn data_kind_filter_is_honoured() {
 }
 
 #[tokio::test]
-async fn expired_leases_are_reclaimed_and_the_unit_is_claimable_again() {
+async fn a_lapsed_lease_frees_the_slot_immediately_and_the_reaper_records_the_outcome() {
     let Some(url) = database_url() else {
         return;
     };
@@ -131,30 +131,90 @@ async fn expired_leases_are_reclaimed_and_the_unit_is_claimable_again() {
         .await
         .unwrap();
 
-    // Two nodes take both replica slots with leases that have already expired.
+    // A and B take both replica slots on leases that have already lapsed.
     for did in [DID_A, DID_B] {
         let got = grid::claim(&pool, did, None, &kinds(&["CRAM"]), 1, -1)
             .await
             .unwrap();
         assert_eq!(got.len(), 1);
     }
-    assert!(grid::claim(&pool, DID_C, None, &kinds(&["CRAM"]), 1, 3600)
-        .await
-        .unwrap()
-        .is_empty());
 
-    // Both are past their bound, so the reaper takes them back. This is what makes the lease an
-    // honest promise: a node that vanishes costs the catalogue one lease duration, not the unit.
-    let reaped = grid::reap_expired(&pool).await.unwrap();
-    assert_eq!(reaped, 2, "both expired leases reclaimed");
-
+    // C can claim RIGHT NOW, with no reaper run in between: `claim` ignores any lease past its
+    // bound, so a unit held by a node that crashed frees itself. This is what makes the lease an
+    // honest promise — a vanished node costs the catalogue one lease duration even if the reaper
+    // is down. (The first version of this test asserted the opposite, encoding the design's story
+    // that reclamation is what frees the slot. The code is right and the story was wrong.)
     let c = grid::claim(&pool, DID_C, None, &kinds(&["CRAM"]), 1, 3600)
         .await
         .unwrap();
-    assert_eq!(c.len(), 1, "a reclaimed unit is claimable again");
+    assert_eq!(c.len(), 1, "a lapsed lease does not hold a replica slot");
 
-    // Reaping is idempotent — the second run finds nothing still expired and active.
-    assert_eq!(grid::reap_expired(&pool).await.unwrap(), 0);
+    // The reaper closes the two lapsed leases and leaves C's live one alone.
+    assert_eq!(
+        grid::reap_expired(&pool).await.unwrap(),
+        2,
+        "only the lapsed leases are closed"
+    );
+    assert_eq!(
+        grid::reap_expired(&pool).await.unwrap(),
+        0,
+        "reaping is idempotent"
+    );
+
+    let outcomes: Vec<(String, Option<String>)> =
+        sqlx::query_as("SELECT did, outcome FROM grid.lease ORDER BY did")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+    assert_eq!(outcomes.len(), 3);
+    assert_eq!(outcomes[0].1.as_deref(), Some("EXPIRED"), "A timed out");
+    assert_eq!(outcomes[1].1.as_deref(), Some("EXPIRED"), "B timed out");
+    assert_eq!(outcomes[2].1, None, "C is still working");
+}
+
+/// The reaper's *other* job: until it runs, a node that overran its own lease cannot re-claim the
+/// unit, because the self-replication guard keys on an unreleased lease regardless of expiry.
+/// Relaxing that guard would collide with the partial unique index and hand back a silently empty
+/// result instead, so the wait is deliberate.
+#[tokio::test]
+async fn a_node_that_overran_its_lease_can_retry_only_after_the_reaper_runs() {
+    let Some(url) = database_url() else {
+        return;
+    };
+    let db = du_db::testing::ephemeral_db(&url)
+        .await
+        .expect("ephemeral db");
+    let pool = db.pool().clone();
+
+    grid::upsert_work_unit(&pool, &unit("SAMEA0000021", "CRAM"))
+        .await
+        .unwrap();
+    assert_eq!(
+        grid::claim(&pool, DID_A, None, &kinds(&["CRAM"]), 1, -1)
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+
+    assert!(
+        grid::claim(&pool, DID_A, None, &kinds(&["CRAM"]), 1, 3600)
+            .await
+            .unwrap()
+            .is_empty(),
+        "its own lapsed-but-open lease still blocks it"
+    );
+
+    grid::reap_expired(&pool).await.unwrap();
+
+    assert_eq!(
+        grid::claim(&pool, DID_A, None, &kinds(&["CRAM"]), 1, 3600)
+            .await
+            .unwrap()
+            .len(),
+        1,
+        "once the outcome is recorded, the node may take a fresh lease"
+    );
 }
 
 #[tokio::test]
