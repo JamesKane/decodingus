@@ -602,6 +602,10 @@ struct SeqLibraryIn {
     instrument: Option<String>,
     reads: Option<i64>,
     read_length: Option<i32>,
+    /// Total bases in the run. Optional: this ops endpoint predates the column, and a caller that
+    /// does not know the figure should send nothing rather than a guess — the Grid's per-gigabase
+    /// credit reads it, and an invented number there pays someone the wrong amount.
+    base_count: Option<i64>,
     paired_end: Option<bool>,
     /// ISO date (`YYYY-MM-DD`); tolerated absent.
     run_date: Option<chrono::NaiveDate>,
@@ -634,6 +638,7 @@ async fn ingest_sequence_libraries(
             instrument: l.instrument,
             reads: l.reads,
             read_length: l.read_length,
+            base_count: l.base_count,
             paired_end: l.paired_end,
             run_date: l.run_date,
             external_run_ref: l.external_run_ref,

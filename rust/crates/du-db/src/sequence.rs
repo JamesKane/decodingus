@@ -37,6 +37,8 @@ pub struct NewSeqLibrary {
     pub instrument: Option<String>,
     pub reads: Option<i64>,
     pub read_length: Option<i32>,
+    /// Total bases in the run, as ENA reports it. The Grid weighs a work unit by this (§6.3).
+    pub base_count: Option<i64>,
     pub paired_end: Option<bool>,
     pub run_date: Option<chrono::NaiveDate>,
     /// Source run/analysis accession (e.g. ENA `ERR...`), stored as provenance.
@@ -89,7 +91,11 @@ pub async fn ingest_libraries(
             .fetch_one(&mut *tx)
             .await?;
     if existing > 0 {
-        return Ok(IngestReport { library_ids: Vec::new(), files_created: 0, skipped_existing: true });
+        return Ok(IngestReport {
+            library_ids: Vec::new(),
+            files_created: 0,
+            skipped_existing: true,
+        });
     }
 
     let mut library_ids = Vec::with_capacity(libs.len());
@@ -97,14 +103,15 @@ pub async fn ingest_libraries(
     for lib in libs {
         let lib_id: i64 = sqlx::query_scalar(
             "INSERT INTO genomics.sequence_library \
-                (sample_guid, run_date, instrument, reads, read_length, paired_end, atproto) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id",
+                (sample_guid, run_date, instrument, reads, read_length, base_count, paired_end, atproto) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id",
         )
         .bind(guid.0)
         .bind(lib.run_date)
         .bind(&lib.instrument)
         .bind(lib.reads)
         .bind(lib.read_length)
+        .bind(lib.base_count)
         .bind(lib.paired_end)
         // No ATP record for academic runs; reuse the JSONB slot for source provenance.
         .bind(json!({ "source": "ENA", "run_accession": lib.external_run_ref }))
@@ -143,5 +150,61 @@ pub async fn ingest_libraries(
     }
 
     tx.commit().await?;
-    Ok(IngestReport { library_ids, files_created, skipped_existing: false })
+    Ok(IngestReport {
+        library_ids,
+        files_created,
+        skipped_existing: false,
+    })
+}
+
+/// One crawled ENA run that has no `base_count` yet — the backfill job's work list.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct MissingBaseCount {
+    pub id: i64,
+    /// The ENA run accession, from the `atproto` provenance slot the crawl writes.
+    pub run_accession: String,
+}
+
+/// Crawled ENA runs still missing a measured `base_count`, oldest first.
+///
+/// Only rows the crawl created: the accession comes from the `{source: "ENA", run_accession}`
+/// provenance the crawl writes, so a hand-loaded library with no ENA origin is never queried
+/// against ENA — there would be nothing there to find.
+pub async fn runs_missing_base_count(
+    pool: &PgPool,
+    limit: i64,
+) -> Result<Vec<MissingBaseCount>, DbError> {
+    let rows = sqlx::query_as::<_, MissingBaseCount>(
+        "SELECT id, atproto->>'run_accession' AS run_accession \
+           FROM genomics.sequence_library \
+          WHERE base_count IS NULL \
+            AND atproto->>'source' = 'ENA' \
+            AND COALESCE(atproto->>'run_accession', '') <> '' \
+          ORDER BY id \
+          LIMIT $1",
+    )
+    .bind(limit)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}
+
+/// Record a measured `base_count` against one library.
+///
+/// Only ever fills a NULL. A row that already carries a figure is left alone, so re-running the
+/// backfill cannot overwrite a measurement with a later, differently-reported one and silently
+/// change what a contributor was paid for work already credited.
+pub async fn set_base_count(
+    pool: &PgPool,
+    library_id: i64,
+    base_count: i64,
+) -> Result<bool, DbError> {
+    let r = sqlx::query(
+        "UPDATE genomics.sequence_library SET base_count = $2 WHERE id = $1 AND base_count IS NULL",
+    )
+    .bind(library_id)
+    .bind(base_count)
+    .execute(pool)
+    .await?;
+    Ok(r.rows_affected() > 0)
 }

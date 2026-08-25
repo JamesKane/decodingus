@@ -374,6 +374,14 @@ async fn main() -> anyhow::Result<()> {
                     None => crawl_project::crawl_pending(&pool, &ena).await?,
                 }
             }
+            // Backfill `sequence_library.base_count` from ENA for runs that predate migration
+            // 0076. A re-crawl cannot do it — `ingest_libraries` skips samples that already have
+            // files — and until it has run, the Grid pays a 90 Gbp realignment what it pays a
+            // CRAM passthrough. Bounded batch; re-run until it reports nothing examined.
+            "ena-base-count" => {
+                let client = du_external::ena::EnaClient::new();
+                ena::backfill_base_counts(&pool, &client).await?;
+            }
             // Grid curation: project the samples `crawl-project` already resolved into the
             // claimable work list (`grid.work_unit`). Makes no network calls — the file URLs,
             // md5s and sizes are already in `genomics.sequence_file`, and curating centrally is

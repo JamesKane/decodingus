@@ -452,10 +452,21 @@ fn seq_lib(
     read_length: Option<i32>,
     files: Vec<NewSeqFile>,
 ) -> NewSeqLibrary {
+    seq_lib_bases(run, reads, read_length, None, files)
+}
+
+fn seq_lib_bases(
+    run: &str,
+    reads: Option<i64>,
+    read_length: Option<i32>,
+    base_count: Option<i64>,
+    files: Vec<NewSeqFile>,
+) -> NewSeqLibrary {
     NewSeqLibrary {
         instrument: Some("Illumina NovaSeq 6000".into()),
         reads,
         read_length,
+        base_count,
         paired_end: Some(true),
         run_date: None,
         external_run_ref: run.into(),
@@ -504,10 +515,11 @@ async fn curation_projects_crawled_samples_into_work_units() {
     seed_sample(
         &pool,
         "SAMEA2000002",
-        vec![seq_lib(
+        vec![seq_lib_bases(
             "ERR2000002",
             Some(300_000_000),
-            None, // ENA's crawl leaves read_length unset — so est_bases cannot be computed
+            None,                 // ENA never reports read_length
+            Some(45_000_000_000), // …but it does report base_count, which is what we weigh by
             vec![
                 seq_file(
                     "r_1.fastq.gz",
@@ -581,9 +593,9 @@ async fn curation_projects_crawled_samples_into_work_units() {
     );
     assert_eq!(fq.total_bytes, Some(18_100_000_000));
     assert_eq!(
-        fq.est_bases, None,
-        "read_length is unset by the crawl, so est_bases is NULL rather than invented — the \
-         per-Gbp credit term has nothing to weigh this unit by"
+        fq.est_bases,
+        Some(45_000_000_000),
+        "the measured base_count is what the per-Gbp credit term weighs a realignment by"
     );
 }
 
@@ -1103,4 +1115,153 @@ async fn stats_counts_units_leases_and_contributors() {
     assert_eq!(s["leases_active"], 1, "only C still holds one");
     assert_eq!(s["contributors"], 2, "distinct submitters");
     assert_eq!(s["cobblestones_awarded"], 4.0);
+}
+
+/// `est_bases` prefers the measured `base_count` and only falls back to `reads × read_length`,
+/// which is a mean-length approximation and wrong outright for variable-length long reads.
+#[tokio::test]
+async fn est_bases_prefers_the_measured_count_over_the_approximation() {
+    let Some(url) = database_url() else {
+        return;
+    };
+    let db = du_db::testing::ephemeral_db(&url)
+        .await
+        .expect("ephemeral db");
+    let pool = db.pool().clone();
+
+    let f = || {
+        vec![seq_file(
+            "a.cram",
+            "CRAM",
+            "ftp/a.cram",
+            None,
+            &"a".repeat(32),
+            100,
+        )]
+    };
+
+    // Both figures present and disagreeing: the measurement wins.
+    seed_sample(
+        &pool,
+        "SAMEA3000001",
+        vec![seq_lib_bases(
+            "ERR1",
+            Some(100),
+            Some(150),
+            Some(42_000),
+            f(),
+        )],
+    )
+    .await;
+    // Only the approximation available — a row from before migration 0076.
+    seed_sample(
+        &pool,
+        "SAMEA3000002",
+        vec![seq_lib_bases("ERR2", Some(100), Some(150), None, f())],
+    )
+    .await;
+    // Neither. The backfill has not reached it and ENA may never have published one.
+    seed_sample(
+        &pool,
+        "SAMEA3000003",
+        vec![seq_lib_bases("ERR3", Some(100), None, None, f())],
+    )
+    .await;
+
+    let got = du_db::grid::curation_candidates(&pool, true, 100)
+        .await
+        .unwrap();
+    let by = |acc: &str| {
+        got.iter()
+            .find(|c| c.sample_accession == acc)
+            .unwrap()
+            .est_bases
+    };
+    assert_eq!(
+        by("SAMEA3000001"),
+        Some(42_000),
+        "the measurement wins over reads × read_length"
+    );
+    assert_eq!(
+        by("SAMEA3000002"),
+        Some(15_000),
+        "falling back where there is no measurement"
+    );
+    assert_eq!(
+        by("SAMEA3000003"),
+        None,
+        "no honest figure available, so no figure — this sets what a contributor is paid, and a \
+         fabricated number in a ledger is worse than an absent one"
+    );
+}
+
+/// The backfill only ever fills a NULL. Re-running it must not overwrite a measurement and
+/// silently change what a contributor was already paid for.
+#[tokio::test]
+async fn the_base_count_backfill_never_overwrites_a_measurement() {
+    let Some(url) = database_url() else {
+        return;
+    };
+    let db = du_db::testing::ephemeral_db(&url)
+        .await
+        .expect("ephemeral db");
+    let pool = db.pool().clone();
+
+    let f = || {
+        vec![seq_file(
+            "a.cram",
+            "CRAM",
+            "ftp/a.cram",
+            None,
+            &"a".repeat(32),
+            100,
+        )]
+    };
+    seed_sample(
+        &pool,
+        "SAMEA3000010",
+        vec![seq_lib_bases("ERR10", Some(1), None, None, f())],
+    )
+    .await;
+    seed_sample(
+        &pool,
+        "SAMEA3000011",
+        vec![seq_lib_bases("ERR11", Some(1), None, Some(999), f())],
+    )
+    .await;
+
+    let pending = du_db::sequence::runs_missing_base_count(&pool, 100)
+        .await
+        .unwrap();
+    assert_eq!(
+        pending.len(),
+        1,
+        "only the row without a measurement is work"
+    );
+    assert_eq!(
+        pending[0].run_accession, "ERR10",
+        "the accession comes from the crawl's provenance slot"
+    );
+
+    assert!(du_db::sequence::set_base_count(&pool, pending[0].id, 5_000)
+        .await
+        .unwrap());
+    assert!(
+        !du_db::sequence::set_base_count(&pool, pending[0].id, 7_000)
+            .await
+            .unwrap(),
+        "a second run finds nothing to fill"
+    );
+
+    let filled: Option<i64> =
+        sqlx::query_scalar("SELECT base_count FROM genomics.sequence_library WHERE id = $1")
+            .bind(pending[0].id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(filled, Some(5_000), "the first measurement stands");
+    assert!(du_db::sequence::runs_missing_base_count(&pool, 100)
+        .await
+        .unwrap()
+        .is_empty());
 }

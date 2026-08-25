@@ -419,11 +419,15 @@ pub struct CurationCandidate {
 /// With `only_new`, samples that already have a work unit are skipped. That is the nightly path.
 /// Passing `false` re-projects everything, which refreshes manifests after a re-crawl.
 ///
-/// **`est_bases` is usually `NULL` today, and that is a real gap.** It is `reads × read_length`,
-/// but the crawl sets `read_length` to `None` — ENA's `filereport` exposes `base_count`, and
-/// `RUN_FIELDS` does not request it. Until that is fixed the per-Gbp term of the credit formula
-/// (§6.3) has nothing to weigh a FASTQ unit by. A fabricated estimate would be worse than a null in
-/// a ledger, so this returns the null and the job reports how many it saw.
+/// **`est_bases` prefers the measured `base_count`** that ENA publishes on `read_run`, and falls
+/// back to `reads × read_length` where a row predates that column. The fallback is only ever a
+/// mean-length approximation and is wrong outright for variable-length long reads, so it is a
+/// fallback and not the primary.
+///
+/// It can still be `NULL`, for a crawled row that has neither — `du-jobs run-once ena-base-count`
+/// backfills those. A NULL is deliberate: this figure sets what a contributor is *paid* (§6.3), and
+/// a fabricated estimate in a ledger is worse than an honest absence. `grid-curate` warns with a
+/// count of the units it published without one.
 pub async fn curation_candidates(
     pool: &PgPool,
     only_new: bool,
@@ -458,7 +462,7 @@ pub async fn curation_candidates(
                     'bytes',         sf.file_size_bytes, \
                     'format',        sf.file_format \
                 )) ORDER BY sl.id, sf.id) AS manifest, \
-                ( SELECT SUM(l2.reads::bigint * l2.read_length::bigint)::bigint \
+                ( SELECT SUM(COALESCE(l2.base_count, l2.reads::bigint * l2.read_length::bigint))::bigint \
                     FROM genomics.sequence_library l2 WHERE l2.sample_guid = s.sample_guid ) AS est_bases, \
                 SUM(sf.file_size_bytes)::bigint AS total_bytes \
            FROM sample s \
