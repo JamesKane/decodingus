@@ -419,6 +419,12 @@ pub struct CurationCandidate {
 /// With `only_new`, samples that already have a work unit are skipped. That is the nightly path.
 /// Passing `false` re-projects everything, which refreshes manifests after a re-crawl.
 ///
+/// **The manifest carries the instrument**, because the node can not choose a mapper without it.
+/// A read set with no mate can be a long read or a single-end short read, and those two need
+/// different presets. A long read mapped under a short-read preset does not fail — it gives
+/// alignments that look correct and are wrong. `crawl_project` already stores the instrument model
+/// of ENA on the library, so this only carries a value that we hold.
+///
 /// **`est_bases` prefers the measured `base_count`** that ENA publishes on `read_run`, and falls
 /// back to `reads × read_length` where a row predates that column. The fallback is only ever a
 /// mean-length approximation and is wrong outright for variable-length long reads, so it is a
@@ -460,7 +466,8 @@ pub async fn curation_candidates(
                     'index_url',     sf.http_locations->0->>'file_index_url', \
                     'md5',           sf.checksums->0->>'checksum', \
                     'bytes',         sf.file_size_bytes, \
-                    'format',        sf.file_format \
+                    'format',        sf.file_format, \
+                    'instrument',    sl.instrument \
                 )) ORDER BY sl.id, sf.id) AS manifest, \
                 ( SELECT SUM(COALESCE(l2.base_count, l2.reads::bigint * l2.read_length::bigint))::bigint \
                     FROM genomics.sequence_library l2 WHERE l2.sample_guid = s.sample_guid ) AS est_bases, \

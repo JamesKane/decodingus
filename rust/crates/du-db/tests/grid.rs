@@ -570,6 +570,10 @@ async fn curation_projects_crawled_samples_into_work_units() {
         "ftp.sra.ebi.ac.uk/vol1/run/ERR200/s1.cram.crai"
     );
     assert_eq!(cram.manifest[0]["md5"], "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+    assert_eq!(
+        cram.manifest[0]["instrument"], "Illumina NovaSeq 6000",
+        "the node needs the instrument to choose a mapper preset"
+    );
     assert_eq!(cram.total_bytes, Some(12_000_000_000));
     assert_eq!(
         cram.est_bases,
