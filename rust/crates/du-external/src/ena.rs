@@ -12,7 +12,7 @@ const DEFAULT_BASE: &str = "https://www.ebi.ac.uk/ena/portal/api";
 /// `link-ena-sequence-files.py`). Multi-file columns arrive `;`-joined.
 const RUN_FIELDS: &str = "run_accession,sample_accession,submitted_ftp,submitted_md5,\
 submitted_bytes,submitted_format,fastq_ftp,fastq_md5,fastq_bytes,instrument_model,\
-library_layout,read_count,first_public";
+library_layout,read_count,base_count,first_public";
 
 /// One ENA `read_run` row for a project — the raw fields as ENA returns them
 /// (`;`-joined for multi-file runs; the file-selection policy lives in the crawl job).
@@ -30,6 +30,10 @@ pub struct EnaRunRow {
     pub instrument_model: String,
     pub library_layout: String,
     pub read_count: String,
+    /// Total bases in the run. The Grid's per-gigabase credit term weighs a work unit by this; it
+    /// is a measured total rather than `read_count × read_length`, which is a mean-length
+    /// approximation and simply wrong for variable-length long reads.
+    pub base_count: String,
     pub first_public: String,
 }
 
@@ -77,7 +81,7 @@ fn parse_run_report(tsv: &str) -> Vec<EnaRunRow> {
     };
     let cols: Vec<&str> = header.split('\t').collect();
     let col = |name: &str| cols.iter().position(|c| *c == name);
-    let (run, samp, sftp, smd5, sbytes, sfmt, fq, fqmd5, fqbytes, instr, layout, reads, pubd) = (
+    let (run, samp, sftp, smd5, sbytes, sfmt, fq, fqmd5, fqbytes, instr, layout, reads, bases, pubd) = (
         col("run_accession"),
         col("sample_accession"),
         col("submitted_ftp"),
@@ -90,6 +94,7 @@ fn parse_run_report(tsv: &str) -> Vec<EnaRunRow> {
         col("instrument_model"),
         col("library_layout"),
         col("read_count"),
+        col("base_count"),
         col("first_public"),
     );
     let get = |f: &[&str], i: Option<usize>| i.and_then(|i| f.get(i)).map(|s| s.trim().to_string()).unwrap_or_default();
@@ -109,6 +114,7 @@ fn parse_run_report(tsv: &str) -> Vec<EnaRunRow> {
                 instrument_model: get(&f, instr),
                 library_layout: get(&f, layout),
                 read_count: get(&f, reads),
+                base_count: get(&f, bases),
                 first_public: get(&f, pubd),
             }
         })
@@ -156,6 +162,10 @@ impl EnaClient {
     /// Enumerate every sequencing run for a study / project accession. Works for
     /// both ENA studies (`PRJEB…` → `ERR…`/`SAMEA…`) and NCBI BioProjects
     /// (`PRJNA…` → `SRR…`/`SAMN…`), since ENA mirrors the INSDC collaboration.
+    ///
+    /// A **run** accession (`ERR…`/`SRR…`) works here too and returns that single run — the
+    /// endpoint filters on whatever accession it is given. The `ena-base-count` backfill job
+    /// relies on that, rather than re-crawling whole studies to fill one column.
     /// Returns one row per run across all samples; an empty vec when the project
     /// has no reads (204/404 — e.g. genotype-only or unknown accession).
     pub async fn run_files(&self, accession: &str) -> Result<Vec<EnaRunRow>, ExternalError> {

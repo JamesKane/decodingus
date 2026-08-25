@@ -34,6 +34,13 @@ fn basename(url: &str) -> String {
 
 /// Parse a non-negative integer field; blanks / non-numeric → None (matches the
 /// python driver's `isdigit` guard).
+///
+/// Shared with the `ena-base-count` backfill, which needs exactly this leniency: ENA leaves a
+/// column empty when the submitter never supplied it, and that is not an error.
+pub fn parse_count(v: &str) -> Option<i64> {
+    to_int(v)
+}
+
 fn to_int(v: &str) -> Option<i64> {
     let v = v.trim();
     (!v.is_empty() && v.bytes().all(|b| b.is_ascii_digit())).then(|| v.parse().ok()).flatten()
@@ -67,6 +74,7 @@ fn mk_lib(r: &EnaRunRow, files: Vec<NewSeqFile>) -> NewSeqLibrary {
         instrument: opt(&r.instrument_model),
         reads: to_int(&r.read_count),
         read_length: None,
+        base_count: to_int(&r.base_count),
         paired_end: opt(&r.library_layout).map(|l| l.eq_ignore_ascii_case("PAIRED")),
         run_date: chrono::NaiveDate::parse_from_str(r.first_public.trim(), "%Y-%m-%d").ok(),
         external_run_ref: r.run_accession.trim().to_string(),

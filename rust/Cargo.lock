@@ -1360,7 +1360,7 @@ dependencies = [
 [[package]]
 name = "du-atproto"
 version = "0.1.0"
-source = "git+https://github.com/JamesKane/decodingus-shared.git?rev=b02884c95e98c9dcb585a231d140c9841c3d37a6#b02884c95e98c9dcb585a231d140c9841c3d37a6"
+source = "git+https://github.com/JamesKane/decodingus-shared.git?rev=b11ba77956275c48ad4fe32e3a58c84961565c85#b11ba77956275c48ad4fe32e3a58c84961565c85"
 dependencies = [
  "base64",
  "du-domain",
@@ -1378,7 +1378,7 @@ dependencies = [
 [[package]]
 name = "du-bio"
 version = "0.1.0"
-source = "git+https://github.com/JamesKane/decodingus-shared.git?rev=b02884c95e98c9dcb585a231d140c9841c3d37a6#b02884c95e98c9dcb585a231d140c9841c3d37a6"
+source = "git+https://github.com/JamesKane/decodingus-shared.git?rev=b11ba77956275c48ad4fe32e3a58c84961565c85#b11ba77956275c48ad4fe32e3a58c84961565c85"
 dependencies = [
  "du-domain",
  "serde",
@@ -1390,11 +1390,13 @@ dependencies = [
 name = "du-db"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "chrono",
  "du-bio",
  "du-domain",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "sqlx",
  "thiserror 2.0.18",
  "tokio",
@@ -1405,7 +1407,7 @@ dependencies = [
 [[package]]
 name = "du-domain"
 version = "0.1.0"
-source = "git+https://github.com/JamesKane/decodingus-shared.git?rev=b02884c95e98c9dcb585a231d140c9841c3d37a6#b02884c95e98c9dcb585a231d140c9841c3d37a6"
+source = "git+https://github.com/JamesKane/decodingus-shared.git?rev=b11ba77956275c48ad4fe32e3a58c84961565c85#b11ba77956275c48ad4fe32e3a58c84961565c85"
 dependencies = [
  "chrono",
  "rust_decimal",

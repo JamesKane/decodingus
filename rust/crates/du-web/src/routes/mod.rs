@@ -19,6 +19,7 @@ pub mod auth_routes;
 pub mod change_sets;
 pub mod coverage;
 pub mod exchange;
+pub mod grid_edge;
 pub mod ibd;
 pub mod curation;
 pub mod curator;
@@ -89,6 +90,7 @@ pub fn app(state: AppState) -> Router {
         .merge(projects::router())
         .merge(recruitment::router())
         .merge(recruitment_edge::router())
+        .merge(grid_edge::router())
         .merge(exchange::router())
         .merge(ibd::router())
         .merge(research::router())

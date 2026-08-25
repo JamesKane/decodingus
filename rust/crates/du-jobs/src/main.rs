@@ -9,6 +9,8 @@
 mod coord_lift;
 mod crawl_project;
 mod ena;
+mod grid_curate;
+mod grid_validate;
 mod faidx;
 mod ftdna_str;
 mod gzio;
@@ -371,6 +373,36 @@ async fn main() -> anyhow::Result<()> {
                     Some(acc) => crawl_project::crawl_one_accession(&pool, &ena, &acc).await?,
                     None => crawl_project::crawl_pending(&pool, &ena).await?,
                 }
+            }
+            // Backfill `sequence_library.base_count` from ENA for runs that predate migration
+            // 0076. A re-crawl cannot do it — `ingest_libraries` skips samples that already have
+            // files — and until it has run, the Grid pays a 90 Gbp realignment what it pays a
+            // CRAM passthrough. Bounded batch; re-run until it reports nothing examined.
+            "ena-base-count" => {
+                let client = du_external::ena::EnaClient::new();
+                ena::backfill_base_counts(&pool, &client).await?;
+            }
+            // Grid curation: project the samples `crawl-project` already resolved into the
+            // claimable work list (`grid.work_unit`). Makes no network calls — the file URLs,
+            // md5s and sizes are already in `genomics.sequence_file`, and curating centrally is
+            // what keeps a volunteer fleet off the ENA portal. `all` re-projects every eligible
+            // sample to refresh manifests after a re-crawl; the bare form is incremental and is
+            // what the timer runs.
+            "grid-curate" => {
+                let only_new = argv.next().as_deref() != Some("all");
+                grid_curate::curate(&pool, only_new).await?;
+            }
+            // Close lapsed leases. NOT what returns a unit to the claimable pool — `claim`
+            // already ignores any lease past its bound, so the catalogue keeps flowing even while
+            // this is down. What it does is record the EXPIRED outcome that trust tiering needs,
+            // and let a node that overran take a fresh lease. Design §12.5.
+            "grid-reap" => {
+                grid_validate::reap(&pool).await?;
+            }
+            // Adaptive replication: cluster the submitted digests, canonicalize a unit when one
+            // cluster satisfies both the replica bar and the trust policy, and pay whoever agreed.
+            "grid-validate" => {
+                grid_validate::validate(&pool, grid_validate::SPOT_CHECK_RATE).await?;
             }
             // External enrichment (formerly scheduled; now nightly run-once). OpenAlex
             // by-DOI refresh, date-sorted discovery, and PubMed by-PMID gap-fill.
