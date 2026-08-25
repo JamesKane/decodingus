@@ -141,6 +141,20 @@ pub async fn validate(pool: &PgPool, spot_check_rate: f64) -> anyhow::Result<Val
         let clusters = cluster(&subs);
         let winner = &clusters[0];
 
+        // A digest with no comparable call agrees with every other such digest, because every
+        // field is absent on both sides. Two nodes whose analysis failed would therefore reach a
+        // quorum on nothing and be paid for it. The node is expected to fail its unit instead of
+        // sending an empty digest, and the AppView must not depend on that: a node is untrusted by
+        // construction, which is the premise adaptive replication rests on.
+        if !digest::has_content(&subs[winner[0]].digest) {
+            tracing::warn!(
+                unit = %unit.sample_accession,
+                submissions = winner.len(),
+                "grid-validate: the agreeing digests carry no calls; not canonical"
+            );
+            continue;
+        }
+
         // Distinct DIDs, not distinct rows. The unique index already makes them the same thing;
         // relying on it silently would leave this correct only by coincidence.
         let dids: HashSet<&str> = winner.iter().map(|&i| subs[i].did.as_str()).collect();

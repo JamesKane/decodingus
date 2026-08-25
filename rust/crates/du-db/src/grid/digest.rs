@@ -84,6 +84,30 @@ impl Comparable {
     }
 }
 
+impl Comparable {
+    /// Whether this digest carries **no** comparable call at all.
+    ///
+    /// Two such digests agree with each other, because every field is absent on both sides. That is
+    /// correct as a comparison and disastrous as a quorum: two nodes whose analysis failed would
+    /// agree on nothing, canonicalize a unit with no content, and be paid for it.
+    ///
+    /// So validation refuses to canonicalize on an empty digest. The node is expected to fail its
+    /// unit rather than submit one, but the AppView cannot rely on that — a node is untrusted by
+    /// construction, and that is the whole premise of adaptive replication.
+    pub fn is_empty(&self) -> bool {
+        self.sex.is_none()
+            && self.y_terminal.is_none()
+            && self.ancestry_superpop_argmax.is_none()
+            && self.coverage_bucket.is_none()
+            && self.callable_bucket.is_none()
+    }
+}
+
+/// Whether a digest carries anything a quorum could be about.
+pub fn has_content(digest: &Value) -> bool {
+    !Comparable::from_digest(digest).is_empty()
+}
+
 /// The major component of a semver-ish stack version: `"1.7.0"` → `"1"`.
 ///
 /// Only submissions from a compatible major are compared. A minor release that refactors a walker
@@ -201,6 +225,19 @@ mod tests {
             agree(&junk, &json!(null)),
             "two empties are consistent, and equally uninformative"
         );
+    }
+
+    /// …and "equally uninformative" is exactly why agreement is not enough on its own. Two nodes
+    /// whose analysis failed submit two empty digests, which agree. Without this check they would
+    /// canonicalize a unit with no content and be credited for it.
+    #[test]
+    fn an_empty_digest_has_no_content_to_agree_about() {
+        assert!(!has_content(&json!({"unexpected": true})));
+        assert!(!has_content(&json!(null)));
+        assert!(!has_content(&json!({"calls": {}})));
+        assert!(has_content(&d("XY", "R-A", "EUR", 30.0, 0.94)));
+        // One discrete call is enough to be about something.
+        assert!(has_content(&json!({"calls": {"sex": "XX"}})));
     }
 
     /// The cross-repo byte contract: key order in the source JSON must not change the hash, or a
